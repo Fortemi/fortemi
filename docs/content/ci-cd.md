@@ -139,17 +139,15 @@ Tests AI/ML functionality with Ollama (GPU-enabled):
 
 **Timeout**: 30 minutes
 
-### 6. Publish Dev (runs on: matric-builder)
+### 6. Main Validation and Test Handoff (runs on: matric-builder)
 
-Publishes development images to internal registry on every main branch push:
+Ordinary `main` pushes stop after the local container, GPU, security, contract,
+and unit-test gates pass. They do not authenticate to either container registry
+and do not build or publish remote development images.
 
-**Tags published**:
-- `dev` - Latest dev build
-- `sha-{commit}` - Specific commit SHA
-- `main` - Latest from main branch
-- `bundle`, `bundle-{sha}`, `bundle-main` - All-in-one images
-
-**Triggers**: Push to main branch only
+After the validation graph succeeds, `main-validation` dispatches the
+comprehensive test workflow at the exact verified commit. Registry publication
+is reserved for versioned release refs.
 
 ### 7. Publish Release (runs on: matric-builder)
 
@@ -234,17 +232,15 @@ downstream conformance suites.
 
 | Trigger | Tags |
 |---------|------|
-| `build/gliner/**` changes on main | `:gliner`, `:gliner-latest`, `:gliner-main`, `:gliner-{sha}` |
-| `sidecar-gliner-v*` tag push | All of the above + `:gliner-{version}` |
-| Manual (`workflow_dispatch`) | Same as path trigger |
+| `sidecar-gliner-v*` tag push | `:gliner`, `:gliner-latest`, `:gliner-{version}` |
+| Manual (`workflow_dispatch`) | Runs only when dispatched against a matching release tag |
 
 ### build-pyannote.yaml
 
 | Trigger | Tags |
 |---------|------|
-| `build/pyannote/**` changes on main | `:pyannote`, `:pyannote-latest`, `:pyannote-main`, `:pyannote-{sha}` |
-| `sidecar-pyannote-v*` tag push | All of the above + `:pyannote-{version}` |
-| Manual (`workflow_dispatch`) | Same as path trigger |
+| `sidecar-pyannote-v*` tag push | `:pyannote`, `:pyannote-latest`, `:pyannote-{version}` |
+| Manual (`workflow_dispatch`) | Runs only when dispatched against a matching release tag |
 
 ### Releasing a sidecar
 

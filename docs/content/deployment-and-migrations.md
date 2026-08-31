@@ -406,7 +406,7 @@ curl -s https://your-domain/.well-known/oauth-authorization-server | head -1
 
 The repository uses Actions for:
 - Running tests on PR
-- Building container on main push
+- Building local validation containers on main without registry publication
 - Tagging releases
 
 ### Manual Release Process
