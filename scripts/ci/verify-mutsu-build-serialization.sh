@@ -110,7 +110,7 @@ for dependency in \
   "needs: test-container" \
   "needs: [integration-test]" \
   "sync-github-source" \
-  "publish-dev" \
+  "main-validation" \
   "publish-release"; do
   grep -qF "$dependency" "$ci_workflow"
 done

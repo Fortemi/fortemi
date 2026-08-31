@@ -13,9 +13,7 @@ JOB_RE = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$")
 IF_RE = re.compile(r"^    if:\s*(.+?)\s*$")
 NEEDS_RE = re.compile(r"^    needs:\s*(.+?)\s*$")
 PUBLISH_JOBS = {
-    "publish-dev",
     "publish-release",
-    "publish-github-dev",
     "publish-github",
 }
 RELEASE_JOB_NEEDS = {
@@ -32,15 +30,28 @@ RETIRED_RELEASE_JOBS = {
     "create-release",
     "create-github-release",
 }
+RETIRED_DEV_PUBLISH_JOBS = {
+    "publish-dev",
+    "publish-github-dev",
+}
+RELEASE_ONLY_CONTAINER_WORKFLOWS = {
+    "build-builder.yaml": ("v*", "build-builder", "refs/tags/v"),
+    "build-gliner.yaml": (
+        "sidecar-gliner-v*",
+        "build-gliner",
+        "refs/tags/sidecar-gliner-v",
+    ),
+    "build-pyannote.yaml": (
+        "sidecar-pyannote-v*",
+        "build-pyannote",
+        "refs/tags/sidecar-pyannote-v",
+    ),
+}
 FINALIZER_REQUIRED_FRAGMENTS = (
     "ci/vault-fetch.gitea-release.spec",
     'API="https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}"',
     "https://api.github.com/repos/Fortemi/fortemi/releases",
 )
-RETRYABLE_DEV_PUBLISH_JOBS = {
-    "publish-dev",
-    "publish-github-dev",
-}
 REQUIRED_PUBLISH_NEEDS = {
     "verify-release-ref",
     "test-container",
@@ -141,18 +152,40 @@ def main() -> int:
 
     for path in workflow_files(sys.argv[1:]):
         text = path.read_text()
-        if not has_pull_request_trigger(text):
-            continue
-
         blocks = job_blocks(text)
         job_names = {job_name for job_name, _ in blocks}
         block_by_name = dict(blocks)
-        if RETRYABLE_DEV_PUBLISH_JOBS <= job_names:
-            trigger_text = text.split("\njobs:", maxsplit=1)[0]
-            if not re.search(r"^      publish_dev:\s*$", trigger_text, re.MULTILINE):
+        trigger_text = text.split("\njobs:", maxsplit=1)[0]
+
+        release_only = RELEASE_ONLY_CONTAINER_WORKFLOWS.get(path.name)
+        if release_only:
+            tag_glob, job_name, ref_prefix = release_only
+            if re.search(r"^\s+branches:\s*", trigger_text, re.MULTILINE):
                 failures.append(
-                    f"{path} is missing the workflow_dispatch publish_dev input"
+                    f"{path} container publisher must not have a branch trigger"
                 )
+            if f"tags: ['{tag_glob}']" not in trigger_text:
+                failures.append(
+                    f"{path} is missing release tag trigger {tag_glob}"
+                )
+            expression = job_if_expression(block_by_name.get(job_name, ""))
+            required_guard = f"startsWith(github.ref, 'refs/tags/{ref_prefix.removeprefix('refs/tags/')}')"
+            if required_guard not in expression:
+                failures.append(
+                    f"{path}:{job_name} is missing release-ref guard: {required_guard}"
+                )
+
+        retired_dev_jobs = sorted(RETIRED_DEV_PUBLISH_JOBS & job_names)
+        if retired_dev_jobs:
+            failures.append(
+                f"{path} still defines retired non-release container publish jobs: "
+                f"{', '.join(retired_dev_jobs)}"
+            )
+        if re.search(r"^\s+publish_dev:\s*$", trigger_text, re.MULTILINE):
+            failures.append(f"{path} still defines the retired publish_dev input")
+
+        if not has_pull_request_trigger(text):
+            continue
 
         if PUBLISH_JOBS <= job_names:
             missing_release_jobs = sorted(RELEASE_JOB_NEEDS.keys() - job_names)
@@ -183,17 +216,11 @@ def main() -> int:
                     failures.append(
                         f"{path}:{job_name} is missing the complete Knowledge Shard claim gate"
                     )
-                if job_name in RETRYABLE_DEV_PUBLISH_JOBS:
-                    expression = job_if_expression(block)
-                    required_guards = (
-                        "github.event_name == 'workflow_dispatch'",
-                        "github.event.inputs.publish_dev == 'true'",
+                expression = job_if_expression(block)
+                if "startsWith(github.ref, 'refs/tags/v')" not in expression:
+                    failures.append(
+                        f"{path}:{job_name} is missing the release-only tag guard"
                     )
-                    for guard in required_guards:
-                        if guard not in expression:
-                            failures.append(
-                                f"{path}:{job_name} is missing manual dev publish guard: {guard}"
-                            )
 
             if job_name in RELEASE_JOB_NEEDS:
                 needs = job_needs(block)

@@ -72,6 +72,52 @@ class VerifyReleaseJobGuardsTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("retired duplicate release jobs: create-release", result.stderr)
 
+    def test_retired_dev_publisher_fails_closed(self) -> None:
+        self.workflow.write_text(
+            self.workflow.read_text()
+            + "\n  publish-dev:\n"
+            + "    if: github.ref == 'refs/heads/main'\n"
+            + "    steps: []\n"
+        )
+        result = self.run_verifier()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("retired non-release container publish jobs", result.stderr)
+
+    def test_release_publisher_requires_tag_guard(self) -> None:
+        self.mutate(
+            "  publish-release:\n"
+            "    name: Publish Release Image\n"
+            "    runs-on: matric-builder\n",
+            "  publish-release:\n"
+            "    name: Publish Release Image\n"
+            "    runs-on: matric-builder\n"
+            "    if: github.ref == 'refs/heads/main'\n",
+        )
+        result = self.run_verifier()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing the release-only tag guard", result.stderr)
+
+    def test_sidecar_publisher_rejects_branch_trigger(self) -> None:
+        sidecar = Path(self.tempdir.name) / "build-gliner.yaml"
+        shutil.copy2(ROOT / ".gitea/workflows/build-gliner.yaml", sidecar)
+        sidecar.write_text(
+            sidecar.read_text().replace(
+                "  push:\n    tags: ['sidecar-gliner-v*']",
+                "  push:\n    branches: [main]\n    tags: ['sidecar-gliner-v*']",
+                1,
+            )
+        )
+        result = subprocess.run(
+            ["python3", str(VERIFIER), str(sidecar)],
+            cwd=ROOT,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must not have a branch trigger", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

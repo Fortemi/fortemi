@@ -9,7 +9,10 @@
 #   3. Build Image - Create Docker image
 #   4. Test Container - Deploy and test in isolated environment
 #   5. Integration Tests (GPU) - Ollama/inference tests
-#   6. Publish - Push verified image to registry
+#   6. Handoff - Dispatch comprehensive tests after validation
+#
+# Remote container publication is release-only. Signed version tags build and
+# publish the internal Gitea and public GHCR images after every release gate.
 
 name: CI
 
@@ -23,12 +26,6 @@ on:
       - 'build/gliner/**'
       - 'build/pyannote/**'
   workflow_dispatch:
-    inputs:
-      publish_dev:
-        description: 'Publish main dev images after all CI gates pass'
-        required: false
-        default: false
-        type: boolean
   pull_request:
     branches: [main]
     paths-ignore:
@@ -1037,123 +1034,6 @@ jobs:
             -- \
             --test-threads=1
 
-  # Dev image - pushes on every main branch commit
-  publish-dev:
-    name: Publish Dev Image
-    runs-on: matric-builder
-    needs: [verify-release-ref, sync-github-source, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
-    # Belt-and-suspenders gating to exclude tag pushes. The branch-equality
-    # check should be sufficient — `refs/tags/vX.Y.Z` is not equal to
-    # `refs/heads/main`. In CI run #1501 (tag push v2026.5.4) Gitea
-    # Actions ran this job anyway, contending with the proper tag-only
-    # publish-github / publish-release jobs and timing out at 14 min.
-    if: (github.ref == 'refs/heads/main' && github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_dev == 'true')
-    steps:
-      - name: Checkout
-        run: |
-          set -euo pipefail
-          git init -q .
-          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
-          git checkout --quiet --detach FETCH_HEAD
-
-      - name: Fetch registry token from vault
-        env:
-          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
-          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
-        run: ci/vault-fetch.sh --spec ci/vault-fetch.gitea-release.spec
-
-      - name: Log in to registry
-        run: printf '%s\n' "${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" | docker login ${REGISTRY} -u ${{ gitea.actor }} --password-stdin
-
-      - name: Build and push dev images
-        run: |
-          set -euo pipefail
-          IMAGE="${REGISTRY}/${IMAGE_NAME}"
-          SHORT_SHA="${GITHUB_SHA:0:7}"
-          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-
-          # Retry function for transient registry errors
-          push_with_retry() {
-            local image=$1
-            local max_attempts=3
-            local attempt=1
-            while [ $attempt -le $max_attempts ]; do
-              echo "Pushing ${image} (attempt ${attempt}/${max_attempts})..."
-              if docker push "${image}"; then
-                return 0
-              fi
-              echo "Push failed, waiting before retry..."
-              sleep $((attempt * 5))
-              attempt=$((attempt + 1))
-            done
-            echo "Failed to push ${image} after ${max_attempts} attempts"
-            exit 1
-          }
-
-          # Build API-only image (for Kubernetes/external DB deployments)
-          # --no-cache: self-hosted runner Docker cache can produce stale images
-          docker build --no-cache \
-            --build-arg VERSION=dev-${SHORT_SHA} \
-            --build-arg GIT_SHA=${GITHUB_SHA} \
-            --build-arg BUILD_DATE=${BUILD_DATE} \
-            -t ${IMAGE}:dev .
-
-          docker tag ${IMAGE}:dev ${IMAGE}:sha-${SHORT_SHA}
-          docker tag ${IMAGE}:dev ${IMAGE}:main
-
-          push_with_retry ${IMAGE}:dev
-          push_with_retry ${IMAGE}:sha-${SHORT_SHA}
-          push_with_retry ${IMAGE}:main
-
-          # Regenerate fortemi-docs.shard against the freshly-built API image
-          # so the bundle ships an up-to-date in-product help archive (#652).
-          # Failure here aborts the bundle build — we never ship a stale shard.
-          scripts/ci/rebuild-shard-in-ci.sh ${IMAGE}:dev
-
-          # Build bundle image (all-in-one with embedded PostgreSQL).
-          # COPYs docker/seed-data which now contains the fresh shard.
-          docker build --no-cache \
-            -f Dockerfile.bundle \
-            --build-arg VERSION=dev-${SHORT_SHA} \
-            --build-arg GIT_SHA=${GITHUB_SHA} \
-            --build-arg BUILD_DATE=${BUILD_DATE} \
-            -t ${IMAGE}:bundle .
-
-          docker tag ${IMAGE}:bundle ${IMAGE}:bundle-${SHORT_SHA}
-          docker tag ${IMAGE}:bundle ${IMAGE}:bundle-main
-
-          push_with_retry ${IMAGE}:bundle
-          push_with_retry ${IMAGE}:bundle-${SHORT_SHA}
-          push_with_retry ${IMAGE}:bundle-main
-
-          mkdir -p container-release-evidence
-          python3 scripts/ci/capture-container-release-evidence.py \
-            --family api \
-            --source-revision "${GITHUB_SHA}" \
-            --channel dev \
-            --immutable-ref "${IMAGE}:sha-${SHORT_SHA}" \
-            --alias "${IMAGE}:dev" \
-            --alias "${IMAGE}:main" \
-            --output container-release-evidence/gitea-api-dev.json
-          python3 scripts/ci/capture-container-release-evidence.py \
-            --family bundle \
-            --source-revision "${GITHUB_SHA}" \
-            --channel dev \
-            --immutable-ref "${IMAGE}:bundle-${SHORT_SHA}" \
-            --alias "${IMAGE}:bundle" \
-            --alias "${IMAGE}:bundle-main" \
-            --output container-release-evidence/gitea-bundle-dev.json
-
-          # GLiNER sidecar image is built by build-gliner.yaml (triggers on build/gliner/** changes or workflow_dispatch)
-
-      - name: Upload internal dev image evidence
-        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
-        with:
-          name: container-release-evidence-gitea-dev-${{ github.run_id }}
-          path: container-release-evidence/
-          retention-days: 365
-
   # Release image - pushes on version tags only
   publish-release:
     name: Publish Release Image
@@ -1278,91 +1158,6 @@ jobs:
   # GitHub Publishing (Public Release Target)
   # =============================================================================
   # Requires GITHUB_PAT secret with: write:packages, contents:write scopes
-
-  # Dev push to GHCR — rolling :main + :sha-<short> on every main commit.
-  # Downstream consumers pin to :main for rolling dev builds.
-  # :latest is reserved for tagged releases only
-  # (managed by the publish-github job below).
-  publish-github-dev:
-    name: Publish Dev Image to GitHub (ghcr.io)
-    runs-on: matric-builder
-    # Promote the exact internal artifacts after their gated publication
-    # instead of compiling the same source again for a second registry.
-    needs: [verify-release-ref, publish-dev, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
-    # Belt-and-suspenders gating to exclude tag pushes. The branch-equality
-    # check should be sufficient — `refs/tags/vX.Y.Z` is not equal to
-    # `refs/heads/main`. In CI run #1501 (tag push v2026.5.4) Gitea
-    # Actions ran this job anyway, contending with the proper tag-only
-    # publish-github / publish-release jobs and timing out at 14 min.
-    if: (github.ref == 'refs/heads/main' && github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_dev == 'true')
-    steps:
-      - name: Checkout
-        run: |
-          set -euo pipefail
-          git init -q .
-          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
-          git checkout --quiet --detach FETCH_HEAD
-
-      - name: Fetch registry tokens from vault
-        env:
-          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
-          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
-        run: ci/vault-fetch.sh --spec ci/vault-fetch.container-promotion.spec
-
-      - name: Log in to registries
-        run: |
-          printf '%s\n' "${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" |
-            docker login ${REGISTRY} -u ${{ gitea.actor }} --password-stdin
-          printf '%s\n' "${GH_PUBLISH_TOKEN:?GH_PUBLISH_TOKEN is required}" |
-            docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
-
-      - name: Set up Docker buildx
-        run: |
-          docker run --privileged --rm tonistiigi/binfmt --install arm64
-          docker buildx create --name fortemi-multiarch --use 2>/dev/null || docker buildx use fortemi-multiarch
-          docker buildx inspect --bootstrap
-
-      - name: Promote dev images to ghcr.io
-        run: |
-          set -euo pipefail
-          SHORT_SHA="${GITHUB_SHA:0:7}"
-          export SOURCE_IMAGE="${REGISTRY}/${IMAGE_NAME}"
-          export TARGET_IMAGE="${GHCR_REGISTRY}/${GHCR_IMAGE_NAME}"
-          export API_SOURCE_TAG="sha-${SHORT_SHA}"
-          export BUNDLE_SOURCE_TAG="bundle-${SHORT_SHA}"
-          export API_TARGET_TAGS="sha-${SHORT_SHA} main"
-          export BUNDLE_TARGET_TAGS="bundle-sha-${SHORT_SHA} bundle-main"
-          export VERSION="dev-${SHORT_SHA}"
-          scripts/ci/promote-ghcr-images.sh
-
-          mkdir -p container-release-evidence
-          python3 scripts/ci/capture-container-release-evidence.py \
-            --family api \
-            --source-revision "${GITHUB_SHA}" \
-            --channel dev \
-            --immutable-ref "${TARGET_IMAGE}:sha-${SHORT_SHA}" \
-            --alias "${TARGET_IMAGE}:main" \
-            --output container-release-evidence/ghcr-api-dev.json
-          python3 scripts/ci/capture-container-release-evidence.py \
-            --family bundle \
-            --source-revision "${GITHUB_SHA}" \
-            --channel dev \
-            --immutable-ref "${TARGET_IMAGE}:bundle-sha-${SHORT_SHA}" \
-            --alias "${TARGET_IMAGE}:bundle-main" \
-            --output container-release-evidence/ghcr-bundle-dev.json
-
-          echo ""
-          echo "=== Published dev images to ghcr.io ==="
-          echo "  ${TARGET_IMAGE}:main, :sha-${SHORT_SHA}"
-          echo "  ${TARGET_IMAGE}:bundle-main, :bundle-sha-${SHORT_SHA}"
-
-      - name: Upload GHCR dev image evidence
-        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
-        with:
-          name: container-release-evidence-ghcr-dev-${{ github.run_id }}
-          path: container-release-evidence/
-          retention-days: 365
 
   # Push release images to GitHub Container Registry
   publish-github:
@@ -1624,14 +1419,26 @@ jobs:
             exit 1
           fi
 
+  # Collapse the ordinary-main validation graph into one non-publishing gate.
+  # Release tags use finalize-releases instead, after registry publication and
+  # public verification complete.
+  main-validation:
+    name: Main Validation Complete
+    runs-on: matric-builder
+    needs: [sync-github-source, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    steps:
+      - name: Record validation-only completion
+        run: echo "Main validation complete; container registry publication is release-only."
+
   # Gitea does not serialize a concurrency-group name across workflow files.
-  # Dispatch the next capacity-1 workflow only after the main or tag publication
-  # gate succeeds, so the runner can receive every assigned job.
+  # Dispatch the next capacity-1 workflow only after the validation-only main
+  # gate or the signed release finalizer succeeds.
   handoff-tests:
     name: Dispatch Comprehensive Tests
     runs-on: matric-builder
-    needs: [publish-github-dev, finalize-releases]
-    if: always() && github.event_name != 'pull_request' && ((github.ref == 'refs/heads/main' && needs.publish-github-dev.result == 'success') || (startsWith(github.ref, 'refs/tags/v') && needs.finalize-releases.result == 'success'))
+    needs: [main-validation, finalize-releases]
+    if: always() && github.event_name != 'pull_request' && ((github.ref == 'refs/heads/main' && needs.main-validation.result == 'success') || (startsWith(github.ref, 'refs/tags/v') && needs.finalize-releases.result == 'success'))
     steps:
       - name: Checkout dispatch tooling
         run: |
