@@ -1,0 +1,65 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-31T14:21:28Z"
+  description: "Provenance for the exact-release Fortemi v2026.8.2 live MCP UAT result"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/testing/uat/results/fortemi-v2026.8.2-mcp-uat-2026-08-31.md:sha256:976a912daf7e8cb2ccc4a3c1a193ef72da763e8d8ff6f87d6c1e4b3090cd3515"
+  type: document
+  created_at: "2026-08-31T14:21:28Z"
+  checksum: "sha256:976a912daf7e8cb2ccc4a3c1a193ef72da763e8d8ff6f87d6c1e4b3090cd3515"
+  size_bytes: 4146
+  attributes:
+    change_type: generation
+    release: "v2026.8.2"
+    release_commit: "6882a0ad1a2db8414823dd81ba40179cab58ef3a"
+    release_image_digest: "sha256:6c9a243ac5337c685bdf48043cb048b02564d607ae0bda73878bdc4b2f69c76a"
+activity:
+  id: "urn:aiwg:activity:verification:fortemi-v2026-8-2-mcp-uat-2026-08-31:001"
+  type: testing
+  started_at: "2026-08-31T14:12:41Z"
+  ended_at: "2026-08-31T14:19:51Z"
+  description: "Deploy the exact published CPU-safe Fortemi bundle and execute the canonical sequential live MCP UAT suite"
+  attributes:
+    verification:
+      - "release identity: exact version, revision, and OCI index digest matched"
+      - "MCP UAT: 31 files, 558 declared, 557 passed, 0 failed, 1 skipped, 0 missing"
+      - "cleanup: 3/3 passed"
+      - "post-run API, readiness, MCP, and container health: passed"
+      - "container restart, OOM, and GPU-device checks: passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/testing/uat/results/fortemi-v2026.8.2-mcp-uat-2026-08-31.md:sha256:976a912daf7e8cb2ccc4a3c1a193ef72da763e8d8ff6f87d6c1e4b3090cd3515"
+    activity: "urn:aiwg:activity:verification:fortemi-v2026-8-2-mcp-uat-2026-08-31:001"
+    time: "2026-08-31T14:21:28Z"
+  used:
+    - activity: "urn:aiwg:activity:verification:fortemi-v2026-8-2-mcp-uat-2026-08-31:001"
+      entity: "urn:git:Fortemi/fortemi:6882a0ad1a2db8414823dd81ba40179cab58ef3a"
+      role: release_source
+    - activity: "urn:aiwg:activity:verification:fortemi-v2026-8-2-mcp-uat-2026-08-31:001"
+      entity: "urn:oci:ghcr.io/fortemi/fortemi@sha256:6c9a243ac5337c685bdf48043cb048b02564d607ae0bda73878bdc4b2f69c76a"
+      role: deployed_release_image
+    - activity: "urn:aiwg:activity:verification:fortemi-v2026-8-2-mcp-uat-2026-08-31:001"
+      entity: "urn:aiwg:artifact:mcp-server/tests/run-all.sh"
+      role: verification_suite
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/testing/uat/results/fortemi-v2026.8.2-mcp-uat-2026-08-31.md:sha256:976a912daf7e8cb2ccc4a3c1a193ef72da763e8d8ff6f87d6c1e4b3090cd3515"
+      source: "urn:git:Fortemi/fortemi:6882a0ad1a2db8414823dd81ba40179cab58ef3a"
+      derivation_type: verifies
+      activity: "urn:aiwg:activity:verification:fortemi-v2026-8-2-mcp-uat-2026-08-31:001"
+    - entity: "urn:aiwg:artifact:.aiwg/testing/uat/results/fortemi-v2026.8.2-mcp-uat-2026-08-31.md:sha256:976a912daf7e8cb2ccc4a3c1a193ef72da763e8d8ff6f87d6c1e4b3090cd3515"
+      source: "urn:oci:ghcr.io/fortemi/fortemi@sha256:6c9a243ac5337c685bdf48043cb048b02564d607ae0bda73878bdc4b2f69c76a"
+      derivation_type: verifies
+      activity: "urn:aiwg:activity:verification:fortemi-v2026-8-2-mcp-uat-2026-08-31:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:verification:fortemi-v2026-8-2-mcp-uat-2026-08-31:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: test_executor
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/testing/uat/results/fortemi-v2026.8.2-mcp-uat-2026-08-31.md:sha256:976a912daf7e8cb2ccc4a3c1a193ef72da763e8d8ff6f87d6c1e4b3090cd3515"
+    agent: "urn:aiwg:agent:codex-gpt-5"
