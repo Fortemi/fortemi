@@ -118,6 +118,28 @@ class VerifyReleaseJobGuardsTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("must not have a branch trigger", result.stderr)
 
+    def test_sidecar_publisher_rejects_commit_tag_churn(self) -> None:
+        sidecar = Path(self.tempdir.name) / "build-gliner.yaml"
+        shutil.copy2(ROOT / ".gitea/workflows/build-gliner.yaml", sidecar)
+        sidecar.write_text(
+            sidecar.read_text().replace(
+                '          VERSION="${GITHUB_REF_NAME#sidecar-gliner-v}"',
+                '          SHORT_SHA="${GITHUB_SHA:0:7}"\n'
+                '          VERSION="${GITHUB_REF_NAME#sidecar-gliner-v}"',
+                1,
+            )
+        )
+        result = subprocess.run(
+            ["python3", str(VERIFIER), str(sidecar)],
+            cwd=ROOT,
+            check=False,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("retired commit or branch tags", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

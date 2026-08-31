@@ -56,19 +56,11 @@ jobs:
         run: |
           GHCR="${GHCR_REGISTRY}/${IMAGE_NAME}"
           GITEA="${GITEA_REGISTRY}/${IMAGE_NAME}"
-          SHORT_SHA="${GITHUB_SHA:0:7}"
+          VERSION="${GITHUB_REF_NAME#sidecar-gliner-v}"
 
-          # Always applied
-          TAGS="-t ${GHCR}:gliner -t ${GHCR}:gliner-latest"
-          TAGS="${TAGS} -t ${GITEA}:gliner -t ${GITEA}:gliner-main -t ${GITEA}:gliner-latest"
-          TAGS="${TAGS} -t ${GHCR}:gliner-${SHORT_SHA} -t ${GITEA}:gliner-${SHORT_SHA}"
-
-          # Versioned tags on release (sidecar-gliner-v1 -> gliner-1)
-          if echo "${GITHUB_REF}" | grep -q 'refs/tags/sidecar-gliner-v'; then
-            VERSION="${GITHUB_REF_NAME#sidecar-gliner-v}"
-            TAGS="${TAGS} -t ${GHCR}:gliner-${VERSION} -t ${GITEA}:gliner-${VERSION}"
-            echo "Release build: gliner-${VERSION}"
-          fi
+          TAGS="-t ${GHCR}:gliner -t ${GHCR}:gliner-latest -t ${GHCR}:gliner-${VERSION}"
+          TAGS="${TAGS} -t ${GITEA}:gliner -t ${GITEA}:gliner-latest -t ${GITEA}:gliner-${VERSION}"
+          echo "Release build: gliner-${VERSION}"
 
           echo "DOCKER_TAGS=${TAGS}" >> $GITHUB_ENV
 
@@ -144,25 +136,18 @@ jobs:
             --push \
             build/gliner
 
-          SHORT_SHA="${GITHUB_SHA:0:7}"
-          CHANNEL=dev
+          VERSION="${GITHUB_REF_NAME#sidecar-gliner-v}"
           GHCR_ALIASES=(--alias "${GHCR_REGISTRY}/${IMAGE_NAME}:gliner" --alias "${GHCR_REGISTRY}/${IMAGE_NAME}:gliner-latest")
-          GITEA_ALIASES=(--alias "${GITEA_REGISTRY}/${IMAGE_NAME}:gliner" --alias "${GITEA_REGISTRY}/${IMAGE_NAME}:gliner-main" --alias "${GITEA_REGISTRY}/${IMAGE_NAME}:gliner-latest")
-          if [[ "${GITHUB_REF}" == refs/tags/sidecar-gliner-v* ]]; then
-            CHANNEL=release
-            VERSION="${GITHUB_REF_NAME#sidecar-gliner-v}"
-            GHCR_ALIASES+=(--alias "${GHCR_REGISTRY}/${IMAGE_NAME}:gliner-${VERSION}")
-            GITEA_ALIASES+=(--alias "${GITEA_REGISTRY}/${IMAGE_NAME}:gliner-${VERSION}")
-          fi
+          GITEA_ALIASES=(--alias "${GITEA_REGISTRY}/${IMAGE_NAME}:gliner" --alias "${GITEA_REGISTRY}/${IMAGE_NAME}:gliner-latest")
           mkdir -p container-release-evidence
           python3 scripts/ci/capture-container-release-evidence.py \
-            --family gliner --source-revision "${GITHUB_SHA}" --channel "${CHANNEL}" \
-            --immutable-ref "${GHCR_REGISTRY}/${IMAGE_NAME}:gliner-${SHORT_SHA}" \
+            --family gliner --source-revision "${GITHUB_SHA}" --channel release \
+            --immutable-ref "${GHCR_REGISTRY}/${IMAGE_NAME}:gliner-${VERSION}" \
             "${GHCR_ALIASES[@]}" \
             --output container-release-evidence/ghcr-gliner.json
           python3 scripts/ci/capture-container-release-evidence.py \
-            --family gliner --source-revision "${GITHUB_SHA}" --channel "${CHANNEL}" \
-            --immutable-ref "${GITEA_REGISTRY}/${IMAGE_NAME}:gliner-${SHORT_SHA}" \
+            --family gliner --source-revision "${GITHUB_SHA}" --channel release \
+            --immutable-ref "${GITEA_REGISTRY}/${IMAGE_NAME}:gliner-${VERSION}" \
             "${GITEA_ALIASES[@]}" \
             --output container-release-evidence/gitea-gliner.json
 

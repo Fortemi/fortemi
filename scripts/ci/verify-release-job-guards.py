@@ -174,6 +174,12 @@ def main() -> int:
                 failures.append(
                     f"{path}:{job_name} is missing release-ref guard: {required_guard}"
                 )
+            if path.name in {"build-gliner.yaml", "build-pyannote.yaml"}:
+                for retired_fragment in ("SHORT_SHA", "-main"):
+                    if retired_fragment in text:
+                        failures.append(
+                            f"{path} sidecar release still emits retired commit or branch tags: {retired_fragment}"
+                        )
 
         retired_dev_jobs = sorted(RETIRED_DEV_PUBLISH_JOBS & job_names)
         if retired_dev_jobs:

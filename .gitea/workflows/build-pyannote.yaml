@@ -52,19 +52,11 @@ jobs:
         run: |
           GHCR="${GHCR_REGISTRY}/${IMAGE_NAME}"
           GITEA="${GITEA_REGISTRY}/${IMAGE_NAME}"
-          SHORT_SHA="${GITHUB_SHA:0:7}"
+          VERSION="${GITHUB_REF_NAME#sidecar-pyannote-v}"
 
-          # Always applied
-          TAGS="-t ${GHCR}:pyannote -t ${GHCR}:pyannote-latest"
-          TAGS="${TAGS} -t ${GITEA}:pyannote -t ${GITEA}:pyannote-main -t ${GITEA}:pyannote-latest"
-          TAGS="${TAGS} -t ${GHCR}:pyannote-${SHORT_SHA} -t ${GITEA}:pyannote-${SHORT_SHA}"
-
-          # Versioned tags on release (sidecar-pyannote-v1 -> pyannote-1)
-          if echo "${GITHUB_REF}" | grep -q 'refs/tags/sidecar-pyannote-v'; then
-            VERSION="${GITHUB_REF_NAME#sidecar-pyannote-v}"
-            TAGS="${TAGS} -t ${GHCR}:pyannote-${VERSION} -t ${GITEA}:pyannote-${VERSION}"
-            echo "Release build: pyannote-${VERSION}"
-          fi
+          TAGS="-t ${GHCR}:pyannote -t ${GHCR}:pyannote-latest -t ${GHCR}:pyannote-${VERSION}"
+          TAGS="${TAGS} -t ${GITEA}:pyannote -t ${GITEA}:pyannote-latest -t ${GITEA}:pyannote-${VERSION}"
+          echo "Release build: pyannote-${VERSION}"
 
           echo "DOCKER_TAGS=${TAGS}" >> $GITHUB_ENV
 
@@ -143,7 +135,7 @@ jobs:
         run: |
           GHCR="${GHCR_REGISTRY}/${IMAGE_NAME}"
           GITEA="${GITEA_REGISTRY}/${IMAGE_NAME}"
-          SHORT_SHA="${GITHUB_SHA:0:7}"
+          VERSION="${GITHUB_REF_NAME#sidecar-pyannote-v}"
 
           push_with_retry() {
             local image=$1
@@ -164,39 +156,25 @@ jobs:
 
           echo "Pushing to Gitea Registry..."
           push_with_retry ${GITEA}:pyannote
-          push_with_retry ${GITEA}:pyannote-${SHORT_SHA}
-          push_with_retry ${GITEA}:pyannote-main
           push_with_retry ${GITEA}:pyannote-latest
+          push_with_retry ${GITEA}:pyannote-${VERSION}
 
           echo "Pushing to GitHub Container Registry..."
           push_with_retry ${GHCR}:pyannote
-          push_with_retry ${GHCR}:pyannote-${SHORT_SHA}
           push_with_retry ${GHCR}:pyannote-latest
+          push_with_retry ${GHCR}:pyannote-${VERSION}
 
-          # Push versioned tags if this is a release
-          if echo "${GITHUB_REF}" | grep -q 'refs/tags/sidecar-pyannote-v'; then
-            VERSION="${GITHUB_REF_NAME#sidecar-pyannote-v}"
-            push_with_retry ${GITEA}:pyannote-${VERSION}
-            push_with_retry ${GHCR}:pyannote-${VERSION}
-          fi
-
-          CHANNEL=dev
           GHCR_ALIASES=(--alias "${GHCR}:pyannote" --alias "${GHCR}:pyannote-latest")
-          GITEA_ALIASES=(--alias "${GITEA}:pyannote" --alias "${GITEA}:pyannote-main" --alias "${GITEA}:pyannote-latest")
-          if [[ "${GITHUB_REF}" == refs/tags/sidecar-pyannote-v* ]]; then
-            CHANNEL=release
-            GHCR_ALIASES+=(--alias "${GHCR}:pyannote-${VERSION}")
-            GITEA_ALIASES+=(--alias "${GITEA}:pyannote-${VERSION}")
-          fi
+          GITEA_ALIASES=(--alias "${GITEA}:pyannote" --alias "${GITEA}:pyannote-latest")
           mkdir -p container-release-evidence
           python3 scripts/ci/capture-container-release-evidence.py \
-            --family pyannote --source-revision "${GITHUB_SHA}" --channel "${CHANNEL}" \
-            --immutable-ref "${GHCR}:pyannote-${SHORT_SHA}" \
+            --family pyannote --source-revision "${GITHUB_SHA}" --channel release \
+            --immutable-ref "${GHCR}:pyannote-${VERSION}" \
             "${GHCR_ALIASES[@]}" \
             --output container-release-evidence/ghcr-pyannote.json
           python3 scripts/ci/capture-container-release-evidence.py \
-            --family pyannote --source-revision "${GITHUB_SHA}" --channel "${CHANNEL}" \
-            --immutable-ref "${GITEA}:pyannote-${SHORT_SHA}" \
+            --family pyannote --source-revision "${GITHUB_SHA}" --channel release \
+            --immutable-ref "${GITEA}:pyannote-${VERSION}" \
             "${GITEA_ALIASES[@]}" \
             --output container-release-evidence/gitea-pyannote.json
 
