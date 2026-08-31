@@ -7,6 +7,21 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.8.2] - 2026-08-31
+
+Corrective publication for `2026.8.1`. The signed `v2026.8.1` tag passed its
+release-authority, builder, test-database, and Knowledge Shard conformance
+checks, but the application CI freshness gate found that the bundled Fortemi
+documentation shard and receipt still identified the `2026.8.0` producer. The
+gate stopped before application images or release assets were published.
+
+This patch regenerates the bundled documentation shard from the exact
+`2026.8.2` producer and records a receipt whose server version, image reference,
+digest, and byte length match the committed artifact. Application behavior,
+the `core-v1` Knowledge Shard application contract, the OpenAPI schema, and the
+forward migration set are otherwise unchanged. Use `v2026.8.2` for complete
+release artifacts.
+
 ## [2026.8.1] - 2026-08-30
 
 ### Added
@@ -2128,7 +2143,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.8.1...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.8.2...HEAD
+[2026.8.2]: https://github.com/fortemi/fortemi/compare/v2026.8.1...v2026.8.2
 [2026.8.1]: https://github.com/fortemi/fortemi/compare/v2026.8.0...v2026.8.1
 [2026.8.0]: https://github.com/fortemi/fortemi/compare/v2026.7.26...v2026.8.0
 [2026.7.26]: https://github.com/fortemi/fortemi/compare/v2026.7.25...v2026.7.26
