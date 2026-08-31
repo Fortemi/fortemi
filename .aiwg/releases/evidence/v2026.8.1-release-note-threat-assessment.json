@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "1",
+  "engineVersion": "1.0.1",
+  "policyVersion": "1",
+  "profileVersion": "1.0.0",
+  "policyHash": "47a7c0fb8b84c31524e93300665ee10811df3c4d8fcee44c76ba19cbf7d311fd",
+  "mode": "enforce",
+  "profile": "balanced",
+  "surface": "release-note",
+  "source": {
+    "kind": "repository-release-note",
+    "id": "v2026.8.1"
+  },
+  "actor": {
+    "id": "codex",
+    "trust": "operator-agent",
+    "provider": "codex"
+  },
+  "requestedAction": "publish signed Fortemi release notes",
+  "policyProvenance": {
+    "source": "aiwg-default",
+    "path": "aiwg:balanced"
+  },
+  "assessed": true,
+  "findings": [
+    {
+      "ruleId": "credential-or-env-probing",
+      "ruleProvenance": "aiwg:builtin",
+      "severity": "high",
+      "likelihood": 4,
+      "impact": 5,
+      "taxonomy": [
+        "ASI03",
+        "ASI09"
+      ],
+      "partId": "changelog-2026.8.1",
+      "context": "documentation",
+      "evidence": "- Serialize archive create, clone, sync, and drop DDL with one transaction-scoped PostgreSQL advisory lock. Full-workspace archive tests no longer race while creating or cloning schemas, and database error detail remains redacted (#1122). - Validate PKE inputs before dispatch, use bundle-local administrative dumps, and harden pre-migration snapshot and archive recovery paths without logging credentials or raw database failures. - Align the PostgreSQL attachment extraction-strategy enum with the canonical `archive`, `spreadsheet`, and `email` variants through forward migration `20260828190000` (#1101). - Isolate CI Docker networks, propagate exact run identifiers, and resolve the GPU Ollama gateway consistently across hosted runners. - Bind chained workflow checkouts to the verified source commit so release and provenance jobs cannot validate a moving branch (#1124).",
+      "suppressed": true,
+      "suppressionReason": "balanced contextual suppression: documentation content is evidence/documentation, not a requested action",
+      "matchedStatements": []
+    },
+    {
+      "ruleId": "unverifiable-authority-claim",
+      "ruleProvenance": "aiwg:builtin",
+      "severity": "low",
+      "likelihood": 2,
+      "impact": 3,
+      "taxonomy": [
+        "ASI01",
+        "ASI09"
+      ],
+      "partId": "changelog-2026.8.1",
+      "context": "documentation",
+      "evidence": "- Serialize archive create, clone, sync, and drop DDL with one transaction-scoped PostgreSQL advisory lock. Full-workspace archive tests no longer race while creating or cloning schemas, and database error detail remains redacted (#1122). - Validate PKE inputs before dispatch, use bundle-local administrative dumps, and harden pre-migration snapshot and archive recovery paths without logging credentials or raw database failures. - Align the PostgreSQL attachment extraction-strategy enum with the canonical `archive`, `spreadsheet`, and `email` variants through forward migration `20260828190000` (#1101). - Isolate CI Docker networks, propagate exact run identifiers, and resolve the GPU Ollama gateway consistently across hosted runners. - Bind chained workflow checkouts to the verified source commit so release and provenance jobs cannot validate a moving branch (#1124).",
+      "suppressed": true,
+      "suppressionReason": "balanced contextual suppression: documentation content is evidence/documentation, not a requested action",
+      "matchedStatements": []
+    }
+  ],
+  "risk": {
+    "score": 0,
+    "severity": "informational",
+    "likelihood": 0,
+    "impact": 0
+  },
+  "decision": {
+    "action": "proceed",
+    "wouldAction": "proceed",
+    "interrupts": false,
+    "reason": "no active findings"
+  }
+}

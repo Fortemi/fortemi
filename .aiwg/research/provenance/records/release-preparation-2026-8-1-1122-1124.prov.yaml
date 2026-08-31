@@ -1,0 +1,81 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-31T03:58:02Z"
+  description: "Provenance for the v2026.8.1 release preparation and issue 1122 closure"
+entity:
+  id: "urn:aiwg:artifact:docs/releases/v2026.8.1-announcement.md"
+  type: document
+  created_at: "2026-08-31T03:58:02Z"
+  checksum: "sha256:e2e7ea1f50a2e750e20128c5ee215151cbb0dc34c4df23c49a7b6adbf4501adc"
+  size_bytes: 3505
+  attributes:
+    issues: ["Fortemi/fortemi#1122", "Fortemi/fortemi#1124"]
+    release: "2026.8.1"
+    change_type: generation
+    subjects:
+      - "Cargo.toml sha256:bf809bd16d3ca0aacb0ece13c4cbfa15b41663e80035e21109570a5282a2d7fd"
+      - "Cargo.lock sha256:2c0619beaaf61b899cd8c90c1704777a67050c3453bfd10e12e26158c5485365"
+      - "mcp-server/package.json sha256:05c3dc8fbb88ce91366fa13e95bde05393848d4356a69f6d0c832f3898f71a06"
+      - "mcp-server/package-lock.json sha256:feeb59b4d7459367d0c170136e4e3c59508dfc3760823fc9b54bab87b8b167a1"
+      - "CHANGELOG.md sha256:e8213e813b1217fa51ec3c38d26cddd619e36ee193b7cc952a97262765e03f29"
+      - "contracts/asyncapi/asyncapi.yaml sha256:da6b7b9f2e8501ac235de37c40c0f25e23c06825245064ec86870f11ee0ffb4b"
+      - "contracts/asyncapi/asyncapi.sha256 sha256:79c009d5cc5cb686f78710955045dc35356378073bd6cc1c4483d3ce728e2eba"
+      - ".aiwg/releases/evidence/v2026.8.1-release-note-threat-assessment.json sha256:45547246b1791a6ac8d5359dfe94a2c29c5c57f6d7884588d9f8881320a780a7"
+activity:
+  id: "urn:aiwg:activity:generation:release-preparation-2026-8-1-1122-1124:001"
+  type: generation
+  started_at: "2026-08-31T03:09:00Z"
+  ended_at: "2026-08-31T03:58:02Z"
+  description: "Prepare and validate the v2026.8.1 Fortemi release authorities"
+  attributes:
+    verification:
+      - "cargo fmt --all -- --check: passed"
+      - "cargo clippy --workspace --all-targets --all-features -- -D warnings: passed"
+      - "cargo deny check: passed"
+      - "cargo test --lib --workspace: passed"
+      - "AsyncAPI checksum and deterministic regeneration: passed"
+      - "hosted-strict docs contract: 0 findings"
+      - "release-note threat assessment: proceed; no active findings"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docs/releases/v2026.8.1-announcement.md"
+    activity: "urn:aiwg:activity:generation:release-preparation-2026-8-1-1122-1124:001"
+    time: "2026-08-31T03:58:02Z"
+  used:
+    - activity: "urn:aiwg:activity:generation:release-preparation-2026-8-1-1122-1124:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1122"
+      role: release_closure_requirement
+    - activity: "urn:aiwg:activity:generation:release-preparation-2026-8-1-1122-1124:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1124"
+      role: release_provenance_requirement
+    - activity: "urn:aiwg:activity:generation:release-preparation-2026-8-1-1122-1124:001"
+      entity: "urn:git:Fortemi/fortemi:d7666e57f5d088c3c365cdbf1d1effe6e1c204ac"
+      role: release_source_revision
+    - activity: "urn:aiwg:activity:generation:release-preparation-2026-8-1-1122-1124:001"
+      entity: "urn:aiwg:artifact:CHANGELOG.md"
+      role: release_authority
+    - activity: "urn:aiwg:activity:generation:release-preparation-2026-8-1-1122-1124:001"
+      entity: "urn:aiwg:artifact:.aiwg/release.config"
+      role: release_policy
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docs/releases/v2026.8.1-announcement.md"
+      source: "urn:aiwg:artifact:CHANGELOG.md"
+      derivation_type: conforms_to
+      activity: "urn:aiwg:activity:generation:release-preparation-2026-8-1-1122-1124:001"
+    - entity: "urn:aiwg:artifact:docs/releases/v2026.8.1-announcement.md"
+      source: "urn:git:Fortemi/fortemi:d7666e57f5d088c3c365cdbf1d1effe6e1c204ac"
+      derivation_type: documents
+      activity: "urn:aiwg:activity:generation:release-preparation-2026-8-1-1122-1124:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:release-preparation-2026-8-1-1122-1124:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docs/releases/v2026.8.1-announcement.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"

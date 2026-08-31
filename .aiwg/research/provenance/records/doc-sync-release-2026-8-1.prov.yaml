@@ -1,0 +1,58 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-08-31T04:01:04Z"
+  description: "Provenance for the bounded v2026.8.1 code-to-docs release audit"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/reports/doc-sync-audit-2026-08-31.md"
+  type: document
+  created_at: "2026-08-31T04:01:04Z"
+  checksum: "sha256:d32bcbfd752d444b0b14451edafba88fd751495a904a31d6a5828de311f00cf0"
+  size_bytes: 1170
+  attributes:
+    release: "2026.8.1"
+    direction: code-to-docs
+    change_type: generation
+    subjects:
+      - ".aiwg/.last-doc-sync sha256:7c57d0efb222e77a599a95f5f323bc7cfd305e5b7ecda090b7e39bedb459e1a1"
+      - ".aiwg/working/doc-sync/release-v2026.8.1-dry-run-20260831.md sha256:309a6c221ae238558d1ecdeab67b314543ea05f63d91972fe1c1966c7de2c4ff"
+activity:
+  id: "urn:aiwg:activity:review:doc-sync-release-2026-8-1:001"
+  type: review
+  started_at: "2026-08-31T04:00:00Z"
+  ended_at: "2026-08-31T04:01:04Z"
+  description: "Audit the Fortemi v2026.8.1 delta for bounded code-to-docs drift"
+  attributes:
+    verification:
+      - "hosted-strict docs contract: 0 findings"
+      - "documentation asset links: passed"
+      - "documentation build: passed with one pre-existing advisory warning"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/reports/doc-sync-audit-2026-08-31.md"
+    activity: "urn:aiwg:activity:review:doc-sync-release-2026-8-1:001"
+    time: "2026-08-31T04:01:04Z"
+  used:
+    - activity: "urn:aiwg:activity:review:doc-sync-release-2026-8-1:001"
+      entity: "urn:git:Fortemi/fortemi:5591a92330032dc5239222ae121fbcb1508a70f3"
+      role: baseline_release
+    - activity: "urn:aiwg:activity:review:doc-sync-release-2026-8-1:001"
+      entity: "urn:git:Fortemi/fortemi:d7666e57f5d088c3c365cdbf1d1effe6e1c204ac"
+      role: candidate_source
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/reports/doc-sync-audit-2026-08-31.md"
+      source: "urn:aiwg:artifact:.aiwg/working/doc-sync/release-v2026.8.1-dry-run-20260831.md"
+      derivation_type: summarizes
+      activity: "urn:aiwg:activity:review:doc-sync-release-2026-8-1:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:review:doc-sync-release-2026-8-1:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: documentation_auditor
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/reports/doc-sync-audit-2026-08-31.md"
+    agent: "urn:aiwg:agent:codex-gpt-5"

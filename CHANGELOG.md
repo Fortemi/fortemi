@@ -7,6 +7,42 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.8.1] - 2026-08-30
+
+### Added
+
+- Publish the typed SNN retention-safety result in the canonical OpenAPI
+  contract, including dry-run, safety-aborted, retention-ratio, mean-degree,
+  remediation, and explicit aggressive-pruning override fields. HotM consumes
+  the exact producer artifact and keeps unsafe pruning fail-closed (#1102).
+- Add MCP vision coverage and expand redaction-safe UAT evidence for extraction,
+  archive, backup, status-enum, and authenticated export paths.
+
+### Fixed
+
+- Serialize archive create, clone, sync, and drop DDL with one
+  transaction-scoped PostgreSQL advisory lock. Full-workspace archive tests no
+  longer race while creating or cloning schemas, and database error detail
+  remains redacted (#1122).
+- Validate PKE inputs before dispatch, use bundle-local administrative dumps,
+  and harden pre-migration snapshot and archive recovery paths without logging
+  credentials or raw database failures.
+- Align the PostgreSQL attachment extraction-strategy enum with the canonical
+  `archive`, `spreadsheet`, and `email` variants through forward migration
+  `20260828190000` (#1101).
+- Isolate CI Docker networks, propagate exact run identifiers, and resolve the
+  GPU Ollama gateway consistently across hosted runners.
+- Bind chained workflow checkouts to the verified source commit so release and
+  provenance jobs cannot validate a moving branch (#1124).
+
+### Changed
+
+- Publish Fortemi, bundle, builder, and test-database container images only from
+  signed CalVer release flows. Ordinary branch and main pushes run validation
+  without publishing new GHCR or Gitea package versions.
+- Keep sidecar and bundle release aliases stable and omit commit-derived package
+  aliases from release builds.
+
 ## [2026.8.0] - 2026-08-26
 
 Corrective publication for `2026.7.26`. The signed `v2026.7.26` tag built and
@@ -2092,7 +2128,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.8.0...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.8.1...HEAD
+[2026.8.1]: https://github.com/fortemi/fortemi/compare/v2026.8.0...v2026.8.1
 [2026.8.0]: https://github.com/fortemi/fortemi/compare/v2026.7.26...v2026.8.0
 [2026.7.26]: https://github.com/fortemi/fortemi/compare/v2026.7.25...v2026.7.26
 [2026.7.25]: https://github.com/fortemi/fortemi/compare/v2026.7.24...v2026.7.25
