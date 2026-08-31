@@ -28,12 +28,18 @@ on:
   # CI dispatches this only after Tests and Sidecar complete. Operators can
   # still publish an explicitly selected ref between releases.
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Immutable source commit propagated by the suite contract'
+        required: false
+        default: ''
 
 concurrency:
   group: docsite-deploy
   cancel-in-progress: false
 
 env:
+  CHAIN_SOURCE_SHA: ${{ github.event.inputs.source_sha || github.sha }}
   VAULT_ADDR: ${{ vars.VAULT_ADDR }}
   DEPLOY_SSH_KEY_VAULT_PATH: ${{ vars.DEPLOY_SSH_KEY_VAULT_PATH }}
   DEPLOY_SSH_KEY_VAULT_FIELD: ${{ vars.DEPLOY_SSH_KEY_VAULT_FIELD }}
@@ -53,6 +59,18 @@ jobs:
     steps:
       - name: Checkout Fortemi
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          ref: ${{ env.CHAIN_SOURCE_SHA }}
+          fetch-depth: 1
+
+      - name: Verify exact documentation source
+        run: |
+          set -euo pipefail
+          [[ "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "CHAIN_SOURCE_SHA must be a lowercase 40-character commit SHA" >&2
+            exit 1
+          }
+          test "$(git rev-parse HEAD)" = "${CHAIN_SOURCE_SHA}"
 
       - name: Install docsite tooling
         run: npm ci

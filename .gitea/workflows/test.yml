@@ -23,12 +23,17 @@ on:
         description: 'Test category to run (fast/integration/slow/all)'
         required: false
         default: 'all'
+      source_sha:
+        description: 'Immutable source commit propagated by the validation workflow'
+        required: false
+        default: ''
 
 concurrency:
   group: fortemi-shared-runner
   cancel-in-progress: false
 
 env:
+  CHAIN_SOURCE_SHA: ${{ github.event.inputs.source_sha || github.sha }}
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   CARGO_INCREMENTAL: 0
@@ -46,10 +51,15 @@ jobs:
       - name: Checkout capacity guard
         run: |
           set -euo pipefail
+          [[ "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "CHAIN_SOURCE_SHA must be a lowercase 40-character commit SHA" >&2
+            exit 1
+          }
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA}"
           git checkout --quiet --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "${CHAIN_SOURCE_SHA}"
 
       - name: Check free bytes and inodes
         env:
@@ -68,7 +78,7 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Build testdb image
@@ -87,7 +97,7 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Build testdb image
@@ -170,7 +180,7 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Build testdb image
@@ -276,7 +286,7 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Build testdb image
@@ -408,7 +418,7 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Build testdb image
@@ -516,7 +526,7 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       # The fortemi-builder image ships the docker CLI but not the compose
@@ -579,7 +589,7 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Fetch Gitea trigger token
@@ -591,8 +601,10 @@ jobs:
       - name: Dispatch sidecar builds at the tested ref
         run: |
           set -euo pipefail
-          jq -n --arg ref "${GITHUB_REF:?GITHUB_REF is required}" \
-            '{ref: $ref}' > dispatch.json
+          jq -n \
+            --arg ref "${GITHUB_REF:?GITHUB_REF is required}" \
+            --arg source_sha "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}" \
+            '{ref: $ref, inputs: {source_sha: $source_sha}}' > dispatch.json
           curl --fail-with-body --silent --show-error -X POST \
             -H "Authorization: token ${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" \
             -H "Accept: application/json" \

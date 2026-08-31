@@ -5,10 +5,15 @@ MODE="${1:?usage: publish-sidecar-release.sh <prepare|immutable|rolling>}"
 : "${GITEA_API:?GITEA_API is required}"
 : "${REPO:?REPO is required}"
 : "${GITEA_TOKEN:?GITEA_TOKEN is required}"
-: "${GITHUB_SHA:?GITHUB_SHA is required}"
+CHAIN_SOURCE_SHA="${CHAIN_SOURCE_SHA:-${GITHUB_SHA:-}}"
+: "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA or GITHUB_SHA is required}"
+[[ "${CHAIN_SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]] || {
+  echo "CHAIN_SOURCE_SHA must be a lowercase 40-character commit SHA" >&2
+  exit 1
+}
 
 API="${GITEA_API}/repos/${REPO}"
-SHORT_SHA="${GITHUB_SHA:0:7}"
+SHORT_SHA="${CHAIN_SOURCE_SHA:0:7}"
 BINARIES=(
   matric-api-x86_64-unknown-linux-gnu
   matric-api-aarch64-unknown-linux-gnu
@@ -26,7 +31,7 @@ done
 sha256sum "${BINARIES[@]}" > SHA256SUMS.txt
 
 jq -n \
-  --arg commit "${GITHUB_SHA}" \
+  --arg commit "${CHAIN_SOURCE_SHA}" \
   --arg repository "${REPO}" \
   --arg run_id "${GITHUB_RUN_ID:-unknown}" \
   --arg run_attempt "${GITHUB_RUN_ATTEMPT:-unknown}" \
@@ -113,8 +118,8 @@ verify_existing_immutable() {
     return 1
   fi
   target=$(jq -r '.target_commitish // empty' <<<"${release_json}")
-  if [[ -n "${target}" && "${target}" != "${GITHUB_SHA}" ]]; then
-    echo "immutable release target mismatch: expected ${GITHUB_SHA}, got ${target:-missing}" >&2
+  if [[ -n "${target}" && "${target}" != "${CHAIN_SOURCE_SHA}" ]]; then
+    echo "immutable release target mismatch: expected ${CHAIN_SOURCE_SHA}, got ${target:-missing}" >&2
     return 1
   fi
 
@@ -165,7 +170,7 @@ create_release() {
     -d "$(
       jq -n \
         --arg tag "${tag}" \
-        --arg target "${GITHUB_SHA}" \
+        --arg target "${CHAIN_SOURCE_SHA}" \
         --arg name "${name}" \
         --arg body "${body}" \
         --argjson prerelease "${prerelease}" \
@@ -209,7 +214,7 @@ case "${MODE}" in
     echo "prepared sidecar checksums and provenance"
     ;;
   immutable)
-    TAG="sidecar-${GITHUB_SHA:0:12}"
+    TAG="sidecar-${CHAIN_SOURCE_SHA:0:12}"
     EXISTING=$(release_by_tag "${TAG}")
     if [[ -n "${EXISTING}" ]] && \
       jq -e --arg tag "${TAG}" '.id and .tag_name == $tag' \
@@ -218,14 +223,14 @@ case "${MODE}" in
       exit 0
     fi
 
-    BODY="Immutable native sidecar binaries built from commit ${GITHUB_SHA}.
+    BODY="Immutable native sidecar binaries built from commit ${CHAIN_SOURCE_SHA}.
 
 Verify the downloaded assets with SHA256SUMS.txt and
 sidecar-provenance.intoto.json. This release identity is append-only and must
 never be replaced. Use sidecar-latest only to discover the current immutable
 tag."
     RESPONSE=$(create_release "${TAG}" "Sidecar Binaries (${SHORT_SHA})" "${BODY}" true)
-    if ! jq -e --arg tag "${TAG}" --arg target "${GITHUB_SHA}" \
+    if ! jq -e --arg tag "${TAG}" --arg target "${CHAIN_SOURCE_SHA}" \
       '.id and .tag_name == $tag and .target_commitish == $target' \
       >/dev/null 2>&1 <<<"${RESPONSE}"; then
       echo "immutable release creation returned an unexpected response" >&2
@@ -242,7 +247,7 @@ tag."
     ;;
   rolling)
     TAG="sidecar-latest"
-    IMMUTABLE_TAG="sidecar-${GITHUB_SHA:0:12}"
+    IMMUTABLE_TAG="sidecar-${CHAIN_SOURCE_SHA:0:12}"
     EXISTING=$(release_by_tag "${TAG}")
     if jq -e '.id' >/dev/null 2>&1 <<<"${EXISTING}"; then
       RELEASE_ID=$(jq -er '.id' <<<"${EXISTING}")
@@ -257,7 +262,7 @@ tag."
     BODY="Rolling discovery pointer for native sidecar binaries.
 
 Current immutable release: ${IMMUTABLE_TAG}
-Commit: ${GITHUB_SHA}
+Commit: ${CHAIN_SOURCE_SHA}
 
 Consumers must pin the immutable tag and verify SHA256SUMS.txt plus
 sidecar-provenance.intoto.json. Assets under sidecar-latest may change."

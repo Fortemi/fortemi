@@ -75,7 +75,8 @@ def main() -> int:
         require(boot_auth, needle, BOOT_AUTH, failures)
 
     for needle in (
-        'TAG="sidecar-${GITHUB_SHA:0:12}"',
+        'TAG="sidecar-${CHAIN_SOURCE_SHA:0:12}"',
+        'CHAIN_SOURCE_SHA="${CHAIN_SOURCE_SHA:-${GITHUB_SHA:-}}"',
         ".tag_name == $tag",
         "release_by_id",
         "wait_for_release_tag",

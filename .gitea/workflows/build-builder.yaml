@@ -295,10 +295,16 @@ jobs:
         run: |
           set -euo pipefail
           echo "Triggering CI to use the new builder image..."
+          source_sha="$(git rev-parse HEAD)"
+          [[ "${source_sha}" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "checked-out builder source is not a commit SHA" >&2
+            exit 1
+          }
 
           jq -n \
             --arg ref "${GITHUB_REF:?GITHUB_REF is required}" \
-            '{ref: $ref}' > dispatch.json
+            --arg source_sha "${source_sha}" \
+            '{ref: $ref, inputs: {source_sha: $source_sha}}' > dispatch.json
 
           curl --fail-with-body --silent --show-error -X POST \
             -H "Authorization: token ${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" \

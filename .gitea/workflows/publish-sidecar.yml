@@ -32,12 +32,18 @@ name: Publish Sidecar Binaries
 
 on:
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Immutable source commit propagated by comprehensive tests'
+        required: false
+        default: ''
 
 concurrency:
   group: fortemi-shared-runner
   cancel-in-progress: false
 
 env:
+  CHAIN_SOURCE_SHA: ${{ github.event.inputs.source_sha || github.sha }}
   CARGO_TERM_COLOR: always
   GITEA_API: https://git.integrolabs.net/api/v1
   REPO: Fortemi/fortemi
@@ -57,10 +63,15 @@ jobs:
       - name: Checkout capacity guard
         run: |
           set -euo pipefail
+          [[ "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "CHAIN_SOURCE_SHA must be a lowercase 40-character commit SHA" >&2
+            exit 1
+          }
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA}"
           git checkout --quiet --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "${CHAIN_SOURCE_SHA}"
 
       - name: Check free bytes and inodes
         env:
@@ -84,16 +95,16 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Build release binary
         run: |
-          SHORT_SHA="${GITHUB_SHA:0:7}"
+          SHORT_SHA="${CHAIN_SOURCE_SHA:0:7}"
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
           MATRIC_VERSION="${GITHUB_REF_NAME}" \
-          MATRIC_GIT_SHA="${GITHUB_SHA}" \
+          MATRIC_GIT_SHA="${CHAIN_SOURCE_SHA}" \
           MATRIC_BUILD_DATE="${BUILD_DATE}" \
           cargo build --release --package matric-api
 
@@ -120,6 +131,9 @@ jobs:
     steps:
       - name: Checkout coordinator tooling
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          ref: ${{ env.CHAIN_SOURCE_SHA }}
+          fetch-depth: 1
 
       - name: Fetch mutsu SSH key from vault
         env:
@@ -193,7 +207,7 @@ jobs:
             --label "Fortemi-sidecar-Linux-arm64-${GITHUB_RUN_ID}" \
             --timeout 3600 \
             -- bash -s -- \
-            "$repository" "$GITHUB_SHA" "$GITHUB_REF_NAME" "$GITHUB_RUN_ID" \
+            "$repository" "$CHAIN_SOURCE_SHA" "$GITHUB_REF_NAME" "$GITHUB_RUN_ID" \
             "$output" <<'REMOTE_SCRIPT'
           set -euo pipefail
           repository="$1"
@@ -325,6 +339,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          ref: ${{ env.CHAIN_SOURCE_SHA }}
+          fetch-depth: 1
 
       - name: Fetch mutsu SSH key from vault
         env:
@@ -419,7 +436,7 @@ jobs:
           set -euo pipefail
 
           REPO_URL="https://git.integrolabs.net/${{ github.repository }}.git"
-          SHA="${GITHUB_SHA}"
+          SHA="${CHAIN_SOURCE_SHA}"
           RUN_ID="${GITHUB_RUN_ID:-$$}"
           BUILD_DIR="/Volumes/build/fortemi/builds/sidecar-${RUN_ID}"
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -550,6 +567,9 @@ jobs:
     steps:
       - name: Checkout publication tooling
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          ref: ${{ env.CHAIN_SOURCE_SHA }}
+          fetch-depth: 1
 
       - name: Download artifacts
         uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a  # v3
@@ -588,6 +608,9 @@ jobs:
     steps:
       - name: Checkout publication tooling
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+        with:
+          ref: ${{ env.CHAIN_SOURCE_SHA }}
+          fetch-depth: 1
 
       - name: Download artifacts
         uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a  # v3
@@ -739,7 +762,7 @@ jobs:
             "${API}/releases" \
             -d "{
               \"tag_name\": \"sidecar-latest\",
-              \"target_commitish\": \"${GITHUB_SHA}\",
+              \"target_commitish\": \"${CHAIN_SOURCE_SHA}\",
               \"name\": \"Sidecar Binaries (latest)\",
               \"body\": $(echo "${RELEASE_BODY}" | jq -Rs .),
               \"draft\": false,
@@ -793,7 +816,7 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Fetch Gitea trigger token
@@ -805,8 +828,10 @@ jobs:
       - name: Dispatch suite contract at the published ref
         run: |
           set -euo pipefail
-          jq -n --arg ref "${GITHUB_REF:?GITHUB_REF is required}" \
-            '{ref: $ref}' > dispatch.json
+          jq -n \
+            --arg ref "${GITHUB_REF:?GITHUB_REF is required}" \
+            --arg source_sha "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}" \
+            '{ref: $ref, inputs: {source_sha: $source_sha}}' > dispatch.json
           curl --fail-with-body --silent --show-error -X POST \
             -H "Authorization: token ${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" \
             -H "Accept: application/json" \

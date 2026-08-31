@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2016
 
 set -euo pipefail
 
@@ -70,8 +71,8 @@ if grep -qF "actions/workflows/test.yml/dispatches" "$builder_workflow"; then
   exit 1
 fi
 # Gitea 1.25 treats an unqualified workflow-dispatch ref as a branch name.
-# Preserve refs/tags/v* across every handoff so release runs stay bound to the
-# signed tag rather than failing lookup or silently selecting a same-named branch.
+# Preserve refs/tags/v* for routing and carry a separate immutable source SHA so
+# a branch advancing during the chain cannot change what downstream jobs build.
 for dispatcher in \
   "$builder_workflow" \
   "$ci_workflow" \
@@ -86,6 +87,46 @@ for dispatcher in \
     exit 1
   fi
 done
+
+grep -qF -- 'source_sha="$(git rev-parse HEAD)"' "$builder_workflow"
+grep -qF -- '--arg source_sha "${source_sha}"' "$builder_workflow"
+grep -qF -- 'source_sha: $source_sha' "$builder_workflow"
+for dispatcher in \
+  "$ci_workflow" \
+  "$test_workflow" \
+  "$sidecar_workflow" \
+  "$suite_workflow"; do
+  grep -qF -- '--arg source_sha "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"' \
+    "$dispatcher"
+  grep -qF -- 'source_sha: $source_sha' "$dispatcher"
+done
+
+for chained_workflow in \
+  "$ci_workflow" \
+  "$test_workflow" \
+  "$sidecar_workflow" \
+  "$suite_workflow" \
+  "$docsite_deploy"; do
+  grep -qF 'CHAIN_SOURCE_SHA: ${{ github.event.inputs.source_sha || github.sha }}' \
+    "$chained_workflow"
+  grep -qF 'CHAIN_SOURCE_SHA must be a lowercase 40-character commit SHA' \
+    "$chained_workflow"
+  if grep -qF 'GITHUB_SHA' "$chained_workflow"; then
+    echo "${chained_workflow#"$ROOT/"} uses mutable run SHA inside the exact-source chain" >&2
+    exit 1
+  fi
+done
+
+if grep -qF "'{ref: \$ref}' > dispatch.json" \
+  "$ci_workflow" "$test_workflow" "$sidecar_workflow" "$suite_workflow"; then
+  echo "a chained dispatcher omits the immutable source SHA" >&2
+  exit 1
+fi
+
+[[ "$(grep -cF 'ref: ${{ env.CHAIN_SOURCE_SHA }}' "$sidecar_workflow")" -eq 4 ]]
+[[ "$(grep -cF 'ref: ${{ env.CHAIN_SOURCE_SHA }}' "$suite_workflow")" -eq 2 ]]
+[[ "$(grep -cF 'ref: ${{ env.CHAIN_SOURCE_SHA }}' "$docsite_deploy")" -eq 1 ]]
+
 grep -qF "needs: [coverage, build-testdb]" "$test_workflow"
 grep -qF "needs: [slow-tests]" "$test_workflow"
 grep -qF "needs: [fast-tests, integration-tests, coverage, slow-tests, validate-intel-overlay]" "$test_workflow"

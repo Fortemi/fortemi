@@ -26,6 +26,11 @@ on:
       - 'build/gliner/**'
       - 'build/pyannote/**'
   workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Immutable source commit propagated by the release build'
+        required: false
+        default: ''
   pull_request:
     branches: [main]
     paths-ignore:
@@ -46,6 +51,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  CHAIN_SOURCE_SHA: ${{ github.event.inputs.source_sha || github.sha }}
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   # Internal Gitea registry
@@ -68,10 +74,15 @@ jobs:
       - name: Checkout capacity guard
         run: |
           set -euo pipefail
+          [[ "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "CHAIN_SOURCE_SHA must be a lowercase 40-character commit SHA" >&2
+            exit 1
+          }
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA}"
           git checkout --quiet --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "${CHAIN_SOURCE_SHA}"
 
       - name: Check free bytes and inodes
         env:
@@ -96,10 +107,11 @@ jobs:
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
           git fetch --quiet origin "refs/tags/${GITHUB_REF_NAME}:refs/tags/${GITHUB_REF_NAME}"
           git checkout --quiet --detach "${GITHUB_REF_NAME}^{commit}"
+          test "$(git rev-parse HEAD)" = "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           tools/ci/verify-signed-tag.sh "${GITHUB_REF_NAME}"
 
-  # Keep the public source mirror aligned with authoritative Gitea refs. GHCR
-  # and release API calls do not update repository refs themselves.
+  # Mirror only the ref validated by this run. A later Gitea main commit must
+  # not be published by an earlier validation chain.
   sync-github-source:
     name: Sync Source to GitHub
     runs-on: matric-builder
@@ -111,11 +123,13 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
-          git fetch origin \
-            '+refs/heads/main:refs/remotes/origin/main' \
-            '+refs/tags/*:refs/tags/*'
+          test "$(git rev-parse HEAD)" = "${CHAIN_SOURCE_SHA}"
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            git fetch --quiet origin "${GITHUB_REF}:${GITHUB_REF}"
+            test "$(git rev-parse "${GITHUB_REF}^{commit}")" = "${CHAIN_SOURCE_SHA}"
+          fi
 
       - name: Fetch GitHub source token from vault
         env:
@@ -138,9 +152,15 @@ jobs:
           chmod 700 "${ASKPASS}"
 
           git remote add github https://github.com/Fortemi/fortemi.git
-          GIT_ASKPASS="${ASKPASS}" GIT_TERMINAL_PROMPT=0 git push github \
-            refs/remotes/origin/main:refs/heads/main \
-            '+refs/tags/*:refs/tags/*'
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            GIT_ASKPASS="${ASKPASS}" GIT_TERMINAL_PROMPT=0 git push github \
+              HEAD:refs/heads/main
+          elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            GIT_ASKPASS="${ASKPASS}" GIT_TERMINAL_PROMPT=0 git push github \
+              "${GITHUB_REF}:${GITHUB_REF}"
+          else
+            echo "No public source ref is defined for ${GITHUB_REF}; skipping."
+          fi
 
   # Build testdb image once for all jobs
   build-testdb:
@@ -151,10 +171,15 @@ jobs:
       - name: Checkout
         run: |
           set -euo pipefail
+          [[ "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "CHAIN_SOURCE_SHA must be a lowercase 40-character commit SHA" >&2
+            exit 1
+          }
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA}"
           git checkout --quiet --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "${CHAIN_SOURCE_SHA}"
 
       - name: Build testdb image
         run: |
@@ -171,7 +196,7 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Check formatting
@@ -338,10 +363,15 @@ jobs:
       - name: Checkout
         run: |
           set -euo pipefail
+          [[ "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "CHAIN_SOURCE_SHA must be a lowercase 40-character commit SHA" >&2
+            exit 1
+          }
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA}"
           git checkout --quiet --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "${CHAIN_SOURCE_SHA}"
 
       - name: Install matrix verifier runtime
         run: |
@@ -403,7 +433,7 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Install cargo-audit
@@ -444,7 +474,7 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Install cargo-deny
@@ -473,7 +503,7 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Validate the isolated harness
@@ -503,7 +533,7 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Verify mcp-server lockfile in sync
@@ -522,7 +552,7 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Run server-independent MCP tests
@@ -550,7 +580,7 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Build testdb image
@@ -737,17 +767,17 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Build Docker image
         run: |
-          SHORT_SHA="${GITHUB_SHA:0:7}"
+          SHORT_SHA="${CHAIN_SOURCE_SHA:0:7}"
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
           docker build \
             --build-arg VERSION=test-${SHORT_SHA} \
-            --build-arg GIT_SHA=${GITHUB_SHA} \
+            --build-arg GIT_SHA=${CHAIN_SOURCE_SHA} \
             --build-arg BUILD_DATE=${BUILD_DATE} \
             -t matric-memory:test .
 
@@ -764,7 +794,7 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Build testdb image
@@ -998,7 +1028,7 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Verify GPU Access
@@ -1046,7 +1076,7 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Require complete Knowledge Shard claim matrix
@@ -1095,7 +1125,7 @@ jobs:
           # Build API-only image (for Kubernetes/external DB deployments)
           docker build --no-cache \
             --build-arg VERSION=${VERSION} \
-            --build-arg GIT_SHA=${GITHUB_SHA} \
+            --build-arg GIT_SHA=${CHAIN_SOURCE_SHA} \
             --build-arg BUILD_DATE=${BUILD_DATE} \
             -t ${IMAGE}:${VERSION} .
 
@@ -1115,7 +1145,7 @@ jobs:
           docker build --no-cache \
             -f Dockerfile.bundle \
             --build-arg VERSION=${VERSION} \
-            --build-arg GIT_SHA=${GITHUB_SHA} \
+            --build-arg GIT_SHA=${CHAIN_SOURCE_SHA} \
             --build-arg BUILD_DATE=${BUILD_DATE} \
             -t ${IMAGE}:bundle-${VERSION} .
 
@@ -1127,14 +1157,14 @@ jobs:
           mkdir -p container-release-evidence
           python3 scripts/ci/capture-container-release-evidence.py \
             --family api \
-            --source-revision "${GITHUB_SHA}" \
+            --source-revision "${CHAIN_SOURCE_SHA}" \
             --channel release \
             --immutable-ref "${IMAGE}:${VERSION}" \
             --alias "${IMAGE}:latest" \
             --output container-release-evidence/gitea-api-release.json
           python3 scripts/ci/capture-container-release-evidence.py \
             --family bundle \
-            --source-revision "${GITHUB_SHA}" \
+            --source-revision "${CHAIN_SOURCE_SHA}" \
             --channel release \
             --immutable-ref "${IMAGE}:bundle-${VERSION}" \
             --alias "${IMAGE}:bundle-latest" \
@@ -1172,7 +1202,7 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Fetch registry tokens from vault
@@ -1209,14 +1239,14 @@ jobs:
           mkdir -p container-release-evidence
           python3 scripts/ci/capture-container-release-evidence.py \
             --family api \
-            --source-revision "${GITHUB_SHA}" \
+            --source-revision "${CHAIN_SOURCE_SHA}" \
             --channel release \
             --immutable-ref "${TARGET_IMAGE}:${VERSION}" \
             --alias "${TARGET_IMAGE}:latest" \
             --output container-release-evidence/ghcr-api-release.json
           python3 scripts/ci/capture-container-release-evidence.py \
             --family bundle \
-            --source-revision "${GITHUB_SHA}" \
+            --source-revision "${CHAIN_SOURCE_SHA}" \
             --channel release \
             --immutable-ref "${TARGET_IMAGE}:bundle-${VERSION}" \
             --alias "${TARGET_IMAGE}:bundle-latest" \
@@ -1249,7 +1279,7 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Verify anonymous GHCR access and release metadata
@@ -1280,7 +1310,7 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Extract changelog
@@ -1445,7 +1475,7 @@ jobs:
           set -euo pipefail
           git init -q .
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
-          git fetch --quiet --no-tags --depth=1 origin "${GITHUB_SHA:?GITHUB_SHA is required}"
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Fetch Gitea trigger token
@@ -1457,8 +1487,10 @@ jobs:
       - name: Dispatch comprehensive tests at the verified ref
         run: |
           set -euo pipefail
-          jq -n --arg ref "${GITHUB_REF:?GITHUB_REF is required}" \
-            '{ref: $ref, inputs: {test_category: "all"}}' > dispatch.json
+          jq -n \
+            --arg ref "${GITHUB_REF:?GITHUB_REF is required}" \
+            --arg source_sha "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}" \
+            '{ref: $ref, inputs: {test_category: "all", source_sha: $source_sha}}' > dispatch.json
           curl --fail-with-body --silent --show-error -X POST \
             -H "Authorization: token ${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" \
             -H "Accept: application/json" \
