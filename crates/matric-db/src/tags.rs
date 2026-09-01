@@ -28,33 +28,6 @@ impl PgTagRepository {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn repository_validator_preserves_legacy_boundaries_and_five_levels() {
-        for tag in ["a/b/c/d/e", "1st/_private/tag_", "ümlaut/資料", "trailing-"] {
-            assert!(validate_tag_name(tag).is_ok(), "expected valid tag");
-        }
-    }
-
-    #[test]
-    fn repository_validator_rejects_shape_without_echoing_submitted_content() {
-        for tag in [
-            "a/b/c/d/e/f",
-            "double//separator",
-            "customer secret",
-            "archetype/{token}",
-        ] {
-            let error = validate_tag_name(tag).expect_err("invalid tag must be rejected");
-            assert!(!error.contains(tag));
-            assert!(!error.contains("customer"));
-            assert!(!error.contains("token"));
-        }
-    }
-}
-
 #[async_trait]
 impl TagRepository for PgTagRepository {
     async fn create(&self, name: &str) -> Result<()> {
@@ -365,5 +338,32 @@ impl PgTagRepository {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repository_validator_preserves_legacy_boundaries_and_five_levels() {
+        for tag in ["a/b/c/d/e", "1st/_private/tag_", "ümlaut/資料", "trailing-"] {
+            assert!(validate_tag_name(tag).is_ok(), "expected valid tag");
+        }
+    }
+
+    #[test]
+    fn repository_validator_rejects_shape_without_echoing_submitted_content() {
+        for tag in [
+            "a/b/c/d/e/f",
+            "double//separator",
+            "customer secret",
+            "archetype/{token}",
+        ] {
+            let error = validate_tag_name(tag).expect_err("invalid tag must be rejected");
+            assert!(!error.contains(tag));
+            assert!(!error.contains("customer"));
+            assert!(!error.contains("token"));
+        }
     }
 }
