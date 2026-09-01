@@ -7,6 +7,7 @@
 
 WITH classified AS (
     SELECT
+        name,
         name = '' AS is_empty,
         char_length(name) > 100 AS is_too_long,
         cardinality(string_to_array(name, '/')) > 5 AS is_too_deep,
@@ -30,3 +31,46 @@ SELECT
     count(*) FILTER (WHERE has_invalid_character) AS invalid_character_names,
     (SELECT count(*) FROM case_collisions) AS case_collision_groups
 FROM classified;
+
+-- Relationship impact for every tag that is outside the current contract.
+-- This remains aggregate-only: neither tag names nor note identifiers leave
+-- the database session.
+WITH classified AS (
+    SELECT
+        name,
+        name = '' AS is_empty,
+        char_length(name) > 100 AS is_too_long,
+        cardinality(string_to_array(name, '/')) > 5 AS is_too_deep,
+        name LIKE '/%'
+            OR name LIKE '%/'
+            OR strpos(name, '//') > 0 AS has_empty_component,
+        name !~ '^[[:alnum:]_/-]+$' AS has_invalid_character
+    FROM tag
+), impacted AS (
+    SELECT
+        classified.name,
+        classified.is_too_long,
+        classified.has_invalid_character,
+        count(note_tag.note_id) AS relationship_count
+    FROM classified
+    LEFT JOIN note_tag ON note_tag.tag_name = classified.name
+    WHERE classified.is_empty
+        OR classified.is_too_long
+        OR classified.is_too_deep
+        OR classified.has_empty_component
+        OR classified.has_invalid_character
+    GROUP BY
+        classified.name,
+        classified.is_too_long,
+        classified.has_invalid_character
+)
+SELECT
+    count(*) AS incompatible_tags,
+    count(*) FILTER (
+        WHERE is_too_long AND has_invalid_character
+    ) AS overlapping_findings,
+    coalesce(sum(relationship_count), 0) AS impacted_note_tag_relationships,
+    count(*) FILTER (
+        WHERE relationship_count = 0
+    ) AS unattached_incompatible_tags
+FROM impacted;
