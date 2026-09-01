@@ -11,20 +11,8 @@ use matric_core::{Error, Result, Tag, TagRepository};
 ///
 /// Rules:
 /// - Length between 1-100 characters
-/// - Must start with an ASCII letter (rejects leading `_`, `-`, `/`, digit, or
-///   other punctuation — catches `_feature`, `_optimal`, JSON fragments, etc.)
-/// - Must end with an ASCII letter or digit (rejects trailing `.`, `_`, `-`,
-///   `/` — catches sentence fragments like `..._conventions.`)
-/// - At most ONE `/` separator (enforces flat-or-namespaced shape, rejects
-///   path-like nests such as `audit_project_/users/...`)
-/// - Allowed characters: alphanumeric, hyphens (-), underscores (_), forward
-///   slashes (/). No spaces, punctuation, or other special characters.
-///
-/// Drift this prevents (captured from a 2026-05-22 corpus audit of
-/// `archive_ring_kernels`): JSON fragments leaking into archetype slots
-/// (e.g. `archetype/{"step_id":...`), task descriptions snake-cased into
-/// tag names, leading-underscore test residue (`_feature`, `_optimal`),
-/// trailing-punct sentence fragments, encoded metrics (`polyvalence/0.67`).
+/// - Allowed characters: alphanumeric, hyphens (-), underscores (_), forward slashes (/)
+/// - No spaces or other special characters
 ///
 /// Returns Ok(()) if valid, Err with message if invalid.
 pub fn validate_tag_name(tag: &str) -> std::result::Result<(), String> {
@@ -35,33 +23,6 @@ pub fn validate_tag_name(tag: &str) -> std::result::Result<(), String> {
         return Err(format!(
             "Tag name must be {} characters or less",
             matric_core::defaults::TAG_NAME_MAX_LENGTH
-        ));
-    }
-
-    // Must start with a letter — rejects `_feature`, `0.67`, `/path`, `-bad`.
-    let first = tag.chars().next().unwrap();
-    if !first.is_ascii_alphabetic() {
-        return Err(format!(
-            "Tag must start with a letter, got '{}'",
-            first
-        ));
-    }
-
-    // Must end with alphanumeric — rejects `tag_`, `value.`, `path/`, `name-`.
-    let last = tag.chars().last().unwrap();
-    if !last.is_ascii_alphanumeric() {
-        return Err(format!(
-            "Tag must end with a letter or digit, got '{}'",
-            last
-        ));
-    }
-
-    // At most one '/' — rejects path-like nests (`audit_project_/users/...`).
-    let slash_count = tag.chars().filter(|c| *c == '/').count();
-    if slash_count > 1 {
-        return Err(format!(
-            "Tag may contain at most one '/' separator, got {}",
-            slash_count
         ));
     }
 

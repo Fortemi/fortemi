@@ -4036,7 +4036,10 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1/notes/{id}/tags",
             get(get_note_tags).put(set_note_tags),
         )
-        .route("/api/v1/notes/{id}/links", get(get_note_links).post(create_note_link))
+        .route(
+            "/api/v1/notes/{id}/links",
+            get(get_note_links).post(create_note_link),
+        )
         .route("/api/v1/notes/{id}/backlinks", get(get_note_backlinks))
         .route("/api/v1/notes/{id}/related", get(get_related_notes))
         .route("/api/v1/notes/{id}/export", get(export_note))
@@ -17655,7 +17658,6 @@ async fn create_note_link(
         Json(serde_json::json!({ "id": link_id })),
     ))
 }
-
 
 /// Get backlinks (notes that link TO this note).
 #[utoipa::path(get, path = "/api/v1/notes/{id}/backlinks", tag = "Graph",
