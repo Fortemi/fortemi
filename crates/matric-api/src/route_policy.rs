@@ -1577,6 +1577,7 @@ pub fn hosted_tenant_transaction_ready(method: &Method, path: &str) -> bool {
             | (&Method::PATCH, "/api/v1/notes/{id}/status")
             | (&Method::GET, "/api/v1/notes/{id}/tags")
             | (&Method::PUT, "/api/v1/notes/{id}/tags")
+            | (&Method::POST, "/api/v1/notes/{id}/links")
             | (&Method::GET, "/api/v1/tags")
             | (&Method::GET, "/api/v1/collections")
             | (&Method::POST, "/api/v1/collections")
@@ -1632,7 +1633,7 @@ pub fn authorization_input_for_request(
     let mut resource = Resource::new(resource_kind_for_action_family(action_family));
     if let Some(candidate) = resource_id_for_policy(policy, &params) {
         let requires_backing_normalization =
-            requires_backing_resource_normalization(policy, candidate.param_name);
+            requires_backing_resource_normalization(policy, method, candidate.param_name);
         resource = resource.with_id(candidate.value);
         resource
             .attrs
@@ -1829,10 +1830,21 @@ fn resource_id_for_policy(
         })
 }
 
-fn requires_backing_resource_normalization(policy: &RoutePolicy, param_name: &str) -> bool {
+fn requires_backing_resource_normalization(
+    policy: &RoutePolicy,
+    method: &Method,
+    param_name: &str,
+) -> bool {
     if policy.action_family == "user_secret" {
         // DELETE is intentionally idempotent and non-enumerating. Tenant RLS and
         // the user predicate are the ownership boundary for this opaque UUID.
+        return false;
+    }
+    if method == Method::POST && policy.path == "/api/v1/notes/{id}/links" {
+        // Both endpoints of a manual link are checked as active notes inside the
+        // same tenant/archive-scoped transaction as the insert. A pre-policy
+        // backing lookup would turn only the path/source into a 403 oracle while
+        // the body/target correctly receives the stable non-enumerating 404.
         return false;
     }
     matches!(
@@ -2335,6 +2347,10 @@ mod tests {
                 Method::PUT,
                 "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001/tags",
             ),
+            (
+                Method::POST,
+                "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001/links",
+            ),
             (Method::POST, "/api/v1/collections"),
             (
                 Method::GET,
@@ -2380,6 +2396,34 @@ mod tests {
                 "unmigrated hosted route was admitted: {method} {path}"
             );
         }
+    }
+
+    #[test]
+    fn manual_note_link_authorization_binds_write_scope_source_and_tenant() {
+        let tenant_id = "018fd1a0-0000-7000-8000-000000000111";
+        let source_id = "018fd1a0-0000-7000-8000-000000000222";
+        let input = authorization_input_for_request(
+            &Method::POST,
+            &format!("/api/v1/notes/{source_id}/links"),
+            Some(tenant_id),
+        )
+        .expect("manual link route policy");
+
+        assert_eq!(input.policy.class, TenantObject);
+        assert_eq!(input.action.required_scopes, vec!["write"]);
+        assert_eq!(input.resource.kind, ResourceKind::Note);
+        assert_eq!(input.resource.id.as_deref(), Some(source_id));
+        assert_eq!(input.resource.tenant_id.as_deref(), Some(tenant_id));
+        assert_eq!(input.resource.attrs["resource_id_param"], "id");
+        assert_eq!(input.resource.attrs["resource_id_normalized"], false);
+        assert_eq!(
+            input.resource.attrs["requires_backing_resource_normalization"],
+            false
+        );
+        assert_eq!(
+            input.resource.attrs["route_template"],
+            "/api/v1/notes/{id}/links"
+        );
     }
 
     fn extract_registered_routes(source: &'static str) -> BTreeSet<&'static str> {

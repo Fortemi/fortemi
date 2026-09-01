@@ -7,7 +7,7 @@ info:
   license:
     name: BUSL-1.1
     identifier: BUSL-1.1
-  version: 2026.2.9
+  version: 2026.9.0
 servers:
 - url: http://localhost:3000
 paths:
@@ -4848,7 +4848,11 @@ paths:
           format: uuid
       responses:
         '200':
-          description: Success
+          description: Outgoing and incoming note links
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoteLinksResponse'
         '429':
           content:
             application/problem+json:
@@ -4857,6 +4861,95 @@ paths:
           description: Global request rate limit exceeded
       security:
       - bearerAuth: []
+    post:
+      tags:
+      - Graph
+      operationId: create_note_link
+      parameters:
+      - name: id
+        in: path
+        description: Source note ID
+        required: true
+        schema:
+          type: string
+          format: uuid
+      requestBody:
+        description: Manual note-to-note link
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateNoteLinkRequest'
+        required: true
+      responses:
+        '200':
+          description: Exact idempotent replay
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateNoteLinkResponse'
+        '201':
+          description: Manual link created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateNoteLinkResponse'
+        '400':
+          description: Malformed or unsupported request
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '403':
+          description: Authorization denied
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '404':
+          description: Source or target note unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '409':
+          description: Identity exists with different attributes
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
+      x-fortemi-authorization:
+        policy_class: tenant_object
+        required_scopes:
+        - write
+        resource_id:
+          parameter: id
+          role: source_note
+        target_visibility_check: true
+        tenant_transaction_required: true
+      x-fortemi-operation-disposition:
+        consumer_issue: Fortemi/HotM#10
+        contract: manual-note-link-v1
+        status: supported
   /api/v1/notes/{id}/memory-provenance:
     get:
       tags:
@@ -8495,6 +8588,61 @@ components:
             pipeline step is skipped — caller's value wins. Useful for
             bulk-import paths like the shard rebuild that want deterministic
             titles without depending on inference. Added for #675.
+    CreateNoteLinkRequest:
+      type: object
+      description: |-
+        Manual note-link-v1 request. `{id}` is the source note and `to_note_id` is
+        the target. Only the authority-owned `explicit` kind is user-writable.
+      required:
+      - to_note_id
+      - kind
+      properties:
+        kind:
+          type: string
+          description: Must be `explicit`; generated `semantic` and `wiki` links are server-owned.
+        score:
+          type:
+          - number
+          - 'null'
+          format: float
+          description: Optional edge weight in the inclusive range 0.0 through 1.0. Defaults to 1.0.
+        to_note_id:
+          type: string
+          format: uuid
+          description: Target note identifier.
+      additionalProperties: false
+    CreateNoteLinkResponse:
+      type: object
+      description: Minimal, content-free representation of a persisted manual link.
+      required:
+      - id
+      - from_note_id
+      - to_note_id
+      - kind
+      - score
+      - created_at_utc
+      - created
+      properties:
+        created:
+          type: boolean
+          description: True for the initial insert; false for an exact idempotent replay.
+        created_at_utc:
+          type: string
+          format: date-time
+        from_note_id:
+          type: string
+          format: uuid
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+        score:
+          type: number
+          format: float
+        to_note_id:
+          type: string
+          format: uuid
     CreateNoteProvenanceRequest:
       type: object
       description: Request to create a note provenance record linking a note to spatial-temporal context.
@@ -10390,6 +10538,20 @@ components:
           type: array
           items:
             type: string
+    NoteLinksResponse:
+      type: object
+      required:
+      - outgoing
+      - incoming
+      properties:
+        incoming:
+          type: array
+          items:
+            $ref: '#/components/schemas/Link'
+        outgoing:
+          type: array
+          items:
+            $ref: '#/components/schemas/Link'
     NoteMeta:
       type: object
       description: Metadata for a note (without content).
@@ -13390,7 +13552,7 @@ x-fortemi-error-contract:
   redaction_boundary: Problem details must not expose raw SQL/database errors, filesystem paths, command stderr, provider URLs, tokens, secrets, stack traces, or backend exception text.
 x-fortemi-contract:
   artifact_path: contracts/openapi/openapi.yaml
-  contract_revision: '1'
+  contract_revision: '2'
   producer: Fortemi/Fortemi
   producer_commit: Use the immutable Git commit containing this artifact.
   receipt_path: openapi-contract-receipt.json

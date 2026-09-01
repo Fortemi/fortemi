@@ -124,8 +124,8 @@ pub use file_storage::{
 pub use jobs::{get_extraction_stats, PgJobRepository};
 pub use links::{
     CoarseCommunityResult, DiagnosticsComparison, DiagnosticsSnapshot, GraphDiagnostics, GraphEdge,
-    GraphMeta, GraphNode, GraphResult, PfnetResult, PgLinkRepository, SnnResult, SnnSafetyPolicy,
-    SnnStatus, TopologyStats,
+    GraphMeta, GraphNode, GraphResult, LinkCreateResult, PfnetResult, PgLinkRepository, SnnResult,
+    SnnSafetyPolicy, SnnStatus, TopologyStats,
 };
 pub use memory_search::{MemorySearchRepository, PgMemorySearchRepository};
 pub use notes::{

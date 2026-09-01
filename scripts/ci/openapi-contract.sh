@@ -69,8 +69,8 @@ case "${1:-}" in
   "schema_version": 1,
   "producer_repository": "Fortemi/Fortemi",
   "producer_commit": "$GITHUB_SHA",
-  "contract_revision": "1",
-  "contract_version": "2026.2.9",
+  "contract_revision": "2",
+  "contract_version": "2026.9.0",
   "artifact_path": "contracts/openapi/openapi.yaml",
   "sha256": "$sha256"
 }

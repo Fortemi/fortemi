@@ -3,7 +3,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value as JsonValue;
-use sqlx::{Pool, Postgres, Row, Transaction};
+use sqlx::{PgConnection, Pool, Postgres, Row, Transaction};
 use std::fmt;
 use uuid::Uuid;
 
@@ -14,10 +14,112 @@ pub struct PgLinkRepository {
     pool: Pool<Postgres>,
 }
 
+/// Persisted result of an idempotent note-to-note link create operation.
+///
+/// `created` is true only for the transaction that inserted the row. Replays
+/// return the authoritative persisted row instead of a discarded candidate ID.
+#[derive(Clone)]
+pub struct LinkCreateResult {
+    pub id: Uuid,
+    pub from_note_id: Uuid,
+    pub to_note_id: Uuid,
+    pub kind: String,
+    pub score: f32,
+    pub created_at_utc: DateTime<Utc>,
+    pub metadata: Option<JsonValue>,
+    pub created: bool,
+}
+
+impl fmt::Debug for LinkCreateResult {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("LinkCreateResult")
+            .field("id_present", &!self.id.is_nil())
+            .field("from_note_id_present", &!self.from_note_id.is_nil())
+            .field("to_note_id_present", &!self.to_note_id.is_nil())
+            .field("kind_len", &self.kind.chars().count())
+            .field("score", &self.score)
+            .field("created_at_utc", &self.created_at_utc)
+            .field("metadata_present", &self.metadata.is_some())
+            .field("created", &self.created)
+            .finish()
+    }
+}
+
 impl PgLinkRepository {
     /// Create a new PgLinkRepository with the given connection pool.
     pub fn new(pool: Pool<Postgres>) -> Self {
         Self { pool }
+    }
+
+    /// Insert a note-to-note link or return the authoritative persisted row.
+    ///
+    /// The partial unique index installed by migration
+    /// `20260901010000_link_note_identity_unique.sql` is the concurrency
+    /// authority. `ON CONFLICT DO NOTHING` may wait for a competing writer;
+    /// the following statement then observes that committed row under the
+    /// default READ COMMITTED isolation level.
+    pub async fn create_idempotent_tx(
+        &self,
+        connection: &mut PgConnection,
+        from_note_id: Uuid,
+        to_note_id: Uuid,
+        kind: &str,
+        score: f32,
+        metadata: Option<JsonValue>,
+    ) -> Result<LinkCreateResult> {
+        let candidate_id = new_v7();
+        let now = Utc::now();
+
+        let inserted = sqlx::query(
+            r#"INSERT INTO link
+                   (id, from_note_id, to_note_id, to_url, kind, score, created_at_utc, metadata)
+               VALUES ($1, $2, $3, NULL, $4, $5, $6, $7)
+               ON CONFLICT (from_note_id, to_note_id, kind)
+                   WHERE to_note_id IS NOT NULL
+               DO NOTHING
+               RETURNING id, from_note_id, to_note_id, kind, score, created_at_utc, metadata"#,
+        )
+        .bind(candidate_id)
+        .bind(from_note_id)
+        .bind(to_note_id)
+        .bind(kind)
+        .bind(score)
+        .bind(now)
+        .bind(&metadata)
+        .fetch_optional(&mut *connection)
+        .await
+        .map_err(Error::Database)?;
+
+        let (row, created) = if let Some(row) = inserted {
+            (row, true)
+        } else {
+            let row = sqlx::query(
+                r#"SELECT id, from_note_id, to_note_id, kind, score, created_at_utc, metadata
+                   FROM link
+                   WHERE from_note_id = $1 AND to_note_id = $2 AND kind = $3"#,
+            )
+            .bind(from_note_id)
+            .bind(to_note_id)
+            .bind(kind)
+            .fetch_one(&mut *connection)
+            .await
+            .map_err(Error::Database)?;
+            (row, false)
+        };
+
+        Ok(LinkCreateResult {
+            id: row.get("id"),
+            from_note_id: row.get("from_note_id"),
+            to_note_id: row
+                .get::<Option<Uuid>, _>("to_note_id")
+                .ok_or_else(|| Error::Internal("persisted note link has no target note".into()))?,
+            kind: row.get("kind"),
+            score: row.get("score"),
+            created_at_utc: row.get("created_at_utc"),
+            metadata: row.get("metadata"),
+            created,
+        })
     }
 }
 
@@ -31,29 +133,18 @@ impl LinkRepository for PgLinkRepository {
         score: f32,
         metadata: Option<JsonValue>,
     ) -> Result<Uuid> {
-        let link_id = new_v7();
-        let now = Utc::now();
-
-        sqlx::query(
-            "INSERT INTO link (id, from_note_id, to_note_id, to_url, kind, score, created_at_utc, metadata)
-             SELECT $1, $2, $3, NULL, $4, $5, $6, $7
-             WHERE NOT EXISTS (
-                 SELECT 1 FROM link
-                 WHERE from_note_id = $2 AND to_note_id = $3 AND kind = $4
-             )",
-        )
-        .bind(link_id)
-        .bind(from_note_id)
-        .bind(to_note_id)
-        .bind(kind)
-        .bind(score)
-        .bind(now)
-        .bind(&metadata)
-        .execute(&self.pool)
-        .await
-        .map_err(Error::Database)?;
-
-        Ok(link_id)
+        let mut connection = self.pool.acquire().await.map_err(Error::Database)?;
+        let result = self
+            .create_idempotent_tx(
+                &mut connection,
+                from_note_id,
+                to_note_id,
+                kind,
+                score,
+                metadata,
+            )
+            .await?;
+        Ok(result.id)
     }
 
     async fn create_reciprocal(
@@ -64,49 +155,11 @@ impl LinkRepository for PgLinkRepository {
         score: f32,
         metadata: Option<JsonValue>,
     ) -> Result<()> {
-        let now = Utc::now();
-
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
-
-        // Forward link (A -> B)
-        sqlx::query(
-            "INSERT INTO link (id, from_note_id, to_note_id, to_url, kind, score, created_at_utc, metadata)
-             SELECT $1, $2, $3, NULL, $4, $5, $6, $7
-             WHERE NOT EXISTS (
-                 SELECT 1 FROM link
-                 WHERE from_note_id = $2 AND to_note_id = $3 AND kind = $4
-             )",
-        )
-        .bind(new_v7())
-        .bind(note_a)
-        .bind(note_b)
-        .bind(kind)
-        .bind(score)
-        .bind(now)
-        .bind(&metadata)
-        .execute(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
-
-        // Backward link (B -> A)
-        sqlx::query(
-            "INSERT INTO link (id, from_note_id, to_note_id, to_url, kind, score, created_at_utc, metadata)
-             SELECT $1, $2, $3, NULL, $4, $5, $6, $7
-             WHERE NOT EXISTS (
-                 SELECT 1 FROM link
-                 WHERE from_note_id = $2 AND to_note_id = $3 AND kind = $4
-             )",
-        )
-        .bind(new_v7())
-        .bind(note_b)
-        .bind(note_a)
-        .bind(kind)
-        .bind(score)
-        .bind(now)
-        .bind(&metadata)
-        .execute(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
+        self.create_idempotent_tx(&mut tx, note_a, note_b, kind, score, metadata.clone())
+            .await?;
+        self.create_idempotent_tx(&mut tx, note_b, note_a, kind, score, metadata)
+            .await?;
 
         tx.commit().await.map_err(Error::Database)?;
         Ok(())
@@ -816,91 +869,33 @@ impl PgLinkRepository {
     /// Create a link within an existing transaction.
     pub async fn create_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         from_note_id: Uuid,
         to_note_id: Uuid,
         kind: &str,
         score: f32,
         metadata: Option<JsonValue>,
     ) -> Result<Uuid> {
-        let link_id = new_v7();
-        let now = Utc::now();
-
-        sqlx::query(
-            "INSERT INTO link (id, from_note_id, to_note_id, to_url, kind, score, created_at_utc, metadata)
-             SELECT $1, $2, $3, NULL, $4, $5, $6, $7
-             WHERE NOT EXISTS (
-                 SELECT 1 FROM link
-                 WHERE from_note_id = $2 AND to_note_id = $3 AND kind = $4
-             )",
-        )
-        .bind(link_id)
-        .bind(from_note_id)
-        .bind(to_note_id)
-        .bind(kind)
-        .bind(score)
-        .bind(now)
-        .bind(&metadata)
-        .execute(&mut **tx)
-        .await
-        .map_err(Error::Database)?;
-
-        Ok(link_id)
+        let result = self
+            .create_idempotent_tx(tx, from_note_id, to_note_id, kind, score, metadata)
+            .await?;
+        Ok(result.id)
     }
 
     /// Create reciprocal links within an existing transaction.
     pub async fn create_reciprocal_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         note_a: Uuid,
         note_b: Uuid,
         kind: &str,
         score: f32,
         metadata: Option<JsonValue>,
     ) -> Result<()> {
-        let now = Utc::now();
-
-        // Forward link (A -> B)
-        let fwd = sqlx::query(
-            "INSERT INTO link (id, from_note_id, to_note_id, to_url, kind, score, created_at_utc, metadata)
-             SELECT $1, $2, $3, NULL, $4, $5, $6, $7
-             WHERE NOT EXISTS (
-                 SELECT 1 FROM link
-                 WHERE from_note_id = $2 AND to_note_id = $3 AND kind = $4
-             )",
-        )
-        .bind(new_v7())
-        .bind(note_a)
-        .bind(note_b)
-        .bind(kind)
-        .bind(score)
-        .bind(now)
-        .bind(&metadata)
-        .execute(&mut **tx)
-        .await
-        .map_err(Error::Database)?;
-
-        // Backward link (B -> A)
-        let bwd = sqlx::query(
-            "INSERT INTO link (id, from_note_id, to_note_id, to_url, kind, score, created_at_utc, metadata)
-             SELECT $1, $2, $3, NULL, $4, $5, $6, $7
-             WHERE NOT EXISTS (
-                 SELECT 1 FROM link
-                 WHERE from_note_id = $2 AND to_note_id = $3 AND kind = $4
-             )",
-        )
-        .bind(new_v7())
-        .bind(note_b)
-        .bind(note_a)
-        .bind(kind)
-        .bind(score)
-        .bind(now)
-        .bind(&metadata)
-        .execute(&mut **tx)
-        .await
-        .map_err(Error::Database)?;
-
-        let _ = (fwd, bwd); // rows_affected checked during debugging
+        self.create_idempotent_tx(tx, note_a, note_b, kind, score, metadata.clone())
+            .await?;
+        self.create_idempotent_tx(tx, note_b, note_a, kind, score, metadata)
+            .await?;
         Ok(())
     }
 

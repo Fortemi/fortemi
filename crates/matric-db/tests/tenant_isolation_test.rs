@@ -2,8 +2,8 @@ use std::str::FromStr;
 
 use matric_core::audit::{AuditEvent, AuditOutcome, AuditSink};
 use matric_db::{
-    assert_hosted_runtime_role, create_pool, inspect_tenant_catalog, Database,
-    PgUserSecretRepository, PostgresAuditSink, TenantScopedConn,
+    assert_hosted_runtime_role, create_pool, inspect_tenant_catalog, Database, PgLinkRepository,
+    PgNoteRepository, PgUserSecretRepository, PostgresAuditSink, TenantScopedConn,
 };
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::Executor;
@@ -152,6 +152,92 @@ async fn transaction_scope_isolates_reused_connection_and_missing_scope_fails_cl
         .fetch_one(&runtime)
         .await;
     assert!(missing_scope.is_err(), "an unscoped tenant query must fail");
+}
+
+#[tokio::test]
+async fn manual_link_visibility_rejects_cross_tenant_and_archived_targets_without_mutation() {
+    let Some((admin, runtime)) = setup().await else {
+        eprintln!("skipping tenant isolation test: DATABASE_URL unavailable or setup failed");
+        return;
+    };
+    let tenant_a = Uuid::new_v4();
+    let tenant_b = Uuid::new_v4();
+    register_tenant(&admin, tenant_a, &format!("test-{tenant_a}")).await;
+    register_tenant(&admin, tenant_b, &format!("test-{tenant_b}")).await;
+
+    let source = Uuid::new_v4();
+    let target = Uuid::new_v4();
+    let mut scope_a = TenantScopedConn::begin(&runtime, tenant_a).await.unwrap();
+    insert_note(&mut scope_a, source, "tenant-a-source").await;
+    scope_a.commit().await.unwrap();
+    let mut scope_b = TenantScopedConn::begin(&runtime, tenant_b).await.unwrap();
+    insert_note(&mut scope_b, target, "tenant-b-target").await;
+    scope_b.commit().await.unwrap();
+
+    let notes = PgNoteRepository::new(runtime.clone());
+    let links = PgLinkRepository::new(runtime.clone());
+    let mut request_scope = TenantScopedConn::begin(&runtime, tenant_a).await.unwrap();
+    assert!(notes
+        .active_exists_tx(request_scope.executor(), source)
+        .await
+        .unwrap());
+    assert!(!notes
+        .active_exists_tx(request_scope.executor(), target)
+        .await
+        .unwrap());
+    let source_visible = notes
+        .active_exists_tx(request_scope.executor(), source)
+        .await
+        .unwrap();
+    let target_visible = notes
+        .active_exists_tx(request_scope.executor(), target)
+        .await
+        .unwrap();
+    if source_visible && target_visible {
+        links
+            .create_idempotent_tx(
+                request_scope.executor(),
+                source,
+                target,
+                "explicit",
+                1.0,
+                None,
+            )
+            .await
+            .unwrap();
+    }
+    request_scope.rollback().await.unwrap();
+    let cross_tenant_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM link WHERE from_note_id = $1 AND to_note_id = $2")
+            .bind(source)
+            .bind(target)
+            .fetch_one(&admin)
+            .await
+            .unwrap();
+    assert_eq!(cross_tenant_count, 0);
+
+    let mut archive_scope = TenantScopedConn::begin(&runtime, tenant_b).await.unwrap();
+    sqlx::query("UPDATE note SET archived = TRUE WHERE id = $1")
+        .bind(target)
+        .execute(archive_scope.executor())
+        .await
+        .unwrap();
+    assert!(!notes
+        .active_exists_tx(archive_scope.executor(), target)
+        .await
+        .unwrap());
+    archive_scope.commit().await.unwrap();
+
+    sqlx::query("DELETE FROM note WHERE id = ANY($1)")
+        .bind([source, target])
+        .execute(&admin)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM tenant_registry WHERE id = ANY($1)")
+        .bind([tenant_a, tenant_b])
+        .execute(&admin)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

@@ -1335,6 +1335,22 @@ impl PgNoteRepository {
         Ok(exists)
     }
 
+    /// Check whether a note is an active target for a user-authored relation.
+    ///
+    /// Missing, soft-deleted, and archived notes deliberately collapse to the
+    /// same boolean so API callers cannot use mutation validation as an
+    /// existence oracle.
+    pub async fn active_exists_tx(&self, tx: &mut PgConnection, id: Uuid) -> Result<bool> {
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM note WHERE id = $1 AND deleted_at IS NULL AND archived = FALSE)",
+        )
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+        Ok(exists)
+    }
+
     /// Update note title within an existing transaction.
     pub async fn update_title_tx(
         &self,

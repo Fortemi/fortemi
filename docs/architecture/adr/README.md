@@ -64,13 +64,14 @@ This directory contains Architecture Decision Records (ADRs) documenting signifi
 | [ADR-029](ADR-029-shard-schema-versioning.md) | Shard Schema Versioning | Partially superseded by ADR-102/103 | 2026-02-01 |
 | [ADR-030](ADR-030-migration-downgrade-upgrade-ux.md) | Migration Downgrade/Upgrade UX | Accepted | 2026-02-01 |
 
-### Cross-Repository Data Contracts (ADR-102 to ADR-104)
+### Cross-Repository Data Contracts (ADR-102 to ADR-105)
 
 | ADR | Title | Status | Date |
 |-----|-------|--------|------|
 | [ADR-102](ADR-102-canonical-knowledge-shard-contract.md) | Canonical Knowledge Shard Contract and Conformance Profiles | Accepted | 2026-07-17 |
 | [ADR-103](ADR-103-lossless-knowledge-shard-presence-semantics.md) | Lossless Knowledge Shard Presence Semantics | Accepted; exact `2.0.0/full-v1` opt-in | 2026-07-22 |
 | [ADR-104](ADR-104-supported-platform-suite-conformance.md) | Supported-Platform Suite Conformance | Accepted; three required cells passed | 2026-07-28 |
+| [ADR-105](ADR-105-manual-note-link-mutation.md) | Manual Note-Link Mutation Contract | Accepted | 2026-09-01 |
 
 ### File Handling (ADR-031 to ADR-036)
 
@@ -195,7 +196,7 @@ See [ADR-TEMPLATE.md](ADR-TEMPLATE.md) for the template used when creating new A
 Core Architecture (011-016)
 ├── Multilingual FTS (017-021) - extends search capabilities
 ├── Embedding System (022-027, 077, 081) - extends semantic features
-└── Backup/Migration (028-030, 102-104) - migration and platform-qualified contract concerns
+└── Backup/Migration (028-030, 102-105) - migration and platform-qualified contract concerns
 
 Inference Backend (001-005, 072)
 └── Encryption (006-010, 050) - secure data handling

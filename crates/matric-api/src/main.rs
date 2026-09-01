@@ -1313,7 +1313,7 @@ impl AppState {
 #[openapi(
     info(
         title = "Matric Memory API",
-        version = "2026.2.9",
+        version = "2026.9.0",
         description = "AI-enhanced knowledge base with semantic search, automatic linking, and NLP pipelines"
     ),
     servers((url = "http://localhost:3000")),
@@ -1341,7 +1341,7 @@ impl AppState {
         create_collection, get_collection, update_collection, delete_collection,
         get_collection_notes, export_collection, move_note_to_collection, explore_graph, graph_topology_stats, get_cold_spots,
         list_templates, create_template, get_template, update_template,
-        delete_template, instantiate_template, get_note_links, get_note_backlinks,
+        delete_template, instantiate_template, get_note_links, create_note_link, get_note_backlinks,
         get_note_provenance, search_memories, get_memory_provenance_handler, export_note,
         get_full_document, list_note_versions, get_note_version, restore_note_version,
         delete_note_version, diff_note_versions, search_notes, federated_search,
@@ -1633,6 +1633,7 @@ fn openapi_yaml_with_problem_contract() -> String {
     add_openapi_memory_aliases(&mut value);
     apply_openapi_problem_responses(&mut value);
     apply_openapi_route_security(&mut value);
+    apply_openapi_operation_contracts(&mut value);
 
     let contract = serde_json::json!({
         "content_type": "application/problem+json",
@@ -1653,7 +1654,7 @@ fn openapi_yaml_with_problem_contract() -> String {
         serde_yaml::Value::String("x-fortemi-contract".to_string()),
         serde_yaml::to_value(canonicalize_json_value(serde_json::json!({
             "artifact_path": "contracts/openapi/openapi.yaml",
-            "contract_revision": "1",
+            "contract_revision": "2",
             "producer": "Fortemi/Fortemi",
             "producer_commit": "Use the immutable Git commit containing this artifact.",
             "receipt_path": "openapi-contract-receipt.json",
@@ -1817,6 +1818,42 @@ fn apply_openapi_route_security(value: &mut serde_yaml::Value) {
             operation.insert(yaml_key("security"), requirement);
         }
     }
+}
+
+fn apply_openapi_operation_contracts(value: &mut serde_yaml::Value) {
+    let operation = value
+        .as_mapping_mut()
+        .and_then(|root| root.get_mut(yaml_key("paths")))
+        .and_then(serde_yaml::Value::as_mapping_mut)
+        .and_then(|paths| paths.get_mut(yaml_key("/api/v1/notes/{id}/links")))
+        .and_then(serde_yaml::Value::as_mapping_mut)
+        .and_then(|path| path.get_mut(yaml_key("post")))
+        .and_then(serde_yaml::Value::as_mapping_mut)
+        .expect("manual note-link operation must exist in generated OpenAPI");
+
+    operation.insert(
+        yaml_key("x-fortemi-authorization"),
+        serde_yaml::to_value(canonicalize_json_value(serde_json::json!({
+            "policy_class": "tenant_object",
+            "required_scopes": ["write"],
+            "resource_id": {
+                "parameter": "id",
+                "role": "source_note",
+            },
+            "target_visibility_check": true,
+            "tenant_transaction_required": true,
+        })))
+        .expect("manual note-link authorization metadata must serialize"),
+    );
+    operation.insert(
+        yaml_key("x-fortemi-operation-disposition"),
+        serde_yaml::to_value(canonicalize_json_value(serde_json::json!({
+            "contract": "manual-note-link-v1",
+            "status": "supported",
+            "consumer_issue": "Fortemi/HotM#10",
+        })))
+        .expect("manual note-link disposition metadata must serialize"),
+    );
 }
 
 fn validate_generated_openapi(yaml: &str) -> Result<(), String> {
@@ -4384,7 +4421,10 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1/notes/{id}/tags",
             get(get_note_tags).put(set_note_tags),
         )
-        .route("/api/v1/notes/{id}/links", get(get_note_links))
+        .route(
+            "/api/v1/notes/{id}/links",
+            get(get_note_links).post(create_note_link),
+        )
         .route("/api/v1/notes/{id}/backlinks", get(get_note_backlinks))
         .route("/api/v1/notes/{id}/related", get(get_related_notes))
         .route("/api/v1/notes/{id}/export", get(export_note))
@@ -18441,7 +18481,7 @@ async fn instantiate_template(
 // LINK HANDLERS
 // =============================================================================
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 struct NoteLinksResponse {
     outgoing: Vec<matric_core::Link>,
     incoming: Vec<matric_core::Link>,
@@ -18507,7 +18547,7 @@ fn note_links_metadata_secret_candidate_count(links: &[matric_core::Link]) -> us
 
 #[utoipa::path(get, path = "/api/v1/notes/{id}/links", tag = "Graph",
     params(("id" = Uuid, Path, description = "Note ID")),
-    responses((status = 200, description = "Success")))]
+    responses((status = 200, description = "Outgoing and incoming note links", body = NoteLinksResponse)))]
 async fn get_note_links(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
@@ -18539,6 +18579,179 @@ async fn get_note_links(
     };
 
     Ok(Json(NoteLinksResponse { outgoing, incoming }))
+}
+
+const MANUAL_NOTE_LINK_KIND: &str = "explicit";
+const MANUAL_NOTE_LINK_DEFAULT_SCORE: f32 = 1.0;
+const INVALID_NOTE_LINK_BODY: &str = "Invalid note-link request body.";
+const INVALID_NOTE_LINK_ID: &str = "Invalid note identifier.";
+const INVALID_NOTE_LINK_KIND: &str = "Unsupported note-link kind.";
+const INVALID_NOTE_LINK_SCORE: &str =
+    "Note-link score must be a finite number between 0.0 and 1.0.";
+const INVALID_NOTE_LINK_SELF: &str = "A note cannot link to itself.";
+const NOTE_LINK_CONFLICT: &str = "A link with this identity already has different attributes.";
+
+/// Manual note-link-v1 request. `{id}` is the source note and `to_note_id` is
+/// the target. Only the authority-owned `explicit` kind is user-writable.
+#[derive(Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+struct CreateNoteLinkRequest {
+    /// Target note identifier.
+    to_note_id: Uuid,
+    /// Must be `explicit`; generated `semantic` and `wiki` links are server-owned.
+    kind: String,
+    /// Optional edge weight in the inclusive range 0.0 through 1.0. Defaults to 1.0.
+    score: Option<f32>,
+}
+
+impl fmt::Debug for CreateNoteLinkRequest {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CreateNoteLinkRequest")
+            .field("to_note_id_present", &!self.to_note_id.is_nil())
+            .field("kind_len", &telemetry_text_len(&self.kind))
+            .field("score", &self.score)
+            .finish()
+    }
+}
+
+struct ValidatedNoteLinkRequest {
+    from_note_id: Uuid,
+    to_note_id: Uuid,
+    score: f32,
+}
+
+fn validate_create_note_link(
+    source_id: &str,
+    body: CreateNoteLinkRequest,
+) -> Result<ValidatedNoteLinkRequest, ApiError> {
+    let from_note_id = Uuid::parse_str(source_id)
+        .map_err(|_| ApiError::BadRequest(INVALID_NOTE_LINK_ID.to_string()))?;
+    if body.kind != MANUAL_NOTE_LINK_KIND {
+        return Err(ApiError::BadRequest(INVALID_NOTE_LINK_KIND.to_string()));
+    }
+    let score = body.score.unwrap_or(MANUAL_NOTE_LINK_DEFAULT_SCORE);
+    if !score.is_finite() || !(0.0..=1.0).contains(&score) {
+        return Err(ApiError::BadRequest(INVALID_NOTE_LINK_SCORE.to_string()));
+    }
+    if from_note_id == body.to_note_id {
+        return Err(ApiError::BadRequest(INVALID_NOTE_LINK_SELF.to_string()));
+    }
+
+    Ok(ValidatedNoteLinkRequest {
+        from_note_id,
+        to_note_id: body.to_note_id,
+        score,
+    })
+}
+
+/// Minimal, content-free representation of a persisted manual link.
+#[derive(Serialize, utoipa::ToSchema)]
+struct CreateNoteLinkResponse {
+    id: Uuid,
+    from_note_id: Uuid,
+    to_note_id: Uuid,
+    kind: String,
+    score: f32,
+    created_at_utc: DateTime<Utc>,
+    /// True for the initial insert; false for an exact idempotent replay.
+    created: bool,
+}
+
+impl fmt::Debug for CreateNoteLinkResponse {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("CreateNoteLinkResponse")
+            .field("id_present", &!self.id.is_nil())
+            .field("from_note_id_present", &!self.from_note_id.is_nil())
+            .field("to_note_id_present", &!self.to_note_id.is_nil())
+            .field("kind_len", &telemetry_text_len(&self.kind))
+            .field("score", &self.score)
+            .field("created_at_utc", &self.created_at_utc)
+            .field("created", &self.created)
+            .finish()
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/notes/{id}/links",
+    tag = "Graph",
+    params(("id" = Uuid, Path, description = "Source note ID")),
+    request_body(content = CreateNoteLinkRequest, description = "Manual note-to-note link"),
+    responses(
+        (status = 201, description = "Manual link created", body = CreateNoteLinkResponse),
+        (status = 200, description = "Exact idempotent replay", body = CreateNoteLinkResponse),
+        (status = 400, description = "Malformed or unsupported request", body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 401, description = "Authentication required", body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 403, description = "Authorization denied", body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 404, description = "Source or target note unavailable", body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 409, description = "Identity exists with different attributes", body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 500, description = "Internal error", body = ProblemDetails, content_type = "application/problem+json")
+    )
+)]
+async fn create_note_link(
+    State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Path(source_id): Path<String>,
+    body: Result<Json<CreateNoteLinkRequest>, axum::extract::rejection::JsonRejection>,
+) -> Result<Response, ApiError> {
+    let Json(body) = body.map_err(|_| ApiError::BadRequest(INVALID_NOTE_LINK_BODY.to_string()))?;
+    let request = validate_create_note_link(&source_id, body)?;
+    let requested_score = request.score;
+    let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
+
+    let persisted = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema.clone(),
+        move |connection| {
+            Box::pin(async move {
+                let source_active = notes
+                    .active_exists_tx(connection, request.from_note_id)
+                    .await?;
+                let target_active = notes
+                    .active_exists_tx(connection, request.to_note_id)
+                    .await?;
+                if !source_active || !target_active {
+                    return Err(matric_core::Error::NotFound("Note not found".to_string()));
+                }
+                links
+                    .create_idempotent_tx(
+                        connection,
+                        request.from_note_id,
+                        request.to_note_id,
+                        MANUAL_NOTE_LINK_KIND,
+                        request.score,
+                        None,
+                    )
+                    .await
+            })
+        },
+    )
+    .await?;
+
+    if persisted.score.to_bits() != requested_score.to_bits() || persisted.metadata.is_some() {
+        return Err(ApiError::Conflict(NOTE_LINK_CONFLICT.to_string()));
+    }
+
+    let status = if persisted.created {
+        StatusCode::CREATED
+    } else {
+        StatusCode::OK
+    };
+    let response = CreateNoteLinkResponse {
+        id: persisted.id,
+        from_note_id: persisted.from_note_id,
+        to_note_id: persisted.to_note_id,
+        kind: persisted.kind,
+        score: persisted.score,
+        created_at_utc: persisted.created_at_utc,
+        created: persisted.created,
+    };
+    Ok((status, Json(response)).into_response())
 }
 
 /// Get backlinks (notes that link TO this note).
@@ -40536,6 +40749,7 @@ mod tests {
     }
 
     static SHARD_INTEGRATION_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    static MANUAL_LINK_HOSTED_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     const TUS_MEMORY_CHILD_BYTES_ENV: &str = "FORTEMI_TEST_TUS_MEMORY_CHILD_BYTES";
     const TUS_MEMORY_CHILD_RECEIPT_ENV: &str = "FORTEMI_TEST_TUS_MEMORY_CHILD_RECEIPT";
     const TUS_MEMORY_RECEIPT_ENV: &str = "FORTEMI_AL_TUS_MEMORY_RECEIPT_PATH";
@@ -42259,6 +42473,451 @@ mod tests {
         ] {
             assert!(!rendered.contains(raw), "raw value leaked: {raw}");
         }
+    }
+
+    #[test]
+    fn manual_note_link_validation_is_stable_and_non_echoing() {
+        let source = Uuid::new_v4();
+        let target = Uuid::new_v4();
+        let secret_kind = "sk-live-private-link-kind";
+
+        let valid = validate_create_note_link(
+            &source.to_string(),
+            CreateNoteLinkRequest {
+                to_note_id: target,
+                kind: MANUAL_NOTE_LINK_KIND.to_string(),
+                score: None,
+            },
+        )
+        .expect("valid explicit link");
+        assert_eq!(valid.from_note_id, source);
+        assert_eq!(valid.to_note_id, target);
+        assert_eq!(valid.score, MANUAL_NOTE_LINK_DEFAULT_SCORE);
+
+        let cases = [
+            validate_create_note_link(
+                "operator@example.com/sk-live-source",
+                CreateNoteLinkRequest {
+                    to_note_id: target,
+                    kind: MANUAL_NOTE_LINK_KIND.to_string(),
+                    score: None,
+                },
+            ),
+            validate_create_note_link(
+                &source.to_string(),
+                CreateNoteLinkRequest {
+                    to_note_id: target,
+                    kind: secret_kind.to_string(),
+                    score: None,
+                },
+            ),
+            validate_create_note_link(
+                &source.to_string(),
+                CreateNoteLinkRequest {
+                    to_note_id: target,
+                    kind: MANUAL_NOTE_LINK_KIND.to_string(),
+                    score: Some(f32::INFINITY),
+                },
+            ),
+            validate_create_note_link(
+                &source.to_string(),
+                CreateNoteLinkRequest {
+                    to_note_id: source,
+                    kind: MANUAL_NOTE_LINK_KIND.to_string(),
+                    score: Some(0.5),
+                },
+            ),
+        ];
+
+        let rendered = cases
+            .into_iter()
+            .map(|result| match result {
+                Err(ApiError::BadRequest(message)) => message,
+                _ => panic!("expected stable validation failure"),
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(rendered.contains(INVALID_NOTE_LINK_ID));
+        assert!(rendered.contains(INVALID_NOTE_LINK_KIND));
+        assert!(rendered.contains(INVALID_NOTE_LINK_SCORE));
+        assert!(rendered.contains(INVALID_NOTE_LINK_SELF));
+        for raw in [
+            "operator@example.com",
+            "sk-live-source",
+            secret_kind,
+            &source.to_string(),
+            &target.to_string(),
+        ] {
+            assert!(!rendered.contains(raw), "validation echoed submitted data");
+        }
+    }
+
+    #[test]
+    fn manual_note_link_debug_redacts_identifiers_and_kind() {
+        let source = Uuid::new_v4();
+        let target = Uuid::new_v4();
+        let id = Uuid::new_v4();
+        let request = CreateNoteLinkRequest {
+            to_note_id: target,
+            kind: "sk-live-private-kind".to_string(),
+            score: Some(0.75),
+        };
+        let response = CreateNoteLinkResponse {
+            id,
+            from_note_id: source,
+            to_note_id: target,
+            kind: "explicit-private-operator-kind".to_string(),
+            score: 0.75,
+            created_at_utc: Utc::now(),
+            created: true,
+        };
+        let rendered = format!("{request:?}\n{response:?}");
+
+        assert!(rendered.contains("to_note_id_present"));
+        assert!(rendered.contains("kind_len"));
+        for raw in [
+            &source.to_string(),
+            &target.to_string(),
+            &id.to_string(),
+            "sk-live-private-kind",
+            "explicit-private-operator-kind",
+        ] {
+            assert!(
+                !rendered.contains(raw),
+                "debug output leaked submitted data"
+            );
+        }
+    }
+
+    async fn spawn_manual_note_link_test_server() -> Option<(String, sqlx::PgPool)> {
+        let database_url = std::env::var("DATABASE_URL").ok()?;
+        let pool = matric_db::create_pool(&database_url)
+            .await
+            .expect("connect manual note-link test database");
+        let db = Database::new(pool.clone());
+        db.migrate()
+            .await
+            .expect("migrate manual note-link test database");
+        let state = build_call_api_test_state(db, &database_url).await;
+        let router = Router::new()
+            .route("/api/v1/notes/{id}/links", post(create_note_link))
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                archive_routing_middleware,
+            ))
+            .with_state(state);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind manual note-link test server");
+        let address = listener.local_addr().expect("manual link test address");
+        tokio::spawn(async move {
+            axum::serve(listener, router)
+                .await
+                .expect("serve manual note-link test router");
+        });
+        Some((format!("http://{address}"), pool))
+    }
+
+    #[derive(Clone)]
+    struct HostedManualLinkTestIdentity {
+        tenant_id: Uuid,
+        scope: &'static str,
+    }
+
+    async fn inject_hosted_manual_link_test_identity(
+        Extension(identity): Extension<HostedManualLinkTestIdentity>,
+        mut request: axum::http::Request<Body>,
+        next: axum::middleware::Next,
+    ) -> Response {
+        let tenant_id = identity.tenant_id.to_string();
+        let input = route_policy::authorization_input_for_request(
+            request.method(),
+            request.uri().path(),
+            Some(&tenant_id),
+        )
+        .expect("manual link route policy input");
+        request.extensions_mut().insert(input);
+        request.extensions_mut().insert(
+            VerifiedRequestTenant::from_verified(identity.tenant_id)
+                .expect("hosted test tenant is verified"),
+        );
+        request.extensions_mut().insert(TenantScopeRequired);
+        request.extensions_mut().insert(Auth {
+            principal: AuthPrincipal::OAuthClient {
+                client_id: "hosted-manual-link-test".to_string(),
+                scope: identity.scope.to_string(),
+                user_id: Some("hosted-manual-link-test-user".to_string()),
+            },
+        });
+        next.run(request).await
+    }
+
+    async fn hosted_manual_link_test_pools() -> Option<(sqlx::PgPool, sqlx::PgPool)> {
+        const ROLE: &str = "fortemi_manual_link_hosted_test";
+        const PASSWORD: &str = "fortemi-manual-link-hosted-test-only";
+
+        let database_url = std::env::var("DATABASE_URL").ok()?;
+        let admin = matric_db::create_pool(&database_url).await.ok()?;
+        Database::new(admin.clone()).migrate().await.ok()?;
+        sqlx::query(&format!(
+            r#"
+            DO $$
+            BEGIN
+              IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{ROLE}') THEN
+                CREATE ROLE {ROLE}
+                  LOGIN PASSWORD '{PASSWORD}'
+                  NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+              ELSE
+                ALTER ROLE {ROLE}
+                  WITH LOGIN PASSWORD '{PASSWORD}'
+                  NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
+              END IF;
+            END
+            $$;
+            "#
+        ))
+        .execute(&admin)
+        .await
+        .ok()?;
+        sqlx::query(&format!("GRANT USAGE ON SCHEMA public TO {ROLE}"))
+            .execute(&admin)
+            .await
+            .ok()?;
+        sqlx::query(&format!(
+            "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {ROLE}"
+        ))
+        .execute(&admin)
+        .await
+        .ok()?;
+        sqlx::query(&format!(
+            "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {ROLE}"
+        ))
+        .execute(&admin)
+        .await
+        .ok()?;
+
+        let options = database_url
+            .parse::<sqlx::postgres::PgConnectOptions>()
+            .ok()?
+            .username(ROLE)
+            .password(PASSWORD);
+        let runtime = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .min_connections(1)
+            .connect_with(options)
+            .await
+            .ok()?;
+        Some((admin, runtime))
+    }
+
+    fn hosted_manual_link_test_router(
+        state: AppState,
+        runtime: sqlx::PgPool,
+        identity: HostedManualLinkTestIdentity,
+    ) -> Router {
+        Router::new()
+            .route("/api/v1/notes/{id}/links", post(create_note_link))
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                authorize_middleware,
+            ))
+            .layer(axum::middleware::from_fn_with_state(
+                runtime,
+                tenant_scope_middleware,
+            ))
+            .layer(axum::middleware::from_fn(
+                inject_hosted_manual_link_test_identity,
+            ))
+            .layer(Extension(identity))
+            .layer(Extension(ArchiveContext::default()))
+            .with_state(state)
+    }
+
+    fn manual_link_test_request(source: Uuid, target: Uuid) -> axum::http::Request<Body> {
+        axum::http::Request::builder()
+            .method(Method::POST)
+            .uri(format!("/api/v1/notes/{source}/links"))
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "to_note_id": target,
+                    "kind": "explicit",
+                    "score": 0.75,
+                })
+                .to_string(),
+            ))
+            .expect("manual link test request")
+    }
+
+    async fn insert_manual_link_note(pool: &sqlx::PgPool, note_id: Uuid, archived: bool) {
+        sqlx::query(
+            r#"INSERT INTO note
+                   (id, format, source, created_at_utc, updated_at_utc, archived, tenant_id)
+               VALUES ($1, 'markdown', 'manual-link-http-test', now(), now(), $2,
+                       '00000000-0000-0000-0000-000000000000')"#,
+        )
+        .bind(note_id)
+        .bind(archived)
+        .execute(pool)
+        .await
+        .expect("insert manual link note fixture");
+    }
+
+    #[tokio::test]
+    async fn manual_note_link_http_contract_covers_success_replay_and_rejection() {
+        let Some((base_url, pool)) = spawn_manual_note_link_test_server().await else {
+            eprintln!("skipping manual note-link HTTP test: DATABASE_URL unavailable");
+            return;
+        };
+        let source = Uuid::new_v4();
+        let target = Uuid::new_v4();
+        let archived_target = Uuid::new_v4();
+        for (note_id, archived) in [(source, false), (target, false), (archived_target, true)] {
+            insert_manual_link_note(&pool, note_id, archived).await;
+        }
+        let client = reqwest::Client::new();
+        let endpoint = format!("{base_url}/api/v1/notes/{source}/links");
+        let request = serde_json::json!({
+            "to_note_id": target,
+            "kind": "explicit",
+            "score": 0.75,
+        });
+
+        let created = client
+            .post(&endpoint)
+            .json(&request)
+            .send()
+            .await
+            .expect("create manual link");
+        assert_eq!(created.status(), StatusCode::CREATED);
+        let created_body: serde_json::Value = created.json().await.expect("created link body");
+        assert_eq!(created_body["created"], true);
+        assert_eq!(created_body["from_note_id"], source.to_string());
+        assert_eq!(created_body["to_note_id"], target.to_string());
+        assert_eq!(created_body["kind"], MANUAL_NOTE_LINK_KIND);
+
+        let replay = client
+            .post(&endpoint)
+            .json(&request)
+            .send()
+            .await
+            .expect("replay manual link");
+        assert_eq!(replay.status(), StatusCode::OK);
+        let replay_body: serde_json::Value = replay.json().await.expect("replay link body");
+        assert_eq!(replay_body["created"], false);
+        assert_eq!(replay_body["id"], created_body["id"]);
+
+        let conflict = client
+            .post(&endpoint)
+            .json(&serde_json::json!({
+                "to_note_id": target,
+                "kind": "explicit",
+                "score": 0.25,
+            }))
+            .send()
+            .await
+            .expect("conflicting manual link");
+        assert_eq!(conflict.status(), StatusCode::CONFLICT);
+        let conflict_body: serde_json::Value = conflict.json().await.expect("conflict body");
+        assert_eq!(conflict_body["detail"], NOTE_LINK_CONFLICT);
+
+        for (payload, expected_detail) in [
+            (
+                serde_json::json!({
+                    "to_note_id": target,
+                    "kind": "sk-live-unsupported-kind",
+                }),
+                INVALID_NOTE_LINK_KIND,
+            ),
+            (
+                serde_json::json!({
+                    "to_note_id": target,
+                    "kind": "explicit",
+                    "score": 1.5,
+                }),
+                INVALID_NOTE_LINK_SCORE,
+            ),
+            (
+                serde_json::json!({
+                    "to_note_id": source,
+                    "kind": "explicit",
+                }),
+                INVALID_NOTE_LINK_SELF,
+            ),
+        ] {
+            let response = client
+                .post(&endpoint)
+                .json(&payload)
+                .send()
+                .await
+                .expect("validation response");
+            assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+            let text = response.text().await.expect("validation problem body");
+            assert!(text.contains(expected_detail));
+            assert!(!text.contains("sk-live-unsupported-kind"));
+        }
+
+        for unavailable_target in [archived_target, Uuid::new_v4()] {
+            let response = client
+                .post(&endpoint)
+                .json(&serde_json::json!({
+                    "to_note_id": unavailable_target,
+                    "kind": "explicit",
+                }))
+                .send()
+                .await
+                .expect("unavailable target response");
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+            let text = response.text().await.expect("not-found problem body");
+            assert!(!text.contains(&unavailable_target.to_string()));
+        }
+
+        let secret = "sk-live-arbitrary-metadata-secret";
+        let unknown_field = client
+            .post(&endpoint)
+            .json(&serde_json::json!({
+                "to_note_id": Uuid::new_v4(),
+                "kind": "explicit",
+                "metadata": {"api_key": secret},
+            }))
+            .send()
+            .await
+            .expect("unknown field response");
+        assert_eq!(unknown_field.status(), StatusCode::BAD_REQUEST);
+        let unknown_text = unknown_field.text().await.expect("unknown field body");
+        assert!(unknown_text.contains(INVALID_NOTE_LINK_BODY));
+        assert!(!unknown_text.contains(secret));
+        assert!(!unknown_text.contains("metadata"));
+
+        let malformed_path = client
+            .post(format!(
+                "{base_url}/api/v1/notes/operator@example.com-sk-live-source/links"
+            ))
+            .json(&request)
+            .send()
+            .await
+            .expect("malformed path response");
+        assert_eq!(malformed_path.status(), StatusCode::BAD_REQUEST);
+        let malformed_text = malformed_path.text().await.expect("malformed path body");
+        assert!(malformed_text.contains(INVALID_NOTE_LINK_ID));
+        assert!(!malformed_text.contains("operator@example.com"));
+        assert!(!malformed_text.contains("sk-live-source"));
+
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM link WHERE from_note_id = $1 AND to_note_id = $2 AND kind = 'explicit'",
+        )
+        .bind(source)
+        .bind(target)
+        .fetch_one(&pool)
+        .await
+        .expect("count manual links");
+        assert_eq!(count, 1);
+
+        sqlx::query("DELETE FROM note WHERE id = ANY($1)")
+            .bind([source, target, archived_target])
+            .execute(&pool)
+            .await
+            .expect("cleanup manual link fixtures");
     }
 
     #[test]
@@ -67858,6 +68517,142 @@ not-json
             .await;
     }
 
+    #[tokio::test]
+    async fn hosted_manual_note_link_enforces_scope_and_tenant_transaction_visibility() {
+        let _guard = MANUAL_LINK_HOSTED_TEST_LOCK.lock().await;
+        let Some((admin, runtime)) = hosted_manual_link_test_pools().await else {
+            eprintln!("skipping hosted manual-link test: DATABASE_URL unavailable");
+            return;
+        };
+        let tenant_a = Uuid::new_v4();
+        let tenant_b = Uuid::new_v4();
+        for tenant_id in [tenant_a, tenant_b] {
+            sqlx::query(
+                "INSERT INTO tenant_registry (id, slug, display_name, status) VALUES ($1, $2, $2, 'active')",
+            )
+            .bind(tenant_id)
+            .bind(format!("manual-link-{tenant_id}"))
+            .execute(&admin)
+            .await
+            .expect("register hosted manual-link tenant");
+        }
+
+        let source = Uuid::new_v4();
+        let target = Uuid::new_v4();
+        let archived_target = Uuid::new_v4();
+        let cross_tenant_target = Uuid::new_v4();
+        let mut tenant_a_scope = matric_db::TenantScopedConn::begin(&runtime, tenant_a)
+            .await
+            .expect("begin tenant A fixture scope");
+        for (note_id, archived) in [(source, false), (target, false), (archived_target, true)] {
+            sqlx::query(
+                r#"INSERT INTO note
+                       (id, format, source, created_at_utc, updated_at_utc, archived)
+                   VALUES ($1, 'markdown', 'hosted-manual-link-test', now(), now(), $2)"#,
+            )
+            .bind(note_id)
+            .bind(archived)
+            .execute(tenant_a_scope.executor())
+            .await
+            .expect("insert tenant A manual-link fixture");
+        }
+        tenant_a_scope
+            .commit()
+            .await
+            .expect("commit tenant A fixture scope");
+        let mut tenant_b_scope = matric_db::TenantScopedConn::begin(&runtime, tenant_b)
+            .await
+            .expect("begin tenant B fixture scope");
+        sqlx::query(
+            r#"INSERT INTO note (id, format, source, created_at_utc, updated_at_utc)
+               VALUES ($1, 'markdown', 'hosted-manual-link-test', now(), now())"#,
+        )
+        .bind(cross_tenant_target)
+        .execute(tenant_b_scope.executor())
+        .await
+        .expect("insert tenant B manual-link fixture");
+        tenant_b_scope
+            .commit()
+            .await
+            .expect("commit tenant B fixture scope");
+
+        let mut state =
+            build_call_api_test_state(Database::new(runtime.clone()), "hosted-test").await;
+        state.require_auth = true;
+        state.multi_tenant = true;
+        state.authorization_policy = Arc::new(RoleBasedPolicy);
+
+        let read_only = hosted_manual_link_test_router(
+            state.clone(),
+            runtime.clone(),
+            HostedManualLinkTestIdentity {
+                tenant_id: tenant_a,
+                scope: "read",
+            },
+        )
+        .oneshot(manual_link_test_request(source, target))
+        .await
+        .expect("read-scope hosted response");
+        assert_eq!(read_only.status(), StatusCode::FORBIDDEN);
+
+        let write_router = hosted_manual_link_test_router(
+            state,
+            runtime,
+            HostedManualLinkTestIdentity {
+                tenant_id: tenant_a,
+                scope: "write",
+            },
+        );
+        for unavailable_target in [archived_target, cross_tenant_target] {
+            let response = write_router
+                .clone()
+                .oneshot(manual_link_test_request(source, unavailable_target))
+                .await
+                .expect("hosted invisible-target response");
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+            let body = read_response_json(response).await.to_string();
+            assert!(!body.contains(&unavailable_target.to_string()));
+        }
+
+        let created = write_router
+            .oneshot(manual_link_test_request(source, target))
+            .await
+            .expect("hosted manual-link success");
+        assert_eq!(created.status(), StatusCode::CREATED);
+        let created_body = read_response_json(created).await;
+        assert_eq!(created_body["created"], true);
+
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM link WHERE from_note_id = $1 AND to_note_id = $2 AND kind = 'explicit'",
+        )
+        .bind(source)
+        .bind(target)
+        .fetch_one(&admin)
+        .await
+        .expect("count hosted persisted link");
+        assert_eq!(count, 1);
+        let rejected_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM link WHERE from_note_id = $1 AND to_note_id = ANY($2)",
+        )
+        .bind(source)
+        .bind([archived_target, cross_tenant_target])
+        .fetch_one(&admin)
+        .await
+        .expect("count rejected hosted links");
+        assert_eq!(rejected_count, 0);
+
+        sqlx::query("DELETE FROM note WHERE id = ANY($1)")
+            .bind([source, target, archived_target, cross_tenant_target])
+            .execute(&admin)
+            .await
+            .expect("clean hosted manual-link notes");
+        sqlx::query("DELETE FROM tenant_registry WHERE id = ANY($1)")
+            .bind([tenant_a, tenant_b])
+            .execute(&admin)
+            .await
+            .expect("clean hosted manual-link tenants");
+    }
+
     /// Memory search with no params returns 400.
     #[tokio::test]
     async fn test_memory_search_requires_params() {
@@ -68291,7 +69086,7 @@ not-json
             "Title must match"
         );
         assert!(
-            yaml.contains("version: '2026.2.9'") || yaml.contains("version: 2026.2.9"),
+            yaml.contains("version: '2026.9.0'") || yaml.contains("version: 2026.9.0"),
             "Version must match"
         );
         assert!(
@@ -68368,6 +69163,50 @@ not-json
     fn generated_openapi_passes_strict_contract_validation() {
         validate_generated_openapi(&openapi_yaml_with_problem_contract())
             .expect("generated OpenAPI must satisfy the published contract");
+    }
+
+    #[test]
+    fn manual_note_link_openapi_is_typed_authorized_and_dispositioned() {
+        let generated: serde_yaml::Value =
+            serde_yaml::from_str(&openapi_yaml_with_problem_contract()).expect("generated OpenAPI");
+        let operation = generated
+            .as_mapping()
+            .and_then(|root| root.get(yaml_key("paths")))
+            .and_then(serde_yaml::Value::as_mapping)
+            .and_then(|paths| paths.get(yaml_key("/api/v1/notes/{id}/links")))
+            .and_then(serde_yaml::Value::as_mapping)
+            .and_then(|path| path.get(yaml_key("post")))
+            .and_then(serde_yaml::Value::as_mapping)
+            .expect("manual note-link POST operation");
+
+        let operation_json = serde_json::to_value(operation).expect("operation JSON");
+        assert_eq!(
+            operation_json["x-fortemi-authorization"]["policy_class"],
+            "tenant_object"
+        );
+        assert_eq!(
+            operation_json["x-fortemi-authorization"]["required_scopes"],
+            serde_json::json!(["write"])
+        );
+        assert_eq!(
+            operation_json["x-fortemi-authorization"]["tenant_transaction_required"],
+            true
+        );
+        assert_eq!(
+            operation_json["x-fortemi-operation-disposition"]["contract"],
+            "manual-note-link-v1"
+        );
+        assert_eq!(
+            operation_json["x-fortemi-operation-disposition"]["status"],
+            "supported"
+        );
+        assert!(operation_json["requestBody"]["content"]["application/json"]["schema"].is_object());
+        for status in ["200", "201", "400", "401", "403", "404", "409", "500"] {
+            assert!(
+                operation_json["responses"].get(status).is_some(),
+                "missing response {status}"
+            );
+        }
     }
 
     #[test]
