@@ -166,6 +166,7 @@ const DEFAULT_INGEST_PROGRESS_INTERVAL: usize = 100;
 
 const INGEST_TAG_LENGTH_VALIDATION_ERROR: &str = "tag exceeds the allowed length";
 const INGEST_TAG_DEPTH_VALIDATION_ERROR: &str = "tag exceeds the allowed depth";
+const INGEST_TAG_SHAPE_VALIDATION_ERROR: &str = "tag does not match the supported path grammar";
 
 /// Resolve the per-line byte cap from `FORTEMI_INGEST_MAX_LINE_BYTES`, falling
 /// back to [`DEFAULT_INGEST_MAX_LINE_BYTES`]. A non-numeric or zero value falls
@@ -545,16 +546,19 @@ fn build_note_request(n: IngestNoteData) -> Result<CreateNoteRequest, String> {
 fn validate_note_data(n: &IngestNoteData) -> Result<(), String> {
     if let Some(tags) = &n.tags {
         for tag in tags {
-            if tag.len() > matric_core::defaults::TAG_NAME_MAX_LENGTH {
-                return Err(INGEST_TAG_LENGTH_VALIDATION_ERROR.to_string());
-            }
-            let depth = tag
-                .split('/')
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .count();
-            if depth > matric_core::tags::MAX_TAG_PATH_DEPTH {
-                return Err(INGEST_TAG_DEPTH_VALIDATION_ERROR.to_string());
+            match matric_core::tags::validate_tag_name(tag) {
+                Ok(()) => {}
+                Err(matric_core::tags::TagNameValidationError::TooLong) => {
+                    return Err(INGEST_TAG_LENGTH_VALIDATION_ERROR.to_string());
+                }
+                Err(matric_core::tags::TagNameValidationError::TooDeep) => {
+                    return Err(INGEST_TAG_DEPTH_VALIDATION_ERROR.to_string());
+                }
+                Err(
+                    matric_core::tags::TagNameValidationError::Empty
+                    | matric_core::tags::TagNameValidationError::EmptyPathComponent
+                    | matric_core::tags::TagNameValidationError::InvalidCharacter,
+                ) => return Err(INGEST_TAG_SHAPE_VALIDATION_ERROR.to_string()),
             }
         }
     }
@@ -2006,12 +2010,22 @@ mod tests {
 
     #[test]
     fn validate_accepts_object_metadata_and_valid_tags() {
-        let req = parse_ingest_line(
-            br#"{"type":"note","data":{"content":"c","metadata":{"k":"v"},"tags":["a/b/c","x"]}}"#,
-        )
-        .expect("object metadata + valid tags accepted");
+        let line = r#"{"type":"note","data":{"content":"c","metadata":{"k":"v"},"tags":["a/b/c/d/e","1st/_private/tag_","ümlaut/資料"]}}"#;
+        let req =
+            parse_ingest_line(line.as_bytes()).expect("object metadata + valid tags accepted");
         assert!(req.metadata.is_some());
-        assert_eq!(req.tags.as_deref().map(<[_]>::len), Some(2));
+        assert_eq!(req.tags.as_deref().map(<[_]>::len), Some(3));
+    }
+
+    #[test]
+    fn validate_rejects_invalid_tag_shape_without_echoing_content() {
+        let tag = "customer//secret-token";
+        let line = format!(r#"{{"type":"note","data":{{"content":"c","tags":["{tag}"]}}}}"#);
+        let err = parse_ingest_line(line.as_bytes()).expect_err("invalid tag shape rejected");
+        assert_eq!(err, INGEST_TAG_SHAPE_VALIDATION_ERROR);
+        assert!(!err.contains(tag));
+        assert!(!err.contains("customer"));
+        assert!(!err.contains("secret-token"));
     }
 
     // ---- progress events (#826) --------------------------------------------

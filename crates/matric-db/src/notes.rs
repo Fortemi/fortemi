@@ -569,6 +569,9 @@ impl PgNoteRepository {
 
         // Merge explicit tags with inline hashtags
         let all_tags = Self::merge_tags(req.tags.clone(), &req.content);
+        for tag in &all_tags {
+            crate::tags::validate_tag_name(tag).map_err(Error::InvalidInput)?;
+        }
 
         // Insert note metadata. `title` is nullable — when the caller doesn't
         // supply one, the column stays NULL and gets populated later by the
@@ -689,6 +692,9 @@ impl PgNoteRepository {
 
             // Merge explicit tags with inline hashtags
             let all_tags = Self::merge_tags(req.tags.clone(), &req.content);
+            for tag in &all_tags {
+                crate::tags::validate_tag_name(tag).map_err(Error::InvalidInput)?;
+            }
 
             // Insert note metadata (bulk path; matches single-insert above
             // for title plumbing — see #675).

@@ -700,6 +700,34 @@ fn tag_depth_validation_error(index: Option<usize>) -> ApiError {
     ApiError::BadRequest(detail)
 }
 
+fn tag_shape_validation_error(index: Option<usize>) -> ApiError {
+    let detail = match index {
+        Some(i) => format!("Note at index {i}: tag does not match the supported tag-path grammar"),
+        None => "Tag does not match the supported tag-path grammar".to_string(),
+    };
+    ApiError::BadRequest(detail)
+}
+
+fn validate_request_tags(tags: &[String], index: Option<usize>) -> Result<(), ApiError> {
+    for tag in tags {
+        match matric_core::tags::validate_tag_name(tag) {
+            Ok(()) => {}
+            Err(matric_core::tags::TagNameValidationError::TooLong) => {
+                return Err(tag_length_validation_error(index));
+            }
+            Err(matric_core::tags::TagNameValidationError::TooDeep) => {
+                return Err(tag_depth_validation_error(index));
+            }
+            Err(
+                matric_core::tags::TagNameValidationError::Empty
+                | matric_core::tags::TagNameValidationError::EmptyPathComponent
+                | matric_core::tags::TagNameValidationError::InvalidCharacter,
+            ) => return Err(tag_shape_validation_error(index)),
+        }
+    }
+    Ok(())
+}
+
 fn invalid_attachment_content_type() -> ApiError {
     ApiError::BadRequest(
         "Invalid attachment content_type. Expected MIME type format type/subtype.".to_string(),
@@ -13760,6 +13788,9 @@ async fn create_note(
 
     // Extract tags for SKOS processing
     let tags_for_skos = body.tags.clone();
+    if let Some(tags) = &tags_for_skos {
+        validate_request_tags(tags, None)?;
+    }
 
     // When the caller supplied an explicit title (#675), skip AI
     // title generation regardless of the document type's agent hints —
@@ -13796,23 +13827,6 @@ async fn create_note(
     } else {
         None
     };
-
-    // Validate tag depth and length before processing (fixes #193, #189)
-    if let Some(ref tags) = tags_for_skos {
-        for tag in tags {
-            if tag.len() > matric_core::defaults::TAG_NAME_MAX_LENGTH {
-                return Err(tag_length_validation_error(None));
-            }
-            let depth = tag
-                .split('/')
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-                .count();
-            if depth > matric_core::tags::MAX_TAG_PATH_DEPTH {
-                return Err(tag_depth_validation_error(None));
-            }
-        }
-    }
 
     // Resolve tags via SKOS and create parent hierarchy (fixes #301)
     if let Some(tags) = tags_for_skos {
@@ -14045,21 +14059,8 @@ async fn bulk_create_notes(
 
     // Validate tags in each note
     for (i, note) in body.notes.iter().enumerate() {
-        // Validate tag depth and length (fixes #193, #189)
         if let Some(ref tags) = note.tags {
-            for tag in tags {
-                if tag.len() > matric_core::defaults::TAG_NAME_MAX_LENGTH {
-                    return Err(tag_length_validation_error(Some(i)));
-                }
-                let depth = tag
-                    .split('/')
-                    .map(|s| s.trim())
-                    .filter(|s| !s.is_empty())
-                    .count();
-                if depth > matric_core::tags::MAX_TAG_PATH_DEPTH {
-                    return Err(tag_depth_validation_error(Some(i)));
-                }
-            }
+            validate_request_tags(tags, Some(i))?;
         }
     }
 
@@ -14337,12 +14338,7 @@ async fn update_note(
 
     // Update tags if provided (#226)
     if let Some(tags) = body.tags {
-        // Validate tags
-        for tag in &tags {
-            if tag.len() > matric_core::defaults::TAG_NAME_MAX_LENGTH {
-                return Err(tag_length_validation_error(None));
-            }
-        }
+        validate_request_tags(&tags, None)?;
         let repo = matric_db::PgTagRepository::new(pool.clone());
         with_request_schema(
             &state,
@@ -15241,20 +15237,7 @@ async fn set_note_tags(
     Path(id): Path<Uuid>,
     Json(body): Json<SetTagsBody>,
 ) -> Result<impl IntoResponse, ApiError> {
-    // Validate tag depth and length (fixes #193, #189)
-    for tag in &body.tags {
-        if tag.len() > matric_core::defaults::TAG_NAME_MAX_LENGTH {
-            return Err(tag_length_validation_error(None));
-        }
-        let depth = tag
-            .split('/')
-            .map(|s| s.trim())
-            .filter(|s| !s.is_empty())
-            .count();
-        if depth > matric_core::tags::MAX_TAG_PATH_DEPTH {
-            return Err(tag_depth_validation_error(None));
-        }
-    }
+    validate_request_tags(&body.tags, None)?;
     let repo = matric_db::PgTagRepository::new(state.db.pool.clone());
     let tags_clone = body.tags.clone();
     with_request_schema(
@@ -46217,6 +46200,33 @@ mod tests {
         assert!(!body.contains("customer-notes"));
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
+
+        let invalid_tags = vec!["client-private//customer-notes".to_string()];
+        let err = validate_request_tags(&invalid_tags, Some(3))
+            .expect_err("empty tag path component must be rejected");
+        let (status, _headers, problem) = read_problem_response(err).await;
+
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            problem["detail"],
+            "Note at index 3: tag does not match the supported tag-path grammar"
+        );
+        let body = problem.to_string();
+        assert!(!body.contains("client-private"));
+        assert!(!body.contains("customer-notes"));
+        assert!(problem.get("error").is_none());
+        assert!(problem.get("error_description").is_none());
+    }
+
+    #[test]
+    fn shared_tag_validation_accepts_five_levels_and_legacy_boundaries() {
+        let tags = vec![
+            "a/b/c/d/e".to_string(),
+            "1st/_private/tag_".to_string(),
+            "ümlaut/資料".to_string(),
+            "trailing-".to_string(),
+        ];
+        assert!(validate_request_tags(&tags, None).is_ok());
     }
 
     #[tokio::test]

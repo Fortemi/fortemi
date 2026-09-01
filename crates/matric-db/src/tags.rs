@@ -8,44 +8,12 @@ use uuid::Uuid;
 
 use matric_core::{Error, Result, Tag, TagRepository};
 
-/// Validate a tag name.
+/// Validate a tag name against the authority-owned core contract.
 ///
-/// Rules:
-/// - Length between 1-100 characters
-/// - Allowed characters: alphanumeric, hyphens (-), underscores (_), forward slashes (/)
-/// - No spaces or other special characters
-///
-/// Returns Ok(()) if valid, Err with message if invalid.
+/// The string error is stable and contains no submitted tag content, preserving
+/// existing `Error::InvalidInput` boundaries without duplicating the grammar.
 pub fn validate_tag_name(tag: &str) -> std::result::Result<(), String> {
-    if tag.is_empty() {
-        return Err("Tag name cannot be empty".to_string());
-    }
-    if tag.len() > matric_core::defaults::TAG_NAME_MAX_LENGTH {
-        return Err(format!(
-            "Tag name must be {} characters or less",
-            matric_core::defaults::TAG_NAME_MAX_LENGTH
-        ));
-    }
-
-    let invalid_chars: Vec<char> = tag
-        .chars()
-        .filter(|c| !c.is_alphanumeric() && *c != '-' && *c != '_' && *c != '/')
-        .collect();
-
-    if !invalid_chars.is_empty() {
-        let chars_display: String = invalid_chars
-            .iter()
-            .take(5)
-            .map(|c| format!("'{}'", c))
-            .collect::<Vec<_>>()
-            .join(", ");
-        return Err(format!(
-            "Tag contains invalid characters: {}. Only alphanumeric characters, hyphens, underscores, and forward slashes are allowed",
-            chars_display
-        ));
-    }
-
-    Ok(())
+    matric_core::tags::validate_tag_name(tag).map_err(|error| error.to_string())
 }
 
 /// PostgreSQL implementation of TagRepository.
@@ -57,6 +25,33 @@ impl PgTagRepository {
     /// Create a new PgTagRepository with the given connection pool.
     pub fn new(pool: Pool<Postgres>) -> Self {
         Self { pool }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn repository_validator_preserves_legacy_boundaries_and_five_levels() {
+        for tag in ["a/b/c/d/e", "1st/_private/tag_", "ümlaut/資料", "trailing-"] {
+            assert!(validate_tag_name(tag).is_ok(), "expected valid tag");
+        }
+    }
+
+    #[test]
+    fn repository_validator_rejects_shape_without_echoing_submitted_content() {
+        for tag in [
+            "a/b/c/d/e/f",
+            "double//separator",
+            "customer secret",
+            "archetype/{token}",
+        ] {
+            let error = validate_tag_name(tag).expect_err("invalid tag must be rejected");
+            assert!(!error.contains(tag));
+            assert!(!error.contains("customer"));
+            assert!(!error.contains("token"));
+        }
     }
 }
 

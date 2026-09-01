@@ -1742,6 +1742,69 @@ pub const DEFAULT_SCHEME_NOTATION: &str = "default";
 /// Maximum hierarchy depth for tag paths (0-indexed, so 5 means 5 levels).
 pub const MAX_TAG_PATH_DEPTH: usize = 5;
 
+/// Stable tag-name validation classes shared by API, ingest, and persistence.
+///
+/// Variants intentionally carry no submitted tag content so callers can safely
+/// map them into broad diagnostics without leaking user taxonomy data.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TagNameValidationError {
+    Empty,
+    TooLong,
+    TooDeep,
+    EmptyPathComponent,
+    InvalidCharacter,
+}
+
+impl fmt::Display for TagNameValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let message = match self {
+            Self::Empty => "tag name cannot be empty",
+            Self::TooLong => "tag name exceeds the allowed length",
+            Self::TooDeep => "tag path exceeds the allowed depth",
+            Self::EmptyPathComponent => "tag path contains an empty component",
+            Self::InvalidCharacter => "tag name contains an invalid character",
+        };
+        f.write_str(message)
+    }
+}
+
+impl std::error::Error for TagNameValidationError {}
+
+/// Validate the canonical legacy tag-path grammar without normalizing input.
+///
+/// The accepted contract is one to five non-empty `/`-separated components,
+/// at most [`crate::defaults::TAG_NAME_MAX_LENGTH`] Unicode characters in
+/// total. Components accept Unicode alphanumeric characters, `-`, and `_`.
+/// Leading digits/underscores and trailing hyphens/underscores remain valid for
+/// backward compatibility; callers must not silently rewrite them.
+pub fn validate_tag_name(tag: &str) -> Result<(), TagNameValidationError> {
+    if tag.is_empty() {
+        return Err(TagNameValidationError::Empty);
+    }
+    if tag.chars().count() > crate::defaults::TAG_NAME_MAX_LENGTH {
+        return Err(TagNameValidationError::TooLong);
+    }
+
+    let mut depth = 0usize;
+    for component in tag.split('/') {
+        if component.is_empty() {
+            return Err(TagNameValidationError::EmptyPathComponent);
+        }
+        depth += 1;
+        if depth > MAX_TAG_PATH_DEPTH {
+            return Err(TagNameValidationError::TooDeep);
+        }
+        if component
+            .chars()
+            .any(|c| !c.is_alphanumeric() && c != '-' && c != '_')
+        {
+            return Err(TagNameValidationError::InvalidCharacter);
+        }
+    }
+
+    Ok(())
+}
+
 /// Parsed tag input supporting both flat path and long-form SKOS formats.
 ///
 /// # Tag Formats
@@ -3608,6 +3671,60 @@ mod tests {
         let tag = TagInput::parse("a/b/c/d/e/f/g");
         assert_eq!(tag.path.len(), 5);
         assert_eq!(tag.path, vec!["a", "b", "c", "d", "e"]);
+    }
+
+    #[test]
+    fn tag_name_validation_preserves_five_level_and_boundary_compatibility() {
+        for tag in [
+            "archive",
+            "ai/ml/transformers",
+            "projects/matric/features/search",
+            "a/b/c/d/e",
+            "1st/_private/tag_",
+            "ümlaut/資料",
+            "trailing-",
+        ] {
+            assert_eq!(validate_tag_name(tag), Ok(()), "expected valid tag");
+        }
+    }
+
+    #[test]
+    fn tag_name_validation_rejects_invalid_shapes_without_echoing_content() {
+        let cases = [
+            ("", TagNameValidationError::Empty),
+            ("a/b/c/d/e/f", TagNameValidationError::TooDeep),
+            ("/leading", TagNameValidationError::EmptyPathComponent),
+            ("trailing/", TagNameValidationError::EmptyPathComponent),
+            (
+                "double//separator",
+                TagNameValidationError::EmptyPathComponent,
+            ),
+            ("contains space", TagNameValidationError::InvalidCharacter),
+            (
+                "archetype/{secret}",
+                TagNameValidationError::InvalidCharacter,
+            ),
+        ];
+
+        for (tag, expected) in cases {
+            let error = validate_tag_name(tag).expect_err("invalid tag must be rejected");
+            assert_eq!(error, expected);
+            if !tag.is_empty() {
+                assert!(!error.to_string().contains(tag));
+            }
+        }
+    }
+
+    #[test]
+    fn tag_name_validation_counts_unicode_characters_not_bytes() {
+        let within_limit = "é".repeat(crate::defaults::TAG_NAME_MAX_LENGTH);
+        assert_eq!(validate_tag_name(&within_limit), Ok(()));
+
+        let over_limit = "é".repeat(crate::defaults::TAG_NAME_MAX_LENGTH + 1);
+        assert_eq!(
+            validate_tag_name(&over_limit),
+            Err(TagNameValidationError::TooLong)
+        );
     }
 
     #[test]

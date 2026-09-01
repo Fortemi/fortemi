@@ -172,10 +172,24 @@ The system enforces these validation rules:
 
 | Rule | Limit | Description |
 |------|-------|-------------|
+| Tag Length | 100 Unicode characters | Counted as characters rather than UTF-8 bytes |
 | Max Depth | 5 levels | Maximum hierarchy depth |
+| Path Shape | Non-empty components | Empty, leading, trailing, or repeated `/` components are rejected |
+| Component Characters | Unicode letters/numbers, `-`, `_` | Leading digits/underscores and trailing hyphens/underscores remain supported for compatibility |
 | Max Breadth | 200 children | Maximum children per concept |
 | Max Polyhierarchy | 3 parents | Maximum broader concepts |
 | Literary Warrant | 3+ notes | Notes needed before "controlled" status |
+
+The same validator runs before note, bulk-note, streaming-ingest, and tag
+repository writes. Validation errors return a stable class and do not echo the
+submitted tag. Existing stored names remain readable and removable; upgrades do
+not silently normalize or delete taxonomy data.
+
+Before enforcing a stricter grammar or adding a database constraint, operators
+must run the aggregate-only audit in `tools/db/audit-tag-contract.sql`. It
+reports incompatible and case-collision counts without printing tag names.
+Any nonzero result requires an explicit, reversible migration decision rather
+than automatic normalization.
 
 ### Anti-Pattern Detection
 
