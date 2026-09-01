@@ -2,120 +2,75 @@
   "schema_version": 1,
   "workflow": "release-doc-sync",
   "direction": "code-to-docs",
-  "started_from_clean_worktree": true,
-  "completed_at": "2026-07-29T06:02:48Z",
+  "started_from_clean_worktree": false,
+  "completed_at": "2026-09-01T23:25:21Z",
   "repository": {
     "name": "Fortemi/fortemi",
-    "path": "/home/roctinam/dev/fortemi-suite/fortemi",
-    "baseline_tag": "v2026.7.12",
-    "baseline_commit": "a036f723a3308c377a636532053505d5fcd",
-    "head_commit": "5bfecfe8d55caced3652a225a60f5217b4c192e8"
+    "path": "/home/roctinam/dev/fortemi-suite/.worktrees/fortemi-release-2026.9.0",
+    "baseline_tag": "v2026.8.3",
+    "baseline_commit": "0dd28a9255e2b53363f93e2e288777631709eb05",
+    "head_commit": "0dd28a9255e2b53363f93e2e288777631709eb05"
   },
   "scope": {
     "source_of_truth": [
-      "current runtime selectors",
-      "Knowledge Shard contract registries",
-      "suite platform matrix and verifier",
-      "Gitea run 6393",
-      "Fortemi issue 1096"
+      "Cargo workspace and MCP package version declarations",
+      "committed OpenAPI artifact and SHA-256",
+      "ADR-105 manual-note-link contract authority",
+      "v2026.9.0 changelog and release announcement"
     ],
     "write_boundary": [
-      "documentation",
-      ".aiwg/reports/doc-sync-20260729-code-to-docs.md",
+      "CHANGELOG.md",
+      ".aiwg/reports/doc-sync-20260901T232521Z.md",
       ".aiwg/reports/doc-sync-last-run.json"
     ],
     "excluded": [
       "runtime code",
       "machine contract manifests",
-      "release version fields",
-      "tags",
-      "commit",
-      "push"
+      "consumer implementation",
+      "supported-platform execution receipts",
+      "commit, tag, push, and publication"
     ]
   },
-  "summary": "Eight high-confidence documentation drifts were reconciled. Exact 2.0.0/full-v1 is the sole advertised schema-2 opt-in; 1.2.0/core-v1 remains the default. Gitea run 6393 proves only the declared Fortemi authority-to-React/core-to-HotM surface on Linux x86_64, Linux arm64, and macOS arm64 at pinned revisions. Windows remains deferred under issue 1096, and parent issue 1081 remains NO-GO pending independent audit.",
+  "summary": "The bounded release-documentation audit found one high-confidence drift: the changelog comparison references had not advanced from v2026.8.3. The references now identify v2026.9.0. Version declarations, the OpenAPI digest, ADR-105, the release announcement, and the stable non-echoing hosted authorization boundary are aligned. Platform and live-consumer claims remain explicitly deferred to immutable release validation.",
   "findings": [
     {
-      "id": "DS-01",
+      "id": "DS-2026.9.0-01",
       "status": "fixed",
-      "summary": "Schema 2 status was stale in the Knowledge Shard README."
-    },
-    {
-      "id": "DS-02",
-      "status": "fixed",
-      "summary": "Server self-route and schema-2 cross-repository evidence were conflated."
-    },
-    {
-      "id": "DS-03",
-      "status": "fixed",
-      "summary": "User docs described schema-2 profile availability too broadly."
-    },
-    {
-      "id": "DS-04",
-      "status": "fixed",
-      "summary": "Unreleased changelog omitted delivered platform and recovery work."
-    },
-    {
-      "id": "DS-05",
-      "status": "fixed",
-      "summary": "ADR-102 did not distinguish 1.x/default gaps from exact schema-2 evidence."
-    },
-    {
-      "id": "DS-06",
-      "status": "fixed",
-      "summary": "ADR-103 framed delivered receipt work as pending and implied an overbroad completion condition."
-    },
-    {
-      "id": "DS-07",
-      "status": "fixed",
-      "summary": "Platform docs omitted run 6393 and Windows issue 1096."
-    },
-    {
-      "id": "DS-08",
-      "status": "fixed",
-      "summary": "The ADR index omitted ADR-104 and retained target-only statuses."
+      "summary": "Changelog comparison references omitted v2026.9.0 and retained v2026.8.3 as the Unreleased base."
     }
   ],
   "changed_files": [
     "CHANGELOG.md",
-    "contracts/knowledge-shard/README.md",
-    "contracts/suite-conformance/README.md",
-    "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md",
-    "docs/architecture/adr/ADR-103-lossless-knowledge-shard-presence-semantics.md",
-    "docs/architecture/adr/ADR-104-supported-platform-suite-conformance.md",
-    "docs/architecture/adr/README.md",
-    "docs/content/backup.md",
-    "docs/content/shard-migration.md",
-    ".aiwg/reports/doc-sync-20260729-code-to-docs.md",
+    ".aiwg/reports/doc-sync-20260901T232521Z.md",
     ".aiwg/reports/doc-sync-last-run.json"
   ],
   "validation": [
     {
-      "command": "DOCS_CONTRACT_MODE=blocking npm run docs:contract -- --profile=hosted_strict",
-      "status": "passed_after_release_prep",
-      "details": "All edited documentation findings passed. Release preparation subsequently replaced the credential-shaped executable DSN literal at scripts/ci/run-suite-platform-contract.sh:170 with structured runtime formatting; the blocking hosted_strict rerun reported zero findings."
-    },
-    {
-      "command": "python3 scripts/ci/verify-knowledge-shard-presence.py",
-      "status": "passed",
-      "details": "Verified 220 inventoried fields and 22 canonical cases."
-    },
-    {
-      "command": "python3 scripts/ci/verify-suite-platform-matrix.py manifest",
-      "status": "passed"
-    },
-    {
-      "command": "python3 scripts/ci/verify-adr-rebaseline.py",
-      "status": "passed"
-    },
-    {
       "command": "git diff --check",
       "status": "passed"
+    },
+    {
+      "command": "Cargo/MCP version-lockstep and CalVer checks",
+      "status": "passed"
+    },
+    {
+      "command": "cargo metadata --no-deps --format-version 1",
+      "status": "passed",
+      "details": "Every workspace matric-* package resolves to 2026.9.0."
+    },
+    {
+      "command": "sha256sum contracts/openapi/openapi.yaml",
+      "status": "passed",
+      "details": "Matched 652bcce252719e5c0ced015beae02e41380c56dccaa5dc071d369b3ac6fdd858."
+    },
+    {
+      "command": "DOCS_CONTRACT_MODE=blocking npm run docs:contract -- --profile=hosted_strict",
+      "status": "passed",
+      "details": "Zero findings, zero stale baseline entries."
     }
   ],
   "human_review": [
-    "Independent audit and any status change for Fortemi issue 1081.",
-    "Provisioning and acceptance of a native Windows x86_64 execution authority under issue 1096.",
-    "Release version, announcement, tag, and publication decisions."
+    "Do not upgrade the explicitly deferred HotM platform cells to supported without immutable release-validation receipts.",
+    "Do not close producer or database tracking issues until the consumer merge, signed release tag, required CI, and publication verification complete."
   ]
 }

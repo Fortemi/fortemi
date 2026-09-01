@@ -7,6 +7,58 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.9.0] - 2026-09-01
+
+Contract release for hosted-safe manual note links and the unified five-level
+tag-path validation boundary.
+
+### Added
+
+- Add `POST /api/v1/notes/{id}/links` as the typed
+  `manual-note-link-v1` operation. The path identifier is the source note,
+  `to_note_id` is the target, and `explicit` is the only caller-writable kind.
+  Optional or null score defaults to `1.0`; finite values from `0.0` through
+  `1.0` are accepted. Exact retries return the authoritative persisted link
+  identity and distinguish initial creation from replay.
+- Publish OpenAPI contract revision `2`, version `2026.9.0`, with typed request,
+  create/replay responses, RFC 9457 errors, bearer/write-scope requirements,
+  target-visibility policy, tenant-transaction metadata, and the explicit
+  HotM consumer disposition (#61, Fortemi/HotM#10).
+
+### Fixed
+
+- Enforce manual-link identity atomically in PostgreSQL with the partial unique
+  key `(from_note_id, to_note_id, kind)`. Concurrent writers converge on one
+  row and one ID; conflicting score or metadata returns `409`, and rollback
+  leaves no partial row. Existing schemas are audited before the index is
+  installed, with identifier-free duplicate refusal (#62).
+- Use one canonical tag-path grammar across API, database, ingest, and
+  relationship lookup while preserving the supported five-component depth and
+  legacy relationship behavior (#63).
+
+### Security
+
+- Admit manual-link writes in hosted mode only through the transaction-scoped
+  tenant boundary. Source and target visibility are evaluated in the same
+  transaction to avoid an asymmetric existence oracle; archived, missing,
+  cross-tenant, and unauthorized targets fail without mutation.
+- Keep validation and debug output stable and non-echoing. Unsupported kinds,
+  malformed identifiers, invalid scores, duplicate migration failures, and
+  conflict responses do not reflect note identifiers, submitted content, or
+  arbitrary metadata.
+
+### Verification
+
+- Generated and committed OpenAPI are byte-identical at SHA-256
+  `652bcce252719e5c0ced015beae02e41380c56dccaa5dc071d369b3ac6fdd858`.
+  Community and hosted HTTP tests cover create, replay, conflict, validation,
+  write/read scope, archived and cross-tenant target rejection, and zero
+  mutation on failure.
+- PostgreSQL 18 tests cover concurrent writers, exact replay, conflicting
+  attributes, rollback, tenant isolation, clean existing-data migration, and
+  fail-closed duplicate fixtures. Supported-platform and live consumer claims
+  remain qualified until their immutable release receipts complete.
+
 ## [2026.8.3] - 2026-08-31
 
 Customer-verification release for the semantic-chunking panic reported in
@@ -2173,7 +2225,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.8.3...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.9.0...HEAD
+[2026.9.0]: https://github.com/fortemi/fortemi/compare/v2026.8.3...v2026.9.0
 [2026.8.3]: https://github.com/fortemi/fortemi/compare/v2026.8.2...v2026.8.3
 [2026.8.2]: https://github.com/fortemi/fortemi/compare/v2026.8.1...v2026.8.2
 [2026.8.1]: https://github.com/fortemi/fortemi/compare/v2026.8.0...v2026.8.1

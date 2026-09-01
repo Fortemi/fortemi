@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "1",
+  "engineVersion": "1.0.1",
+  "policyVersion": "1",
+  "profileVersion": "1.0.0",
+  "policyHash": "47a7c0fb8b84c31524e93300665ee10811df3c4d8fcee44c76ba19cbf7d311fd",
+  "mode": "enforce",
+  "profile": "balanced",
+  "surface": "release-note",
+  "source": {
+    "kind": "repository",
+    "path": "docs/releases/v2026.9.0-announcement.md"
+  },
+  "actor": {
+    "trust": "maintainer"
+  },
+  "requestedAction": "publish-release-note",
+  "policyProvenance": {
+    "source": "aiwg-default",
+    "path": "aiwg:balanced"
+  },
+  "assessed": true,
+  "findings": [
+    {
+      "ruleId": "unverifiable-authority-claim",
+      "ruleProvenance": "aiwg:builtin",
+      "severity": "low",
+      "likelihood": 2,
+      "impact": 3,
+      "taxonomy": [
+        "ASI01",
+        "ASI09"
+      ],
+      "partId": "content",
+      "context": "requested",
+      "evidence": "The generated OpenAPI artifact is contract revision `2`, version `2026.9.0`, at SHA-256 `652bcce252719e5c0ced015beae02e41380c56dccaa5dc071d369b3ac6fdd858`. It records the typed request and success bodies, RFC 9457 error responses, bearer/write-scope requirement, source-resource role, target visibility check, tenant transaction requirement, and the linked HotM consumer issue.",
+      "suppressed": false,
+      "matchedStatements": []
+    }
+  ],
+  "risk": {
+    "score": 6,
+    "severity": "low",
+    "likelihood": 2,
+    "impact": 3
+  },
+  "decision": {
+    "action": "proceed",
+    "wouldAction": "proceed",
+    "interrupts": false,
+    "reason": "profile threshold selected 'proceed'"
+  }
+}
