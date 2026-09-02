@@ -7,10 +7,12 @@
  * - get_note_links: Retrieve links for a note (outgoing and incoming)
  * - get_note_backlinks: Get backlinks pointing to a note
  * - explore_graph: Explore graph neighborhood around a note
+ * - manual-note-link-v1: Persist and idempotently replay an explicit link
  *
  * All tests use unique identifiers (UUIDs) for isolation.
  *
- * NOTE: Links are created automatically by semantic analysis, not via manual API.
+ * Semantic links remain server-generated. The authority-owned `explicit` kind
+ * is also covered through the typed manual-note-link-v1 HTTP mutation.
  */
 
 import { strict as assert } from "node:assert";
@@ -280,5 +282,61 @@ describe("Phase 6: Semantic Links", () => {
         assert.ok(edge.target, "Each edge should have target");
       }
     }
+  });
+
+  test("LINKS-011: manual-note-link-v1 persists and replays authoritative identity", async () => {
+    const source = await client.callTool("create_note", {
+      content: `# Manual Link Source ${MCPTestClient.uniqueId()}`,
+    });
+    const target = await client.callTool("create_note", {
+      content: `# Manual Link Target ${MCPTestClient.uniqueId()}`,
+    });
+    cleanup.noteIds.push(source.id, target.id);
+
+    const bearer = process.env.FORTEMI_API_KEY;
+    assert.ok(bearer, "FORTEMI_API_KEY is required for the live HTTP mutation");
+    const apiBase = process.env.FORTEMI_API_BASE_URL || "http://127.0.0.1:3000";
+    const endpoint = `${apiBase}/api/v1/notes/${encodeURIComponent(source.id)}/links`;
+    const requestBody = {
+      to_note_id: target.id,
+      kind: "explicit",
+      score: 0.75,
+    };
+    const request = () => fetch(endpoint, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${bearer}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    const createdResponse = await request();
+    assert.strictEqual(createdResponse.status, 201, "Initial mutation should create the link");
+    const created = await createdResponse.json();
+    assert.strictEqual(created.created, true);
+    assert.strictEqual(created.from_note_id, source.id);
+    assert.strictEqual(created.to_note_id, target.id);
+    assert.strictEqual(created.kind, "explicit");
+    assert.strictEqual(created.score, 0.75);
+    assert.match(created.id, /^[0-9a-f-]{36}$/i);
+    assert.ok(Number.isFinite(Date.parse(created.created_at_utc)));
+
+    const replayResponse = await request();
+    assert.strictEqual(replayResponse.status, 200, "Exact replay should return the persisted link");
+    const replay = await replayResponse.json();
+    assert.strictEqual(replay.created, false);
+    assert.strictEqual(replay.id, created.id);
+    assert.strictEqual(replay.created_at_utc, created.created_at_utc);
+
+    const links = await client.callTool("get_note_links", { id: source.id });
+    assert.ok(
+      links.outgoing.some((link) =>
+        link.id === created.id &&
+        link.to_note_id === target.id &&
+        link.kind === "explicit"
+      ),
+      "Persisted explicit link should be visible through get_note_links"
+    );
   });
 });
