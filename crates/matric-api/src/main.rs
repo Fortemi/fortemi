@@ -42589,15 +42589,29 @@ mod tests {
         }
     }
 
+    async fn require_manual_link_test_schema(pool: &sqlx::PgPool) {
+        let schema_ready: bool = sqlx::query_scalar(
+            r#"SELECT to_regclass('public.note') IS NOT NULL
+                   AND to_regclass('public.link') IS NOT NULL
+                   AND to_regclass('public.tenant_registry') IS NOT NULL
+                   AND to_regclass('public.ux_link_note_identity') IS NOT NULL"#,
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap_or_else(|_| panic!("inspect manual note-link test database schema"));
+        assert!(
+            schema_ready,
+            "manual note-link test database schema is unavailable"
+        );
+    }
+
     async fn spawn_manual_note_link_test_server() -> Option<(String, sqlx::PgPool)> {
         let database_url = std::env::var("DATABASE_URL").ok()?;
         let pool = matric_db::create_pool(&database_url)
             .await
-            .expect("connect manual note-link test database");
+            .unwrap_or_else(|_| panic!("connect manual note-link test database"));
+        require_manual_link_test_schema(&pool).await;
         let db = Database::new(pool.clone());
-        db.migrate()
-            .await
-            .expect("migrate manual note-link test database");
         let state = build_call_api_test_state(db, &database_url).await;
         let router = Router::new()
             .route("/api/v1/notes/{id}/links", post(create_note_link))
@@ -42657,8 +42671,10 @@ mod tests {
         const PASSWORD: &str = "fortemi-manual-link-hosted-test-only";
 
         let database_url = std::env::var("DATABASE_URL").ok()?;
-        let admin = matric_db::create_pool(&database_url).await.ok()?;
-        Database::new(admin.clone()).migrate().await.ok()?;
+        let admin = matric_db::create_pool(&database_url)
+            .await
+            .unwrap_or_else(|_| panic!("connect hosted manual note-link test database"));
+        require_manual_link_test_schema(&admin).await;
         sqlx::query(&format!(
             r#"
             DO $$
@@ -42678,27 +42694,27 @@ mod tests {
         ))
         .execute(&admin)
         .await
-        .ok()?;
+        .unwrap_or_else(|_| panic!("configure hosted manual note-link test role"));
         sqlx::query(&format!("GRANT USAGE ON SCHEMA public TO {ROLE}"))
             .execute(&admin)
             .await
-            .ok()?;
+            .unwrap_or_else(|_| panic!("grant hosted manual note-link schema access"));
         sqlx::query(&format!(
             "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {ROLE}"
         ))
         .execute(&admin)
         .await
-        .ok()?;
+        .unwrap_or_else(|_| panic!("grant hosted manual note-link table access"));
         sqlx::query(&format!(
             "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {ROLE}"
         ))
         .execute(&admin)
         .await
-        .ok()?;
+        .unwrap_or_else(|_| panic!("grant hosted manual note-link sequence access"));
 
         let options = database_url
             .parse::<sqlx::postgres::PgConnectOptions>()
-            .ok()?
+            .unwrap_or_else(|_| panic!("parse hosted manual note-link test database URL"))
             .username(ROLE)
             .password(PASSWORD);
         let runtime = sqlx::postgres::PgPoolOptions::new()
@@ -42706,7 +42722,7 @@ mod tests {
             .min_connections(1)
             .connect_with(options)
             .await
-            .ok()?;
+            .unwrap_or_else(|_| panic!("connect hosted manual note-link runtime role"));
         Some((admin, runtime))
     }
 

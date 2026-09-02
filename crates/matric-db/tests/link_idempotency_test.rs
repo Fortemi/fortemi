@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use matric_db::{create_pool, Database, PgLinkRepository};
+use matric_db::{create_pool, PgLinkRepository};
 use serde_json::json;
 use tokio::sync::Barrier;
 use uuid::Uuid;
@@ -9,11 +9,19 @@ async fn setup() -> Option<sqlx::PgPool> {
     let database_url = std::env::var("DATABASE_URL").ok()?;
     let pool = create_pool(&database_url)
         .await
-        .expect("connect link idempotency test database");
-    Database::new(pool.clone())
-        .migrate()
-        .await
-        .expect("migrate link idempotency test database");
+        .unwrap_or_else(|_| panic!("connect link idempotency test database"));
+    let schema_ready: bool = sqlx::query_scalar(
+        r#"SELECT to_regclass('public.note') IS NOT NULL
+               AND to_regclass('public.link') IS NOT NULL
+               AND to_regclass('public.ux_link_note_identity') IS NOT NULL"#,
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap_or_else(|_| panic!("inspect link idempotency test database schema"));
+    assert!(
+        schema_ready,
+        "link idempotency test database schema is unavailable"
+    );
     Some(pool)
 }
 
