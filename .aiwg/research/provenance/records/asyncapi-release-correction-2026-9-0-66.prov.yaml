@@ -1,0 +1,80 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-09-02T00:43:22Z"
+  description: "Provenance for the v2026.9.0 AsyncAPI release-gate correction and GitHub issue 66 evidence"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/releases/evidence/v2026.9.0-asyncapi-contract-verification.json"
+  type: data
+  created_at: "2026-09-02T00:43:22Z"
+  checksum: "sha256:b669557c4da3d864bc1e8cd3eccca83e44f33c6154b4f8f1bdc14ee16572a5ac"
+  size_bytes: 2111
+  attributes:
+    release: "2026.9.0"
+    issue: "https://github.com/Fortemi/fortemi/issues/66"
+    producer_commit: "0f96679f675c9caca5953b3e2dae8716112d1554"
+    hosted_failure_run: "https://git.integrolabs.net/Fortemi/fortemi/actions/runs/50536"
+    change_type: modification
+    subjects:
+      - "contracts/asyncapi/asyncapi.yaml sha256:b48f207cf482db9ec0b264f0578f82f6531d80791c0fe7756b981e26322040fc"
+      - "contracts/asyncapi/asyncapi.sha256 sha256:eeb074d36927bc1b1055d733889313f32c07aa256813430345ee229e5e143d31"
+      - "contracts/asyncapi/fixtures/manifest.json sha256:c246a00ee777edc3eff48118511fe927340498afc1ac010403947df7487949da"
+      - "contracts/asyncapi/producer-event-fixture-receipt.json sha256:e570b72530144e5395f0c7adba8bad325dfd1d14422e04a3d0d4822161b2821a"
+activity:
+  id: "urn:aiwg:activity:modification:asyncapi-release-correction-2026-9-0-66:001"
+  type: modification
+  started_at: "2026-09-02T00:39:47Z"
+  ended_at: "2026-09-02T00:43:22Z"
+  duration_seconds: 215
+  description: "Regenerate the AsyncAPI contract and event-fixture receipt from the v2026.9.0 runtime after the hosted isolated-container gate failed closed"
+  attributes:
+    verification:
+      - "scripts/ci/asyncapi-contract.sh generate: passed"
+      - "scripts/ci/asyncapi-contract.sh check: passed"
+      - "scripts/ci/asyncapi-event-fixtures.sh generate: passed"
+      - "scripts/ci/asyncapi-event-fixtures.sh check: 48 passed, 0 failed"
+      - "event fixture corpus unchanged: sha256 ee09b909863b868b57c3bf95daa47d3e24f84eb7eb487c1d64c0ef40ef4dc6ad"
+      - "corrected hosted validation required before tag"
+      - "no registry publication before signed release tag"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/releases/evidence/v2026.9.0-asyncapi-contract-verification.json"
+    activity: "urn:aiwg:activity:modification:asyncapi-release-correction-2026-9-0-66:001"
+    time: "2026-09-02T00:43:22Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:asyncapi-release-correction-2026-9-0-66:001"
+      entity: "urn:github:issue:Fortemi/fortemi:66"
+      role: corrective_change_authority
+    - activity: "urn:aiwg:activity:modification:asyncapi-release-correction-2026-9-0-66:001"
+      entity: "urn:git:Fortemi/fortemi:0f96679f675c9caca5953b3e2dae8716112d1554"
+      role: release_source_baseline
+    - activity: "urn:aiwg:activity:modification:asyncapi-release-correction-2026-9-0-66:001"
+      entity: "urn:ci:gitea:Fortemi/fortemi:50536"
+      role: failed_closed_hosted_receipt
+    - activity: "urn:aiwg:activity:modification:asyncapi-release-correction-2026-9-0-66:001"
+      entity: "urn:aiwg:artifact:scripts/ci/asyncapi-contract.sh"
+      role: contract_generator_and_verifier
+    - activity: "urn:aiwg:activity:modification:asyncapi-release-correction-2026-9-0-66:001"
+      entity: "urn:aiwg:artifact:scripts/ci/asyncapi-event-fixtures.sh"
+      role: fixture_receipt_generator_and_verifier
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/releases/evidence/v2026.9.0-asyncapi-contract-verification.json"
+      source: "urn:git:Fortemi/fortemi:0f96679f675c9caca5953b3e2dae8716112d1554"
+      derivation_type: derives_from
+      activity: "urn:aiwg:activity:modification:asyncapi-release-correction-2026-9-0-66:001"
+    - entity: "urn:aiwg:artifact:.aiwg/releases/evidence/v2026.9.0-asyncapi-contract-verification.json"
+      source: "urn:ci:gitea:Fortemi/fortemi:50536"
+      derivation_type: responds_to
+      activity: "urn:aiwg:activity:modification:asyncapi-release-correction-2026-9-0-66:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:asyncapi-release-correction-2026-9-0-66:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/releases/evidence/v2026.9.0-asyncapi-contract-verification.json"
+    agent: "urn:aiwg:agent:codex-gpt-5"

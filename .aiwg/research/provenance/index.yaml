@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-09-02T00:17:20Z"
+  updated_at: "2026-09-02T00:43:22Z"
 records:
   - entity: "Cargo.lock"
     record: "records/chacha20-yank-remediation-2026-08.prov.yaml"
@@ -946,3 +946,13 @@ records:
     record: "records/release-shard-tracked-source-2026-9-0-65.prov.yaml"
   - entity: ".aiwg/releases/evidence/v2026.9.0-shard-tracked-source-verification.json"
     record: "records/release-shard-tracked-source-2026-9-0-65.prov.yaml"
+  - entity: "contracts/asyncapi/asyncapi.yaml"
+    record: "records/asyncapi-release-correction-2026-9-0-66.prov.yaml"
+  - entity: "contracts/asyncapi/asyncapi.sha256"
+    record: "records/asyncapi-release-correction-2026-9-0-66.prov.yaml"
+  - entity: "contracts/asyncapi/fixtures/manifest.json"
+    record: "records/asyncapi-release-correction-2026-9-0-66.prov.yaml"
+  - entity: "contracts/asyncapi/producer-event-fixture-receipt.json"
+    record: "records/asyncapi-release-correction-2026-9-0-66.prov.yaml"
+  - entity: ".aiwg/releases/evidence/v2026.9.0-asyncapi-contract-verification.json"
+    record: "records/asyncapi-release-correction-2026-9-0-66.prov.yaml"

@@ -1424,7 +1424,7 @@ info:
     name: BSL-1.1
     url: https://github.com/fortemi/fortemi/blob/main/LICENSE
   title: Fortemi Event Stream
-  version: 2026.8.3
+  version: 2026.9.0
 operations:
   receiveEvents:
     action: receive

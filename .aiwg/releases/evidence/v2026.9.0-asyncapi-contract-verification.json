@@ -1,0 +1,57 @@
+{
+  "schema_version": "fortemi.release.asyncapi-verification.v1",
+  "release": "v2026.9.0",
+  "created_at": "2026-09-02T00:43:22Z",
+  "source": {
+    "repository": "Fortemi/fortemi",
+    "baseline_commit": "0f96679f675c9caca5953b3e2dae8716112d1554",
+    "issue": "https://github.com/Fortemi/fortemi/issues/66",
+    "failed_hosted_run": "https://git.integrolabs.net/Fortemi/fortemi/actions/runs/50536"
+  },
+  "failure": {
+    "gate": "isolated container AsyncAPI committed-versus-runtime comparison",
+    "committed_version": "2026.8.3",
+    "runtime_version": "2026.9.0",
+    "publication_skipped": true
+  },
+  "artifacts": {
+    "contract": {
+      "path": "contracts/asyncapi/asyncapi.yaml",
+      "version": "2026.9.0",
+      "sha256": "b48f207cf482db9ec0b264f0578f82f6531d80791c0fe7756b981e26322040fc"
+    },
+    "checksum": {
+      "path": "contracts/asyncapi/asyncapi.sha256",
+      "sha256": "eeb074d36927bc1b1055d733889313f32c07aa256813430345ee229e5e143d31"
+    },
+    "fixture_manifest": {
+      "path": "contracts/asyncapi/fixtures/manifest.json",
+      "sha256": "c246a00ee777edc3eff48118511fe927340498afc1ac010403947df7487949da"
+    },
+    "producer_receipt": {
+      "path": "contracts/asyncapi/producer-event-fixture-receipt.json",
+      "sha256": "e570b72530144e5395f0c7adba8bad325dfd1d14422e04a3d0d4822161b2821a"
+    },
+    "fixture_corpus": {
+      "event_count": 48,
+      "sha256": "ee09b909863b868b57c3bf95daa47d3e24f84eb7eb487c1d64c0ef40ef4dc6ad",
+      "content_changed": false
+    }
+  },
+  "verification": [
+    {
+      "command": "scripts/ci/asyncapi-contract.sh check",
+      "result": "passed"
+    },
+    {
+      "command": "scripts/ci/asyncapi-event-fixtures.sh check",
+      "result": "passed",
+      "detail": "48 event fixtures verified"
+    }
+  ],
+  "release_gate": {
+    "corrected_head_hosted_validation_required_before_tag": true,
+    "registry_publication_authorized_before_tag": false
+  },
+  "claim_boundary": "This evidence covers the Fortemi AsyncAPI artifact and its event-fixture receipt only. It does not establish full suite parity, complete backup, or portability."
+}
