@@ -1,0 +1,83 @@
+{
+  "schemaVersion": "1",
+  "release": "v2026.9.0",
+  "issue": "https://github.com/Fortemi/fortemi/issues/65",
+  "producer": {
+    "baselineCommit": "e849b01283cf4c5a7084a177c86ad2eb9d92a528",
+    "version": "2026.9.0",
+    "image": "fortemi-docs-rebuild:2026.9.0"
+  },
+  "sourceBoundary": {
+    "trackedSourceCount": 396,
+    "enumerator": "git ls-files",
+    "trackedRoots": ["docs/**/*.md", ".aiwg/**/*.md", "CHANGELOG.md", "README.md"],
+    "untrackedSourcesIncluded": 0
+  },
+  "cleanDestination": {
+    "source": "signed producer head e849b01283cf4c5a7084a177c86ad2eb9d92a528",
+    "database": "fresh isolated PostgreSQL 18 test database",
+    "inference": "disabled",
+    "sourcesDiscovered": 396,
+    "sourcesImported": 396,
+    "sourceFailures": 0,
+    "coverage": "passed"
+  },
+  "runtimeSafety": {
+    "builderCpuLimit": 2,
+    "builderMemoryBytes": 6442450944,
+    "builderPidLimit": 512,
+    "builderRestartPolicy": "no",
+    "builderOomKilled": false,
+    "gpuAccess": false,
+    "supportSidecars": false,
+    "registryPublication": false,
+    "transientStackRemoved": true
+  },
+  "regression": {
+    "freshnessCommand": "python3 scripts/ci/verify-docs-shard-freshness.py",
+    "unitCommand": "python3 -m unittest tests/test_rebuild_docs_shard.py tests/test_verify_docs_shard_freshness.py",
+    "testsPassed": 6,
+    "testsFailed": 0,
+    "trackedSourceIncluded": true,
+    "untrackedWorkingSourceExcluded": true,
+    "failClosedCoveragePreserved": true
+  },
+  "artifact": {
+    "path": "docker/seed-data/fortemi-docs.shard",
+    "profile": "core-v1",
+    "manifestVersion": "1.2.0",
+    "byteLength": 2502694,
+    "sha256": "b85e8a8cda7d00c143f55d573c9012c40fafd1c45396165c5c45db338490feea",
+    "notes": 396,
+    "links": 0,
+    "tags": 20
+  },
+  "receipt": {
+    "path": "docker/seed-data/fortemi-docs.shard.receipt.json",
+    "byteLength": 506,
+    "sha256": "b97fd8c3dfce874944c4558890cbdbd85539cc1840a307c152f26ead886a2ef1",
+    "freshness": "passed"
+  },
+  "hostedGate": {
+    "initialRun": "https://git.integrolabs.net/Fortemi/fortemi/actions/runs/50531",
+    "initialConclusion": "failure",
+    "failedStep": "Check documentation shard freshness",
+    "downstreamPublication": "skipped",
+    "correctedHeadValidationRequiredBeforeTag": true
+  },
+  "claims": {
+    "profile": "core-v1",
+    "registeredProfileClaimsAllowed": true,
+    "suiteClaimsAllowed": false,
+    "suiteAudit": "NO-GO"
+  },
+  "references": [
+    "@derives-from @docker/seed-data/fortemi-docs.shard.receipt.json",
+    "@depends @scripts/ci/rebuild-shard-in-ci.sh",
+    "@depends @scripts/rebuild-docs-shard.sh",
+    "@tests @tests/test_rebuild_docs_shard.py",
+    "@tests @tests/test_verify_docs_shard_freshness.py",
+    "@references @docs/releases/v2026.9.0-announcement.md"
+  ],
+  "decision": "re-run hosted main validation before creating the release tag"
+}

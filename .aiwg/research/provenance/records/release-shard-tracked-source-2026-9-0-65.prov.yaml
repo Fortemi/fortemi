@@ -1,0 +1,83 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-09-02T00:17:20Z"
+  description: "Provenance for the v2026.9.0 tracked-source documentation shard evidence and GitHub issue 65 correction"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/releases/evidence/v2026.9.0-shard-tracked-source-verification.json"
+  type: data
+  created_at: "2026-09-02T00:17:20Z"
+  checksum: "sha256:eabc10f3be147da0d2acebf6b8266d8ac41e3595964e094d4d4b67a4114c8ac8"
+  size_bytes: 2852
+  attributes:
+    release: "2026.9.0"
+    profile: "core-v1"
+    issue: "https://github.com/Fortemi/fortemi/issues/65"
+    producer_commit: "e849b01283cf4c5a7084a177c86ad2eb9d92a528"
+    source_boundary: git_tracked
+    tracked_sources: 396
+    subjects:
+      - "docker/seed-data/fortemi-docs.shard sha256:b85e8a8cda7d00c143f55d573c9012c40fafd1c45396165c5c45db338490feea"
+      - "docker/seed-data/fortemi-docs.shard.receipt.json sha256:b97fd8c3dfce874944c4558890cbdbd85539cc1840a307c152f26ead886a2ef1"
+      - "scripts/ci/rebuild-shard-in-ci.sh sha256:c2bbb0ae0196520ee4d640855d115ebe8e483d7bc2990d0e14cf308d3b3ee6ea"
+      - "scripts/rebuild-docs-shard.sh sha256:202a03b4190c329797288a405b30ba5716c405f73f0c9ff1e7bdc685b46aac38"
+activity:
+  id: "urn:aiwg:activity:generation:release-shard-tracked-source-2026-9-0-65:001"
+  type: generation
+  started_at: "2026-09-02T00:13:45Z"
+  ended_at: "2026-09-02T00:17:20Z"
+  duration_seconds: 215
+  description: "Regenerate the v2026.9.0 core-v1 documentation shard from the exact signed producer head after the hosted freshness gate failed closed"
+  attributes:
+    verification:
+      - "fresh isolated PostgreSQL 18 destination"
+      - "tracked-source import: 396/396 sources; 0 failures"
+      - "documentation shard source coverage: passed"
+      - "documentation shard freshness: passed"
+      - "tracked-source and freshness regressions: 6 passed, 0 failed"
+      - "builder limits: 2 CPUs, 6 GiB memory, 512 PIDs, restart disabled"
+      - "no GPU, support sidecars, registry publication, or persistent test stack"
+      - "registered core-v1 claim only; suite audit remains NO-GO"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/releases/evidence/v2026.9.0-shard-tracked-source-verification.json"
+    activity: "urn:aiwg:activity:generation:release-shard-tracked-source-2026-9-0-65:001"
+    time: "2026-09-02T00:17:20Z"
+  used:
+    - activity: "urn:aiwg:activity:generation:release-shard-tracked-source-2026-9-0-65:001"
+      entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard"
+      role: generated_release_artifact
+    - activity: "urn:aiwg:activity:generation:release-shard-tracked-source-2026-9-0-65:001"
+      entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard.receipt.json"
+      role: producer_receipt
+    - activity: "urn:aiwg:activity:generation:release-shard-tracked-source-2026-9-0-65:001"
+      entity: "urn:aiwg:artifact:scripts/ci/rebuild-shard-in-ci.sh"
+      role: clean_destination_generator
+    - activity: "urn:aiwg:activity:generation:release-shard-tracked-source-2026-9-0-65:001"
+      entity: "urn:aiwg:artifact:scripts/rebuild-docs-shard.sh"
+      role: tracked_source_importer
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/releases/evidence/v2026.9.0-shard-tracked-source-verification.json"
+      source: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard"
+      derivation_type: derives_from
+      activity: "urn:aiwg:activity:generation:release-shard-tracked-source-2026-9-0-65:001"
+    - entity: "urn:aiwg:artifact:.aiwg/releases/evidence/v2026.9.0-shard-tracked-source-verification.json"
+      source: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard.receipt.json"
+      derivation_type: derives_from
+      activity: "urn:aiwg:activity:generation:release-shard-tracked-source-2026-9-0-65:001"
+    - entity: "urn:aiwg:artifact:.aiwg/releases/evidence/v2026.9.0-shard-tracked-source-verification.json"
+      source: "urn:aiwg:artifact:scripts/ci/rebuild-shard-in-ci.sh"
+      derivation_type: follows_pattern
+      activity: "urn:aiwg:activity:generation:release-shard-tracked-source-2026-9-0-65:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:generation:release-shard-tracked-source-2026-9-0-65:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_engineer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/releases/evidence/v2026.9.0-shard-tracked-source-verification.json"
+    agent: "urn:aiwg:agent:codex-gpt-5"
