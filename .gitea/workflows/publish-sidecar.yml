@@ -12,9 +12,10 @@
 #                                            DMG build (lipo'd with aarch64).
 #
 # Release strategy:
-#   - Push to main: publishes an immutable `sidecar-<12-char-commit>` release,
-#     then updates rolling `sidecar-latest` as a discovery pointer
-#   - Tag push (v*): attaches binaries to the versioned release
+#   - Signed/versioned tag (v*): builds and attaches binaries to the versioned
+#     release, then updates `sidecar-latest` as a discovery pointer.
+#   - Ordinary branch and manually dispatched non-tag refs fail closed before
+#     any native build or publication job.
 #
 # Download URLs:
 #   https://git.integrolabs.net/Fortemi/fortemi/releases/download/sidecar-latest/matric-api-x86_64-unknown-linux-gnu
@@ -59,6 +60,7 @@ jobs:
   runner-capacity:
     name: Runner Capacity Preflight
     runs-on: matric-builder
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout capacity guard
         run: |
@@ -558,47 +560,7 @@ jobs:
           name: matric-api-x86_64-apple-darwin
           path: matric-api-x86_64-apple-darwin
 
-  # ─── Publish to rolling sidecar-latest release ──────────────────────────
-  publish-sidecar-latest:
-    name: Publish immutable sidecar and latest pointer
-    runs-on: matric-builder
-    needs: [build-linux, build-linux-arm64, build-macos]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'
-    steps:
-      - name: Checkout publication tooling
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
-        with:
-          ref: ${{ env.CHAIN_SOURCE_SHA }}
-          fetch-depth: 1
-
-      - name: Download artifacts
-        uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a  # v3
-        with:
-          path: artifacts/
-
-      - name: Prepare sidecar publication
-        run: |
-          set -euo pipefail
-          cp artifacts/matric-api-x86_64-unknown-linux-gnu/matric-api-x86_64-unknown-linux-gnu .
-          cp artifacts/matric-api-aarch64-unknown-linux-gnu/matric-api-aarch64-unknown-linux-gnu .
-          cp artifacts/matric-api-aarch64-apple-darwin/matric-api-aarch64-apple-darwin .
-          cp artifacts/matric-api-x86_64-apple-darwin/matric-api-x86_64-apple-darwin .
-          chmod +x matric-api-*
-
-          echo "=== Binaries to publish ==="
-          ls -lh matric-api-*
-          sha256sum matric-api-*
-
-      - name: Publish immutable sidecar identity
-        env:
-          GITEA_TOKEN: ${{ github.token }}
-        run: scripts/ci/publish-sidecar-release.sh immutable
-
-      - name: Update rolling discovery pointer
-        env:
-          GITEA_TOKEN: ${{ github.token }}
-        run: scripts/ci/publish-sidecar-release.sh rolling
-
+  # Release-only versioned publication (also refreshes sidecar-latest).
   # ─── Attach binaries to versioned release ───────────────────────────────
   publish-versioned:
     name: Publish to Versioned Release
@@ -805,11 +767,11 @@ jobs:
   handoff-suite:
     name: Dispatch Suite Platform Contract
     runs-on: matric-builder
-    needs: [publish-sidecar-latest, publish-versioned]
+    needs: [publish-versioned]
     if: >-
       always() && github.event_name == 'workflow_dispatch' &&
-      ((github.ref == 'refs/heads/main' && needs.publish-sidecar-latest.result == 'success') ||
-       (startsWith(github.ref, 'refs/tags/v') && needs.publish-versioned.result == 'success'))
+      startsWith(github.ref, 'refs/tags/v') &&
+      needs.publish-versioned.result == 'success'
     steps:
       - name: Checkout dispatch tooling
         run: |

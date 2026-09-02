@@ -123,14 +123,29 @@ if grep -qF "'{ref: \$ref}' > dispatch.json" \
   exit 1
 fi
 
-[[ "$(grep -cF 'ref: ${{ env.CHAIN_SOURCE_SHA }}' "$sidecar_workflow")" -eq 4 ]]
+[[ "$(grep -cF 'ref: ${{ env.CHAIN_SOURCE_SHA }}' "$sidecar_workflow")" -eq 3 ]]
 [[ "$(grep -cF 'ref: ${{ env.CHAIN_SOURCE_SHA }}' "$suite_workflow")" -eq 2 ]]
 [[ "$(grep -cF 'ref: ${{ env.CHAIN_SOURCE_SHA }}' "$docsite_deploy")" -eq 1 ]]
 
 grep -qF "needs: [coverage, build-testdb]" "$test_workflow"
 grep -qF "needs: [slow-tests]" "$test_workflow"
 grep -qF "needs: [fast-tests, integration-tests, coverage, slow-tests, validate-intel-overlay]" "$test_workflow"
-grep -qF "github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch'" "$sidecar_workflow"
+grep -A8 -F "  handoff-sidecar:" "$test_workflow" \
+  | grep -qF "startsWith(github.ref, 'refs/tags/v')"
+grep -A8 -F "  runner-capacity:" "$sidecar_workflow" \
+  | grep -qF "startsWith(github.ref, 'refs/tags/v')"
+grep -A8 -F "  publish-versioned:" "$sidecar_workflow" \
+  | grep -qF "startsWith(github.ref, 'refs/tags/v')"
+grep -A8 -F "  handoff-suite:" "$sidecar_workflow" \
+  | grep -qF "startsWith(github.ref, 'refs/tags/v')"
+if grep -qF "github.ref == 'refs/heads/main'" "$sidecar_workflow"; then
+  echo "publish-sidecar.yml contains a main-branch native publication path" >&2
+  exit 1
+fi
+if grep -qF "publish-sidecar-latest:" "$sidecar_workflow"; then
+  echo "publish-sidecar.yml contains a non-release sidecar publisher" >&2
+  exit 1
+fi
 grep -qF "needs: [linux-x86_64]" "$suite_workflow"
 
 # Every Titan-backed CI job is an explicit single-capacity chain. The immutable

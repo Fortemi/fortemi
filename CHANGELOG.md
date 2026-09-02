@@ -9,6 +9,9 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Fixed
 
+- Restrict native sidecar builds, versioned publication, and the rolling
+  `sidecar-latest` refresh to release-tag workflows. Ordinary `main` commits no
+  longer dispatch or publish multi-platform sidecar artifacts (#69).
 - Align MCP UAT tag cases with the canonical tag-path grammar and assert that
   invalid-character failures remain generic and do not echo submitted tags or
   note content (#67).

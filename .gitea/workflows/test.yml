@@ -582,7 +582,7 @@ jobs:
     name: Dispatch Native Sidecar Builds
     runs-on: matric-builder
     needs: [test-summary]
-    if: github.event_name == 'workflow_dispatch' && needs.test-summary.result == 'success'
+    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v') && needs.test-summary.result == 'success'
     steps:
       - name: Checkout dispatch tooling
         run: |
