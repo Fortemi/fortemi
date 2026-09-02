@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-09-02T00:43:22Z"
+  updated_at: "2026-09-02T05:21:20Z"
 records:
   - entity: "Cargo.lock"
     record: "records/chacha20-yank-remediation-2026-08.prov.yaml"
@@ -956,3 +956,5 @@ records:
     record: "records/asyncapi-release-correction-2026-9-0-66.prov.yaml"
   - entity: ".aiwg/releases/evidence/v2026.9.0-asyncapi-contract-verification.json"
     record: "records/asyncapi-release-correction-2026-9-0-66.prov.yaml"
+  - entity: ".aiwg/testing/uat/results/fortemi-v2026.9.0-mcp-uat-2026-09-02.md"
+    record: "records/fortemi-v2026-9-0-mcp-uat-2026-09-02.prov.yaml"

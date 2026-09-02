@@ -1,0 +1,76 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-09-02T05:21:20Z"
+  description: "Provenance for the exact-release Fortemi v2026.9.0 live MCP and manual-note-link UAT result"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/testing/uat/results/fortemi-v2026.9.0-mcp-uat-2026-09-02.md:sha256:b925e36709d61f7695dee91696ce8b0488f1794ab24a148330cdff8938ffc720"
+  type: document
+  created_at: "2026-09-02T05:21:20Z"
+  checksum: "sha256:b925e36709d61f7695dee91696ce8b0488f1794ab24a148330cdff8938ffc720"
+  size_bytes: 7530
+  attributes:
+    change_type: generation
+    release: "v2026.9.0"
+    release_commit: "e4fd622adc5b6759d69483d56eefeae7b0c462ca"
+    release_image_digest: "sha256:1c6298790ac30dbddfb9160289dcdd68f6302e8186cd30b6ea62ac73786f1231"
+    test_corrections:
+      - "356238f2a0b52692bac7807486ab20eb2f6da345"
+      - "b46c127e1b78b0f53f14c4849db23d0973a0622b"
+activity:
+  id: "urn:aiwg:activity:verification:fortemi-v2026-9-0-mcp-uat-2026-09-02:001"
+  type: testing
+  started_at: "2026-09-02T04:55:17Z"
+  ended_at: "2026-09-02T05:18:56Z"
+  description: "Deploy the exact published CPU-safe Fortemi bundle, correct discovered UAT defects, and execute canonical MCP plus live manual-note-link validation"
+  attributes:
+    verification:
+      - "release identity: exact version, revision, OCI index, and Linux amd64 manifest matched"
+      - "initial MCP UAT: 31 files, 558 declared, 554 passed, 3 failed, 1 skipped, 0 missing"
+      - "corrected tag UAT: 31 files, 558 declared, 557 passed, 0 failed, 1 skipped, 0 missing"
+      - "final MCP UAT: 31 files, 559 declared, 558 passed, 0 failed, 1 skipped, 0 missing"
+      - "manual-note-link-v1: create, replay, persisted identity, and graph visibility passed"
+      - "cleanup: 3/3 passed"
+      - "post-run API, readiness, MCP, container, panic, OOM, and GPU-device checks passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/testing/uat/results/fortemi-v2026.9.0-mcp-uat-2026-09-02.md:sha256:b925e36709d61f7695dee91696ce8b0488f1794ab24a148330cdff8938ffc720"
+    activity: "urn:aiwg:activity:verification:fortemi-v2026-9-0-mcp-uat-2026-09-02:001"
+    time: "2026-09-02T05:21:20Z"
+  used:
+    - activity: "urn:aiwg:activity:verification:fortemi-v2026-9-0-mcp-uat-2026-09-02:001"
+      entity: "urn:git:Fortemi/fortemi:e4fd622adc5b6759d69483d56eefeae7b0c462ca"
+      role: release_source
+    - activity: "urn:aiwg:activity:verification:fortemi-v2026-9-0-mcp-uat-2026-09-02:001"
+      entity: "urn:git:Fortemi/fortemi:356238f2a0b52692bac7807486ab20eb2f6da345"
+      role: tag_grammar_test_correction
+    - activity: "urn:aiwg:activity:verification:fortemi-v2026-9-0-mcp-uat-2026-09-02:001"
+      entity: "urn:git:Fortemi/fortemi:b46c127e1b78b0f53f14c4849db23d0973a0622b"
+      role: manual_link_live_test_correction
+    - activity: "urn:aiwg:activity:verification:fortemi-v2026-9-0-mcp-uat-2026-09-02:001"
+      entity: "urn:oci:ghcr.io/fortemi/fortemi@sha256:1c6298790ac30dbddfb9160289dcdd68f6302e8186cd30b6ea62ac73786f1231"
+      role: deployed_release_image
+    - activity: "urn:aiwg:activity:verification:fortemi-v2026-9-0-mcp-uat-2026-09-02:001"
+      entity: "urn:aiwg:artifact:mcp-server/tests/run-all.sh"
+      role: verification_suite
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:.aiwg/testing/uat/results/fortemi-v2026.9.0-mcp-uat-2026-09-02.md:sha256:b925e36709d61f7695dee91696ce8b0488f1794ab24a148330cdff8938ffc720"
+      source: "urn:git:Fortemi/fortemi:e4fd622adc5b6759d69483d56eefeae7b0c462ca"
+      derivation_type: verifies
+      activity: "urn:aiwg:activity:verification:fortemi-v2026-9-0-mcp-uat-2026-09-02:001"
+    - entity: "urn:aiwg:artifact:.aiwg/testing/uat/results/fortemi-v2026.9.0-mcp-uat-2026-09-02.md:sha256:b925e36709d61f7695dee91696ce8b0488f1794ab24a148330cdff8938ffc720"
+      source: "urn:oci:ghcr.io/fortemi/fortemi@sha256:1c6298790ac30dbddfb9160289dcdd68f6302e8186cd30b6ea62ac73786f1231"
+      derivation_type: verifies
+      activity: "urn:aiwg:activity:verification:fortemi-v2026-9-0-mcp-uat-2026-09-02:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:verification:fortemi-v2026-9-0-mcp-uat-2026-09-02:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: test_executor
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/testing/uat/results/fortemi-v2026.9.0-mcp-uat-2026-09-02.md:sha256:b925e36709d61f7695dee91696ce8b0488f1794ab24a148330cdff8938ffc720"
+    agent: "urn:aiwg:agent:codex-gpt-5"
