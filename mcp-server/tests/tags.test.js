@@ -182,16 +182,16 @@ describe("Phase 4: Tag Operations", () => {
     console.log(`  ✓ Hierarchical tag "${hierarchicalTag}" supported`);
   });
 
-  test("TAG-007: Tags with special characters", async () => {
-    const specialTags = [
+  test("TAG-007: Canonical tag characters and non-echoing rejection", async () => {
+    const supportedTags = [
       `test/tag-with-dashes-${MCPTestClient.uniqueId().slice(0, 8)}`,
       `test/tag_with_underscores_${MCPTestClient.uniqueId().slice(0, 8)}`,
-      `test/tag.with.dots.${MCPTestClient.uniqueId().slice(0, 8)}`,
+      `test/naïve-标签_${MCPTestClient.uniqueId().slice(0, 8)}`,
     ];
 
     const created = await client.callTool("create_note", {
-      content: "Note with special character tags",
-      tags: specialTags,
+      content: "Note with canonical tag characters",
+      tags: supportedTags,
     });
     cleanup.noteIds.push(created.id);
 
@@ -200,14 +200,29 @@ describe("Phase 4: Tag Operations", () => {
       typeof t === "string" ? t : t.name
     );
 
-    for (const tag of specialTags) {
+    for (const tag of supportedTags) {
       assert.ok(
         tagNames.includes(tag),
-        `Should support tag with special characters: ${tag}`
+        `Should support canonical tag characters: ${tag}`
       );
     }
 
-    console.log(`  ✓ Special character tags supported`);
+    const rejectedTag = `test/tag.with.dots.${MCPTestClient.uniqueId().slice(0, 8)}`;
+    const sensitiveContent = `TAG-007-SENSITIVE-${MCPTestClient.uniqueId()}`;
+    await assert.rejects(
+      () => client.callTool("create_note", {
+        content: sensitiveContent,
+        tags: [rejectedTag],
+      }),
+      (error) => {
+        assert.match(error.message, /supported tag-path grammar/i);
+        assert.ok(!error.message.includes(rejectedTag), "Error must not echo the rejected tag");
+        assert.ok(!error.message.includes(sensitiveContent), "Error must not echo note content");
+        return true;
+      }
+    );
+
+    console.log(`  ✓ Canonical characters accepted; unsupported characters rejected without echo`);
   });
 
   test("TAG-008: Empty tags array creates note without tags", async () => {

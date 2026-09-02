@@ -83,7 +83,8 @@ Unlike the existing static/unit tests that parse tool definitions, these agentic
 - `TAG-004`: Update note to add tags
 - `TAG-005`: Update note to remove tags
 - `TAG-006`: Hierarchical tags with slashes
-- `TAG-007`: Tags with special characters
+- `TAG-007`: Canonical Unicode/alphanumeric, dash, and underscore tag
+  characters; unsupported characters are rejected without echoing input
 - `TAG-008`: Empty tags array creates note without tags
 - `TAG-009`: Duplicate tags are handled correctly
 - `TAG-010`: Tag list includes usage counts

@@ -6,7 +6,7 @@
  * Tests edge cases and boundary conditions for MCP tools:
  * - Very long content (10000+ characters)
  * - Unicode content (emoji, CJK, Arabic, mixed scripts)
- * - Special characters in tags
+ * - Canonical tag-character acceptance and invalid-character rejection
  * - Empty tag arrays
  * - Duplicate tags
  * - Very long tag names
@@ -154,21 +154,23 @@ describe("Phase 9: Edge Cases", () => {
     assert.ok(content.includes("עברית"), "Hebrew preserved");
   });
 
-  test("EDGE-006: special characters in tags", async () => {
+  test("EDGE-006: invalid tag characters are rejected without echo", async () => {
     const testId = MCPTestClient.uniqueId().slice(0, 8);
-    const specialTag = `test/tag-with.dots_and-dashes:${testId}`;
+    const rejectedTag = `test/tag-with.dots_and-dashes:${testId}`;
+    const sensitiveContent = `EDGE-006-SENSITIVE-${testId}`;
 
-    const result = await client.callTool("create_note", {
-      content: `# Special Tag Test ${testId}`,
-      tags: [specialTag],
-    });
-
-    assert.ok(result.id, "Note with special chars in tag should be created");
-    cleanup.noteIds.push(result.id);
-
-    // Verify tag was preserved
-    const note = await client.callTool("get_note", { id: result.id });
-    assert.ok(note.tags.includes(specialTag), "Special char tag should be preserved");
+    await assert.rejects(
+      () => client.callTool("create_note", {
+        content: sensitiveContent,
+        tags: [rejectedTag],
+      }),
+      (error) => {
+        assert.match(error.message, /supported tag-path grammar/i);
+        assert.ok(!error.message.includes(rejectedTag), "Error must not echo the rejected tag");
+        assert.ok(!error.message.includes(sensitiveContent), "Error must not echo note content");
+        return true;
+      }
+    );
   });
 
   test("EDGE-007: empty tag array", async () => {
@@ -516,17 +518,23 @@ Unclosed code block`;
     assert.ok(Array.isArray(results.results), "Long query should return results array");
   });
 
-  test("EDGE-026: tag with only special characters", async () => {
+  test("EDGE-026: punctuation-only tag is rejected without echo", async () => {
     const testId = MCPTestClient.uniqueId().slice(0, 8);
-    const specialTag = `@#$%^&*()_${testId}`;
+    const rejectedTag = `@#$%^&*()_${testId}`;
+    const sensitiveContent = `EDGE-026-SENSITIVE-${testId}`;
 
-    const result = await client.callTool("create_note", {
-      content: `# Special Char Tag ${testId}`,
-      tags: [specialTag],
-    });
-
-    assert.ok(result.id, "Note with special char tag should be created");
-    cleanup.noteIds.push(result.id);
+    await assert.rejects(
+      () => client.callTool("create_note", {
+        content: sensitiveContent,
+        tags: [rejectedTag],
+      }),
+      (error) => {
+        assert.match(error.message, /supported tag-path grammar/i);
+        assert.ok(!error.message.includes(rejectedTag), "Error must not echo the rejected tag");
+        assert.ok(!error.message.includes(sensitiveContent), "Error must not echo note content");
+        return true;
+      }
+    );
   });
 
   test("EDGE-027: note with control characters", async () => {

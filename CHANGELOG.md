@@ -7,6 +7,12 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+### Fixed
+
+- Align MCP UAT tag cases with the canonical tag-path grammar and assert that
+  invalid-character failures remain generic and do not echo submitted tags or
+  note content (#67).
+
 ## [2026.9.0] - 2026-09-01
 
 Contract release for hosted-safe manual note links and the unified five-level
