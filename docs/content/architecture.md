@@ -138,6 +138,23 @@ Handlers use one of two patterns depending on complexity:
 
 Repository methods have parallel `_tx` variants accepting `&mut Transaction<'_, Postgres>` (Option A from ADR-068), using `&mut **tx` instead of `&self.pool`.
 
+### Source-Addressed Live Persistence
+
+Externally managed systems use `POST /api/v1/notes/source-upsert` (or MCP
+`upsert_external_notes`) instead of composing ordinary create and update calls.
+The operation identifies notes by tenant, active memory, source namespace, and
+external ID; the first two values come from authenticated request routing and
+cannot be supplied in the body. A bounded batch commits notes, revisions,
+source identities, and resumable import receipts in one transaction. Exact
+replays are no-ops, while changed content follows `version`, `replace`, or
+`conflict` policy.
+
+This live persistence plane is separate from Knowledge Shard state transfer.
+No current `core-v1`, `full-v1`, or `record-v1` profile contains source
+identities. Export reports `source-identity-outside-profile` in the typed loss
+header when it omits them. See
+[ADR-106](../architecture/adr/ADR-106-source-addressed-note-upsert.md).
+
 ### Auto-Migration
 
 Memories are automatically migrated when accessed:

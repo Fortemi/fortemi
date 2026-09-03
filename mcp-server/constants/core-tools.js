@@ -1,6 +1,6 @@
 export const CORE_TOOL_NAMES = Object.freeze([
   // Notes CRUD
-  "list_notes", "get_note", "update_note", "delete_note", "restore_note",
+  "list_notes", "get_note", "upsert_external_notes", "update_note", "delete_note", "restore_note",
   // Consolidated tools
   "capture_knowledge", "search", "record_provenance",
   "manage_tags", "manage_collection", "manage_concepts", "manage_embeddings",

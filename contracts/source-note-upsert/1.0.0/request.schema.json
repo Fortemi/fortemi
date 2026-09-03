@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fortemi.dev/contracts/source-note-upsert/1.0.0/request.schema.json",
+  "title": "Fortemi source-addressed note upsert request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["source_namespace", "source_schema_version", "import_run_id", "items"],
+  "properties": {
+    "source_namespace": {"type": "string", "minLength": 1, "maxLength": 200},
+    "source_id": {"type": "string", "minLength": 1, "maxLength": 500},
+    "source_schema_version": {"type": "string", "minLength": 1, "maxLength": 100},
+    "import_run_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "batch_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "workspace_id": {"type": "string", "minLength": 1, "maxLength": 500},
+    "checkpoint": {"type": "object"},
+    "dry_run": {"type": "boolean", "default": false},
+    "policy": {"$ref": "#/$defs/policy", "default": "version"},
+    "items": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "items": {"$ref": "#/$defs/item"}
+    }
+  },
+  "$defs": {
+    "policy": {"type": "string", "enum": ["replace", "version", "conflict"]},
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["external_id", "content"],
+      "properties": {
+        "external_id": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "content": {"type": "string", "minLength": 1, "maxLength": 4194304},
+        "content_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "caller_stable_id": {"type": "string", "format": "uuid"},
+        "title": {"type": "string", "maxLength": 2000},
+        "format": {"type": "string", "minLength": 1, "maxLength": 100, "default": "markdown"},
+        "metadata": {"type": "object"},
+        "policy": {"$ref": "#/$defs/policy"}
+      }
+    }
+  }
+}

@@ -1,0 +1,100 @@
+{
+  "schema": "fortemi.source-note-upsert.conformance/v1",
+  "contract_version": "1.0.0",
+  "scope": {
+    "tenant_id": "00000000-0000-0000-0000-000000000000",
+    "memory": "public"
+  },
+  "source": {
+    "source_namespace": "conformance.example",
+    "source_id": "fixture-source",
+    "source_schema_version": "1"
+  },
+  "cases": [
+    {
+      "id": "insert",
+      "request": {
+        "import_run_id": "run-insert",
+        "batch_id": "batch-insert",
+        "checkpoint": {"cursor": "1"},
+        "items": [
+          {
+            "external_id": "fixture-a",
+            "content": "alpha",
+            "content_digest": "sha256:8ed3f6ad685b959ead7022518e1af76cd816f8e8ec7ccdda1ed4018e8f2223f8",
+            "caller_stable_id": "018f05a7-cafe-7def-8000-000000000001",
+            "metadata": {"fixture": true}
+          }
+        ]
+      },
+      "expected": {"batch": "committed", "items": ["inserted"], "material_changes": 1}
+    },
+    {
+      "id": "exact-batch-replay",
+      "repeat": "insert",
+      "expected": {"batch": "duplicate", "items": ["unchanged"], "material_changes": 0}
+    },
+    {
+      "id": "changed-version",
+      "request": {
+        "import_run_id": "run-version",
+        "batch_id": "batch-version",
+        "policy": "version",
+        "items": [{"external_id": "fixture-a", "content": "alpha version two"}]
+      },
+      "expected": {"batch": "committed", "items": ["versioned"], "material_changes": 1}
+    },
+    {
+      "id": "changed-conflict",
+      "request": {
+        "import_run_id": "run-conflict",
+        "batch_id": "batch-conflict",
+        "policy": "conflict",
+        "items": [{"external_id": "fixture-a", "content": "must not replace"}]
+      },
+      "expected": {"batch": "committed", "items": ["conflict"], "material_changes": 0}
+    },
+    {
+      "id": "changed-replace",
+      "request": {
+        "import_run_id": "run-replace",
+        "batch_id": "batch-replace",
+        "policy": "replace",
+        "items": [{"external_id": "fixture-a", "content": "alpha replacement"}]
+      },
+      "expected": {"batch": "committed", "items": ["replaced"], "material_changes": 1}
+    },
+    {
+      "id": "dry-run",
+      "request": {
+        "import_run_id": "run-preview",
+        "batch_id": "batch-preview",
+        "dry_run": true,
+        "items": [{"external_id": "fixture-preview", "content": "preview only"}]
+      },
+      "expected": {"batch": "preview", "items": ["inserted"], "material_changes": 0}
+    },
+    {
+      "id": "digest-rejection",
+      "request": {
+        "import_run_id": "run-rejected",
+        "batch_id": "batch-rejected",
+        "items": [
+          {
+            "external_id": "fixture-rejected",
+            "content": "will not commit",
+            "content_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        ]
+      },
+      "expected": {"batch": "rejected", "items": ["rejected"], "material_changes": 0, "reason_code": "content_digest_mismatch"}
+    }
+  ],
+  "required_invariants": [
+    "exact replay adds zero note, revision, activity, job, blob, outbox, and import-journal rows",
+    "database failure rolls back all persistence and event layers",
+    "equal source keys in another tenant or memory do not collide",
+    "operation logs and receipts exclude raw external IDs and content",
+    "Knowledge Shard export emits source-identity-outside-profile when identities are omitted"
+  ]
+}

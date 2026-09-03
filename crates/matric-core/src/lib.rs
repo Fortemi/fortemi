@@ -25,6 +25,7 @@ pub mod metering;
 pub mod models;
 pub mod search;
 pub mod shard;
+pub mod source_upsert;
 pub mod strict_filter;
 pub mod tags;
 pub mod temporal;
@@ -53,6 +54,7 @@ pub use metering::*;
 pub use models::*;
 pub use search::*;
 pub use shard::*;
+pub use source_upsert::*;
 pub use strict_filter::{
     MetadataFilter, SemanticScopeFilter, StrictFilter, StrictSecurityFilter, Visibility,
 };

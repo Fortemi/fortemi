@@ -939,7 +939,7 @@ paths:
           type: boolean
       responses:
         '200':
-          description: Knowledge Shard archive. When a full-v1 signing key file is configured, the archive includes a canonical Ed25519 signature.json envelope.
+          description: Knowledge Shard archive. X-Fortemi-Shard-Loss-Report reports live source identities omitted because they are outside the selected profile. When a full-v1 signing key file is configured, the archive includes a canonical Ed25519 signature.json envelope.
         '429':
           content:
             application/problem+json:
@@ -4269,6 +4269,46 @@ paths:
           description: Global request rate limit exceeded
       security:
       - bearerAuth: []
+  /api/v1/notes/source-upsert:
+    post:
+      tags:
+      - Notes
+      operationId: source_upsert_notes
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceUpsertRequest'
+        required: true
+      responses:
+        '200':
+          description: Atomic source-addressed upsert receipt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceUpsertResponse'
+        '400':
+          description: Malformed JSON request
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
+      x-fortemi-authorization:
+        policy_class: authenticated_write
+        required_scopes:
+        - write
+        scope_identity:
+        - verified_tenant
+        - active_memory
+        tenant_transaction_required: true
+      x-fortemi-operation-disposition:
+        consumer_issue: Fortemi/fortemi-react#404
+        contract: source-note-upsert/1.0.0
+        status: supported
   /api/v1/notes/timeline:
     get:
       tags:
@@ -12340,6 +12380,175 @@ components:
       - dry_run
       - skipped_sparse
       - safety_aborted
+    SourceUpsertBatchOutcome:
+      type: string
+      enum:
+      - committed
+      - duplicate
+      - preview
+      - rejected
+    SourceUpsertCounts:
+      type: object
+      required:
+      - inserted
+      - unchanged
+      - versioned
+      - replaced
+      - conflict
+      - rejected
+      properties:
+        conflict:
+          type: integer
+          minimum: 0
+        inserted:
+          type: integer
+          minimum: 0
+        rejected:
+          type: integer
+          minimum: 0
+        replaced:
+          type: integer
+          minimum: 0
+        unchanged:
+          type: integer
+          minimum: 0
+        versioned:
+          type: integer
+          minimum: 0
+    SourceUpsertItem:
+      type: object
+      required:
+      - external_id
+      - content
+      properties:
+        caller_stable_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        content:
+          type: string
+        content_digest:
+          type:
+          - string
+          - 'null'
+        external_id:
+          type: string
+        format:
+          type: string
+        metadata: {}
+        policy:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/SourceUpsertPolicy'
+        title:
+          type:
+          - string
+          - 'null'
+    SourceUpsertItemOutcome:
+      type: string
+      enum:
+      - inserted
+      - unchanged
+      - versioned
+      - replaced
+      - conflict
+      - rejected
+    SourceUpsertItemResult:
+      type: object
+      required:
+      - index
+      - outcome
+      - external_id_hash
+      - content_digest
+      properties:
+        content_digest:
+          type: string
+        external_id_hash:
+          type: string
+        index:
+          type: integer
+          minimum: 0
+        note_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        outcome:
+          $ref: '#/components/schemas/SourceUpsertItemOutcome'
+        reason_code:
+          type:
+          - string
+          - 'null'
+    SourceUpsertPolicy:
+      type: string
+      enum:
+      - replace
+      - version
+      - conflict
+    SourceUpsertRequest:
+      type: object
+      required:
+      - source_namespace
+      - source_schema_version
+      - import_run_id
+      - items
+      properties:
+        batch_id:
+          type:
+          - string
+          - 'null'
+        checkpoint: {}
+        dry_run:
+          type: boolean
+        import_run_id:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SourceUpsertItem'
+        policy:
+          $ref: '#/components/schemas/SourceUpsertPolicy'
+        source_id:
+          type:
+          - string
+          - 'null'
+        source_namespace:
+          type: string
+        source_schema_version:
+          type: string
+        workspace_id:
+          type:
+          - string
+          - 'null'
+    SourceUpsertResponse:
+      type: object
+      required:
+      - contract_version
+      - import_run_id
+      - batch_id
+      - dry_run
+      - outcome
+      - counts
+      - items
+      properties:
+        batch_id:
+          type: string
+        checkpoint: {}
+        contract_version:
+          type: string
+        counts:
+          $ref: '#/components/schemas/SourceUpsertCounts'
+        dry_run:
+          type: boolean
+        import_run_id:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/SourceUpsertItemResult'
+        outcome:
+          $ref: '#/components/schemas/SourceUpsertBatchOutcome'
     StrictTagFilter:
       type: object
       description: |-

@@ -15,7 +15,7 @@ docker compose -f docker-compose.bundle.yml up -d
 [![License](https://img.shields.io/badge/license-BSL--1.1-blue.svg?style=flat-square)](BSL-LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-2021_edition-orange?style=flat-square&logo=rust)](https://www.rust-lang.org)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-336791?style=flat-square&logo=postgresql)](https://www.postgresql.org)
-[![MCP](https://img.shields.io/badge/MCP-43_tools-purple?style=flat-square)](#mcp-server)
+[![MCP](https://img.shields.io/badge/MCP-44_tools-purple?style=flat-square)](#mcp-server)
 [![Docker](https://img.shields.io/badge/Docker-Bundle-2496ED?style=flat-square&logo=docker)](#quick-start)
 
 [**Get Started**](#quick-start) · [**Features**](#features) · [**Architecture**](#architecture) · [**MCP Server**](#mcp-server) · [**API**](#api-endpoints) · [**Realtime Setup**](docs/deployment/realtime-providers.md) · [**Documentation**](#documentation) · [**🖥️ Desktop App (HotM)**](https://git.integrolabs.net/Fortemi/HotM/releases/latest)
@@ -103,7 +103,7 @@ Notes, meeting minutes, code documentation, research papers, and movie reviews a
 - **TUS resumable uploads** — tus v1.0.0 protocol for reliable large-file uploads
 - **HTTP Range requests** — Partial content download for large attachments
 - **Thumbnail sprite sheets** — CSS sprite grids with WebVTT maps for video seek-bar previews
-- **43 MCP agent tools** — Model Context Protocol integration for AI agent workflows
+- **44 MCP agent tools** — Model Context Protocol integration for AI agent workflows
 - **Edge hardware** — Runs on 8GB GPUs; scales with hardware profiles (`edge`, `gpu-12gb`, `gpu-24gb`)
 - **Knowledge health dashboard** — Orphan tags, stale notes, unlinked notes, cold spots, access frequency
 
@@ -355,13 +355,13 @@ See [Getting Started](docs/content/getting-started.md) for the full walkthrough.
 │                  │ (Ollama, OpenAI, OpenRouter, llama.cpp)        │
 ├──────────────────┼──────────────────────────────────────────────┤
 │  matric-db       │ PostgreSQL + pgvector + PostGIS repositories   │
-│                  │ (sqlx, 106 migrations)                         │
+│                  │ (sqlx, 107 migrations)                         │
 ├──────────────────┼──────────────────────────────────────────────┤
 │  matric-crypto   │ X25519/AES-256-GCM public-key encryption      │
 ├──────────────────┼──────────────────────────────────────────────┤
 │  matric-core     │ Core types, traits, and error handling         │
 ├──────────────────┼──────────────────────────────────────────────┤
-│  mcp-server      │ MCP agent integration (Node.js, 43/205 tools) │
+│  mcp-server      │ MCP agent integration (Node.js, 44/206 tools) │
 └──────────────────┴──────────────────────────────────────────────┘
 ```
 
@@ -377,7 +377,7 @@ fortemi/
 │   ├── matric-inference/    # Multi-provider inference abstraction
 │   ├── matric-jobs/         # Background job worker (NLP pipeline)
 │   └── matric-search/       # Hybrid search (FTS + semantic + RRF)
-├── mcp-server/              # MCP server (Node.js, 43 core tools)
+├── mcp-server/              # MCP server (Node.js, 44 core tools)
 ├── migrations/              # 106 PostgreSQL migrations
 ├── docker/                  # Docker entrypoints and configs
 ├── build/                   # CI Dockerfiles (testdb, builder)
@@ -444,7 +444,7 @@ See [API Reference](docs/content/api.md) for all endpoints with request/response
 
 ## MCP Server
 
-43 core agent tools via Model Context Protocol. Docker bundle exposes MCP on port 3001 with automatic OAuth credential management.
+44 core agent tools via Model Context Protocol. Docker bundle exposes MCP on port 3001 with automatic OAuth credential management.
 
 ### Connect
 
@@ -456,13 +456,14 @@ See [API Reference](docs/content/api.md) for all endpoints with request/response
 }
 ```
 
-### Core Tools (43)
+### Core Tools (44)
 
 Discriminated-union pattern for agent-friendly interaction:
 
 | Tool | What It Does |
 |------|-------------|
 | `capture_knowledge` | Create, update, and manage notes |
+| `upsert_external_notes` | Atomic, replay-safe persistence for externally managed notes |
 | `search` | Hybrid search with tag filtering and federation |
 | `record_provenance` | Track knowledge lineage and sourcing |
 | `manage_tags` | Tag lifecycle and vocabulary management |
@@ -481,7 +482,7 @@ Discriminated-union pattern for agent-friendly interaction:
 | `select_memory` / `get_active_memory` | Multi-memory context switching |
 | `purge_note` / `purge_notes` / `purge_all_notes` | Destructive cleanup |
 
-Set `MCP_TOOL_MODE=full` for all 205 granular tools. See [MCP Guide](docs/content/mcp.md) · [MCP Deployment](docs/content/mcp-deployment.md).
+Set `MCP_TOOL_MODE=full` for all 206 granular tools. See [MCP Guide](docs/content/mcp.md) · [MCP Deployment](docs/content/mcp-deployment.md).
 
 ---
 
@@ -908,7 +909,7 @@ Key variables (see [full reference](docs/content/configuration.md) for all ~27 v
 | `OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
 | `WHISPER_BASE_URL` | `http://whisper:8000` | Audio transcription endpoint |
 | `MAX_MEMORIES` | `10` | Max archives (scale with RAM: 10→8GB, 50→16GB, 200→32GB, 500→64GB+) |
-| `MCP_TOOL_MODE` | `core` | `core` (43 tools) or `full` (205 tools) |
+| `MCP_TOOL_MODE` | `core` | `core` (44 tools) or `full` (206 tools) |
 
 ---
 
@@ -946,7 +947,7 @@ RUST_LOG=debug cargo run -p matric-api
 
 - PostgreSQL 18 with pgvector + PostGIS extensions
 - Connection: `postgres://matric:matric@localhost/matric`
-- 106 migrations in `migrations/` directory
+- 107 migrations in `migrations/` directory
 - Extensions created by entrypoint/CI as superuser
 
 ### Testing
@@ -1037,7 +1038,7 @@ See [docs/research/](docs/research/) for detailed paper analyses.
 
 ## Related Projects
 
-- **[AIWG](https://github.com/jmagly/aiwg)** — Multi-agent AI framework with 43 Fortémi MCP tools
+- **[AIWG](https://github.com/jmagly/aiwg)** — Multi-agent AI framework with 44 Fortémi MCP tools
 - **[Agentic Sandbox](https://github.com/fortemi/agentic-sandbox)** — Runtime isolation for persistent AI agent processes
 - **[HotM](https://git.integrolabs.net/Fortemi/HotM)** ([GitHub mirror](https://github.com/Fortemi/HotM)) — first-party desktop app for Fortemi (React 19 SPA + bundled `matric-api` sidecar; Linux `.deb` / Windows `.msi` / macOS `.dmg` / `.AppImage`)
 

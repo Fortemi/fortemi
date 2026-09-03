@@ -63,16 +63,16 @@ The MCP server provides AI assistants (Claude, etc.) with access to your knowled
 
 ### Core Mode (Default)
 
-**43 consolidated tools** using discriminated-union pattern for agent-optimized operation:
+**44 consolidated tools** using discriminated-union pattern for agent-optimized operation:
 
-- **~79% token reduction** compared to full mode (43 vs 205 tools)
+- **~79% token reduction** compared to full mode (44 vs 206 tools)
 - **Action-based design** groups related operations under unified tools
 - **Cognitive load reduction** improves agent decision-making and response time
 - **Backward compatible** all functionality available, just organized differently
 
 ### Full Mode (Optional)
 
-**205 granular tools** exposing every API endpoint individually:
+**206 granular tools** exposing every API endpoint individually:
 
 - Set `MCP_TOOL_MODE=full` environment variable
 - Useful for programmatic access requiring precise endpoint control
@@ -82,7 +82,7 @@ The MCP server provides AI assistants (Claude, etc.) with access to your knowled
 
 ## Core Tools Reference
 
-The 43 core tools provide complete access to Fortémi functionality through action-based interfaces.
+The 44 core tools provide complete access to Fortémi functionality through action-based interfaces.
 
 ### Notes Operations
 
@@ -115,6 +115,37 @@ Retrieve full details for a specific note by ID.
 ```json
 {
   "id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+#### `upsert_external_notes`
+
+Atomically persists externally managed notes by source namespace and external
+ID. Supply a stable `import_run_id`; optionally supply `batch_id` and a
+resumable `checkpoint`. Exact batch replay returns `duplicate` without adding
+notes, revisions, activity, jobs, blobs, outbox records, or journal rows.
+
+Changed content defaults to `version`. Use `replace` to update managed content
+without a new revision, or `conflict` to report the difference without
+mutation. Set `dry_run` to preview all item outcomes. The response contains
+opaque external-key hashes and content digests, never raw external IDs or
+content.
+
+```json
+{
+  "source_namespace": "example.sync",
+  "source_schema_version": "1",
+  "import_run_id": "run-2026-09-03",
+  "batch_id": "page-0001",
+  "checkpoint": {"cursor": "next-page"},
+  "policy": "version",
+  "items": [
+    {
+      "external_id": "record-42",
+      "content": "Managed note content",
+      "metadata": {"source_type": "example"}
+    }
+  ]
 }
 ```
 

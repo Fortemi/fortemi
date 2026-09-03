@@ -1036,6 +1036,13 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         NoStore,
     ),
     r(
+        "/api/v1/notes/source-upsert",
+        AuthenticatedWrite,
+        "note",
+        Authenticated,
+        NoStore,
+    ),
+    r(
         "/api/v1/notes/reprocess",
         TenantObject,
         "note",
@@ -1571,6 +1578,7 @@ pub fn hosted_tenant_transaction_ready(method: &Method, path: &str) -> bool {
     matches!(
         (method, policy.path),
         (&Method::GET, "/api/v1/notes")
+            | (&Method::POST, "/api/v1/notes/source-upsert")
             | (&Method::GET, "/api/v1/notes/{id}")
             | (&Method::DELETE, "/api/v1/notes/{id}")
             | (&Method::POST, "/api/v1/notes/{id}/move")

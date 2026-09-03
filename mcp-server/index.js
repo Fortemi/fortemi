@@ -213,6 +213,25 @@ function createMcpServer() {
           result = await apiRequest("GET", `/api/v1/notes/${args.id}`);
           break;
 
+        case "upsert_external_notes": {
+          const receipt = await apiRequest("POST", "/api/v1/notes/source-upsert", args);
+          const materialOutcomes = new Set(["inserted", "versioned", "replaced"]);
+          const materialItems = (receipt?.items || []).filter((item) =>
+            materialOutcomes.has(item.outcome)
+          );
+          const sessions = new Set(
+            materialItems
+              .map((item) => args.items?.[item.index]?.metadata?.session_id)
+              .filter((value) => typeof value === "string" && value.length > 0)
+          );
+          result = {
+            ...receipt,
+            sessions_inserted: sessions.size,
+            events_inserted: materialItems.length,
+          };
+          break;
+        }
+
         case "capture_knowledge": {
           const action = args.action;
           if (action === "create") {

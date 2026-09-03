@@ -1,0 +1,77 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-09-03T20:26:54Z"
+  description: "Provenance for the source-note-upsert 1.0.0 live-persistence authority and producer implementation"
+entity:
+  id: "urn:aiwg:artifact:contracts/source-note-upsert/contract.json:sha256:2cb00f29902f5b176f5804c4bfa51036df624f2ab63c9cb555f1523e37a5ea1c"
+  type: contract_bundle
+  created_at: "2026-09-03T20:26:54Z"
+  checksum: "sha256:2cb00f29902f5b176f5804c4bfa51036df624f2ab63c9cb555f1523e37a5ea1c"
+  size_bytes: 2719
+  attributes:
+    issue: "Fortemi/fortemi#1090"
+    consumer_issue: "Fortemi/fortemi-react#404"
+    coordination_issue: "Fortemi/fortemi#1081"
+    plane: live-persistence
+    contract: source-note-upsert/1.0.0
+    fixture_sha256: "181b64c819c7d8d5492edbab187d71750de86c4e4bc74a2888ed5da163cb6266"
+    request_schema_sha256: "2461758debe121f06d78705e67f14426ea441b09ea53115fa7a168e79c83b017"
+    response_schema_sha256: "5eabe8c9974a720a943c6b5144dfae0882ff9894851a80e8742dc4fa3ef751da"
+    artifacts:
+      README.md: "sha256:24d3373fa9f97e7f09541dbbe4c3e4b4c0fd9de8d10e2fa95a1a565e57b29a67"
+      contracts/openapi/openapi.sha256: "sha256:b1024dfae9cc4d799fd74f81aa9af178153c318da265fe0ccb6f50a845a0cd5b"
+      contracts/openapi/openapi.yaml: "sha256:df0aa71463e182c94325948305cf58104021ef38e1cc5dda47a02531c35bd7a5"
+      crates/matric-api/src/main.rs: "sha256:7b2833b9c2e99e4ecf8103cca1601af593f823f54603b1abfc1f22d2aaec525f"
+      crates/matric-api/src/route_policy.rs: "sha256:fc4947dcfa6c457cbd25fe8d912c9b1b9f8d339c8bf4cc5061e34a4ed5a762eb"
+      crates/matric-core/src/lib.rs: "sha256:9fac634c3b504da91273f1213f2c5a0c7f9c95688ec2e17d313e85f1309fe380"
+      crates/matric-core/src/source_upsert.rs: "sha256:32ee66819142c3169e0b8fdcec1c770015d7f93530138709bd7ddeeaad1a8c8c"
+      crates/matric-db/Cargo.toml: "sha256:130fc271d807a4322b019057776d9300d0b94f7a832a93255875ea3ec9e4bda1"
+      crates/matric-db/src/lib.rs: "sha256:ae7ffd82806a2bfd01fa853527041d879a520df01b5045bb5dcb9b9826db2656"
+      crates/matric-db/src/source_upsert.rs: "sha256:c37cd241d0094ca864349e498da78a01138ff32b291848a9a528254b57372f32"
+      crates/matric-db/src/tenancy.rs: "sha256:c8cdc7929a26556d8a83ba1e250ab42c78e92b025b0502e25f4362b4867d56e6"
+      crates/matric-db/tests/source_upsert_contract_test.rs: "sha256:c8b342466d61dfcc8ff5cce898eefb6d3dfd22d26606c5633b89c5ce6e8493a6"
+      migrations/20260903010000_source_addressed_note_upsert.sql: "sha256:e1f3685c4758a9ede64435c6c5b31d587ec978b305257ab844f522b21f66adfb"
+      mcp-server/constants/core-tools.js: "sha256:fcbea00cc35b164a3c8bc1ef432b60b56f19ff3159191e66a819e7e07fe69f9b"
+      mcp-server/index.js: "sha256:f8463fc816d01daedee73b5f5d2a821c6db7f32eb6ebdb4ad34c80f2bcefb122"
+      mcp-server/tools.js: "sha256:5ef180638c2ea5d803a44f7cfd1149b0babb3d34ca4fda2f649dd20e247ccc9e"
+activity:
+  id: "urn:aiwg:activity:implementation:source-note-upsert-1090:001"
+  type: implementation
+  started_at: "2026-09-03T19:31:00Z"
+  ended_at: "2026-09-03T20:26:54Z"
+  description: "Define and implement a tenant- and memory-scoped atomic source-addressed note upsert across REST, MCP, and PostgreSQL"
+  attributes:
+    verification:
+      - "cargo check -p matric-core -p matric-db -p matric-api: passed"
+      - "cargo test -p matric-core source_upsert: 2 passed"
+      - "cargo test -p matric-db source_upsert: 1 passed"
+      - "cargo test -p matric-api generated_openapi_passes_strict_contract_validation: 1 passed"
+      - "cargo test -p matric-api route_policy: 17 passed"
+      - "npm run validate:schemas: 206 schemas passed"
+      - "openapi-contract.sh check: passed"
+    claim_boundary: "Only source-note-upsert/1.0.0 live persistence; no broad parity, complete-backup, or source-identity portability claim"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:contracts/source-note-upsert/contract.json:sha256:2cb00f29902f5b176f5804c4bfa51036df624f2ab63c9cb555f1523e37a5ea1c"
+    activity: "urn:aiwg:activity:implementation:source-note-upsert-1090:001"
+    time: "2026-09-03T20:26:54Z"
+  used:
+    - activity: "urn:aiwg:activity:implementation:source-note-upsert-1090:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1090"
+      role: requirement
+    - activity: "urn:aiwg:activity:implementation:source-note-upsert-1090:001"
+      entity: "urn:aiwg:artifact:.aiwg/architecture/ADR-suite-contract-authority-and-profiles.md"
+      role: suite_policy_authority
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:implementation:source-note-upsert-1090:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_implementer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:contracts/source-note-upsert/contract.json:sha256:2cb00f29902f5b176f5804c4bfa51036df624f2ab63c9cb555f1523e37a5ea1c"
+    agent: "urn:aiwg:agent:codex-gpt-5"

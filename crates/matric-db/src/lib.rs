@@ -59,6 +59,7 @@ pub mod schema_validation;
 pub mod search;
 pub mod skos_tags;
 mod skos_tags_tx;
+pub mod source_upsert;
 pub mod strict_filter;
 #[cfg(feature = "tree-sitter")]
 pub mod syntactic_chunker;
@@ -143,6 +144,7 @@ pub use provenance::PgProvenanceRepository;
 pub use schema_context::SchemaContext;
 pub use schema_validation::validate_schema_name;
 pub use search::PgFtsSearch;
+pub use source_upsert::PgSourceUpsertRepository;
 pub use strict_filter::{QueryParam, StrictFilterQueryBuilder};
 pub use tags::PgTagRepository;
 pub use templates::PgTemplateRepository;
@@ -236,6 +238,8 @@ pub struct Database {
     pub tus: PgTusRepository,
     /// Provider-agnostic real-time call session repository (Issues #839/#845).
     pub call_sessions: PgCallSessionRepository,
+    /// Source-addressed atomic note upsert repository (Issue #1090).
+    pub source_upserts: PgSourceUpsertRepository,
 }
 
 impl Database {
@@ -274,6 +278,7 @@ impl Database {
             pke_keysets: PgPkeKeysetRepository::new(pool.clone()),
             tus: PgTusRepository::new(pool.clone()),
             call_sessions: PgCallSessionRepository::new(pool.clone()),
+            source_upserts: PgSourceUpsertRepository::new(pool.clone()),
             pool,
         }
     }
@@ -564,6 +569,7 @@ impl Clone for Database {
             pke_keysets: PgPkeKeysetRepository::new(self.pool.clone()),
             tus: PgTusRepository::new(self.pool.clone()),
             call_sessions: PgCallSessionRepository::new(self.pool.clone()),
+            source_upserts: PgSourceUpsertRepository::new(self.pool.clone()),
         }
     }
 }

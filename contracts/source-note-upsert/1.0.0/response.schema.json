@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fortemi.dev/contracts/source-note-upsert/1.0.0/response.schema.json",
+  "title": "Fortemi source-addressed note upsert receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract_version", "import_run_id", "batch_id", "dry_run", "outcome", "counts", "items"],
+  "properties": {
+    "contract_version": {"const": "1.0.0"},
+    "import_run_id": {"type": "string"},
+    "batch_id": {"type": "string"},
+    "dry_run": {"type": "boolean"},
+    "outcome": {"type": "string", "enum": ["committed", "duplicate", "preview", "rejected"]},
+    "checkpoint": {"type": "object"},
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["inserted", "unchanged", "versioned", "replaced", "conflict", "rejected"],
+      "properties": {
+        "inserted": {"type": "integer", "minimum": 0},
+        "unchanged": {"type": "integer", "minimum": 0},
+        "versioned": {"type": "integer", "minimum": 0},
+        "replaced": {"type": "integer", "minimum": 0},
+        "conflict": {"type": "integer", "minimum": 0},
+        "rejected": {"type": "integer", "minimum": 0}
+      }
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["index", "outcome", "external_id_hash", "content_digest"],
+        "properties": {
+          "index": {"type": "integer", "minimum": 0},
+          "outcome": {"type": "string", "enum": ["inserted", "unchanged", "versioned", "replaced", "conflict", "rejected"]},
+          "note_id": {"type": "string", "format": "uuid"},
+          "external_id_hash": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "content_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "reason_code": {
+            "type": "string",
+            "enum": [
+              "invalid_batch_metadata",
+              "batch_size_out_of_bounds",
+              "checkpoint_too_large",
+              "invalid_item",
+              "duplicate_external_id_in_batch",
+              "content_digest_mismatch",
+              "caller_stable_id_conflict",
+              "batch_id_reused_with_different_request"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

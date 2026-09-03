@@ -28,6 +28,11 @@ name = "audit_sink_test"
 path = "tests/audit_sink_test.rs"
 required-features = ["migrations"]
 
+[[test]]
+name = "source_upsert_contract_test"
+path = "tests/source_upsert_contract_test.rs"
+required-features = ["migrations"]
+
 [dependencies]
 # Internal
 matric-core.workspace = true

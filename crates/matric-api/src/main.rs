@@ -1325,7 +1325,7 @@ impl AppState {
         delete_webhook_handler, list_webhook_deliveries, test_webhook, rate_limit_status,
         health_check, system_compatibility, get_notes_timeline, get_notes_activity, get_knowledge_health,
         get_orphan_tags, get_stale_notes, get_unlinked_notes, get_tag_cooccurrence, get_access_frequency,
-        list_notes, create_note, bulk_create_notes, get_note,
+        list_notes, create_note, source_upsert_notes, bulk_create_notes, get_note,
         update_note, delete_note, purge_note, update_note_status,
         restore_note, reprocess_note, bulk_reprocess_notes, get_note_tags, set_note_tags,
         list_tags, list_concept_schemes, create_concept_scheme, get_concept_scheme,
@@ -1451,6 +1451,10 @@ impl AppState {
             matric_core::TagInput, matric_core::TagNoteRequest, matric_core::TimelineGroup,
             matric_core::TimelineResponse, matric_core::TriModalWeights, matric_core::TusUpload,
             matric_core::CallSession, matric_core::TranscriptSegment,
+            matric_core::SourceUpsertBatchOutcome, matric_core::SourceUpsertCounts,
+            matric_core::SourceUpsertItem, matric_core::SourceUpsertItemOutcome,
+            matric_core::SourceUpsertItemResult, matric_core::SourceUpsertPolicy,
+            matric_core::SourceUpsertRequest, matric_core::SourceUpsertResponse,
             matric_core::TwoStageSearchConfig,
             matric_core::UpdateCollectionMembersRequest, matric_core::UpdateConceptRequest, matric_core::UpdateConceptSchemeRequest,
             matric_core::UpdateDocumentTypeRequest, matric_core::UpdateEmbeddingConfigRequest, matric_core::UpdateEmbeddingSetRequest,
@@ -1853,6 +1857,35 @@ fn apply_openapi_operation_contracts(value: &mut serde_yaml::Value) {
             "consumer_issue": "Fortemi/HotM#10",
         })))
         .expect("manual note-link disposition metadata must serialize"),
+    );
+
+    let source_upsert = value
+        .as_mapping_mut()
+        .and_then(|root| root.get_mut(yaml_key("paths")))
+        .and_then(serde_yaml::Value::as_mapping_mut)
+        .and_then(|paths| paths.get_mut(yaml_key("/api/v1/notes/source-upsert")))
+        .and_then(serde_yaml::Value::as_mapping_mut)
+        .and_then(|path| path.get_mut(yaml_key("post")))
+        .and_then(serde_yaml::Value::as_mapping_mut)
+        .expect("source-addressed note upsert operation must exist in generated OpenAPI");
+    source_upsert.insert(
+        yaml_key("x-fortemi-authorization"),
+        serde_yaml::to_value(canonicalize_json_value(serde_json::json!({
+            "policy_class": "authenticated_write",
+            "required_scopes": ["write"],
+            "scope_identity": ["verified_tenant", "active_memory"],
+            "tenant_transaction_required": true,
+        })))
+        .expect("source upsert authorization metadata must serialize"),
+    );
+    source_upsert.insert(
+        yaml_key("x-fortemi-operation-disposition"),
+        serde_yaml::to_value(canonicalize_json_value(serde_json::json!({
+            "contract": "source-note-upsert/1.0.0",
+            "status": "supported",
+            "consumer_issue": "Fortemi/fortemi-react#404",
+        })))
+        .expect("source upsert disposition metadata must serialize"),
     );
 }
 
@@ -4408,6 +4441,7 @@ async fn main() -> anyhow::Result<()> {
         .merge(hosted_user_secret_routes())
         // Notes CRUD
         .route("/api/v1/notes", get(list_notes).post(create_note))
+        .route("/api/v1/notes/source-upsert", post(source_upsert_notes))
         .route("/api/v1/notes/bulk", post(bulk_create_notes))
         .route(
             "/api/v1/notes/{id}",
@@ -13601,6 +13635,38 @@ where
             .execute(move |transaction| operation(transaction))
             .await
     }
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/notes/source-upsert",
+    tag = "Notes",
+    request_body = matric_core::SourceUpsertRequest,
+    responses(
+        (status = 200, description = "Atomic source-addressed upsert receipt", body = matric_core::SourceUpsertResponse),
+        (status = 400, description = "Malformed JSON request"),
+    )
+)]
+async fn source_upsert_notes(
+    _auth: Auth,
+    State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Json(request): Json<matric_core::SourceUpsertRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let repository = matric_db::PgSourceUpsertRepository::new(state.db.pool.clone());
+    let response = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema.clone(),
+        move |connection| Box::pin(async move { repository.upsert_tx(connection, request).await }),
+    )
+    .await?;
+
+    if response.counts.material_changes() > 0 && !response.dry_run {
+        state.search_cache.invalidate_all().await;
+    }
+    Ok(Json(response))
 }
 
 #[utoipa::path(
@@ -24895,6 +24961,35 @@ struct ShardExportQuery {
     include_blobs: bool,
 }
 
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+struct ShardLossEntry {
+    code: String,
+    count: i64,
+    action: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq)]
+struct ShardLossReport {
+    schema: String,
+    profile: String,
+    losses: Vec<ShardLossEntry>,
+}
+
+fn source_identity_shard_loss_report(profile: &str, count: i64) -> ShardLossReport {
+    ShardLossReport {
+        schema: "fortemi.shard-loss-report/v1".to_string(),
+        profile: profile.to_string(),
+        losses: (count > 0)
+            .then(|| ShardLossEntry {
+                code: "source-identity-outside-profile".to_string(),
+                count,
+                action: "omitted".to_string(),
+            })
+            .into_iter()
+            .collect(),
+    }
+}
+
 impl fmt::Debug for ShardExportQuery {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ShardExportQuery")
@@ -29006,7 +29101,7 @@ async fn load_shard_blob_export_inventory_tx(
         ("include" = Option<String>, Query, description = "Comma-separated profile components"),
         ("include_blobs" = Option<bool>, Query, description = "Include verified content-addressed attachment byte sidecars"),
     ),
-    responses((status = 200, description = "Knowledge Shard archive. When a full-v1 signing key file is configured, the archive includes a canonical Ed25519 signature.json envelope."))
+    responses((status = 200, description = "Knowledge Shard archive. X-Fortemi-Shard-Loss-Report reports live source identities omitted because they are outside the selected profile. When a full-v1 signing key file is configured, the archive includes a canonical Ed25519 signature.json envelope."))
 )]
 async fn knowledge_shard(
     State(state): State<AppState>,
@@ -29082,6 +29177,11 @@ async fn knowledge_shard(
     // Schema-scoped transaction for the entire export
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let mut tx = ctx.begin_tx().await?;
+    let source_identity_loss_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM source_identity")
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("count omitted source identities", error))?;
 
     let shard_file = tempfile::NamedTempFile::new()
         .map_err(|error| shard_operation_failed("prepare shard export file", error))?;
@@ -30755,6 +30855,16 @@ async fn knowledge_shard(
             .to_string()
             .parse()
             .map_err(|error| shard_operation_failed("build shard content length", error))?,
+    );
+    let loss_report = serde_json::to_string(&source_identity_shard_loss_report(
+        profile,
+        source_identity_loss_count,
+    ))
+    .map_err(|error| shard_operation_failed("serialize shard loss report", error))?;
+    headers.insert(
+        "x-fortemi-shard-loss-report",
+        HeaderValue::from_str(&loss_report)
+            .map_err(|error| shard_operation_failed("build shard loss report header", error))?,
     );
 
     let file = tokio::fs::File::open(shard_file.path())
@@ -48991,6 +49101,20 @@ not-json
             manifest.min_reader_version.as_deref(),
             Some(matric_core::shard::CURRENT_SHARD_VERSION)
         );
+    }
+
+    #[test]
+    fn shard_loss_report_types_source_identity_omission_without_changing_profile() {
+        let report = source_identity_shard_loss_report("core-v1", 3);
+        assert_eq!(report.profile, "core-v1");
+        assert_eq!(report.losses.len(), 1);
+        assert_eq!(report.losses[0].code, "source-identity-outside-profile");
+        assert_eq!(report.losses[0].count, 3);
+        assert_eq!(report.losses[0].action, "omitted");
+
+        let empty = source_identity_shard_loss_report("full-v1", 0);
+        assert_eq!(empty.profile, "full-v1");
+        assert!(empty.losses.is_empty());
     }
 
     #[test]

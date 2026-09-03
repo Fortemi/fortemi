@@ -206,6 +206,113 @@ export default [
     annotations: {"readOnlyHint":true},
   },
   {
+    name: "upsert_external_notes",
+    description: "Atomically insert or update a bounded batch of externally managed notes by source namespace and external ID. Replays are idempotent; responses contain opaque hashes, never raw external keys or content.",
+    inputSchema: {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source_namespace": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "source_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "source_schema_version": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "import_run_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "batch_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Stable retry identifier. If omitted, Fortemi derives one from the canonical request digest."
+        },
+        "workspace_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "checkpoint": {
+          "type": "object",
+          "description": "Opaque bounded caller checkpoint returned in the commit receipt."
+        },
+        "dry_run": {
+          "type": "boolean",
+          "default": false
+        },
+        "policy": {
+          "type": "string",
+          "enum": ["replace", "version", "conflict"],
+          "default": "version"
+        },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 500,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "external_id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1000
+              },
+              "content": {
+                "type": "string",
+                "minLength": 1
+              },
+              "content_digest": {
+                "type": "string",
+                "pattern": "^sha256:[0-9a-f]{64}$"
+              },
+              "caller_stable_id": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "title": {
+                "type": "string",
+                "maxLength": 2000
+              },
+              "format": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "default": "markdown"
+              },
+              "metadata": {
+                "type": "object"
+              },
+              "policy": {
+                "type": "string",
+                "enum": ["replace", "version", "conflict"]
+              }
+            },
+            "required": ["external_id", "content"]
+          }
+        }
+      },
+      "required": [
+        "source_namespace",
+        "source_schema_version",
+        "import_run_id",
+        "items"
+      ]
+    },
+    annotations: {"destructiveHint": false, "idempotentHint": true},
+  },
+  {
     name: "capture_knowledge",
     description: `Add knowledge to the active memory. Each note triggers the full NLP pipeline: AI revision, title generation, SKOS concept tagging (8-15 tags), metadata extraction, tag-enriched embedding, and semantic linking — all automatic. Default revision_mode is 'standard' (isolated intelligent revision). Use 'contextual' for cross-referencing with related notes, or 'none' to skip AI revision. See \`get_documentation(topic='notes')\`.`,
     inputSchema: {

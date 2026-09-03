@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "contract_revision": "1",
+  "contract": {
+    "name": "source-note-upsert",
+    "version": "1.0.0",
+    "plane": "live-persistence",
+    "authority_repository": "Fortemi/fortemi",
+    "producer_commit": "Use the immutable Git commit containing this receipt."
+  },
+  "surface": {
+    "rest": "POST /api/v1/notes/source-upsert",
+    "mcp": "upsert_external_notes",
+    "maximum_items": 500,
+    "default_changed_content_policy": "version"
+  },
+  "identity": {
+    "tuple": ["tenant", "memory", "source_namespace", "external_id"],
+    "tenant_and_memory_source": "verified request context",
+    "receipt_projection": "sha256 over NUL-delimited tuple",
+    "caller_stable_uuid": "creation hint only"
+  },
+  "schema_bundle": {
+    "files": {
+      "contracts/source-note-upsert/1.0.0/request.schema.json": "2461758debe121f06d78705e67f14426ea441b09ea53115fa7a168e79c83b017",
+      "contracts/source-note-upsert/1.0.0/response.schema.json": "5eabe8c9974a720a943c6b5144dfae0882ff9894851a80e8742dc4fa3ef751da"
+    }
+  },
+  "conformance": {
+    "fixture": "contracts/source-note-upsert/conformance/v1.json",
+    "fixture_sha256": "181b64c819c7d8d5492edbab187d71750de86c4e4bc74a2888ed5da163cb6266",
+    "required_implementations": ["fortemi-postgresql", "fortemi-react-pglite", "fortemi-react-recordstore"],
+    "producer_test": "cargo test -p matric-db --features migrations --test source_upsert_contract_test",
+    "clean_destination_required": true
+  },
+  "receipts": {
+    "fortemi_postgresql": {
+      "repository": "Fortemi/fortemi",
+      "issue": "Fortemi/fortemi#1090",
+      "commit": "pending",
+      "ci_run": "pending"
+    },
+    "fortemi_react_pglite": {
+      "repository": "Fortemi/fortemi-react",
+      "issue": "Fortemi/fortemi-react#404",
+      "commit": "pending",
+      "ci_run": "pending"
+    },
+    "fortemi_react_recordstore": {
+      "repository": "Fortemi/fortemi-react",
+      "issue": "Fortemi/fortemi-react#404",
+      "commit": "pending",
+      "ci_run": "pending"
+    },
+    "aiwg_live_qualifier": {
+      "repository": "AIWG/aiwg",
+      "issue": "AIWG/aiwg#2194",
+      "commit": "affc396c",
+      "status": "blocked pending delivered Fortemi authority and remaining live schema qualifications"
+    }
+  },
+  "knowledge_shard": {
+    "profiles_changed": false,
+    "source_identity_profiles": [],
+    "typed_loss_header": "X-Fortemi-Shard-Loss-Report",
+    "typed_loss_code": "source-identity-outside-profile"
+  },
+  "claim_boundary": {
+    "full_suite_parity": false,
+    "complete_backup": false,
+    "portable_source_identity": false,
+    "reason": "suite compatibility audit remains NO-GO; evidence is limited to the exact source-note-upsert contract receipts"
+  }
+}
