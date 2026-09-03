@@ -35,7 +35,7 @@ async fn execute(
 ) -> matric_core::Result<matric_core::SourceUpsertResponse> {
     let repository = PgSourceUpsertRepository::new(db.pool.clone());
     db.for_schema(schema)?
-        .execute(move |tx| Box::pin(async move { repository.upsert_tx(&mut **tx, request).await }))
+        .execute(move |tx| Box::pin(async move { repository.upsert_tx(tx, request).await }))
         .await
 }
 

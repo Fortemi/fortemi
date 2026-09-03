@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-09-03T20:26:54Z"
+  updated_at: "2026-09-03T20:36:14Z"
 records:
   - entity: "contracts/source-note-upsert/contract.json"
     record: "records/source-note-upsert-1090.prov.yaml"
