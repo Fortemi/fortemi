@@ -106,7 +106,6 @@ async fn server_executes_shared_source_upsert_conformance_fixture() {
     let db = Database::connect(&database_url)
         .await
         .expect("connect database");
-    db.migrate().await.expect("migrate database");
 
     let fixture: Fixture = serde_json::from_str(include_str!(
         "../../../contracts/source-note-upsert/conformance/v1.json"

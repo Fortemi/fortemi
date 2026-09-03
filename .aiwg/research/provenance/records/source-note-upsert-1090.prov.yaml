@@ -29,7 +29,7 @@ entity:
       crates/matric-db/src/lib.rs: "sha256:ae7ffd82806a2bfd01fa853527041d879a520df01b5045bb5dcb9b9826db2656"
       crates/matric-db/src/source_upsert.rs: "sha256:c37cd241d0094ca864349e498da78a01138ff32b291848a9a528254b57372f32"
       crates/matric-db/src/tenancy.rs: "sha256:c8cdc7929a26556d8a83ba1e250ab42c78e92b025b0502e25f4362b4867d56e6"
-      crates/matric-db/tests/source_upsert_contract_test.rs: "sha256:a95411523e11167e57fe1603cfe8a5db17a600a4da020e5a19c4681a4c8a99b8"
+      crates/matric-db/tests/source_upsert_contract_test.rs: "sha256:986a2abcaedd72ab7fa0b6ffa4016c76a04874c78744d34f54cb98653659278a"
       migrations/20260903010000_source_addressed_note_upsert.sql: "sha256:e1f3685c4758a9ede64435c6c5b31d587ec978b305257ab844f522b21f66adfb"
       mcp-server/constants/core-tools.js: "sha256:fcbea00cc35b164a3c8bc1ef432b60b56f19ff3159191e66a819e7e07fe69f9b"
       AIWG.md: "sha256:fe0dab25e7f8f51fa4097f709f618488adfdf49005e4fc00de58988fe517a8c0"
@@ -50,7 +50,7 @@ activity:
   id: "urn:aiwg:activity:implementation:source-note-upsert-1090:001"
   type: implementation
   started_at: "2026-09-03T19:31:00Z"
-  ended_at: "2026-09-03T20:50:57Z"
+  ended_at: "2026-09-03T21:10:37Z"
   description: "Define and implement a tenant- and memory-scoped atomic source-addressed note upsert across REST, MCP, and PostgreSQL"
   attributes:
     verification:
@@ -66,6 +66,7 @@ activity:
       - "openapi-contract.sh check: passed"
       - "hosted-strict docs contract: 0 findings"
       - "cargo clippy -p matric-db --test source_upsert_contract_test --all-features -- -D warnings: passed after hosted lint remediation"
+      - "PostgreSQL 18.4 fresh-destination migration plus source_upsert_contract_test: 1 passed against the CI test database image"
     claim_boundary: "Only source-note-upsert/1.0.0 live persistence; no broad parity, complete-backup, or source-identity portability claim"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
