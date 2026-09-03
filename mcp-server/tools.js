@@ -215,22 +215,26 @@ export default [
         "source_namespace": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 200
+          "maxLength": 200,
+          "description": "Stable namespace owned by the external source system."
         },
         "source_id": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 500
+          "maxLength": 500,
+          "description": "Optional source instance or dataset identifier recorded with the import run."
         },
         "source_schema_version": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 100
+          "maxLength": 100,
+          "description": "Version of the external source schema used to construct this batch."
         },
         "import_run_id": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 200
+          "maxLength": 200,
+          "description": "Caller-assigned identifier for the bounded import run."
         },
         "batch_id": {
           "type": "string",
@@ -241,7 +245,8 @@ export default [
         "workspace_id": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 500
+          "maxLength": 500,
+          "description": "Optional external workspace identifier recorded with the import run."
         },
         "checkpoint": {
           "type": "object",
@@ -249,17 +254,20 @@ export default [
         },
         "dry_run": {
           "type": "boolean",
-          "default": false
+          "default": false,
+          "description": "Preview outcomes without writing notes, revisions, events, or import journals."
         },
         "policy": {
           "type": "string",
           "enum": ["replace", "version", "conflict"],
-          "default": "version"
+          "default": "version",
+          "description": "Default behavior when a source identity already maps to changed content."
         },
         "items": {
           "type": "array",
           "minItems": 1,
           "maxItems": 500,
+          "description": "One to 500 source-addressed notes committed atomically.",
           "items": {
             "type": "object",
             "additionalProperties": false,
@@ -267,36 +275,44 @@ export default [
               "external_id": {
                 "type": "string",
                 "minLength": 1,
-                "maxLength": 1000
+                "maxLength": 1000,
+                "description": "Stable note identifier within the source namespace."
               },
               "content": {
                 "type": "string",
-                "minLength": 1
+                "minLength": 1,
+                "description": "Complete note content for this source version."
               },
               "content_digest": {
                 "type": "string",
-                "pattern": "^sha256:[0-9a-f]{64}$"
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "description": "Optional lowercase SHA-256 digest used to reject corrupted input."
               },
               "caller_stable_id": {
                 "type": "string",
-                "format": "uuid"
+                "format": "uuid",
+                "description": "Optional stable note UUID used only when creating a new identity."
               },
               "title": {
                 "type": "string",
-                "maxLength": 2000
+                "maxLength": 2000,
+                "description": "Optional caller-supplied note title."
               },
               "format": {
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 100,
-                "default": "markdown"
+                "default": "markdown",
+                "description": "Note content format; defaults to markdown."
               },
               "metadata": {
-                "type": "object"
+                "type": "object",
+                "description": "Optional source metadata stored with the note."
               },
               "policy": {
                 "type": "string",
-                "enum": ["replace", "version", "conflict"]
+                "enum": ["replace", "version", "conflict"],
+                "description": "Per-item override for changed-content behavior."
               }
             },
             "required": ["external_id", "content"]

@@ -48,7 +48,7 @@ const API_BASE = process.env.FORTEMI_URL || process.env.ISSUER_URL || "https://f
 const PUBLIC_URL = process.env.ISSUER_URL || process.env.FORTEMI_URL || "https://fortemi.com";
 const API_KEY = process.env.FORTEMI_API_KEY || null;
 const MCP_TRANSPORT = process.env.MCP_TRANSPORT || "stdio"; // "stdio" or "http"
-const MCP_TOOL_MODE = process.env.MCP_TOOL_MODE || "core"; // "core" (43 tools) or "full" (205)
+const MCP_TOOL_MODE = process.env.MCP_TOOL_MODE || "core"; // "core" (44 tools) or "full" (206)
 
 const MCP_PORT = parseInt(process.env.MCP_PORT || String(DEFAULTS.MCP_DEFAULT_PORT), 10);
 const MCP_BASE_URL = process.env.MCP_BASE_URL || `http://localhost:${MCP_PORT}`;

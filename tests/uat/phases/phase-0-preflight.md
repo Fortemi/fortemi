@@ -89,7 +89,7 @@ const toolCount = toolNames.length;
 ```
 
 **Pass Criteria**:
-- [ ] System reports exactly 43 core MCP tools available
+- [ ] System reports exactly 44 core MCP tools available
 - [ ] Tool list includes all consolidated tools (capture_knowledge, search, etc.)
 - [ ] No full-mode-only granular tools present (`create_note`, `search_notes_fts`, etc.)
 

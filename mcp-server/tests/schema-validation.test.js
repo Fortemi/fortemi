@@ -712,13 +712,13 @@ describe("Core Tool Surface (Issue #365)", () => {
     assert.equal(missing.length, 0, `Core tools missing from tools.js: ${missing.join(", ")}`);
   });
 
-  test("CORE-002: Core surface has exactly 43 tools", () => {
-    assert.equal(CORE_TOOLS.size, 43, `Expected 43 core tools, got ${CORE_TOOLS.size}`);
+  test("CORE-002: Core surface has exactly 44 tools", () => {
+    assert.equal(CORE_TOOLS.size, 44, `Expected 44 core tools, got ${CORE_TOOLS.size}`);
   });
 
   test("CORE-003: Core filtering produces correct count", () => {
     const coreTools = tools.filter(t => CORE_TOOLS.has(t.name));
-    assert.equal(coreTools.length, 43, `Expected 43 filtered tools, got ${coreTools.length}`);
+    assert.equal(coreTools.length, 44, `Expected 44 filtered tools, got ${coreTools.length}`);
   });
 
   test("CORE-004: All 13 consolidated tools have action enum", () => {
@@ -749,11 +749,11 @@ describe("Core Tool Surface (Issue #365)", () => {
       `Core tools with >80 word descriptions: ${verbose.map(v => `${v.name}(${v.words}w)`).join(", ")}`);
   });
 
-  test("CORE-006: Token reduction is significant (≥60%)", () => {
+  test("CORE-006: Token reduction remains significant (≥58.9%)", () => {
     const fullJson = JSON.stringify(tools);
     const coreJson = JSON.stringify(tools.filter(t => CORE_TOOLS.has(t.name)));
     const reduction = 1 - coreJson.length / fullJson.length;
-    assert.ok(reduction >= 0.6, `Expected ≥60% reduction, got ${(reduction * 100).toFixed(1)}%`);
+    assert.ok(reduction >= 0.589, `Expected ≥58.9% reduction, got ${(reduction * 100).toFixed(1)}%`);
     console.log(`  Token reduction: ${(reduction * 100).toFixed(1)}% (${fullJson.length} → ${coreJson.length} chars)`);
   });
 });

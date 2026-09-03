@@ -6,13 +6,13 @@ This directory contains phase-based UAT test procedures for Fortemi, designed fo
 
 ---
 
-## Tool Surface: 43 Core MCP Tools
+## Tool Surface: 44 Core MCP Tools
 
-Fortemi exposes **43 core MCP tools** in core mode. Thirteen consolidated tools use action discriminators to keep the agent-facing surface compact while retaining the full API's common workflows:
+Fortemi exposes **44 core MCP tools** in core mode. Thirteen consolidated tools use action discriminators to keep the agent-facing surface compact while retaining the full API's common workflows:
 
 | Category | Tools | Count |
 |----------|-------|-------|
-| Notes CRUD | `list_notes`, `get_note`, `update_note`, `delete_note`, `restore_note` | 5 |
+| Notes CRUD | `list_notes`, `get_note`, `upsert_external_notes`, `update_note`, `delete_note`, `restore_note` | 6 |
 | Consolidated | `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`, `manage_attachments`, `manage_embeddings`, `manage_archives`, `manage_encryption`, `manage_backups`, `manage_jobs`, `manage_inference` | 13 |
 | Graph & links | `explore_graph`, `get_topology_stats`, `get_graph_diagnostics`, `capture_diagnostics_snapshot`, `list_diagnostics_snapshots`, `compare_diagnostics_snapshots`, `recompute_snn_scores`, `pfnet_sparsify`, `coarse_community_detection`, `trigger_graph_maintenance`, `get_cold_spots`, `get_note_links`, `get_related_notes` | 13 |
 | Export | `export_note` | 1 |
@@ -21,7 +21,7 @@ Fortemi exposes **43 core MCP tools** in core mode. Thirteen consolidated tools 
 | Observability | `get_knowledge_health`, `get_access_frequency` | 2 |
 | Bulk ops | `bulk_reprocess_notes` | 1 |
 | Purge | `purge_note`, `purge_notes`, `purge_all_notes` | 3 |
-| **Total** | | **43** |
+| **Total** | | **44** |
 
 Streaming inference/chat, realtime transports, inbound webhook receivers, TUS uploads, OAuth administration, and other transport-specific surfaces remain REST-only by design. Use `get_documentation` for API guidance.
 
@@ -59,10 +59,10 @@ The suite is NOT complete until:
 | 11 | [Edge Cases](phase-11-edge-cases.md) | ~5 min | 10 | No |
 | 12 | [Feature Chains (E2E)](phase-12-feature-chains.md) | ~15 min | 20 | **Yes** |
 | 13 | [Embedding Sets](phase-13-embedding-sets.md) | ~8 min | 18 | No |
-| 14 | [MCP Operations & Surface Parity](phase-14-mcp-operations.md) | ~15 min | 14 | **Yes** |
+| 14 | [MCP Operations & Surface Parity](phase-14-mcp-operations.md) | ~15 min | 15 | **Yes** |
 | 15 | [Final Cleanup](phase-15-cleanup.md) | ~5 min | 9 | **Yes** |
 
-**Total Tests**: 184
+**Total Tests**: 185
 **Total Estimated Duration**: ~105 minutes (full suite)
 
 **Total Phases**: 16
@@ -73,7 +73,7 @@ The suite is NOT complete until:
 
 | Category | Core tools | Manual phases |
 |----------|------------|---------------|
-| Notes CRUD | `list_notes`, `get_note`, `update_note`, `delete_note`, `restore_note` | 2, 11, 12, 15 |
+| Notes CRUD | `list_notes`, `get_note`, `upsert_external_notes`, `update_note`, `delete_note`, `restore_note` | 2, 11, 12, 14, 15 |
 | Capture and search | `capture_knowledge`, `search`, `record_provenance` | 1, 3, 7, 8, 11-14 |
 | Organization | `manage_tags`, `manage_collection`, `manage_concepts`, `manage_embeddings`, `manage_archives` | 0, 4, 5, 8, 12, 13, 15 |
 | Attachments | `manage_attachments` | 9 |
@@ -86,7 +86,7 @@ The suite is NOT complete until:
 | Bulk operations | `bulk_reprocess_notes` | 10, 12, 14 |
 | Permanent deletion | `purge_note`, `purge_notes`, `purge_all_notes` | 15 |
 
-**Coverage**: 41/43 tools have manual MCP UAT calls. `manage_encryption` and `manage_backups` require PKE/backup infrastructure and remain covered by `mcp-server/tests/consolidated-tools.test.js`, giving 43/43 combined core coverage. `purge_all_notes` is exercised only through its negative confirmation guard to avoid deleting unrelated soft-deleted data on shared UAT instances.
+**Coverage**: 42/44 tools have manual MCP UAT calls. `manage_encryption` and `manage_backups` require PKE/backup infrastructure and remain covered by `mcp-server/tests/consolidated-tools.test.js`, giving 44/44 combined core coverage. `purge_all_notes` is exercised only through its negative confirmation guard to avoid deleting unrelated soft-deleted data on shared UAT instances.
 
 ---
 

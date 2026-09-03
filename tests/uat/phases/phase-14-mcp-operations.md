@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Exercise core MCP operations added after the original 27-tool UAT baseline: graph diagnostics and maintenance, inference routing, job observability, access analytics, related-note discovery, and the bulk-reprocess pagination regression.
+Exercise core MCP operations added after the original 27-tool UAT baseline: graph diagnostics and maintenance, inference routing, job observability, access analytics, related-note discovery, source-addressed atomic upsert, and the bulk-reprocess pagination regression.
 
 ## Duration
 
@@ -16,7 +16,7 @@ Exercise core MCP operations added after the original 27-tool UAT baseline: grap
 
 ## Tools Tested
 
-`get_graph_diagnostics`, `capture_diagnostics_snapshot`, `list_diagnostics_snapshots`, `compare_diagnostics_snapshots`, `recompute_snn_scores`, `pfnet_sparsify`, `coarse_community_detection`, `trigger_graph_maintenance`, `get_cold_spots`, `get_related_notes`, `get_access_frequency`, `manage_jobs`, `manage_inference`, `bulk_reprocess_notes`
+`get_graph_diagnostics`, `capture_diagnostics_snapshot`, `list_diagnostics_snapshots`, `compare_diagnostics_snapshots`, `recompute_snn_scores`, `pfnet_sparsify`, `coarse_community_detection`, `trigger_graph_maintenance`, `get_cold_spots`, `get_related_notes`, `get_access_frequency`, `manage_jobs`, `manage_inference`, `bulk_reprocess_notes`, `upsert_external_notes`
 
 > All calls in this phase use MCP. Graph pruning operations run with `dry_run: true`. The pagination test uses its own archive and never reprocesses notes from `public`.
 
@@ -235,6 +235,30 @@ await mcp.call_tool("select_memory", { name: "public" });
 - [ ] `jobs_queued` is between 0 and 105; deduplication may reduce it
 - [ ] Active memory is restored to `public`
 
+### OPS-015: Source-Addressed Atomic Upsert Replay
+
+```javascript
+const request = {
+  source_namespace: "uat.phase-14",
+  source_schema_version: "1",
+  import_run_id: "uat-source-upsert",
+  batch_id: "uat-source-upsert-001",
+  checkpoint: { cursor: "1" },
+  items: [{
+    external_id: "note-001",
+    content: "UAT source-addressed atomic upsert"
+  }]
+};
+const first = await mcp.call_tool("upsert_external_notes", request);
+const replay = await mcp.call_tool("upsert_external_notes", request);
+```
+
+**Pass Criteria**:
+- [ ] First call returns batch outcome `committed` and item outcome `inserted`
+- [ ] Exact replay returns batch outcome `duplicate` and item outcome `unchanged`
+- [ ] Replay reports zero material changes and the same opaque note ID
+- [ ] Neither receipt contains raw `external_id` or note content
+
 ## Phase Summary
 
 | Test ID | Focus | Result |
@@ -253,5 +277,6 @@ await mcp.call_tool("select_memory", { name: "public" });
 | OPS-012 | Cold/access analytics | [ ] |
 | OPS-013 | Related notes | [ ] |
 | OPS-014 | >100-note pagination | [ ] |
+| OPS-015 | Source-addressed atomic replay | [ ] |
 
 **Phase Result**: [ ] PASS / [ ] FAIL

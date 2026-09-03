@@ -68,7 +68,7 @@ recovery.
 
 ## Verification
 
-- `npm run validate:schemas` validates all 205 schemas.
-- `npm run test:schema` verifies that every one of the 43 core names exists and that filtering returns exactly 43 tools.
+- `npm run validate:schemas` validates all 206 schemas.
+- `npm run test:schema` verifies that every one of the 44 core names exists and that filtering returns exactly 44 tools.
 - `node --test tests/inference-requests.test.js` verifies provider fields, dry-run/atomic flags, explicit-null embedding routing, audit filters, and connection timeout mapping.
 - `tests/uat/phases/phase-14-mcp-operations.md` covers current operational parity and the >100-note bulk pagination regression.

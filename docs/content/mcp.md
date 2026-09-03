@@ -1722,7 +1722,7 @@ const memoryDocs = await get_documentation({
 
 ## Full Mode
 
-Set `MCP_TOOL_MODE=full` environment variable to expose all 205 granular tools instead of the 43 core consolidated tools.
+Set `MCP_TOOL_MODE=full` environment variable to expose all 206 tools instead of the 44 core tools.
 
 **When to use:**
 - Programmatic access requiring precise endpoint control
