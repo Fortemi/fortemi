@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "contract_revision": "1",
+  "contract_revision": "2",
   "contract": {
     "name": "source-note-upsert",
     "version": "1.0.0",
     "plane": "live-persistence",
     "authority_repository": "Fortemi/fortemi",
-    "producer_commit": "Use the immutable Git commit containing this receipt."
+    "producer_commit": "54f5e64470291b06630549f5157af754ee388b7b"
   },
   "surface": {
     "rest": "POST /api/v1/notes/source-upsert",
@@ -37,26 +37,30 @@
     "fortemi_postgresql": {
       "repository": "Fortemi/fortemi",
       "issue": "Fortemi/fortemi#1090",
-      "commit": "pending",
-      "ci_run": "pending"
+      "commit": "54f5e64470291b06630549f5157af754ee388b7b",
+      "ci_run": "https://git.integrolabs.net/Fortemi/fortemi/actions/runs/51944"
     },
     "fortemi_react_pglite": {
       "repository": "Fortemi/fortemi-react",
       "issue": "Fortemi/fortemi-react#404",
-      "commit": "pending",
-      "ci_run": "pending"
+      "commit": "10099c603e2f465730d2500eb95d112ace07e0ea",
+      "ci_run": "https://git.integrolabs.net/Fortemi/fortemi-react/actions/runs/51975",
+      "receipt": "packages/core/schemas/source-note-upsert/contract.receipt.json",
+      "receipt_sha256": "dd3619ef851d87a308ba00ee575b8acd95c61eb94c390c9b52f3cc9c788ef090"
     },
     "fortemi_react_recordstore": {
       "repository": "Fortemi/fortemi-react",
       "issue": "Fortemi/fortemi-react#404",
-      "commit": "pending",
-      "ci_run": "pending"
+      "commit": "10099c603e2f465730d2500eb95d112ace07e0ea",
+      "ci_run": "https://git.integrolabs.net/Fortemi/fortemi-react/actions/runs/51975",
+      "receipt": "packages/core/schemas/source-note-upsert/contract.receipt.json",
+      "receipt_sha256": "dd3619ef851d87a308ba00ee575b8acd95c61eb94c390c9b52f3cc9c788ef090"
     },
     "aiwg_live_qualifier": {
-      "repository": "AIWG/aiwg",
-      "issue": "AIWG/aiwg#2194",
+      "repository": "roctinam/aiwg",
+      "issue": "roctinam/aiwg#2194",
       "commit": "affc396c",
-      "status": "blocked pending delivered Fortemi authority and remaining live schema qualifications"
+      "status": "source-note-upsert authority delivered; AIWG adapter adoption and remaining live schema, routed access, authentication, tenancy, recovery, and load gates remain pending"
     }
   },
   "knowledge_shard": {

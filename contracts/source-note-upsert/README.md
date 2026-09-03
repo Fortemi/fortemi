@@ -42,14 +42,17 @@ caller-supplied batch ID may be resumed only with the identical request digest.
 
 ## Authority and evidence
 
-- Current receipt: `contract.json`
+- Current authority receipt: `contract.json` revision 2
 - Request schema: `1.0.0/request.schema.json`
 - Response schema: `1.0.0/response.schema.json`
 - Shared executable fixture: `conformance/v1.json`
 - Architecture decision: `docs/architecture/adr/ADR-106-source-addressed-note-upsert.md`
 - Producer issue: `Fortemi/fortemi#1090`
 - PGlite/RecordStore consumer issue: `Fortemi/fortemi-react#404`
-- AIWG live qualifier: `AIWG/aiwg#2194`
+- PGlite/RecordStore receipt: `Fortemi/fortemi-react@10099c603e2f465730d2500eb95d112ace07e0ea`, `packages/core/schemas/source-note-upsert/contract.receipt.json`, SHA-256 `dd3619ef851d87a308ba00ee575b8acd95c61eb94c390c9b52f3cc9c788ef090`
+- Producer CI: `Fortemi/fortemi` run 51944
+- Consumer CI: `Fortemi/fortemi-react` run 51975
+- AIWG live qualifier: `roctinam/aiwg#2194` (adapter adoption and other live gates remain open)
 
 The receipt is compatibility evidence only for the exact revisions and hashes
 it names. It does not establish unqualified suite parity, complete backup, or

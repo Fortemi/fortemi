@@ -1,6 +1,6 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-09-03T20:50:57Z"
+  updated_at: "2026-09-03T22:18:38Z"
 records:
   - entity: "mcp-server/package.json"
     record: "records/source-note-upsert-1090.prov.yaml"

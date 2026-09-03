@@ -3,17 +3,23 @@ metadata:
   created_at: "2026-09-03T20:26:54Z"
   description: "Provenance for the source-note-upsert 1.0.0 live-persistence authority and producer implementation"
 entity:
-  id: "urn:aiwg:artifact:contracts/source-note-upsert/contract.json:sha256:2cb00f29902f5b176f5804c4bfa51036df624f2ab63c9cb555f1523e37a5ea1c"
+  id: "urn:aiwg:artifact:contracts/source-note-upsert/contract.json:sha256:549742b966046bc7745b25f45110354a7f754ae3bdf4799506587e11ea623dc4"
   type: contract_bundle
   created_at: "2026-09-03T20:26:54Z"
-  checksum: "sha256:2cb00f29902f5b176f5804c4bfa51036df624f2ab63c9cb555f1523e37a5ea1c"
-  size_bytes: 2719
+  checksum: "sha256:549742b966046bc7745b25f45110354a7f754ae3bdf4799506587e11ea623dc4"
+  size_bytes: 3424
   attributes:
     issue: "Fortemi/fortemi#1090"
     consumer_issue: "Fortemi/fortemi-react#404"
     coordination_issue: "Fortemi/fortemi#1081"
     plane: live-persistence
     contract: source-note-upsert/1.0.0
+    contract_revision: "2"
+    producer_commit: "54f5e64470291b06630549f5157af754ee388b7b"
+    producer_ci_run: "51944"
+    consumer_commit: "10099c603e2f465730d2500eb95d112ace07e0ea"
+    consumer_ci_run: "51975"
+    consumer_receipt_sha256: "dd3619ef851d87a308ba00ee575b8acd95c61eb94c390c9b52f3cc9c788ef090"
     fixture_sha256: "181b64c819c7d8d5492edbab187d71750de86c4e4bc74a2888ed5da163cb6266"
     request_schema_sha256: "2461758debe121f06d78705e67f14426ea441b09ea53115fa7a168e79c83b017"
     response_schema_sha256: "5eabe8c9974a720a943c6b5144dfae0882ff9894851a80e8742dc4fa3ef751da"
@@ -36,6 +42,8 @@ entity:
       CLAUDE.md: "sha256:0ab7f536d77d1970e61fe72e931a2888b8d3e9b4a853ee0f5eb5dbfd544d13d0"
       docs/content/mcp-rest-parity.md: "sha256:2d6c79fb6a9ef265f062a75447e164e66e0c2572021c4413b62ea1bb181ac895"
       docs/content/mcp.md: "sha256:269e80763f4aeb9e1630d782f369273715da31f555d00fd62adc2ee4618e6c01"
+      docs/architecture/adr/ADR-106-source-addressed-note-upsert.md: "sha256:4d3c719a97cc92eebc8d5bf454d0bcfff7bed77395f59515f59f178a0f2858f3"
+      contracts/source-note-upsert/README.md: "sha256:497c29596fce7b3609abb6ee067462d4474dc0d7c4c2bbded50bffffae2c534a"
       mcp-server/README.md: "sha256:1c15fc3c595cac096fb6408e9fe0518055a8d8d8ddb26b421eb098265dd52879"
       mcp-server/index.js: "sha256:1ab6963c06a6f1750dc741efa119c0a638966e206fe869f543d159a22242cf77"
       mcp-server/package-lock.json: "sha256:fea66f7f01cf129aa52a6f162ed256001d42ccd1a1639e1a5a660a9e24ca24dd"
@@ -50,7 +58,7 @@ activity:
   id: "urn:aiwg:activity:implementation:source-note-upsert-1090:001"
   type: implementation
   started_at: "2026-09-03T19:31:00Z"
-  ended_at: "2026-09-03T21:10:37Z"
+  ended_at: "2026-09-03T22:18:38Z"
   description: "Define and implement a tenant- and memory-scoped atomic source-addressed note upsert across REST, MCP, and PostgreSQL"
   attributes:
     verification:
@@ -67,6 +75,9 @@ activity:
       - "hosted-strict docs contract: 0 findings"
       - "cargo clippy -p matric-db --test source_upsert_contract_test --all-features -- -D warnings: passed after hosted lint remediation"
       - "PostgreSQL 18.4 fresh-destination migration plus source_upsert_contract_test: 1 passed against the CI test database image"
+      - "hosted producer run 51944: passed, including source_upsert_contract_test and isolated container validation"
+      - "hosted consumer implementation run 51949: 80 files and 1,341 core tests passed; all workflow gates passed"
+      - "hosted consumer receipt run 51975: all eight workflow jobs passed at delivered main commit 10099c603e2f465730d2500eb95d112ace07e0ea"
     claim_boundary: "Only source-note-upsert/1.0.0 live persistence; no broad parity, complete-backup, or source-identity portability claim"
 agent:
   id: "urn:aiwg:agent:codex-gpt-5"
@@ -76,9 +87,9 @@ agent:
   tool: "codex"
 relationships:
   wasGeneratedBy:
-    entity: "urn:aiwg:artifact:contracts/source-note-upsert/contract.json:sha256:2cb00f29902f5b176f5804c4bfa51036df624f2ab63c9cb555f1523e37a5ea1c"
+    entity: "urn:aiwg:artifact:contracts/source-note-upsert/contract.json:sha256:549742b966046bc7745b25f45110354a7f754ae3bdf4799506587e11ea623dc4"
     activity: "urn:aiwg:activity:implementation:source-note-upsert-1090:001"
-    time: "2026-09-03T20:26:54Z"
+    time: "2026-09-03T22:18:38Z"
   used:
     - activity: "urn:aiwg:activity:implementation:source-note-upsert-1090:001"
       entity: "urn:gitea:issue:Fortemi/fortemi:1090"
@@ -91,5 +102,5 @@ relationships:
     agent: "urn:aiwg:agent:codex-gpt-5"
     role: primary_implementer
   wasAttributedTo:
-    entity: "urn:aiwg:artifact:contracts/source-note-upsert/contract.json:sha256:2cb00f29902f5b176f5804c4bfa51036df624f2ab63c9cb555f1523e37a5ea1c"
+    entity: "urn:aiwg:artifact:contracts/source-note-upsert/contract.json:sha256:549742b966046bc7745b25f45110354a7f754ae3bdf4799506587e11ea623dc4"
     agent: "urn:aiwg:agent:codex-gpt-5"

@@ -3,9 +3,9 @@
 **Status:** Accepted
 **Date:** 2026-09-03
 **Decision owners:** Fortemi API, persistence, tenancy, and contract maintainers
-**Producer tracking:** [Fortemi/fortemi#1090](https://gitea.fortemi.com/Fortemi/fortemi/issues/1090)
-**Consumer tracking:** [Fortemi/fortemi-react#404](https://gitea.fortemi.com/Fortemi/fortemi-react/issues/404), [AIWG/aiwg#2194](https://gitea.fortemi.com/AIWG/aiwg/issues/2194)
-**Suite coordination:** [Fortemi/fortemi#1081](https://gitea.fortemi.com/Fortemi/fortemi/issues/1081)
+**Producer tracking:** [Fortemi/fortemi#1090](https://git.integrolabs.net/Fortemi/fortemi/issues/1090)
+**Consumer tracking:** [Fortemi/fortemi-react#404](https://git.integrolabs.net/Fortemi/fortemi-react/issues/404), [roctinam/aiwg#2194](https://git.integrolabs.net/roctinam/aiwg/issues/2194)
+**Suite coordination:** [Fortemi/fortemi#1081](https://git.integrolabs.net/Fortemi/fortemi/issues/1081)
 **Upstream policy authority:** `fortemi-suite/.aiwg/architecture/ADR-suite-contract-authority-and-profiles.md`
 **Extends:** ADR-068, ADR-090, ADR-102, ADR-103, ADR-104
 
@@ -89,6 +89,13 @@ the same fixture and publish receipts containing exact repository revisions,
 fixture hashes, test commands, and CI run URLs. AIWG may qualify the MCP tool
 only after pinning the delivered Fortemi contract revision. The suite audit
 remains `NO-GO` for broad parity, complete backup, and portability claims.
+
+Authority receipt revision 2 binds the PostgreSQL producer at commit
+`54f5e64470291b06630549f5157af754ee388b7b` and CI run 51944 to the PGlite
+and RecordStore consumer receipt at commit
+`10099c603e2f465730d2500eb95d112ace07e0ea`, SHA-256
+`dd3619ef851d87a308ba00ee575b8acd95c61eb94c390c9b52f3cc9c788ef090`, and
+CI run 51975. These receipts qualify only `source-note-upsert/1.0.0`.
 
 ## Migration and rollback
 
