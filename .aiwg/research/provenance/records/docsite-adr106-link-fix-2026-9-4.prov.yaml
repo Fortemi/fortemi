@@ -1,0 +1,51 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-09-04T04:34:32Z"
+  description: "Provenance for the post-release ADR-106 docsite link correction"
+entity:
+  id: "urn:aiwg:artifact:docs/content/architecture.md:sha256:0910434b9cc1deb98262478ba7df68ce6daaa701c17b477699de08c8f3b348ce"
+  type: documentation
+  created_at: "2026-09-04T04:34:32Z"
+  checksum: "sha256:0910434b9cc1deb98262478ba7df68ce6daaa701c17b477699de08c8f3b348ce"
+  size_bytes: 66976
+  attributes:
+    release: "v2026.9.1"
+    affected_link: "ADR-106-source-addressed-note-upsert.md"
+    failed_run: "52195"
+    remediation: "Use the canonical repository URL because ADR sources are not materialized into the public docsite"
+activity:
+  id: "urn:aiwg:activity:docsite-link-fix:fortemi-2026-9-4:001"
+  type: documentation_repair
+  started_at: "2026-09-04T04:31:00Z"
+  ended_at: "2026-09-04T04:34:32Z"
+  description: "Repair the ADR-106 link rejected by the strict release docsite build"
+  attributes:
+    verification:
+      - "npm run docs:build: passed"
+      - "npm run docs:check-assets: passed"
+      - "hosted-strict docs contract: zero findings"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docs/content/architecture.md:sha256:0910434b9cc1deb98262478ba7df68ce6daaa701c17b477699de08c8f3b348ce"
+    activity: "urn:aiwg:activity:docsite-link-fix:fortemi-2026-9-4:001"
+    time: "2026-09-04T04:34:32Z"
+  used:
+    - activity: "urn:aiwg:activity:docsite-link-fix:fortemi-2026-9-4:001"
+      entity: "urn:gitea:actions-run:Fortemi/fortemi:52195"
+      role: failure_evidence
+    - activity: "urn:aiwg:activity:docsite-link-fix:fortemi-2026-9-4:001"
+      entity: "urn:git:tag:v2026.9.1"
+      role: release_context
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:docsite-link-fix:fortemi-2026-9-4:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_orchestrator
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docs/content/architecture.md:sha256:0910434b9cc1deb98262478ba7df68ce6daaa701c17b477699de08c8f3b348ce"
+    agent: "urn:aiwg:agent:codex-gpt-5"

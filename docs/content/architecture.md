@@ -153,7 +153,7 @@ This live persistence plane is separate from Knowledge Shard state transfer.
 No current `core-v1`, `full-v1`, or `record-v1` profile contains source
 identities. Export reports `source-identity-outside-profile` in the typed loss
 header when it omits them. See
-[ADR-106](../architecture/adr/ADR-106-source-addressed-note-upsert.md).
+[ADR-106](https://git.integrolabs.net/Fortemi/fortemi/src/branch/main/docs/architecture/adr/ADR-106-source-addressed-note-upsert.md).
 
 ### Auto-Migration
 

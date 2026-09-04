@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-09-04T00:13:43Z"
+  updated_at: "2026-09-04T04:34:32Z"
 records:
+  - entity: "docs/content/architecture.md"
+    record: "records/docsite-adr106-link-fix-2026-9-4.prov.yaml"
   - entity: "docker/seed-data/fortemi-docs.shard"
     record: "records/release-docs-shard-2026-9-1.prov.yaml"
   - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"
