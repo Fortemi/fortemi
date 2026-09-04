@@ -7,6 +7,22 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.9.1] - 2026-09-03
+
+Contract release for source-addressed, replay-safe external note imports.
+
+### Added
+
+- Add the authority-owned `source-note-upsert/1.0.0` live persistence
+  contract through `POST /api/v1/notes/source-upsert` and the core MCP tool
+  `upsert_external_notes`. Batches of 1–500 items commit atomically and
+  support exact replay, resumable batch identity, dry-run, and explicit
+  `version`, `replace`, or `conflict` changed-content policies (#1090).
+- Publish matching request, response, and executable conformance fixtures.
+  PostgreSQL, PGlite, and RecordStore receipts bind the producer and consumer
+  implementations to the same revision; AIWG adapter adoption remains tracked
+  separately in roctinam/aiwg#2194.
+
 ### Fixed
 
 - Restrict native sidecar builds, versioned publication, and the rolling
@@ -17,6 +33,28 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   note content (#67).
 - Exercise `manual-note-link-v1` create, exact replay, stable identity, and live
   graph visibility in the release-aligned UAT links phase (#68).
+
+### Security
+
+- Derive source-upsert tenant and memory scope from verified request state,
+  retain forced-RLS isolation, and return an opaque external-identity hash
+  instead of echoing caller keys. Validation, dry-run, conflicts, and failed
+  writes leave no partial note, revision, activity, job, blob, outbox, or
+  journal state.
+- Keep request debug output, activity metadata, journals, and operational
+  receipts free of raw external IDs and imported content.
+
+### Verification
+
+- Producer run 51944 and consumer runs 51949/51975 pass the shared
+  `source-note-upsert/1.0.0` fixture, including fresh-destination migration,
+  exact replay, divergent batch rejection, rollback, and clean-destination
+  PGlite/RecordStore behavior. Authority closeout runs 51995 and 52013 are
+  green at `cc53578223ecec43f1a2f42b703ced3ba9cf6a13`.
+- Knowledge Shard support remains unchanged and profile-qualified. Source
+  identity is a live-persistence concept outside `core-v1`, `record-v1`,
+  and `full-v1`; export reports `source-identity-outside-profile` rather
+  than claiming portable recovery.
 
 ## [2026.9.0] - 2026-09-01
 
@@ -2236,7 +2274,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.9.0...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.9.1...HEAD
+[2026.9.1]: https://github.com/fortemi/fortemi/compare/v2026.9.0...v2026.9.1
 [2026.9.0]: https://github.com/fortemi/fortemi/compare/v2026.8.3...v2026.9.0
 [2026.8.3]: https://github.com/fortemi/fortemi/compare/v2026.8.2...v2026.8.3
 [2026.8.2]: https://github.com/fortemi/fortemi/compare/v2026.8.1...v2026.8.2

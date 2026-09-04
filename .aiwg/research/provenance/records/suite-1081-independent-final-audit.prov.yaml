@@ -1,0 +1,65 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-09-04T00:04:33Z"
+  description: "Provenance for the independent Fortemi #1081 suite exit audit"
+entity:
+  id: "urn:aiwg:artifact:.aiwg/gates/suite-1081-independent-final-audit-2026-09-03.md:sha256:7fdedd83d97f55f9b51bf8fc2587802ed2f2ba7d557fadb8345dea09dbf6dd92"
+  type: gate_report
+  created_at: "2026-09-04T00:04:33Z"
+  checksum: "sha256:7fdedd83d97f55f9b51bf8fc2587802ed2f2ba7d557fadb8345dea09dbf6dd92"
+  size_bytes: 5513
+  attributes:
+    issue: "Fortemi/fortemi#1081"
+    issue_decision: close
+    claim_decision: no-go-unqualified-suite-claims
+    profiles:
+      - core-v1
+      - record-v1
+      - 2.0.0/full-v1
+    supported_platform_receipt: "Gitea run 6543"
+    current_head_suite_claim: false
+activity:
+  id: "urn:aiwg:activity:gate-evaluation:suite-1081:001"
+  type: gate_evaluation
+  started_at: "2026-09-03T23:05:00Z"
+  ended_at: "2026-09-04T00:04:33Z"
+  description: "Independently evaluate the Fortemi #1081 exit criteria and reconcile immutable evidence without broadening claims"
+  attributes:
+    reviewers:
+      - architecture-and-traceability
+      - executable-test-evidence
+      - release-and-security
+    verification:
+      - "Knowledge Shard presence: 220 fields and 22 cases passed"
+      - "Knowledge Shard matrix: 9 passed, 0 pending, 0 failed"
+      - "Suite platform manifest: passed"
+      - "Hosted-strict docs contract: zero findings"
+      - "Current checkout against pinned platform manifest: rejected on commit drift as required"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:.aiwg/gates/suite-1081-independent-final-audit-2026-09-03.md:sha256:7fdedd83d97f55f9b51bf8fc2587802ed2f2ba7d557fadb8345dea09dbf6dd92"
+    activity: "urn:aiwg:activity:gate-evaluation:suite-1081:001"
+    time: "2026-09-04T00:04:33Z"
+  used:
+    - activity: "urn:aiwg:activity:gate-evaluation:suite-1081:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1081"
+      role: exit_requirement
+    - activity: "urn:aiwg:activity:gate-evaluation:suite-1081:001"
+      entity: "urn:aiwg:artifact:.aiwg/reports/suite-1081-traceability-closeout-2026-07-27.md"
+      role: traceability
+    - activity: "urn:aiwg:activity:gate-evaluation:suite-1081:001"
+      entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-104-supported-platform-suite-conformance.md"
+      role: authority
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:gate-evaluation:suite-1081:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_evaluator
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:.aiwg/gates/suite-1081-independent-final-audit-2026-09-03.md:sha256:7fdedd83d97f55f9b51bf8fc2587802ed2f2ba7d557fadb8345dea09dbf6dd92"
+    agent: "urn:aiwg:agent:codex-gpt-5"

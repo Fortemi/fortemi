@@ -3,42 +3,37 @@
   "workflow": "release-doc-sync",
   "direction": "code-to-docs",
   "started_from_clean_worktree": false,
-  "completed_at": "2026-09-01T23:25:21Z",
+  "completed_at": "2026-09-04T00:04:33Z",
   "repository": {
     "name": "Fortemi/fortemi",
-    "path": "/home/roctinam/dev/fortemi-suite/.worktrees/fortemi-release-2026.9.0",
-    "baseline_tag": "v2026.8.3",
-    "baseline_commit": "0dd28a9255e2b53363f93e2e288777631709eb05",
-    "head_commit": "0dd28a9255e2b53363f93e2e288777631709eb05"
+    "path": "clean release worktree",
+    "baseline_tag": "v2026.9.0",
+    "baseline_commit": "cc53578223ecec43f1a2f42b703ced3ba9cf6a13",
+    "head_commit": "cc53578223ecec43f1a2f42b703ced3ba9cf6a13"
   },
   "scope": {
     "source_of_truth": [
-      "Cargo workspace and MCP package version declarations",
-      "committed OpenAPI artifact and SHA-256",
-      "ADR-105 manual-note-link contract authority",
-      "v2026.9.0 changelog and release announcement"
+      "source-note-upsert/1.0.0 authority and implementation",
+      "ADR-106 and REST/MCP documentation",
+      "release CI corrections after v2026.9.0",
+      "profile-qualified suite claim policy"
     ],
     "write_boundary": [
       "CHANGELOG.md",
-      ".aiwg/reports/doc-sync-20260901T232521Z.md",
+      "docs/releases/v2026.9.1-announcement.md",
+      "contracts/asyncapi/",
+      ".aiwg/reports/doc-sync-20260903T200433-0400.md",
       ".aiwg/reports/doc-sync-last-run.json"
     ],
     "excluded": [
-      "runtime code",
-      "machine contract manifests",
-      "consumer implementation",
-      "supported-platform execution receipts",
+      "new current-head suite conformance",
+      "AIWG adapter implementation",
+      "Windows platform conformance",
       "commit, tag, push, and publication"
     ]
   },
-  "summary": "The bounded release-documentation audit found one high-confidence drift: the changelog comparison references had not advanced from v2026.8.3. The references now identify v2026.9.0. Version declarations, the OpenAPI digest, ADR-105, the release announcement, and the stable non-echoing hosted authorization boundary are aligned. Platform and live-consumer claims remain explicitly deferred to immutable release validation.",
-  "findings": [
-    {
-      "id": "DS-2026.9.0-01",
-      "status": "fixed",
-      "summary": "Changelog comparison references omitted v2026.9.0 and retained v2026.8.3 as the Unreleased base."
-    }
-  ],
+  "summary": "The bounded audit found no unresolved product-documentation drift. It prepared the 2026.9.1 changelog and announcement, regenerated version-derived AsyncAPI evidence, and preserved the separation between live source identity and named Knowledge Shard profiles.",
+  "findings": [],
   "changed_files": [
     "CHANGELOG.md",
     ".aiwg/reports/doc-sync-20260901T232521Z.md",
@@ -56,12 +51,12 @@
     {
       "command": "cargo metadata --no-deps --format-version 1",
       "status": "passed",
-      "details": "Every workspace matric-* package resolves to 2026.9.0."
+      "details": "Every workspace matric-* package resolves to 2026.9.1."
     },
     {
       "command": "sha256sum contracts/openapi/openapi.yaml",
       "status": "passed",
-      "details": "Matched 652bcce252719e5c0ced015beae02e41380c56dccaa5dc071d369b3ac6fdd858."
+      "details": "Matched df0aa71463e182c94325948305cf58104021ef38e1cc5dda47a02531c35bd7a5."
     },
     {
       "command": "DOCS_CONTRACT_MODE=blocking npm run docs:contract -- --profile=hosted_strict",
@@ -70,7 +65,7 @@
     }
   ],
   "human_review": [
-    "Do not upgrade the explicitly deferred HotM platform cells to supported without immutable release-validation receipts.",
-    "Do not close producer or database tracking issues until the consumer merge, signed release tag, required CI, and publication verification complete."
+    "Do not infer current-head suite conformance from the immutable run 6543 receipt.",
+    "Do not claim source identity is portable through core-v1, record-v1, or full-v1."
   ]
 }
