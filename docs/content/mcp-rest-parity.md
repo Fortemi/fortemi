@@ -24,7 +24,7 @@ The core inventory is defined once in `mcp-server/constants/core-tools.js`; prod
 | Graph | 13 graph/link tools | `/api/v1/graph/*`, `/api/v1/notes/{id}/links`, `/related` |
 | Jobs | `manage_jobs` | `/api/v1/jobs*`, `/api/v1/extraction/stats` |
 | Inference config | `manage_inference` | models, embedding configs, `/api/v1/inference/config*`, `/providers`, `/test-connection` |
-| Dataset execution | `manage_dataset_execution` | Composes the versioned Core dataset contracts over `/api/v1/notes/source-upsert`; discovery, preview, status, checkpoint, cancel, retry, detached verification, and namespace archive are MCP lifecycle semantics |
+| Dataset execution | `manage_dataset_execution` | Composes the versioned Core dataset contracts over `/api/v1/notes/source-upsert`; discovery, preview, status, checkpoint, cancel, resume/retry, detached verification, and bounded namespace archive are MCP lifecycle semantics |
 | Health and system | `health_check`, `get_system_info`, `get_knowledge_health`, `get_access_frequency` | `/health`, health analytics, memory info, queue stats |
 | Export and bulk | `export_note`, `bulk_reprocess_notes` | note export and `/api/v1/notes/reprocess` |
 | Permanent deletion | `purge_note`, `purge_notes`, `purge_all_notes` | `/api/v1/notes/{id}/purge` |

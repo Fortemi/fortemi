@@ -156,7 +156,10 @@ returns the alpha live-server descriptor and supported contract/profile
 revisions. `preview` performs pure fail-closed negotiation and resource checks.
 `execute` requires a fresh UUID dataset namespace and delegates one bounded
 atomic upsert batch to the durable source journal. `status`, `checkpoint`,
-`cancel`, `retry`, `verify`, and `archive` complete the lifecycle.
+`cancel`, `resume`, `retry`, `verify`, and `archive` complete the lifecycle.
+Resume is an explicit alias for exact-content retry. Archive shares the negotiated
+duration and single-operation concurrency bound and reports hashed unresolved
+residue if its cleanup deadline expires.
 
 The compact MCP schema accepts the canonical request under `request`; the full
 language-neutral schema and fixtures are published under

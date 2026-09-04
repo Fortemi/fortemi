@@ -283,6 +283,10 @@ const status = await mcp.call_tool("manage_dataset_execution", {
   action: "status",
   runId: dataset_request.runId
 });
+const resumed = await mcp.call_tool("manage_dataset_execution", {
+  action: "resume",
+  runId: dataset_request.runId
+});
 const verification = await mcp.call_tool("manage_dataset_execution", {
   action: "verify",
   receipt: execution.receipt
@@ -298,9 +302,10 @@ const cleanup = await mcp.call_tool("manage_dataset_execution", {
 - [ ] Preview accepts the bounded plan, reports any optional degradation, and has `noSideEffects: true`
 - [ ] Execute commits exactly one synthetic record in the UUID namespace
 - [ ] Status and checkpoint reflect the terminal receipt without changing another namespace
+- [ ] Resume after commit returns the same terminal `receiptDigest` without another API mutation
 - [ ] Receipt verification passes and the receipt contains neither source content nor raw logical IDs
 - [ ] Exact execute replay returns the same `receiptDigest` without a duplicate logical record
-- [ ] Archive is complete and a second archive call returns the same result
+- [ ] Archive is complete with no reason codes and a second archive call returns the same result
 
 ## Phase Summary
 

@@ -102,7 +102,10 @@ deployment data.
 `archive` soft-deletes only note UUIDs returned for the named run. It never
 enumerates another namespace and does not permanently purge. A repeated
 successful archive returns the same result. Partial cleanup returns hashed
-unresolved identifiers; it is not reported as complete.
+unresolved identifiers; it is not reported as complete. Cleanup shares the
+run's negotiated duration and the controller's single-operation concurrency
+bound; expiry reports `ARCHIVE_TIMEOUT`. `resume` is an explicit alias for
+exact-content `retry`.
 
 ## Compatibility and evidence
 

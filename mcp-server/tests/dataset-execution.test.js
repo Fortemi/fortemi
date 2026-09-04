@@ -374,12 +374,39 @@ describe("versioned dataset execution MCP contract", () => {
     await controller.handle({ action: "execute", ...request() });
     assert.equal((await controller.handle({ action: "status", runId })).state, "degraded");
     assert.equal((await controller.handle({ action: "checkpoint", runId })).checkpoint.sequence, 1);
+    const resumed = await controller.handle({ action: "resume", runId });
+    assert.equal(resumed.receipt.receiptDigest, (await controller.handle({ action: "status", runId })).receipt.receiptDigest);
     const first = await controller.handle({ action: "archive", runId });
     const second = await controller.handle({ action: "archive", runId });
     assert.deepEqual(first, second);
     assert.deepEqual(deleted, ["/api/v1/notes/018fd1a0-0000-7000-8000-000000001130"]);
     assert.equal(first.namespaceId, namespaceId);
     assert.equal(first.complete, true);
+    assert.deepEqual(first.reasonCodes, []);
+  });
+
+  test("archive enforces the run duration and shared concurrency bound", async () => {
+    const input = request();
+    input.resourceEnvelope.maxDurationMs = 50;
+    const controller = createDatasetExecutionController({
+      apiRequest: async (method, _path, _body, options) => {
+        if (method === "POST") return committedResponse();
+        return new Promise((_resolve, reject) => options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true }));
+      },
+    });
+    await controller.handle({ action: "execute", ...input });
+    const cleanup = controller.handle({ action: "archive", runId });
+    await new Promise(resolve => setImmediate(resolve));
+    const second = request();
+    second.runId = "018fd1a0-0000-7000-8000-000000001132";
+    await assert.rejects(
+      controller.handle({ action: "execute", ...second }),
+      error => error instanceof DatasetExecutionError && error.code === "CONCURRENCY_LIMIT_EXCEEDED",
+    );
+    const result = await cleanup;
+    assert.equal(result.complete, false);
+    assert.deepEqual(result.reasonCodes, ["ARCHIVE_TIMEOUT"]);
+    assert.equal(result.unresolved.length, 1);
   });
 
   test("receipt verification detects any bound-field mutation", async () => {

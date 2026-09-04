@@ -330,14 +330,14 @@ export default [
   },
   {
     name: "manage_dataset_execution",
-    description: "Negotiate, preview, execute, inspect, cancel, retry, verify, or archive a bounded versioned dataset run. Preview/capabilities/verify are side-effect-free. Execute requires a UUID dataset namespace and delegates one atomic batch to Fortemi's source-addressed journal; receipts redact source content and logical identifiers.",
+    description: "Negotiate, preview, execute, inspect, cancel, resume, retry, verify, or archive a bounded versioned dataset run. Preview/capabilities/verify are side-effect-free. Execute requires a UUID dataset namespace and delegates one atomic batch to Fortemi's source-addressed journal; receipts redact source content and logical identifiers.",
     inputSchema: {
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "action": {
           "type": "string",
-          "enum": ["capabilities", "preview", "execute", "status", "checkpoint", "cancel", "retry", "verify", "archive"],
+          "enum": ["capabilities", "preview", "execute", "status", "checkpoint", "cancel", "resume", "retry", "verify", "archive"],
           "description": "Lifecycle operation. Capabilities, preview, status, checkpoint, and verify are read-only; execute and archive mutate the UUID-scoped dataset."
         },
         "runId": { "type": "string", "format": "uuid", "description": "Caller-supplied run UUID for lifecycle actions." },

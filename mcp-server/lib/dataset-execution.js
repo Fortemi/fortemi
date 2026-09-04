@@ -621,6 +621,7 @@ export function createDatasetExecutionController({ apiRequest, runtimeVersion = 
           }
           return { runId: run.runId, state: run.state, terminal: true, changed: false };
         }
+        case "resume":
         case "retry": {
           const run = runs.get(input.runId);
           if (!run) throw new DatasetExecutionError("RUN_NOT_FOUND", "No run is available to retry");
@@ -635,17 +636,43 @@ export function createDatasetExecutionController({ apiRequest, runtimeVersion = 
           if (!run) throw new DatasetExecutionError("RUN_NOT_FOUND", "No run is available to archive");
           if (!["committed", "degraded", "failed", "ambiguous"].includes(run.state)) throw new DatasetExecutionError("RUN_NOT_TERMINAL", "Only terminal runs can be archived");
           if (run.archive?.complete) return clone(run.archive);
+          if (activeRuns >= DATASET_RESOURCE_POLICY.maxConcurrency) {
+            throw new DatasetExecutionError("CONCURRENCY_LIMIT_EXCEEDED", "The dataset execution concurrency limit is active", { limit: DATASET_RESOURCE_POLICY.maxConcurrency });
+          }
+          activeRuns += 1;
+          const archiveAbort = new AbortController();
+          let timedOut = false;
+          const archiveTimeout = setTimeout(() => {
+            timedOut = true;
+            archiveAbort.abort(new DOMException("dataset archive timed out", "TimeoutError"));
+          }, run.input.resourceEnvelope.maxDurationMs);
+          archiveTimeout.unref?.();
           let archived = 0;
           let alreadyArchived = 0;
           const unresolved = [];
-          for (const noteId of run.noteIds || []) {
-            try {
-              await apiRequest("DELETE", `/api/v1/notes/${encodeURIComponent(noteId)}`);
-              archived += 1;
-            } catch (error) {
-              if (/404|not found/i.test(error.message || "")) alreadyArchived += 1;
-              else unresolved.push(sha256Digest(noteId));
+          const noteIds = run.noteIds || [];
+          try {
+            for (let index = 0; index < noteIds.length; index += 1) {
+              const noteId = noteIds[index];
+              if (timedOut) {
+                unresolved.push(...noteIds.slice(index).map(sha256Digest));
+                break;
+              }
+              try {
+                await apiRequest("DELETE", `/api/v1/notes/${encodeURIComponent(noteId)}`, null, { signal: archiveAbort.signal });
+                archived += 1;
+              } catch (error) {
+                if (timedOut) {
+                  unresolved.push(...noteIds.slice(index).map(sha256Digest));
+                  break;
+                }
+                if (/404|not found/i.test(error.message || "")) alreadyArchived += 1;
+                else unresolved.push(sha256Digest(noteId));
+              }
             }
+          } finally {
+            clearTimeout(archiveTimeout);
+            activeRuns -= 1;
           }
           run.archive = {
             namespaceId: run.input.plan.destination.dataset,
@@ -653,11 +680,12 @@ export function createDatasetExecutionController({ apiRequest, runtimeVersion = 
             alreadyArchived,
             unresolved,
             complete: unresolved.length === 0,
+            reasonCodes: timedOut ? ["ARCHIVE_TIMEOUT"] : [],
           };
           return clone(run.archive);
         }
         default:
-          throw new DatasetExecutionError("ACTION_UNSUPPORTED", "Valid actions: capabilities, preview, execute, status, checkpoint, cancel, retry, verify, archive");
+          throw new DatasetExecutionError("ACTION_UNSUPPORTED", "Valid actions: capabilities, preview, execute, status, checkpoint, cancel, resume, retry, verify, archive");
       }
     },
   };
