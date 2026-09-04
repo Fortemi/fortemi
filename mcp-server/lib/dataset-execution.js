@@ -553,7 +553,6 @@ export function createDatasetExecutionController({ apiRequest, runtimeVersion = 
       timedOut = true;
       abortController.abort(new DOMException("dataset execution timed out", "TimeoutError"));
     }, input.resourceEnvelope.maxDurationMs);
-    timeout.unref?.();
     try {
       const response = await apiRequest("POST", "/api/v1/notes/source-upsert", sourceRequest(input, preview.requestDigest), { signal: abortController.signal });
       const rejected = response?.outcome === "rejected" || (response?.counts?.rejected || 0) > 0 || (response?.counts?.conflict || 0) > 0;
@@ -646,7 +645,6 @@ export function createDatasetExecutionController({ apiRequest, runtimeVersion = 
             timedOut = true;
             archiveAbort.abort(new DOMException("dataset archive timed out", "TimeoutError"));
           }, run.input.resourceEnvelope.maxDurationMs);
-          archiveTimeout.unref?.();
           let archived = 0;
           let alreadyArchived = 0;
           const unresolved = [];

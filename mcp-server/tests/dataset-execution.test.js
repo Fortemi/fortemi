@@ -342,6 +342,38 @@ describe("versioned dataset execution MCP contract", () => {
     assert.equal(verifyDatasetRunReceipt(result.receipt).valid, true);
   });
 
+  test("the negotiated deadline keeps an otherwise idle runtime alive until timeout", async () => {
+    const input = request();
+    input.resourceEnvelope.maxDurationMs = 20;
+    const encodedInput = Buffer.from(JSON.stringify(input)).toString("base64");
+    const childSource = `
+      import { createDatasetExecutionController } from "./lib/dataset-execution.js";
+      const input = JSON.parse(Buffer.from(process.argv[1], "base64").toString("utf8"));
+      const controller = createDatasetExecutionController({
+        apiRequest: async (_method, _path, _body, options) => new Promise((_resolve, reject) => {
+          options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true });
+        }),
+      });
+      const result = await controller.handle({ action: "execute", ...input });
+      console.log(result.receipt.diagnostics[0].code);
+    `;
+    const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+    const child = spawn(process.execPath, ["--input-type=module", "--eval", childSource, encodedInput], {
+      cwd: serverRoot,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", data => { stdout += data; });
+    child.stderr.on("data", data => { stderr += data; });
+    const code = await new Promise((resolve, reject) => {
+      child.once("error", reject);
+      child.once("close", resolve);
+    });
+    assert.equal(code, 0, stderr);
+    assert.equal(stdout.trim(), "EXECUTION_TIMEOUT");
+  });
+
   test("the declared concurrency limit rejects a second active run without API side effects", async () => {
     let calls = 0;
     const controller = createDatasetExecutionController({
