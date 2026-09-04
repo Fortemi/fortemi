@@ -1,0 +1,11 @@
+{
+  "extends": "supported-request.json",
+  "patch": [
+    { "op": "replace", "path": "/schemaVersions/receipt", "value": "2.0.0" }
+  ],
+  "expected": {
+    "accepted": false,
+    "reasonCodes": ["SCHEMA_VERSION_UNSUPPORTED"],
+    "sideEffects": 0
+  }
+}

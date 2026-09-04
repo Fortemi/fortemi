@@ -1,0 +1,22 @@
+{
+  "contract": "fortemi.dataset-execution-manifest/v1",
+  "schemaVersion": "1.0.0",
+  "files": [
+    { "path": "authority.json", "sha256": "ded9bec01f5ee59c2cb6c42ad19ca1a3bcc5291390a71251ab22f21b30486903" },
+    { "path": "request.schema.json", "sha256": "09cd43af822eb738e55ee4d69d3155d89bb42fc88ce6adef688fc6c2d8b632e3" },
+    { "path": "run-receipt.schema.json", "sha256": "af22c5fe823b5bd5f2ef2049e4293710269a1c6f616c178b6ad655ba114355b3" },
+    { "path": "fixtures/canonical-vector.json", "sha256": "617f6ff65edbfda9b8bdef0141886b8b78ff532639ad1e0cc99496df360785c8" },
+    { "path": "fixtures/degraded-run-receipt.json", "sha256": "fe0009e753f79fc9650699fa1513898adfaa8925f676f135d6163168452a8be1" },
+    { "path": "fixtures/lifecycle-vectors.json", "sha256": "37d66962682bdc6d3bb47059108eefd6725eee206c1b46b050f73a498e4f9649" },
+    { "path": "fixtures/resource-limit-request.json", "sha256": "57c7787951062748e31ec544238597e47f05862c5b9faa52868494c470d23939" },
+    { "path": "fixtures/supported-request.json", "sha256": "9e2ae6aa11495af668df584fcfc7ea60b068052ee5dd77a17a1b7d5b167211f3" },
+    { "path": "fixtures/tampered-content-request.json", "sha256": "b71d4f6e7a2fbb5ae608f1bc9b6040f92a45f4b5812162f9561915ef89e39abd" },
+    { "path": "fixtures/unsupported-capability-request.json", "sha256": "cbb1daf9e98589376f27b33b38c9dede3b754ab30c9cea2de768d585d99a2ad9" },
+    { "path": "fixtures/unsupported-schema-request.json", "sha256": "ed2b553626e6287c304ecd28cb1f432fb9456d43af890cf5b2ac0459beb5325e" }
+  ],
+  "verification": {
+    "command": "node scripts/ci/verify-dataset-execution-contract.mjs",
+    "independentRuntime": "node-stdlib-json-crypto",
+    "liveEvidence": "pending:AIWG/aiwg#2242"
+  }
+}

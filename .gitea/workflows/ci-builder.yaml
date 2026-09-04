@@ -560,6 +560,7 @@ jobs:
         run: |
           npm ci --ignore-scripts --no-fund --no-audit
           node --test \
+            tests/dataset-execution.test.js \
             tests/output-sanitizer.test.js \
             tests/schema-validation.test.js \
             tests/inference-requests.test.js \
@@ -567,6 +568,8 @@ jobs:
             tests/branding.test.js \
             tests/error-responses.test.js \
             tests/session-expiry.test.js
+          cd ..
+          node scripts/ci/verify-dataset-execution-contract.mjs
 
   build:
     name: Build & Unit Test

@@ -4,8 +4,8 @@ This document records the audited boundary between Fortemi's REST API and the MC
 
 ## Surface Modes
 
-- **Core MCP mode** exposes 43 agent-oriented tools. Thirteen are consolidated tools with an `action` discriminator.
-- **Full MCP mode** exposes 205 tools, including low-level administrative operations.
+- **Core MCP mode** exposes 45 agent-oriented tools. Fourteen are consolidated tools with an `action` discriminator.
+- **Full MCP mode** exposes 207 tools, including low-level administrative operations.
 - **REST** remains the canonical transport API and includes streaming, realtime, webhook, upload, and OAuth surfaces that are intentionally not modeled as request/response MCP tools.
 
 The core inventory is defined once in `mcp-server/constants/core-tools.js`; production filtering and schema tests import that same list.
@@ -24,12 +24,19 @@ The core inventory is defined once in `mcp-server/constants/core-tools.js`; prod
 | Graph | 13 graph/link tools | `/api/v1/graph/*`, `/api/v1/notes/{id}/links`, `/related` |
 | Jobs | `manage_jobs` | `/api/v1/jobs*`, `/api/v1/extraction/stats` |
 | Inference config | `manage_inference` | models, embedding configs, `/api/v1/inference/config*`, `/providers`, `/test-connection` |
+| Dataset execution | `manage_dataset_execution` | Composes the versioned Core dataset contracts over `/api/v1/notes/source-upsert`; discovery, preview, status, checkpoint, cancel, retry, detached verification, and namespace archive are MCP lifecycle semantics |
 | Health and system | `health_check`, `get_system_info`, `get_knowledge_health`, `get_access_frequency` | `/health`, health analytics, memory info, queue stats |
 | Export and bulk | `export_note`, `bulk_reprocess_notes` | note export and `/api/v1/notes/reprocess` |
 | Permanent deletion | `purge_note`, `purge_notes`, `purge_all_notes` | `/api/v1/notes/{id}/purge` |
 | Agent guidance | `get_documentation` | MCP-only static workflow guidance |
 
 Consolidated MCP tools may compose several REST calls or return safe transfer instructions. They are parity at the workflow level, not necessarily one tool per endpoint.
+
+`manage_dataset_execution` is distinct from the storage-only
+`upsert_external_notes` tool. It negotiates Core plan/checkpoint/lineage/
+materialization revisions, resource bounds, and a redacted canonical
+RunReceipt before or around the one atomic storage batch. This live execution
+plane does not revise or imply parity with any Knowledge Shard profile.
 
 ## Inference Contract
 
@@ -68,7 +75,8 @@ recovery.
 
 ## Verification
 
-- `npm run validate:schemas` validates all 206 schemas.
-- `npm run test:schema` verifies that every one of the 44 core names exists and that filtering returns exactly 44 tools.
+- `npm run validate:schemas` validates all 207 schemas.
+- `npm run test:schema` verifies that every one of the 45 core names exists and that filtering returns exactly 45 tools.
+- `node scripts/ci/verify-dataset-execution-contract.mjs` verifies pinned authority, fixture hashes, canonical serialization, fail-closed cases, and the cross-runtime RunReceipt vector.
 - `node --test tests/inference-requests.test.js` verifies provider fields, dry-run/atomic flags, explicit-null embedding routing, audit filters, and connection timeout mapping.
 - `tests/uat/phases/phase-14-mcp-operations.md` covers current operational parity and the >100-note bulk pagination regression.

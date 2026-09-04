@@ -63,16 +63,16 @@ The MCP server provides AI assistants (Claude, etc.) with access to your knowled
 
 ### Core Mode (Default)
 
-**44 consolidated tools** using discriminated-union pattern for agent-optimized operation:
+**45 consolidated tools** using discriminated-union pattern for agent-optimized operation:
 
-- **~79% token reduction** compared to full mode (44 vs 206 tools)
+- **~58% serialized schema reduction** compared to full mode (45 vs 207 tools)
 - **Action-based design** groups related operations under unified tools
 - **Cognitive load reduction** improves agent decision-making and response time
 - **Backward compatible** all functionality available, just organized differently
 
 ### Full Mode (Optional)
 
-**206 granular tools** exposing every API endpoint individually:
+**207 tools** exposing the consolidated and granular API surface:
 
 - Set `MCP_TOOL_MODE=full` environment variable
 - Useful for programmatic access requiring precise endpoint control
@@ -82,7 +82,7 @@ The MCP server provides AI assistants (Claude, etc.) with access to your knowled
 
 ## Core Tools Reference
 
-The 44 core tools provide complete access to Fortémi functionality through action-based interfaces.
+The 45 core tools provide complete access to Fortémi functionality through action-based interfaces.
 
 ### Notes Operations
 
@@ -148,6 +148,57 @@ content.
   ]
 }
 ```
+
+#### `manage_dataset_execution`
+
+Exposes the versioned Dataset Intelligence execution adapter. `capabilities`
+returns the alpha live-server descriptor and supported contract/profile
+revisions. `preview` performs pure fail-closed negotiation and resource checks.
+`execute` requires a fresh UUID dataset namespace and delegates one bounded
+atomic upsert batch to the durable source journal. `status`, `checkpoint`,
+`cancel`, `retry`, `verify`, and `archive` complete the lifecycle.
+
+The compact MCP schema accepts the canonical request under `request`; the full
+language-neutral schema and fixtures are published under
+`contracts/dataset-execution/1.0.0`. Receipts bind plan/configuration/input/
+output schema digests, negotiation, resource envelope, checkpoint, profiles,
+counts, outcomes, and diagnostics. They contain no source content, raw logical
+IDs, or connection details.
+
+```json
+{
+  "action": "preview",
+  "runId": "018fd1a0-0000-7000-8000-000000001129",
+  "request": {
+    "contractVersions": {
+      "capability": "fortemi.dataset-execution-capabilities/v1",
+      "plan": "fortemi.dataset-ingest/v1",
+      "checkpoint": "fortemi.dataset-ingest/v1",
+      "lineage": "fortemi.dataset-lineage/v1",
+      "materialization": "fortemi.dataset-materialization-profile/v1",
+      "receipt": "fortemi.dataset-run-receipt/v1",
+      "resourceEnvelope": "fortemi.dataset-resource-envelope/v1"
+    },
+    "schemaVersions": {
+      "capability": "1.0.0",
+      "plan": "1.0.0",
+      "checkpoint": "1.0.0",
+      "lineage": "1.0.0",
+      "materialization": "1.0.0",
+      "receipt": "1.0.0",
+      "resourceEnvelope": "1.0.0"
+    }
+  }
+}
+```
+
+Use the complete positive request fixture as the executable example. Preview
+and detached receipt verification never call the REST API. An in-flight cancel
+is reported as `ambiguous` because transport interruption cannot prove whether
+the underlying transaction committed; exact retry resolves the outcome through
+the durable source-upsert journal. The current profile is lexical/source-
+identity only and does not claim graph, community, rerank, tenant/RLS, backup,
+recovery, load, Knowledge Shard, or broad portability parity.
 
 #### `update_note`
 
@@ -1722,7 +1773,7 @@ const memoryDocs = await get_documentation({
 
 ## Full Mode
 
-Set `MCP_TOOL_MODE=full` environment variable to expose all 206 tools instead of the 44 core tools.
+Set `MCP_TOOL_MODE=full` environment variable to expose all 207 tools instead of the 45 core tools.
 
 **When to use:**
 - Programmatic access requiring precise endpoint control
@@ -1730,7 +1781,7 @@ Set `MCP_TOOL_MODE=full` environment variable to expose all 206 tools instead of
 - Debugging or development scenarios
 
 **Tradeoffs:**
-- ~79% higher token overhead (205 vs 43 tools)
+- About 2.4× the serialized schema surface (207 vs 45 tools)
 - Increased cognitive complexity for agents
 - Slower agent decision-making due to larger tool surface
 

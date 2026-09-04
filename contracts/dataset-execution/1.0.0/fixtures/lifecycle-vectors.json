@@ -1,0 +1,61 @@
+{
+  "contract": "fortemi.dataset-execution-fixtures/v1",
+  "schemaVersion": "1.0.0",
+  "baseRequest": "supported-request.json",
+  "cases": [
+    {
+      "id": "preview-no-side-effects",
+      "action": "preview",
+      "expected": { "accepted": true, "sideEffects": 0 }
+    },
+    {
+      "id": "committed-degraded-fallback",
+      "action": "execute",
+      "backendOutcome": "committed",
+      "expected": { "state": "degraded", "verification": "verified", "receipt": "degraded-run-receipt.json" }
+    },
+    {
+      "id": "exact-replay",
+      "action": "execute-twice",
+      "backendOutcome": "duplicate",
+      "expected": { "sameReceiptDigest": true, "duplicateLogicalRecords": 0 }
+    },
+    {
+      "id": "conflicting-replay",
+      "action": "reuse-run-with-changed-content",
+      "expected": { "code": "IDEMPOTENCY_CONFLICT", "newEffects": 0 }
+    },
+    {
+      "id": "checkpoint-resume",
+      "action": "checkpoint-then-status",
+      "expected": { "sequence": 1, "state": "degraded" }
+    },
+    {
+      "id": "cancel-before-response",
+      "action": "cancel",
+      "expected": { "state": "ambiguous", "verification": "unverifiable", "code": "COMMIT_OUTCOME_AMBIGUOUS" }
+    },
+    {
+      "id": "timeout-before-receipt",
+      "action": "transport-timeout",
+      "expected": { "state": "ambiguous", "verification": "unverifiable" }
+    },
+    {
+      "id": "bounded-rejection",
+      "action": "execute",
+      "backendOutcome": "rejected",
+      "expected": { "state": "failed", "verification": "failed", "committed": 0 }
+    },
+    {
+      "id": "namespace-archive",
+      "action": "archive",
+      "expected": { "namespaceId": "018fd1a0-0000-7000-8000-000000001128", "idempotent": true, "unresolved": 0 }
+    },
+    {
+      "id": "receipt-tamper",
+      "receipt": "degraded-run-receipt.json",
+      "patch": [{ "op": "replace", "path": "/bindings/planDigest", "value": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }],
+      "expected": { "valid": false, "code": "RECEIPT_DIGEST_MISMATCH" }
+    }
+  ]
+}

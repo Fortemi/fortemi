@@ -712,22 +712,22 @@ describe("Core Tool Surface (Issue #365)", () => {
     assert.equal(missing.length, 0, `Core tools missing from tools.js: ${missing.join(", ")}`);
   });
 
-  test("CORE-002: Core surface has exactly 44 tools", () => {
-    assert.equal(CORE_TOOLS.size, 44, `Expected 44 core tools, got ${CORE_TOOLS.size}`);
+  test("CORE-002: Core surface has exactly 45 tools", () => {
+    assert.equal(CORE_TOOLS.size, 45, `Expected 45 core tools, got ${CORE_TOOLS.size}`);
   });
 
   test("CORE-003: Core filtering produces correct count", () => {
     const coreTools = tools.filter(t => CORE_TOOLS.has(t.name));
-    assert.equal(coreTools.length, 44, `Expected 44 filtered tools, got ${coreTools.length}`);
+    assert.equal(coreTools.length, 45, `Expected 45 filtered tools, got ${coreTools.length}`);
   });
 
-  test("CORE-004: All 13 consolidated tools have action enum", () => {
+  test("CORE-004: All 14 consolidated tools have action enum", () => {
     const consolidated = [
       "capture_knowledge", "search", "record_provenance",
       "manage_tags", "manage_collection", "manage_concepts",
       "manage_attachments", "manage_embeddings",
       "manage_archives", "manage_encryption", "manage_backups",
-      "manage_jobs", "manage_inference",
+      "manage_jobs", "manage_inference", "manage_dataset_execution",
     ];
     for (const name of consolidated) {
       const tool = tools.find(t => t.name === name);
@@ -749,11 +749,14 @@ describe("Core Tool Surface (Issue #365)", () => {
       `Core tools with >80 word descriptions: ${verbose.map(v => `${v.name}(${v.words}w)`).join(", ")}`);
   });
 
-  test("CORE-006: Token reduction remains significant (≥58.9%)", () => {
+  test("CORE-006: Token reduction remains significant (≥58.3%)", () => {
     const fullJson = JSON.stringify(tools);
     const coreJson = JSON.stringify(tools.filter(t => CORE_TOOLS.has(t.name)));
     const reduction = 1 - coreJson.length / fullJson.length;
-    assert.ok(reduction >= 0.589, `Expected ≥58.9% reduction, got ${(reduction * 100).toFixed(1)}%`);
+    // The versioned dataset lifecycle added one intentionally consolidated core
+    // tool in #1128. Keep the measured surface budget explicit rather than
+    // hiding that contract behind full mode.
+    assert.ok(reduction >= 0.583, `Expected ≥58.3% reduction, got ${(reduction * 100).toFixed(1)}%`);
     console.log(`  Token reduction: ${(reduction * 100).toFixed(1)}% (${fullJson.length} → ${coreJson.length} chars)`);
   });
 });

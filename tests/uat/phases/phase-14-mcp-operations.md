@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Exercise core MCP operations added after the original 27-tool UAT baseline: graph diagnostics and maintenance, inference routing, job observability, access analytics, related-note discovery, source-addressed atomic upsert, and the bulk-reprocess pagination regression.
+Exercise core MCP operations added after the original 27-tool UAT baseline: graph diagnostics and maintenance, inference routing, job observability, access analytics, related-note discovery, source-addressed atomic upsert, versioned dataset execution, and the bulk-reprocess pagination regression.
 
 ## Duration
 
@@ -16,7 +16,7 @@ Exercise core MCP operations added after the original 27-tool UAT baseline: grap
 
 ## Tools Tested
 
-`get_graph_diagnostics`, `capture_diagnostics_snapshot`, `list_diagnostics_snapshots`, `compare_diagnostics_snapshots`, `recompute_snn_scores`, `pfnet_sparsify`, `coarse_community_detection`, `trigger_graph_maintenance`, `get_cold_spots`, `get_related_notes`, `get_access_frequency`, `manage_jobs`, `manage_inference`, `bulk_reprocess_notes`, `upsert_external_notes`
+`get_graph_diagnostics`, `capture_diagnostics_snapshot`, `list_diagnostics_snapshots`, `compare_diagnostics_snapshots`, `recompute_snn_scores`, `pfnet_sparsify`, `coarse_community_detection`, `trigger_graph_maintenance`, `get_cold_spots`, `get_related_notes`, `get_access_frequency`, `manage_jobs`, `manage_inference`, `bulk_reprocess_notes`, `upsert_external_notes`, `manage_dataset_execution`
 
 > All calls in this phase use MCP. Graph pruning operations run with `dry_run: true`. The pagination test uses its own archive and never reprocesses notes from `public`.
 
@@ -259,6 +259,49 @@ const replay = await mcp.call_tool("upsert_external_notes", request);
 - [ ] Replay reports zero material changes and the same opaque note ID
 - [ ] Neither receipt contains raw `external_id` or note content
 
+### OPS-016: Versioned Dataset Execution Lifecycle
+
+Use the exact language-neutral request from
+`contracts/dataset-execution/1.0.0/fixtures/supported-request.json`, replacing
+only `runId`, `plan.destination.dataset`, and the matching checkpoint scope
+with fresh UUIDs. Preserve every contract/schema version and digest.
+
+```javascript
+const capabilities = await mcp.call_tool("manage_dataset_execution", {
+  action: "capabilities"
+});
+const preview = await mcp.call_tool("manage_dataset_execution", {
+  action: "preview",
+  request: dataset_request
+});
+const execution = await mcp.call_tool("manage_dataset_execution", {
+  action: "execute",
+  runId: dataset_request.runId,
+  request: dataset_request
+});
+const status = await mcp.call_tool("manage_dataset_execution", {
+  action: "status",
+  runId: dataset_request.runId
+});
+const verification = await mcp.call_tool("manage_dataset_execution", {
+  action: "verify",
+  receipt: execution.receipt
+});
+const cleanup = await mcp.call_tool("manage_dataset_execution", {
+  action: "archive",
+  runId: dataset_request.runId
+});
+```
+
+**Pass Criteria**:
+- [ ] Initialization/discovery includes `fortemi.dataset-execution-capabilities/v1`
+- [ ] Preview accepts the bounded plan, reports any optional degradation, and has `noSideEffects: true`
+- [ ] Execute commits exactly one synthetic record in the UUID namespace
+- [ ] Status and checkpoint reflect the terminal receipt without changing another namespace
+- [ ] Receipt verification passes and the receipt contains neither source content nor raw logical IDs
+- [ ] Exact execute replay returns the same `receiptDigest` without a duplicate logical record
+- [ ] Archive is complete and a second archive call returns the same result
+
 ## Phase Summary
 
 | Test ID | Focus | Result |
@@ -278,5 +321,6 @@ const replay = await mcp.call_tool("upsert_external_notes", request);
 | OPS-013 | Related notes | [ ] |
 | OPS-014 | >100-note pagination | [ ] |
 | OPS-015 | Source-addressed atomic replay | [ ] |
+| OPS-016 | Versioned dataset lifecycle | [ ] |
 
 **Phase Result**: [ ] PASS / [ ] FAIL

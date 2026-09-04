@@ -84,7 +84,7 @@ The server exposes:
 
 The MCP server provides two tool surface modes via `MCP_TOOL_MODE`:
 
-### Core Mode (Default) — 43 Tools
+### Core Mode (Default) — 45 Tools
 
 Agent-optimized surface using consolidated discriminated-union tools. The serialized schema surface is about 60% smaller than full mode.
 
@@ -92,8 +92,8 @@ Agent-optimized surface using consolidated discriminated-union tools. The serial
 
 | Category | Tools | Count |
 |----------|-------|-------|
-| **Notes CRUD** | `list_notes`, `get_note`, `update_note`, `delete_note`, `restore_note` | 5 |
-| **Consolidated** | `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`, `manage_embeddings`, `manage_archives`, `manage_encryption`, `manage_backups` | 10 |
+| **Notes CRUD** | `list_notes`, `get_note`, `upsert_external_notes`, `update_note`, `delete_note`, `restore_note` | 6 |
+| **Consolidated** | `capture_knowledge`, `search`, `record_provenance`, `manage_tags`, `manage_collection`, `manage_concepts`, `manage_embeddings`, `manage_archives`, `manage_encryption`, `manage_backups`, `manage_dataset_execution` | 11 |
 | **Graph** | `explore_graph`, `get_topology_stats`, `get_graph_diagnostics`, `capture_diagnostics_snapshot`, `list_diagnostics_snapshots`, `compare_diagnostics_snapshots`, `recompute_snn_scores`, `pfnet_sparsify`, `coarse_community_detection`, `trigger_graph_maintenance`, `get_note_links`, `get_related_notes` | 12 |
 | **Export** | `export_note` | 1 |
 | **System** | `get_documentation`, `get_system_info`, `health_check` | 3 |
@@ -104,9 +104,9 @@ Agent-optimized surface using consolidated discriminated-union tools. The serial
 | **Bulk ops** | `bulk_reprocess_notes` | 1 |
 | **Purge** | `purge_note`, `purge_notes`, `purge_all_notes` | 3 |
 
-**Total:** 43 tools
+**Total:** 45 tools
 
-### Full Mode — 205 Tools
+### Full Mode — 207 Tools
 
 All granular API operations exposed as individual tools. For backward compatibility and specialized use cases requiring fine-grained control.
 
@@ -244,7 +244,7 @@ Knowledge shard export/import is currently reference-only for attachments: the p
 
 ## Advanced Features
 
-Most functionality is available directly through the 44 core tools. A small set of features requires full mode or the REST API:
+Most functionality is available directly through the 45 core tools. A small set of features requires full mode or the REST API:
 
 **Requires full mode or REST API (not in core):**
 - Note versioning (version history, diffs, restore)
@@ -264,7 +264,7 @@ get_documentation({ topic: "embedding-sets" }) // Also in core via manage_embedd
 get_documentation({ topic: "skos" })
 ```
 
-Or switch to full mode for all 206 tools: `MCP_TOOL_MODE=full`
+Or switch to full mode for all 207 tools: `MCP_TOOL_MODE=full`
 
 ## Document Types
 
@@ -630,7 +630,7 @@ curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
 | `FORTEMI_API_KEY` | - | API key for stdio mode |
 | `MCP_TRANSPORT` | `stdio` | Transport mode: `stdio` or `http` |
 | `MCP_PORT` | `3001` | HTTP server port (http mode only) |
-| `MCP_TOOL_MODE` | `core` | Tool surface: `core` (44 tools) or `full` (206 tools) |
+| `MCP_TOOL_MODE` | `core` | Tool surface: `core` (45 tools) or `full` (207 tools) |
 | `ISSUER_URL` | `https://localhost:3000` | External URL for OAuth (set in .env) |
 | `MCP_BASE_URL` | `http://localhost:3001` | Base URL for OAuth protected-resource metadata |
 | `MCP_BASE_PATH` | - | Path prefix when behind proxy (e.g., `/mcp`) |

@@ -1,0 +1,11 @@
+{
+  "extends": "supported-request.json",
+  "patch": [
+    { "op": "add", "path": "/negotiation/required/-", "value": { "id": "mutation.tombstone" } }
+  ],
+  "expected": {
+    "accepted": false,
+    "reasonCodes": ["REQUIRED_CAPABILITY_MISSING"],
+    "sideEffects": 0
+  }
+}

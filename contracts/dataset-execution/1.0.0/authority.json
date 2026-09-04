@@ -1,0 +1,52 @@
+{
+  "contract": "fortemi.dataset-execution-authority/v1",
+  "schemaVersion": "1.0.0",
+  "producer": {
+    "repository": "Fortemi/fortemi",
+    "issue": 1128,
+    "surface": "MCP manage_dataset_execution"
+  },
+  "upstream": {
+    "repository": "Fortemi/fortemi-react",
+    "capability": {
+      "issue": 408,
+      "commit": "24a35dd",
+      "path": "packages/core/schemas/dataset-execution-capabilities/v1.schema.json",
+      "sha256": "e06021d7b94cd507df9892c6268746228c2080288dcb2f71b6a84fb9456c35e8"
+    },
+    "planCheckpointRun": {
+      "issue": 409,
+      "commit": "f57e17b",
+      "path": "packages/core/schemas/dataset-ingest/v1.schema.json",
+      "sha256": "e9c005983b28123da702ba5117a7ad93db8748d073896b2a8c01ae10cce2b07e"
+    },
+    "lineage": {
+      "issue": 410,
+      "commit": "24c4540",
+      "path": "packages/core/schemas/dataset-lineage/v1.schema.json",
+      "sha256": "b4598ecc54690da382261d29c64f93cb9949a38047b132659e4024091b901c55"
+    },
+    "materialization": {
+      "issue": 411,
+      "commit": "cce2555",
+      "path": "packages/core/schemas/dataset-materialization/v1.schema.json",
+      "sha256": "b9935d8a6df667a7c4d976a9525d5eebc7b650ff145ed5d1e7ef7fa71a0673fd"
+    }
+  },
+  "downstream": {
+    "repository": "roctinam/aiwg",
+    "issue": 2242
+  },
+  "profiles": {
+    "indexing": "fortemi-note-materialization/1.0.0",
+    "retrieval": "fortemi-note-retrieval/1.0.0",
+    "lineage": "fortemi-source-identity/1.0.0"
+  },
+  "claims": {
+    "executionPlane": "live-remote-persistence",
+    "maturity": "alpha",
+    "knowledgeShardParity": null,
+    "backupCertification": false,
+    "portabilityCertification": false
+  }
+}

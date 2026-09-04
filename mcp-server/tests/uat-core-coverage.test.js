@@ -31,11 +31,11 @@ describe("MCP UAT core coverage", () => {
 
   test("suite metadata matches the production core contract", () => {
     const testCount = (phaseText.match(/^### [A-Z0-9]+(?:-[A-Z0-9]+)*:/gm) || []).length;
-    assert.equal(CORE_TOOL_NAMES.length, 44);
-    assert.equal(testCount, 185);
-    assert.match(readme, /44 Core MCP Tools/);
+    assert.equal(CORE_TOOL_NAMES.length, 45);
+    assert.equal(testCount, 186);
+    assert.match(readme, /45 Core MCP Tools/);
     assert.match(readme, /16 phases \(0-15\)/);
-    assert.match(readme, /Total Tests\*\*: 185/);
+    assert.match(readme, /Total Tests\*\*: 186/);
     assert.ok(phaseFiles.includes("phase-14-mcp-operations.md"));
     assert.ok(phaseFiles.includes("phase-15-cleanup.md"));
     assert.ok(!phaseFiles.includes("phase-14-cleanup.md"));

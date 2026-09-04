@@ -329,6 +329,29 @@ export default [
     annotations: {"destructiveHint": false, "idempotentHint": true},
   },
   {
+    name: "manage_dataset_execution",
+    description: "Negotiate, preview, execute, inspect, cancel, retry, verify, or archive a bounded versioned dataset run. Preview/capabilities/verify are side-effect-free. Execute requires a UUID dataset namespace and delegates one atomic batch to Fortemi's source-addressed journal; receipts redact source content and logical identifiers.",
+    inputSchema: {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "type": "string",
+          "enum": ["capabilities", "preview", "execute", "status", "checkpoint", "cancel", "retry", "verify", "archive"],
+          "description": "Lifecycle operation. Capabilities, preview, status, checkpoint, and verify are read-only; execute and archive mutate the UUID-scoped dataset."
+        },
+        "runId": { "type": "string", "format": "uuid", "description": "Caller-supplied run UUID for lifecycle actions." },
+        "request": {
+          "type": "object",
+          "description": "Canonical v1 request containing contractVersions, schemaVersions, negotiation, plan, batch, resourceEnvelope, profiles, inputSchemaDigest, and outputSchemaDigest. See contracts/dataset-execution/1.0.0 and MCP documentation."
+        },
+        "receipt": { "type": "object", "description": "Detached RunReceipt for side-effect-free integrity verification." }
+      },
+      "required": ["action"]
+    },
+    annotations: {"destructiveHint": true, "idempotentHint": true},
+  },
+  {
     name: "capture_knowledge",
     description: `Add knowledge to the active memory. Each note triggers the full NLP pipeline: AI revision, title generation, SKOS concept tagging (8-15 tags), metadata extraction, tag-enriched embedding, and semantic linking — all automatic. Default revision_mode is 'standard' (isolated intelligent revision). Use 'contextual' for cross-referencing with related notes, or 'none' to skip AI revision. See \`get_documentation(topic='notes')\`.`,
     inputSchema: {

@@ -27,6 +27,13 @@ import {
   sanitizeMcpText,
 } from "./lib/output-sanitizer.js";
 import { buildProtectedResourceMetadata } from "./lib/resource-metadata.js";
+import {
+  buildDatasetExecutionDescriptor,
+  createDatasetExecutionController,
+  DATASET_EXECUTION_CONTRACTS,
+  DATASET_EXECUTION_SCHEMA_VERSIONS,
+  DatasetExecutionError,
+} from "./lib/dataset-execution.js";
 // execSync removed — all PKE operations now use HTTP API instead of CLI binary
 import * as DEFAULTS from "./constants/defaults.js";
 
@@ -82,7 +89,7 @@ function readPublicKeyAsBase64(keyPath) {
 }
 
 // Helper to make API requests (uses session token in HTTP mode, API_KEY in stdio mode)
-async function apiRequest(method, path, body = null) {
+async function apiRequest(method, path, body = null, requestOptions = {}) {
   const url = `${API_BASE}${path}`;
   const headers = { "Content-Type": "application/json" };
 
@@ -115,7 +122,7 @@ async function apiRequest(method, path, body = null) {
     console.log(`[apiRequest] WARNING: No sessionId in context for ${method} ${path}`);
   }
 
-  const options = { method, headers };
+  const options = { method, headers, ...requestOptions };
   if (body) {
     options.body = JSON.stringify(body);
   }
@@ -153,6 +160,11 @@ async function apiRequest(method, path, body = null) {
   return text;
 }
 
+const datasetExecution = createDatasetExecutionController({
+  apiRequest,
+  runtimeVersion: MCP_SERVER_VERSION,
+});
+
 // Format bytes to human-readable string (e.g., "1.23 GB")
 function formatBytes(bytes) {
   if (bytes === 0) return "0 B";
@@ -174,6 +186,13 @@ function createMcpServer() {
     {
       capabilities: {
         tools: {},
+        experimental: {
+          fortemiDatasetExecution: {
+            descriptor: buildDatasetExecutionDescriptor(MCP_SERVER_VERSION),
+            contracts: DATASET_EXECUTION_CONTRACTS,
+            schemaVersions: DATASET_EXECUTION_SCHEMA_VERSIONS,
+          },
+        },
       },
     }
   );
@@ -231,6 +250,12 @@ function createMcpServer() {
           };
           break;
         }
+
+        case "manage_dataset_execution":
+          result = await datasetExecution.handle(args.request
+            ? { ...args.request, action: args.action, ...(args.runId ? { runId: args.runId } : {}) }
+            : args);
+          break;
 
         case "capture_knowledge": {
           const action = args.action;
@@ -3549,6 +3574,19 @@ function createMcpServer() {
         content: [{ type: "text", text: JSON.stringify(sanitizedResult, null, 2) }],
       };
     } catch (error) {
+      if (error instanceof DatasetExecutionError) {
+        const structured = sanitizeMcpOutput({
+          error: {
+            code: error.code,
+            message: error.message,
+            details: error.details,
+          },
+        });
+        return {
+          content: [{ type: "text", text: JSON.stringify(structured, null, 2) }],
+          isError: true,
+        };
+      }
       return {
         content: [{ type: "text", text: `Error: ${sanitizeMcpText(error.message)}` }],
         isError: true,

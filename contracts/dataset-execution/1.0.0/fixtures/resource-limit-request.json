@@ -1,0 +1,11 @@
+{
+  "extends": "supported-request.json",
+  "patch": [
+    { "op": "replace", "path": "/resourceEnvelope/maxConcurrency", "value": 2 }
+  ],
+  "expected": {
+    "accepted": false,
+    "reasonCodes": ["RESOURCE_LIMIT_EXCEEDED"],
+    "sideEffects": 0
+  }
+}

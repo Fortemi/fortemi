@@ -1,0 +1,222 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fortemi.dev/schemas/dataset-execution/1.0.0/request.schema.json",
+  "title": "Fortemi MCP Dataset Execution Request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "runId", "contractVersions", "schemaVersions", "negotiation", "plan",
+    "batch", "resourceEnvelope", "profiles", "inputSchemaDigest", "outputSchemaDigest"
+  ],
+  "properties": {
+    "runId": { "$ref": "#/$defs/uuid" },
+    "contractVersions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability", "plan", "checkpoint", "lineage", "materialization", "receipt", "resourceEnvelope"],
+      "properties": {
+        "capability": { "const": "fortemi.dataset-execution-capabilities/v1" },
+        "plan": { "const": "fortemi.dataset-ingest/v1" },
+        "checkpoint": { "const": "fortemi.dataset-ingest/v1" },
+        "lineage": { "const": "fortemi.dataset-lineage/v1" },
+        "materialization": { "const": "fortemi.dataset-materialization-profile/v1" },
+        "receipt": { "const": "fortemi.dataset-run-receipt/v1" },
+        "resourceEnvelope": { "const": "fortemi.dataset-resource-envelope/v1" }
+      }
+    },
+    "schemaVersions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability", "plan", "checkpoint", "lineage", "materialization", "receipt", "resourceEnvelope"],
+      "properties": {
+        "capability": { "$ref": "#/$defs/v1" },
+        "plan": { "$ref": "#/$defs/v1" },
+        "checkpoint": { "$ref": "#/$defs/v1" },
+        "lineage": { "$ref": "#/$defs/v1" },
+        "materialization": { "$ref": "#/$defs/v1" },
+        "receipt": { "$ref": "#/$defs/v1" },
+        "resourceEnvelope": { "$ref": "#/$defs/v1" }
+      }
+    },
+    "negotiation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "required"],
+      "properties": {
+        "contract": { "const": "fortemi.dataset-execution-capabilities/v1" },
+        "required": { "type": "array", "items": { "$ref": "#/$defs/requirement" } },
+        "optional": { "type": "array", "items": { "$ref": "#/$defs/optionalRequirement" } }
+      }
+    },
+    "plan": { "$ref": "#/$defs/plan" },
+    "batch": { "$ref": "#/$defs/batch" },
+    "resourceEnvelope": { "$ref": "#/$defs/resourceEnvelope" },
+    "profiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["indexing", "retrieval", "lineage"],
+      "properties": {
+        "indexing": { "$ref": "#/$defs/profile" },
+        "retrieval": { "$ref": "#/$defs/profile" },
+        "lineage": { "$ref": "#/$defs/profile" }
+      }
+    },
+    "inputSchemaDigest": { "$ref": "#/$defs/digest" },
+    "outputSchemaDigest": { "$ref": "#/$defs/digest" }
+  },
+  "$defs": {
+    "uuid": { "type": "string", "format": "uuid", "pattern": "^[0-9a-fA-F-]{36}$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "v1": { "type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$" },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxInputBytes": { "type": "integer", "minimum": 0 },
+        "maxRecordBytes": { "type": "integer", "minimum": 0 },
+        "maxBatchRecords": { "type": "integer", "minimum": 0 },
+        "maxConcurrency": { "type": "integer", "minimum": 0 },
+        "maxPageSize": { "type": "integer", "minimum": 0 },
+        "maxTraversalDepth": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "requirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "minimumVersion": { "type": "string" },
+        "minimumLimits": { "$ref": "#/$defs/limits" }
+      }
+    },
+    "optionalRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "minimumVersion": { "type": "string" },
+        "minimumLimits": { "$ref": "#/$defs/limits" },
+        "fallback": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tenant", "dataset", "sourceBinding", "stream"],
+      "properties": {
+        "tenant": { "type": "string", "minLength": 1 },
+        "dataset": { "$ref": "#/$defs/uuid" },
+        "sourceBinding": { "type": "string", "minLength": 1 },
+        "stream": { "type": "string", "minLength": 1 },
+        "partition": { "type": "string", "minLength": 1 }
+      }
+    },
+    "checkpoint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "schemaVersion", "scope", "opaque", "sequence"],
+      "properties": {
+        "contract": { "const": "fortemi.dataset-ingest/v1" },
+        "schemaVersion": { "$ref": "#/$defs/v1" },
+        "scope": { "$ref": "#/$defs/scope" },
+        "opaque": { "type": "string", "minLength": 1 },
+        "sequence": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "schemaVersion", "planId", "planDigest", "sourceRevision", "configurationDigest", "transformationDigest", "destination", "mode", "rejectionPolicy", "reconciliation"],
+      "properties": {
+        "contract": { "const": "fortemi.dataset-ingest/v1" },
+        "schemaVersion": { "$ref": "#/$defs/v1" },
+        "planId": { "type": "string", "minLength": 1 },
+        "planDigest": { "$ref": "#/$defs/digest" },
+        "sourceRevision": { "type": "string", "minLength": 1 },
+        "configurationDigest": { "$ref": "#/$defs/digest" },
+        "transformationDigest": { "$ref": "#/$defs/digest" },
+        "destination": { "$ref": "#/$defs/scope" },
+        "mode": { "enum": ["full", "snapshot", "incremental"] },
+        "rejectionPolicy": {
+          "type": "object", "additionalProperties": false,
+          "required": ["mode", "maxRejectedRecords"],
+          "properties": {
+            "mode": { "const": "fail-fast" },
+            "maxRejectedRecords": { "const": 0 }
+          }
+        },
+        "reconciliation": {
+          "type": "object", "additionalProperties": false,
+          "required": ["enabled", "maxTombstones"],
+          "properties": {
+            "enabled": { "const": false },
+            "maxTombstones": { "const": 0 }
+          }
+        }
+      }
+    },
+    "mutation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operation", "logicalId", "revision", "digest", "value"],
+      "properties": {
+        "operation": { "const": "upsert" },
+        "logicalId": { "type": "string", "minLength": 1 },
+        "revision": { "type": "string", "minLength": 1 },
+        "digest": { "$ref": "#/$defs/digest" },
+        "value": {
+          "oneOf": [
+            { "type": "string", "minLength": 1 },
+            {
+              "type": "object", "additionalProperties": false, "required": ["content"],
+              "properties": {
+                "content": { "type": "string", "minLength": 1 },
+                "title": { "type": "string" },
+                "format": { "type": "string" },
+                "metadata": { "type": "object" }
+              }
+            }
+          ]
+        },
+        "locator": { "type": "string" }
+      }
+    },
+    "batch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "schemaVersion", "sequence", "mutations", "checkpointAfter"],
+      "properties": {
+        "contract": { "const": "fortemi.dataset-ingest/v1" },
+        "schemaVersion": { "$ref": "#/$defs/v1" },
+        "sequence": { "type": "integer", "minimum": 1 },
+        "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "mutations": { "type": "array", "minItems": 1, "maxItems": 500, "items": { "$ref": "#/$defs/mutation" } },
+        "checkpointBefore": { "$ref": "#/$defs/checkpoint" },
+        "checkpointAfter": { "$ref": "#/$defs/checkpoint" }
+      }
+    },
+    "resourceEnvelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "schemaVersion", "maxRecords", "maxInputBytes", "maxRecordBytes", "maxDurationMs", "maxConcurrency", "maxTraversalDepth", "maxResults", "allowOutboundNetwork"],
+      "properties": {
+        "contract": { "const": "fortemi.dataset-resource-envelope/v1" },
+        "schemaVersion": { "$ref": "#/$defs/v1" },
+        "maxRecords": { "type": "integer", "minimum": 0, "maximum": 500 },
+        "maxInputBytes": { "type": "integer", "minimum": 0, "maximum": 16777216 },
+        "maxRecordBytes": { "type": "integer", "minimum": 0, "maximum": 4194304 },
+        "maxDurationMs": { "type": "integer", "minimum": 1, "maximum": 120000 },
+        "maxConcurrency": { "const": 1 },
+        "maxTraversalDepth": { "type": "integer", "minimum": 0, "maximum": 8 },
+        "maxResults": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "allowOutboundNetwork": { "const": false }
+      }
+    },
+    "profile": {
+      "type": "object", "additionalProperties": false, "required": ["id", "version"],
+      "properties": { "id": { "type": "string", "minLength": 1 }, "version": { "$ref": "#/$defs/v1" } }
+    }
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fortemi.dev/schemas/dataset-execution/1.0.0/run-receipt.schema.json",
+  "title": "Fortemi Dataset RunReceipt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contract", "schemaVersion", "runId", "namespaceId", "idempotencyKey", "requestDigest", "bindings", "contracts", "schemas", "capabilityDecision", "profiles", "checkpoint", "resourceEnvelope", "counts", "effects", "state", "verification", "diagnostics", "redaction", "receiptDigest"],
+  "properties": {
+    "contract": { "const": "fortemi.dataset-run-receipt/v1" },
+    "schemaVersion": { "type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$" },
+    "runId": { "type": "string", "format": "uuid" },
+    "namespaceId": { "type": "string", "format": "uuid" },
+    "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "requestDigest": { "$ref": "#/$defs/digest" },
+    "bindings": {
+      "type": "object", "additionalProperties": false,
+      "required": ["planId", "sourceRevision", "mode", "destinationDigest", "planDigest", "configurationDigest", "transformationDigest", "inputSchemaDigest", "outputSchemaDigest", "inputDigest", "outputDigest", "negotiationDigest", "resourceEnvelopeDigest"],
+      "properties": {
+        "planId": { "type": "string", "minLength": 1 },
+        "sourceRevision": { "type": "string", "minLength": 1 },
+        "mode": { "enum": ["full", "snapshot", "incremental"] },
+        "destinationDigest": { "$ref": "#/$defs/digest" },
+        "planDigest": { "$ref": "#/$defs/digest" },
+        "configurationDigest": { "$ref": "#/$defs/digest" },
+        "transformationDigest": { "$ref": "#/$defs/digest" },
+        "inputSchemaDigest": { "$ref": "#/$defs/digest" },
+        "outputSchemaDigest": { "$ref": "#/$defs/digest" },
+        "inputDigest": { "$ref": "#/$defs/digest" },
+        "outputDigest": { "$ref": "#/$defs/digest" },
+        "negotiationDigest": { "$ref": "#/$defs/digest" },
+        "resourceEnvelopeDigest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "contracts": { "type": "object", "minProperties": 7 },
+    "schemas": { "type": "object", "minProperties": 7 },
+    "capabilityDecision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["accepted", "runtime", "selected", "degradations"],
+      "properties": {
+        "accepted": { "type": "boolean" },
+        "runtime": {
+          "type": "object", "additionalProperties": false,
+          "required": ["id", "version", "plane", "dataClass", "maturity"],
+          "properties": {
+            "id": { "const": "fortemi-server-mcp" },
+            "version": { "type": "string", "minLength": 1 },
+            "plane": { "const": "live-remote-persistence" },
+            "dataClass": { "const": "remote-persistence" },
+            "maturity": { "const": "alpha" }
+          }
+        },
+        "selected": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+        "degradations": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "profiles": { "type": "object" },
+    "checkpoint": {
+      "type": "object", "additionalProperties": false, "required": ["after"],
+      "properties": { "before": { "type": "object" }, "after": { "type": "object" } }
+    },
+    "resourceEnvelope": { "type": "object" },
+    "counts": {
+      "type": "object", "additionalProperties": false, "required": ["attempted", "committed", "rejected"],
+      "properties": {
+        "attempted": { "type": "integer", "minimum": 0 },
+        "committed": { "type": "integer", "minimum": 0 },
+        "rejected": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "effects": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["operation", "logicalIdDigest", "revision", "digest", "outcome"],
+        "properties": {
+          "operation": { "const": "upsert" },
+          "logicalIdDigest": { "$ref": "#/$defs/digest" },
+          "revision": { "type": "string", "minLength": 1 },
+          "digest": { "$ref": "#/$defs/digest" },
+          "outcome": { "enum": ["committed", "conflict", "rejected", "unverifiable"] }
+        }
+      }
+    },
+    "state": { "enum": ["running", "committed", "degraded", "failed", "cancelled", "ambiguous"] },
+    "verification": { "enum": ["pending", "verified", "failed", "unverifiable"] },
+    "diagnostics": { "type": "array", "items": { "type": "object" } },
+    "redaction": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sourceContentIncluded", "logicalIdentifiersIncluded", "connectionDetailsIncluded"],
+      "properties": {
+        "sourceContentIncluded": { "const": false },
+        "logicalIdentifiersIncluded": { "const": false },
+        "connectionDetailsIncluded": { "const": false }
+      }
+    },
+    "receiptDigest": { "$ref": "#/$defs/digest" }
+  },
+  "allOf": [
+    { "if": { "properties": { "state": { "enum": ["committed", "degraded"] } } }, "then": { "properties": { "verification": { "const": "verified" } } } },
+    { "if": { "properties": { "state": { "const": "ambiguous" } } }, "then": { "properties": { "verification": { "const": "unverifiable" } } } },
+    { "if": { "properties": { "state": { "const": "failed" } } }, "then": { "properties": { "verification": { "const": "failed" } } } }
+  ],
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}
