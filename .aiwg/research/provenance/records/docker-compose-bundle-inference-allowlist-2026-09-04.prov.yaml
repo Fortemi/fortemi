@@ -1,0 +1,49 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-09-04T20:46:09Z"
+  description: "Provenance for passing the operator inference destination allowlist into the Fortemi bundle container"
+entity:
+  id: "urn:aiwg:artifact:docker-compose.bundle.yml:sha256:8faec892bc24c9e3f0e37bb9c9c75a0e61a763e24959aad8ef54289c72740ba1"
+  type: configuration
+  created_at: "2026-09-04T20:46:09Z"
+  updated_at: "2026-09-04T20:46:09Z"
+  checksum: "sha256:8faec892bc24c9e3f0e37bb9c9c75a0e61a763e24959aad8ef54289c72740ba1"
+  size_bytes: 24076
+  attributes:
+    format: yaml
+    issue: "Fortemi/fortemi#1127"
+    change_type: deployment_configuration_repair
+activity:
+  id: "urn:aiwg:activity:deployment:bundle-inference-allowlist:2026-09-04"
+  type: modification
+  started_at: "2026-09-04T20:40:22Z"
+  ended_at: "2026-09-04T20:46:09Z"
+  description: "Expose FORTEMI_INFERENCE_ALLOWED_DESTINATIONS to the bundle service so HotM connection tests can probe the operator-configured local Ollama endpoint"
+  attributes:
+    verification:
+      - "docker compose --env-file .env -f docker-compose.bundle.yml config"
+      - "Fortemi bundle-2026.9.1 health status healthy with restart count zero"
+      - "POST /api/v1/inference/test-connection returned reachable true for Ollama 0.33.3"
+      - "HotM browser poll returned HTTP 200"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docker-compose.bundle.yml:sha256:8faec892bc24c9e3f0e37bb9c9c75a0e61a763e24959aad8ef54289c72740ba1"
+    activity: "urn:aiwg:activity:deployment:bundle-inference-allowlist:2026-09-04"
+    time: "2026-09-04T20:46:09Z"
+  used:
+    - activity: "urn:aiwg:activity:deployment:bundle-inference-allowlist:2026-09-04"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1127"
+      role: incident_follow_up
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:deployment:bundle-inference-allowlist:2026-09-04"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: operator
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docker-compose.bundle.yml:sha256:8faec892bc24c9e3f0e37bb9c9c75a0e61a763e24959aad8ef54289c72740ba1"
+    agent: "urn:aiwg:agent:codex-gpt-5"

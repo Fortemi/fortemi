@@ -404,6 +404,7 @@ services:
 
       # ── Inference: Ollama (default) ────────────────────────────────────
       - MATRIC_INFERENCE_DEFAULT=${MATRIC_INFERENCE_DEFAULT:-ollama}
+      - FORTEMI_INFERENCE_ALLOWED_DESTINATIONS=${FORTEMI_INFERENCE_ALLOWED_DESTINATIONS:-}
       - OLLAMA_BASE=${OLLAMA_BASE:-http://host.docker.internal:11434}
       - OLLAMA_HOST=${OLLAMA_HOST:-http://host.docker.internal:11434}
       - OLLAMA_EMBED_MODEL=${OLLAMA_EMBED_MODEL:-nomic-embed-text}
