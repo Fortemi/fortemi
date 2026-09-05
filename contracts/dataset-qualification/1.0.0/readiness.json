@@ -1,0 +1,311 @@
+{
+  "schemaVersion": "1.0.0",
+  "purpose": "Readiness dependencies only; graph validity is not execution approval or qualification.",
+  "nodes": [
+    {
+      "id": "authority-published",
+      "kind": "authority",
+      "requires": []
+    },
+    {
+      "id": "Fortemi/fortemi#1128",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1128"
+    },
+    {
+      "id": "Fortemi/fortemi#1129",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1129"
+    },
+    {
+      "id": "Fortemi/fortemi#1130",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1130"
+    },
+    {
+      "id": "Fortemi/fortemi#1131",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1131"
+    },
+    {
+      "id": "Fortemi/fortemi#726",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/726"
+    },
+    {
+      "id": "Fortemi/fortemi#727",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/727"
+    },
+    {
+      "id": "Fortemi/fortemi#728",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/728"
+    },
+    {
+      "id": "Fortemi/fortemi#729",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/729"
+    },
+    {
+      "id": "Fortemi/fortemi#971",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/971"
+    },
+    {
+      "id": "Fortemi/fortemi#1098",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1098"
+    },
+    {
+      "id": "Fortemi/fortemi#1132",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1132"
+    },
+    {
+      "id": "Fortemi/fortemi#927",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/927"
+    },
+    {
+      "id": "Fortemi/fortemi#978",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/978"
+    },
+    {
+      "id": "Fortemi/fortemi#980",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/980"
+    },
+    {
+      "id": "Fortemi/fortemi#991",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/991"
+    },
+    {
+      "id": "Fortemi/fortemi#1041",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1041"
+    },
+    {
+      "id": "Fortemi/fortemi#1133",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1133"
+    },
+    {
+      "id": "Fortemi/fortemi#1072",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1072"
+    },
+    {
+      "id": "Fortemi/fortemi#1099",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1099"
+    },
+    {
+      "id": "Fortemi/fortemi-auth#1",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi-auth/issues/1"
+    },
+    {
+      "id": "Fortemi/fortemi-auth#8",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi-auth/issues/8"
+    },
+    {
+      "id": "Fortemi/fortemi-auth#19",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi-auth/issues/19"
+    },
+    {
+      "id": "Fortemi/fortemi-auth#20",
+      "kind": "external",
+      "requires": [],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi-auth/issues/20"
+    },
+    {
+      "id": "tenant",
+      "kind": "qualification",
+      "requires": [
+        "authority-published",
+        "Fortemi/fortemi#1128",
+        "Fortemi/fortemi#1129",
+        "Fortemi/fortemi#1130",
+        "Fortemi/fortemi#1131",
+        "Fortemi/fortemi#726",
+        "Fortemi/fortemi#727",
+        "Fortemi/fortemi#728",
+        "Fortemi/fortemi#729",
+        "Fortemi/fortemi-auth#1",
+        "Fortemi/fortemi-auth#8",
+        "Fortemi/fortemi-auth#19",
+        "Fortemi/fortemi-auth#20"
+      ],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1137"
+    },
+    {
+      "id": "fault-nonhosted",
+      "kind": "qualification",
+      "requires": [
+        "authority-published",
+        "Fortemi/fortemi#1128",
+        "Fortemi/fortemi#1129",
+        "Fortemi/fortemi#1130",
+        "Fortemi/fortemi#1131",
+        "Fortemi/fortemi#971",
+        "Fortemi/fortemi#1098",
+        "Fortemi/fortemi#1132"
+      ],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1138"
+    },
+    {
+      "id": "fault-hosted",
+      "kind": "qualification",
+      "requires": [
+        "fault-nonhosted",
+        "tenant"
+      ],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1138"
+    },
+    {
+      "id": "recovery-envelope-approved",
+      "kind": "approval",
+      "requires": []
+    },
+    {
+      "id": "recovery-surface-inventory",
+      "kind": "inventory",
+      "requires": []
+    },
+    {
+      "id": "restore",
+      "kind": "qualification",
+      "requires": [
+        "tenant",
+        "fault-nonhosted",
+        "recovery-envelope-approved",
+        "recovery-surface-inventory",
+        "Fortemi/fortemi#927",
+        "Fortemi/fortemi#978",
+        "Fortemi/fortemi#980",
+        "Fortemi/fortemi#991",
+        "Fortemi/fortemi#1041",
+        "Fortemi/fortemi#1133"
+      ],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1139"
+    },
+    {
+      "id": "skew-offline",
+      "kind": "qualification",
+      "requires": [
+        "authority-published",
+        "Fortemi/fortemi#1128",
+        "Fortemi/fortemi#1129",
+        "Fortemi/fortemi#1130",
+        "Fortemi/fortemi#1131",
+        "Fortemi/fortemi#927",
+        "Fortemi/fortemi#978",
+        "Fortemi/fortemi#980",
+        "Fortemi/fortemi#991",
+        "Fortemi/fortemi#1041",
+        "Fortemi/fortemi#1133"
+      ],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1140"
+    },
+    {
+      "id": "skew-midrun",
+      "kind": "qualification",
+      "requires": [
+        "skew-offline",
+        "fault-nonhosted"
+      ],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1140"
+    },
+    {
+      "id": "skew-rollback",
+      "kind": "qualification",
+      "requires": [
+        "skew-midrun",
+        "restore"
+      ],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1140"
+    },
+    {
+      "id": "load-envelope-approved",
+      "kind": "approval",
+      "requires": []
+    },
+    {
+      "id": "telemetry-ready",
+      "kind": "inventory",
+      "requires": []
+    },
+    {
+      "id": "load",
+      "kind": "qualification",
+      "requires": [
+        "tenant",
+        "fault-nonhosted",
+        "load-envelope-approved",
+        "telemetry-ready",
+        "Fortemi/fortemi#1072",
+        "Fortemi/fortemi#1099"
+      ],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1141"
+    },
+    {
+      "id": "epic-closed",
+      "kind": "closure",
+      "requires": [
+        "tenant",
+        "fault-nonhosted",
+        "fault-hosted",
+        "restore",
+        "skew-offline",
+        "skew-midrun",
+        "skew-rollback",
+        "load"
+      ],
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1136"
+    }
+  ],
+  "consumers": [
+    {
+      "repository": "roctinam/aiwg",
+      "issue": "https://git.integrolabs.net/roctinam/aiwg/issues/2242",
+      "condition": "dataset execution"
+    },
+    {
+      "repository": "Fortemi/fortemi-react",
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/412",
+      "condition": "when exercised"
+    },
+    {
+      "repository": "Fortemi/HotM",
+      "issue": "https://git.integrolabs.net/Fortemi/HotM/issues/231",
+      "condition": "when exercised"
+    }
+  ]
+}

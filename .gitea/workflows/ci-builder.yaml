@@ -570,6 +570,8 @@ jobs:
             tests/session-expiry.test.js
           cd ..
           node scripts/ci/verify-dataset-execution-contract.mjs
+          node scripts/ci/verify-dataset-qualification-graph.mjs
+          node --test scripts/ci/verify-dataset-qualification-graph.test.mjs
 
   build:
     name: Build & Unit Test
