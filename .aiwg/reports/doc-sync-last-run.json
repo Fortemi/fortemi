@@ -3,69 +3,64 @@
   "workflow": "release-doc-sync",
   "direction": "code-to-docs",
   "started_from_clean_worktree": false,
-  "completed_at": "2026-09-04T00:04:33Z",
+  "completed_at": "2026-09-05T00:48:03Z",
   "repository": {
     "name": "Fortemi/fortemi",
-    "path": "clean release worktree",
-    "baseline_tag": "v2026.9.0",
-    "baseline_commit": "cc53578223ecec43f1a2f42b703ced3ba9cf6a13",
-    "head_commit": "cc53578223ecec43f1a2f42b703ced3ba9cf6a13"
+    "path": "isolated issue/release worktree",
+    "baseline_tag": "v2026.9.1",
+    "baseline_commit": "c8cef90218514299026de030472218feeb25c03a",
+    "head_commit": "6ca9aa8cbd058bcbe35fc4dd79607c90d6a8fa69"
   },
   "scope": {
     "source_of_truth": [
-      "source-note-upsert/1.0.0 authority and implementation",
-      "ADR-106 and REST/MCP documentation",
-      "release CI corrections after v2026.9.0",
+      "dataset-execution/1.0.0 authority and implementation",
+      "ADR-107 and MCP/storage-plane documentation",
+      "dataset lifecycle and RunReceipt tests",
       "profile-qualified suite claim policy"
     ],
     "write_boundary": [
       "CHANGELOG.md",
-      "docs/releases/v2026.9.1-announcement.md",
-      "contracts/asyncapi/",
-      ".aiwg/reports/doc-sync-20260903T200433-0400.md",
+      "docs/releases/v2026.9.2-announcement.md",
+      "tests/uat/phases/phase-14-mcp-operations.md",
+      ".aiwg/reports/doc-sync-audit-2026-09-04.md",
       ".aiwg/reports/doc-sync-last-run.json"
     ],
     "excluded": [
-      "new current-head suite conformance",
-      "AIWG adapter implementation",
-      "Windows platform conformance",
-      "commit, tag, push, and publication"
+      "full suite transportability claims",
+      "AIWG downstream adapter implementation",
+      "commit, tag, publication, deployment, and live qualification"
     ]
   },
-  "summary": "The bounded audit found no unresolved product-documentation drift. It prepared the 2026.9.1 changelog and announcement, regenerated version-derived AsyncAPI evidence, and preserved the separation between live source identity and named Knowledge Shard profiles.",
+  "summary": "The bounded audit found and resolved release documentation and archive-timeout UAT drift. No documentation blocker remains, and all claims stay limited to the alpha live-remote-persistence dataset profile.",
   "findings": [],
   "changed_files": [
     "CHANGELOG.md",
-    ".aiwg/reports/doc-sync-20260901T232521Z.md",
-    ".aiwg/reports/doc-sync-last-run.json"
+    "docs/releases/v2026.9.2-announcement.md",
+    "tests/uat/phases/phase-14-mcp-operations.md",
+    ".aiwg/reports/doc-sync-audit-2026-09-04.md",
+    ".aiwg/reports/doc-sync-last-run.json",
+    ".aiwg/.last-doc-sync"
   ],
   "validation": [
+    { "command": "cargo check --workspace", "status": "passed" },
     {
-      "command": "git diff --check",
-      "status": "passed"
-    },
-    {
-      "command": "Cargo/MCP version-lockstep and CalVer checks",
-      "status": "passed"
-    },
-    {
-      "command": "cargo metadata --no-deps --format-version 1",
+      "command": "node mcp-server/validate-schemas.cjs",
       "status": "passed",
-      "details": "Every workspace matric-* package resolves to 2026.9.1."
-    },
-    {
-      "command": "sha256sum contracts/openapi/openapi.yaml",
-      "status": "passed",
-      "details": "Matched df0aa71463e182c94325948305cf58104021ef38e1cc5dda47a02531c35bd7a5."
+      "details": "All 207 tool schemas are valid."
     },
     {
       "command": "DOCS_CONTRACT_MODE=blocking npm run docs:contract -- --profile=hosted_strict",
       "status": "passed",
-      "details": "Zero findings, zero stale baseline entries."
+      "details": "Zero findings and zero stale baseline entries."
+    },
+    {
+      "command": "release-note threat assessment",
+      "status": "passed",
+      "details": "Proceed, score 0."
     }
   ],
   "human_review": [
-    "Do not infer current-head suite conformance from the immutable run 6543 receipt.",
-    "Do not claim source identity is portable through core-v1, record-v1, or full-v1."
+    "Do not infer full suite parity, complete backup, or universal portability from the dataset execution contract.",
+    "Do not claim dataset execution is part of Knowledge Shard core-v1, record-v1, or full-v1."
   ]
 }

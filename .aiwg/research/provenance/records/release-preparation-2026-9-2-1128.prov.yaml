@@ -1,0 +1,66 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-09-05T00:48:03Z"
+  description: "Provenance for Fortemi v2026.9.2 release preparation"
+entity:
+  id: "urn:aiwg:artifact:docs/releases/v2026.9.2-announcement.md:sha256:4d7bfbafb9f4135a25804b89309f57575918abb06372c32cad2686deb24e2842"
+  type: release_bundle
+  created_at: "2026-09-05T00:48:03Z"
+  checksum: "sha256:4d7bfbafb9f4135a25804b89309f57575918abb06372c32cad2686deb24e2842"
+  size_bytes: 3991
+  attributes:
+    release: "v2026.9.2"
+    channel: stable
+    issue: "Fortemi/fortemi#1128"
+    contract: "dataset-execution/1.0.0"
+    source_commit: "6ca9aa8cbd058bcbe35fc4dd79607c90d6a8fa69"
+    ci_runs:
+      - "52778"
+      - "52808"
+    threat_assessment_sha256: "6824ce323036987499fb288d6ff1258d3e999bd72cb49fe4daf0f730c9f3f501"
+    doc_sync_sha256: "7f23d89c1b65385e2e240b7bb8a11cd2185bc241128fcb4aed89dcae11404d82"
+activity:
+  id: "urn:aiwg:activity:release-preparation:fortemi-2026-9-2:001"
+  type: release_preparation
+  started_at: "2026-09-04T22:47:00Z"
+  ended_at: "2026-09-05T00:48:03Z"
+  description: "Prepare the stable Fortemi v2026.9.2 release from the delivered MCP dataset execution contract"
+  attributes:
+    verification:
+      - "ci-builder run 52778: passed"
+      - "comprehensive test run 52808: passed"
+      - "cargo fmt --all -- --check: passed"
+      - "cargo clippy --all-targets --all-features -- -D warnings: passed"
+      - "cargo deny check advisories bans licenses sources: passed"
+      - "cargo test --lib --workspace: passed"
+      - "hosted-strict docs contract: zero findings"
+      - "release-note threat assessment: proceed, score 0"
+    claim_boundary: "dataset-execution/1.0.0 alpha live-remote-persistence only; no full-suite parity, complete-backup, universal-portability, or Knowledge Shard profile claim"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docs/releases/v2026.9.2-announcement.md:sha256:4d7bfbafb9f4135a25804b89309f57575918abb06372c32cad2686deb24e2842"
+    activity: "urn:aiwg:activity:release-preparation:fortemi-2026-9-2:001"
+    time: "2026-09-05T00:48:03Z"
+  used:
+    - activity: "urn:aiwg:activity:release-preparation:fortemi-2026-9-2:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1128"
+      role: release_requirement
+    - activity: "urn:aiwg:activity:release-preparation:fortemi-2026-9-2:001"
+      entity: "urn:aiwg:artifact:contracts/dataset-execution/1.0.0/authority.json"
+      role: contract_authority
+    - activity: "urn:aiwg:activity:release-preparation:fortemi-2026-9-2:001"
+      entity: "urn:aiwg:artifact:.aiwg/reports/data-compatibility-transportability-audit-2026-07-17.md"
+      role: claim_boundary
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:release-preparation:fortemi-2026-9-2:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_orchestrator
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docs/releases/v2026.9.2-announcement.md:sha256:4d7bfbafb9f4135a25804b89309f57575918abb06372c32cad2686deb24e2842"
+    agent: "urn:aiwg:agent:codex-gpt-5"

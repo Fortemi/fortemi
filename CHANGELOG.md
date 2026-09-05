@@ -7,6 +7,47 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.9.2] - 2026-09-04
+
+Contract release for bounded, versioned MCP dataset execution over Fortemi's
+live persistence plane.
+
+### Added
+
+- Add the core MCP tool `manage_dataset_execution` with versioned capability
+  discovery, pure preview, fail-closed negotiation, and an explicit lifecycle:
+  execute, status, checkpoint, cancel, resume/retry, detached receipt
+  verification, and namespace-scoped archive (#1128–#1131).
+- Publish strict dataset request and `RunReceipt` schemas, authority pins,
+  canonical JSON and SHA-256 rules, positive and negative fixtures, lifecycle
+  vectors, and an independent verifier under
+  `contracts/dataset-execution/1.0.0`.
+
+### Security
+
+- Require a fresh UUID dataset namespace, exact runtime/source/mode/destination
+  bindings, and an atomic source-upsert batch. Reject unsupported contracts,
+  policies, schema digests, or resource envelopes before making an API call.
+- Enforce limits of 500 records, 16 MiB input, 4 MiB per record, 120 seconds,
+  one concurrent operation, traversal depth 8, 1,000 results, and no outbound
+  network access. Execution and archive deadlines remain runtime-bound.
+- Keep `RunReceipt` data redacted: source content and logical identifiers are
+  omitted, while canonical digests, bounded counts, profiles, checkpoints, and
+  stable reason codes remain independently verifiable.
+
+### Verification
+
+- CI runs 52778 and 52808 pass the MCP contract suite, full Rust build and
+  database tests, coverage, slow tests, Docker image and isolated-container
+  checks, GPU integration, and compose validation at commit `6ca9aa8c`.
+- The isolated MCP suite includes a child-process regression proving that an
+  otherwise idle runtime remains alive until `EXECUTION_TIMEOUT`, plus archive
+  timeout/concurrency coverage and exact replay verification.
+- This release qualifies only the alpha live-remote-persistence dataset
+  profile. It does not claim full suite parity, complete backup, universal
+  portability, or Knowledge Shard `core-v1`, `record-v1`, or `full-v1`
+  compatibility for dataset execution.
+
 ## [2026.9.1] - 2026-09-03
 
 Contract release for source-addressed, replay-safe external note imports.

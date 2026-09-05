@@ -305,7 +305,7 @@ const cleanup = await mcp.call_tool("manage_dataset_execution", {
 - [ ] Resume after commit returns the same terminal `receiptDigest` without another API mutation
 - [ ] Receipt verification passes and the receipt contains neither source content nor raw logical IDs
 - [ ] Exact execute replay returns the same `receiptDigest` without a duplicate logical record
-- [ ] Archive is complete with no reason codes and a second archive call returns the same result
+- [ ] Archive is namespace-scoped and idempotent: successful cleanup is complete with no reason codes and repeats return the same result; deadline expiry returns `ARCHIVE_TIMEOUT` with hashed unresolved identifiers and can be retried without crossing namespaces
 
 ## Phase Summary
 
