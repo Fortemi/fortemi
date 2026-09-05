@@ -1,0 +1,60 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-09-05T00:55:37Z"
+  description: "Provenance for the Fortemi v2026.9.2 documentation shard"
+entity:
+  id: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard:sha256:2c48d221e30da00e2a79d8a4a7fcd4489f67e2e2bbf31d6797a9c3ae6cb283a3"
+  type: knowledge_shard
+  created_at: "2026-09-05T00:55:23Z"
+  checksum: "sha256:2c48d221e30da00e2a79d8a4a7fcd4489f67e2e2bbf31d6797a9c3ae6cb283a3"
+  size_bytes: 2528000
+  attributes:
+    release: "v2026.9.2"
+    profile: "documentation-shard/1.2.0"
+    source_count: 406
+    failed_sources: 0
+    note_count: 406
+    tag_count: 20
+    source_commit: "43f19d1048a6e6d065bb932d3fe5b2ff85f7669d"
+    server_commit: "43f19d1048a6e6d065bb932d3fe5b2ff85f7669d"
+    server_version: "2026.9.2"
+    receipt_sha256: "2e15c7799e3b736767beac4e1009161486f642ef8f1569811906abb9ebfc44aa"
+    receipt_size_bytes: 507
+activity:
+  id: "urn:aiwg:activity:release-docs-shard:fortemi-2026-9-2:001"
+  type: documentation_shard_rebuild
+  started_at: "2026-09-05T00:54:22Z"
+  ended_at: "2026-09-05T00:55:37Z"
+  description: "Build the version-matched Fortemi API image and regenerate the tracked documentation shard"
+  attributes:
+    generator: "scripts/ci/rebuild-shard-in-ci.sh"
+    server_image: "fortemi-release-local:2026.9.2"
+    verification:
+      - "tracked source coverage: 406/406"
+      - "failed imports: 0"
+      - "receipt server/source commit match: passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard:sha256:2c48d221e30da00e2a79d8a4a7fcd4489f67e2e2bbf31d6797a9c3ae6cb283a3"
+    activity: "urn:aiwg:activity:release-docs-shard:fortemi-2026-9-2:001"
+    time: "2026-09-05T00:55:37Z"
+  used:
+    - activity: "urn:aiwg:activity:release-docs-shard:fortemi-2026-9-2:001"
+      entity: "urn:git:commit:43f19d1048a6e6d065bb932d3fe5b2ff85f7669d"
+      role: tracked_source_revision
+    - activity: "urn:aiwg:activity:release-docs-shard:fortemi-2026-9-2:001"
+      entity: "urn:docker:image:fortemi-release-local:2026.9.2"
+      role: shard_server
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:release-docs-shard:fortemi-2026-9-2:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_orchestrator
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard:sha256:2c48d221e30da00e2a79d8a4a7fcd4489f67e2e2bbf31d6797a9c3ae6cb283a3"
+    agent: "urn:aiwg:agent:codex-gpt-5"

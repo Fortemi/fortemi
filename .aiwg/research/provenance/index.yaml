@@ -1,7 +1,11 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-09-04T20:46:09Z"
+  updated_at: "2026-09-05T00:55:37Z"
 records:
+  - entity: "docker/seed-data/fortemi-docs.shard"
+    record: "records/release-docs-shard-2026-9-2.prov.yaml"
+  - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"
+    record: "records/release-docs-shard-2026-9-2.prov.yaml"
   - entity: "docker-compose.bundle.yml"
     record: "records/docker-compose-bundle-inference-allowlist-2026-09-04.prov.yaml"
   - entity: "docs/content/architecture.md"
