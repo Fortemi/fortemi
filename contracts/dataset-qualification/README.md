@@ -1,5 +1,9 @@
 # Dataset production qualification
 
+The [2.0.0 detached-attestation candidate](2.0.0/README.md) resolves the draft
+signature/digest cycle and adds exact cell declarations and externally pinned
+signature verification. Neither candidate admits production receipts yet.
+
 Tracking authority: [Fortemi #1136](https://git.integrolabs.net/Fortemi/fortemi/issues/1136).
 The `1.0.0/readiness.json` graph records execution prerequisites separately from
 epic closure. Authority publication permits preparation; it is not a qualification
@@ -69,11 +73,11 @@ newline. The parser rejects duplicate properties, nonfinite numbers, unpaired
 surrogates and noncanonical representations before they can become trusted input.
 Object keys sort by UTF-16 code units and array order is preserved.
 
-The candidate receipt digest omits `receiptDigest` and the entire
+The 1.0.0 candidate receipt digest omits `receiptDigest` and the entire
 `verifier.attestation` object as specified by the planning schema. Detached
-attestation storage and its evidence-inventory relationship still need resolution
-before production admission: an attestation cannot include its own digest in the
-payload it signs. Inspection alone does not resolve this release gate.
+attestation storage and its evidence-inventory relationship are corrected in the
+2.0.0 candidate: an attestation cannot include its own digest in the payload it
+signs. Version 1 remains inspection-only and is not eligible for admission.
 
 Rollback must select an intact prior authority/schema/fixture/verifier tuple;
 never overwrite signed evidence. An unknown schema version rejects; no broad

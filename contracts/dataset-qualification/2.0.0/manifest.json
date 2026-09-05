@@ -1,0 +1,15 @@
+{
+  "status": "candidate-not-approved",
+  "version": "2.0.0",
+  "owner": "Fortemi/fortemi#1136",
+  "files": [
+    {
+      "path": "schemas/authority.schema.json",
+      "sha256": "84b948e7a6376821692fffe27811b6c826ea40756ed490faeaaa6f205a42f3cc"
+    },
+    {
+      "path": "schemas/receipt.schema.json",
+      "sha256": "927c1ba383d0f39a3ae626130b4cb10c0b1d4b79999bec69fe6c756872b50381"
+    }
+  ]
+}

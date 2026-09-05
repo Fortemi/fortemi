@@ -1,19 +1,21 @@
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
-import { inspectAuthority } from './inspect-authority.mjs';
+import { inspectAuthority, schemaDigestsV2 } from './inspect-authority.mjs';
 import { jsonDigest, receiptDigest, canonicalJson } from './canonical-json.mjs';
 
 const require = createRequire(new URL('../../mcp-server/package.json', import.meta.url));
 const Ajv = require('ajv/dist/2020.js');
 const ajv = new Ajv({ strictTypes: false, strictRequired: false, allErrors: true });
 require('ajv-formats')(ajv);
-const validate = ajv.compile(JSON.parse(fs.readFileSync(new URL('../../contracts/dataset-qualification/1.0.0/schemas/receipt.schema.json', import.meta.url))));
+const validators = new Map(['1.0.0', '2.0.0'].map(version => [version, ajv.compile(JSON.parse(fs.readFileSync(new URL(`../../contracts/dataset-qualification/${version}/schemas/receipt.schema.json`, import.meta.url))))]));
 const compare = { eq: (a, b) => a === b, lte: (a, b) => a <= b, lt: (a, b) => a < b, gte: (a, b) => a >= b, gt: (a, b) => a > b };
 
 /** Validity here is internal consistency only, never independent verification. */
 export function inspectReceipt(receipt, authority) {
   const errors = [];
   const result = () => ({ valid: errors.length === 0, admitted: false, errors });
+  const validate = validators.get(receipt?.schemaVersion);
+  if (!validate || receipt.schemaVersion !== authority?.schemaVersion) { errors.push('unsupported or mismatched schema versions'); return result(); }
   const authorityResult = inspectAuthority(authority);
   if (!authorityResult.valid) { errors.push(...authorityResult.errors.map(e => `authority: ${e}`)); return result(); }
   if (!validate(receipt)) { errors.push(...validate.errors.map(e => `${e.instancePath}: ${e.message}`)); return result(); }
@@ -27,14 +29,14 @@ export function inspectReceipt(receipt, authority) {
     }
   } catch (e) { errors.push(`canonicalization: ${e.message}`); return result(); }
   if (!authority.fixtureDigests.includes(receipt.fixtureDigest)) errors.push('unapproved fixture digest');
-  if (!authority.approvals.includes(receipt.approvalDigest)) errors.push('unapproved approval reference');
+  if (authority.schemaVersion === '1.0.0' && !authority.approvals.includes(receipt.approvalDigest)) errors.push('unapproved approval reference');
   for (const [role, components] of [['producer', authority.producers], ['consumer', authority.consumers]]) {
     if (!components.some(c => c.name === receipt[role].name && c.revision === receipt[role].revision)) errors.push(`unbound ${role}`);
   }
   for (const field of ['name', 'revision', 'imageDigest']) {
     if (receipt.verifier[field] !== authority.verifier[field]) errors.push(`unbound verifier ${field}`);
   }
-  if (receipt.verifier.attestation.signedReceiptDigest !== receipt.receiptDigest) errors.push('attestation digest mismatch');
+  if (receipt.schemaVersion === '1.0.0' && receipt.verifier.attestation.signedReceiptDigest !== receipt.receiptDigest) errors.push('attestation digest mismatch');
   const times = [authority.validFrom, receipt.startedAt, receipt.completedAt, receipt.verifier.verifiedAt, authority.validUntil].map(Date.parse);
   if (times.some((t, i) => !Number.isFinite(t) || (i > 0 && t < times[i - 1]))) errors.push('receipt outside ordered authority window');
   if (receipt.thresholds.length !== authority.thresholds.length) errors.push('threshold coverage mismatch');
@@ -53,6 +55,19 @@ export function inspectReceipt(receipt, authority) {
   if (receipt.verdict === 'PASS' && canonicalJson(receipt.expected) !== canonicalJson(receipt.actual)) errors.push('PASS expected/actual mismatch');
   const profile = authority.contractTuple.knowledgeShardProfile;
   if (receipt.plane === 'knowledge-shard' ? receipt.profile !== profile : profile !== 'not-applicable') errors.push('shard plane/profile binding mismatch');
+  if (receipt.schemaVersion === '2.0.0') {
+    if (receipt.authoritySchemaDigest !== schemaDigestsV2.authority || receipt.receiptSchemaDigest !== schemaDigestsV2.receipt) errors.push('receipt schema digest mismatch');
+    const cell = authority.cells.find(c => c.cellId === receipt.cellId);
+    if (!cell) errors.push('undeclared receipt cell');
+    else {
+      for (const field of ['plane', 'profile', 'expected', 'acceptanceIds', 'riskIds']) {
+        if (canonicalJson(receipt[field]) !== canonicalJson(cell[field])) errors.push(`cell binding mismatch: ${field}`);
+      }
+      for (const role of ['producer', 'consumer']) {
+        if (receipt[role].name !== cell[role].name || receipt[role].revision !== cell[role].revision) errors.push(`cell binding mismatch: ${role}`);
+      }
+    }
+  }
   // Artifact bytes, signer trust, replay history, exact cell scope and independent
   // state/cleanup verification must still be checked by the admission engine.
   return result();
