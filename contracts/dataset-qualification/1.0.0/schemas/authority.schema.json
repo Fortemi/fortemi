@@ -1,0 +1,209 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fortemi.dev/schemas/dataset-qualification-authority/1.0.0",
+  "title": "Dataset Qualification Authority",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "authorityId", "qualificationType", "validFrom", "validUntil", "contractTuple", "producers", "consumers",
+    "environment", "thresholds", "approvals", "fixtureDigests", "verifier"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "authorityId": { "type": "string", "minLength": 1 },
+    "qualificationType": { "enum": ["tenant", "fault", "restore", "skew", "load"] },
+    "validFrom": { "type": "string", "format": "date-time" },
+    "validUntil": { "type": "string", "format": "date-time" },
+    "contractTuple": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["applicationRelease", "mcpProtocol", "mcpToolSchema", "datasetDescriptor", "ingestPlan", "checkpointSemantics", "terminalStateSemantics", "runReceipt", "lineageSchema", "materializationProfile", "openapiRevision", "asyncapiRevision", "knowledgeShardManifestVersion", "knowledgeShardProfile"],
+      "properties": {
+        "applicationRelease": { "type": "string", "minLength": 1 },
+        "mcpProtocol": { "type": "string", "minLength": 1 },
+        "mcpToolSchema": { "$ref": "#/$defs/digest" },
+        "datasetDescriptor": { "$ref": "#/$defs/digest" },
+        "ingestPlan": { "$ref": "#/$defs/digest" },
+        "checkpointSemantics": { "$ref": "#/$defs/digest" },
+        "terminalStateSemantics": { "$ref": "#/$defs/digest" },
+        "runReceipt": { "$ref": "#/$defs/digest" },
+        "lineageSchema": { "$ref": "#/$defs/digest" },
+        "materializationProfile": { "type": "string", "minLength": 1, "not": { "const": "not-applicable" } },
+        "openapiRevision": { "$ref": "#/$defs/digestOrNA" },
+        "asyncapiRevision": { "$ref": "#/$defs/digestOrNA" },
+        "knowledgeShardManifestVersion": { "type": "string", "minLength": 1 },
+        "knowledgeShardProfile": { "enum": ["not-applicable", "core-v1", "record-v1", "full-v1"] }
+      }
+    },
+    "producers": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/component" } },
+    "consumers": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/component" } },
+    "environment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["database", "blobBackend", "queue", "indexBackend", "filesystem", "architecture", "deploymentMode", "restartPolicy", "networkPolicy", "resourceLimits", "providerCostCeiling", "cleanDestinationProvenance"],
+      "properties": {
+        "database": { "type": "string", "minLength": 1 },
+        "blobBackend": { "type": "string", "minLength": 1 },
+        "queue": { "type": "string", "minLength": 1 },
+        "indexBackend": { "type": "string", "minLength": 1 },
+        "filesystem": { "type": "string", "minLength": 1 },
+        "architecture": { "type": "string", "minLength": 1 },
+        "deploymentMode": { "enum": ["docker", "kubernetes", "shared"] },
+        "restartPolicy": { "type": "string", "minLength": 1 },
+        "networkPolicy": { "type": "string", "minLength": 1 },
+        "resourceLimits": {
+          "type": "object", "additionalProperties": false,
+          "required": ["cpuCores", "memoryBytes", "diskBytes", "walBytes", "durationSeconds", "concurrency", "providerCalls"],
+          "properties": {
+            "cpuCores": { "type": "number", "exclusiveMinimum": 0 },
+            "memoryBytes": { "type": "integer", "minimum": 1 },
+            "diskBytes": { "type": "integer", "minimum": 1 },
+            "walBytes": { "type": "integer", "minimum": 0 },
+            "durationSeconds": { "type": "integer", "minimum": 1 },
+            "concurrency": { "type": "integer", "minimum": 1 },
+            "providerCalls": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "providerCostCeiling": {
+          "type": "object", "additionalProperties": false,
+          "required": ["currency", "maxCost"],
+          "properties": {
+            "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+            "maxCost": { "type": "number", "minimum": 0 }
+          }
+        },
+        "cleanDestinationProvenance": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "thresholds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "$ref": "#/$defs/threshold" } },
+    "approvals": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/digest" } },
+    "fixtureDigests": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/digest" } },
+    "verifier": {
+      "allOf": [
+        { "$ref": "#/$defs/component" },
+        { "type": "object", "required": ["imageDigest", "trustModel"], "properties": {
+          "imageDigest": { "$ref": "#/$defs/digest" },
+          "trustModel": { "const": "separate-implementation-read-only-evidence" }
+        }}
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "qualificationType": { "const": "tenant" } } },
+      "then": { "properties": { "thresholds": { "allOf": [
+        { "contains": { "$ref": "#/$defs/tUnauthorizedReads" } },
+        { "contains": { "$ref": "#/$defs/tUnauthorizedMutations" } },
+        { "contains": { "$ref": "#/$defs/tRedaction" } },
+        { "contains": { "$ref": "#/$defs/tCleanup" } }
+      ] } } }
+    },
+    {
+      "if": { "properties": { "qualificationType": { "const": "fault" } } },
+      "then": { "properties": { "thresholds": { "allOf": [
+        { "contains": { "$ref": "#/$defs/tUnclassified" } },
+        { "contains": { "$ref": "#/$defs/tDuplicate" } },
+        { "contains": { "$ref": "#/$defs/tRedaction" } },
+        { "contains": { "$ref": "#/$defs/tCleanup" } }
+      ] } } }
+    },
+    {
+      "if": { "properties": { "qualificationType": { "const": "restore" } } },
+      "then": { "properties": { "thresholds": { "allOf": [
+        { "contains": { "$ref": "#/$defs/tRpo" } },
+        { "contains": { "$ref": "#/$defs/tRto" } },
+        { "contains": { "$ref": "#/$defs/tCanonical" } },
+        { "contains": { "$ref": "#/$defs/tRedaction" } },
+        { "contains": { "$ref": "#/$defs/tCleanup" } }
+      ] } } }
+    },
+    {
+      "if": { "properties": { "qualificationType": { "const": "skew" } } },
+      "then": { "properties": { "thresholds": { "allOf": [
+        { "contains": { "$ref": "#/$defs/tSupported" } },
+        { "contains": { "$ref": "#/$defs/tUnsupported" } },
+        { "contains": { "$ref": "#/$defs/tRejectedMutation" } },
+        { "contains": { "$ref": "#/$defs/tRedaction" } }
+      ] } } }
+    },
+    {
+      "if": { "properties": { "qualificationType": { "const": "load" } } },
+      "then": { "properties": { "thresholds": { "allOf": [
+        { "contains": { "$ref": "#/$defs/tErrorRate" } },
+        { "contains": { "$ref": "#/$defs/tLatencyP50" } },
+        { "contains": { "$ref": "#/$defs/tLatencyP95" } },
+        { "contains": { "$ref": "#/$defs/tLatencyP99" } },
+        { "contains": { "$ref": "#/$defs/tThroughput" } },
+        { "contains": { "$ref": "#/$defs/tRss" } },
+        { "contains": { "$ref": "#/$defs/tCpu" } },
+        { "contains": { "$ref": "#/$defs/tStorage" } },
+        { "contains": { "$ref": "#/$defs/tWal" } },
+        { "contains": { "$ref": "#/$defs/tBlob" } },
+        { "contains": { "$ref": "#/$defs/tQueue" } },
+        { "contains": { "$ref": "#/$defs/tPool" } },
+        { "contains": { "$ref": "#/$defs/tLock" } },
+        { "contains": { "$ref": "#/$defs/tFreshness" } },
+        { "contains": { "$ref": "#/$defs/tCost" } },
+        { "contains": { "$ref": "#/$defs/tLimitPlusOne" } },
+        { "contains": { "$ref": "#/$defs/tRedaction" } },
+        { "contains": { "$ref": "#/$defs/tCleanup" } }
+      ] } } }
+    },
+    {
+      "if": { "properties": { "contractTuple": { "properties": { "knowledgeShardProfile": { "const": "not-applicable" } } } } },
+      "then": { "properties": { "contractTuple": { "properties": { "knowledgeShardManifestVersion": { "const": "not-applicable" } } } } },
+      "else": { "properties": { "contractTuple": { "properties": { "knowledgeShardManifestVersion": { "type": "string", "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-((?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\\+([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$" } } } } }
+    }
+  ],
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "digestOrNA": { "oneOf": [{ "$ref": "#/$defs/digest" }, { "const": "not-applicable" }] },
+    "component": {
+      "type": "object", "required": ["name", "repository", "revision"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "repository": { "type": "string", "minLength": 1 },
+        "revision": { "type": "string", "minLength": 1 }
+      }
+    },
+    "threshold": {
+      "type": "object", "additionalProperties": false,
+      "required": ["metric", "operator", "limit", "unit", "approverRole"],
+      "properties": {
+        "metric": { "enum": ["unauthorizedReads", "unauthorizedMutations", "redactionFindings", "cleanupOutOfScope", "unclassifiedOutcomes", "duplicateEffects", "rpoSeconds", "rtoSeconds", "canonicalMismatches", "supportedTuplePassRate", "unsupportedPrewriteRejectRate", "rejectedTupleMutations", "limitPlusOneMutations", "errorRate", "latencyP50", "latencyP95", "latencyP99", "throughput", "rssBytes", "cpuPercent", "storageGrowthBytes", "walGrowthBytes", "blobGrowthBytes", "queueDepth", "poolUtilizationPercent", "lockWaitSeconds", "indexFreshnessSeconds", "providerCost"] },
+        "operator": { "enum": ["eq", "lte", "lt", "gte", "gt"] },
+        "limit": { "type": "number" },
+        "unit": { "type": "string", "minLength": 1 },
+        "approverRole": { "type": "string", "minLength": 1 }
+      }
+    },
+    "tUnauthorizedReads": { "properties": { "metric": { "const": "unauthorizedReads" } }, "required": ["metric"] },
+    "tUnauthorizedMutations": { "properties": { "metric": { "const": "unauthorizedMutations" } }, "required": ["metric"] },
+    "tRedaction": { "properties": { "metric": { "const": "redactionFindings" } }, "required": ["metric"] },
+    "tCleanup": { "properties": { "metric": { "const": "cleanupOutOfScope" } }, "required": ["metric"] },
+    "tUnclassified": { "properties": { "metric": { "const": "unclassifiedOutcomes" } }, "required": ["metric"] },
+    "tDuplicate": { "properties": { "metric": { "const": "duplicateEffects" } }, "required": ["metric"] },
+    "tRpo": { "properties": { "metric": { "const": "rpoSeconds" } }, "required": ["metric"] },
+    "tRto": { "properties": { "metric": { "const": "rtoSeconds" } }, "required": ["metric"] },
+    "tCanonical": { "properties": { "metric": { "const": "canonicalMismatches" } }, "required": ["metric"] },
+    "tSupported": { "properties": { "metric": { "const": "supportedTuplePassRate" } }, "required": ["metric"] },
+    "tUnsupported": { "properties": { "metric": { "const": "unsupportedPrewriteRejectRate" } }, "required": ["metric"] },
+    "tRejectedMutation": { "properties": { "metric": { "const": "rejectedTupleMutations" } }, "required": ["metric"] },
+    "tErrorRate": { "properties": { "metric": { "const": "errorRate" } }, "required": ["metric"] },
+    "tLatencyP50": { "properties": { "metric": { "const": "latencyP50" } }, "required": ["metric"] },
+    "tLatencyP95": { "properties": { "metric": { "const": "latencyP95" } }, "required": ["metric"] },
+    "tLatencyP99": { "properties": { "metric": { "const": "latencyP99" } }, "required": ["metric"] },
+    "tThroughput": { "properties": { "metric": { "const": "throughput" } }, "required": ["metric"] },
+    "tRss": { "properties": { "metric": { "const": "rssBytes" } }, "required": ["metric"] },
+    "tCpu": { "properties": { "metric": { "const": "cpuPercent" } }, "required": ["metric"] },
+    "tStorage": { "properties": { "metric": { "const": "storageGrowthBytes" } }, "required": ["metric"] },
+    "tWal": { "properties": { "metric": { "const": "walGrowthBytes" } }, "required": ["metric"] },
+    "tBlob": { "properties": { "metric": { "const": "blobGrowthBytes" } }, "required": ["metric"] },
+    "tQueue": { "properties": { "metric": { "const": "queueDepth" } }, "required": ["metric"] },
+    "tPool": { "properties": { "metric": { "const": "poolUtilizationPercent" } }, "required": ["metric"] },
+    "tLock": { "properties": { "metric": { "const": "lockWaitSeconds" } }, "required": ["metric"] },
+    "tFreshness": { "properties": { "metric": { "const": "indexFreshnessSeconds" } }, "required": ["metric"] },
+    "tCost": { "properties": { "metric": { "const": "providerCost" } }, "required": ["metric"] },
+    "tLimitPlusOne": { "properties": { "metric": { "const": "limitPlusOneMutations" } }, "required": ["metric"] }
+  }
+}

@@ -1,0 +1,233 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fortemi.dev/schemas/dataset-qualification-receipt/1.0.0",
+  "title": "Dataset Qualification Receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "cellId",
+    "attemptId",
+    "attemptNumber",
+    "runNonce",
+    "startedAt",
+    "completedAt",
+    "authorityValidFrom",
+    "authorityValidUntil",
+    "authorityRevision",
+    "producer",
+    "consumer",
+    "plane",
+    "profile",
+    "environmentDigest",
+    "fixtureDigest",
+    "cleanDestination",
+    "cleanDestinationProvenance",
+    "expected",
+    "actual",
+    "thresholds",
+    "authorityThresholdDigest",
+    "measurements",
+    "evidence",
+    "canonicalization",
+    "receiptDigest",
+    "acceptanceIds",
+    "riskIds",
+    "approvalDigest",
+    "verifier",
+    "verdict"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "cellId": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "attemptId": { "type": "string", "format": "uuid" },
+    "attemptNumber": { "type": "integer", "minimum": 1 },
+    "runNonce": { "type": "string", "pattern": "^[a-f0-9]{32,128}$" },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": "string", "format": "date-time" },
+    "authorityValidFrom": { "type": "string", "format": "date-time" },
+    "authorityValidUntil": { "type": "string", "format": "date-time" },
+    "authorityRevision": { "$ref": "#/$defs/digest" },
+    "producer": { "$ref": "#/$defs/component" },
+    "consumer": { "$ref": "#/$defs/component" },
+    "plane": { "enum": ["live-remote-persistence", "knowledge-shard", "static-index", "browser-local"] },
+    "profile": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "environmentDigest": { "$ref": "#/$defs/digest" },
+    "fixtureDigest": { "$ref": "#/$defs/digest" },
+    "cleanDestination": { "type": "boolean", "const": true },
+    "cleanDestinationProvenance": { "$ref": "#/$defs/digest" },
+    "expected": { "$ref": "#/$defs/result" },
+    "actual": { "$ref": "#/$defs/result" },
+    "thresholds": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["metric", "operator", "limit", "unit", "passed", "authorityThresholdIndex"],
+        "properties": {
+          "metric": { "$ref": "#/$defs/metric" },
+          "operator": { "enum": ["eq", "lte", "lt", "gte", "gt"] },
+          "limit": { "type": "number" },
+          "unit": { "type": "string", "minLength": 1 },
+          "passed": { "type": "boolean" },
+          "authorityThresholdIndex": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "authorityThresholdDigest": {
+      "$ref": "#/$defs/digest",
+      "description": "Digest of the exact ordered authority threshold array from which every metric/index is copied"
+    },
+    "measurements": {
+      "type": "object", "minProperties": 1,
+      "additionalProperties": { "type": "number" },
+      "propertyNames": { "$ref": "#/$defs/metric" }
+    },
+    "evidence": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["artifactType", "path", "digest", "producer", "revision"],
+        "properties": {
+          "artifactType": { "enum": ["fixture", "runtime-receipt", "state-digest", "telemetry", "redaction", "cleanup", "approval", "attestation"] },
+          "path": { "type": "string", "minLength": 1 },
+          "digest": { "$ref": "#/$defs/digest" },
+          "producer": { "type": "string", "minLength": 1 },
+          "revision": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "canonicalization": { "const": "RFC8785-SHA256:exclude(receiptDigest,verifier.attestation)" },
+    "receiptDigest": {
+      "$ref": "#/$defs/digest",
+      "description": "SHA-256 of RFC 8785 canonical receipt with receiptDigest and the complete verifier.attestation object omitted"
+    },
+    "acceptanceIds": {
+      "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^DQ-[A-Z]+-AC-[0-9]{3}$" }
+    },
+    "riskIds": {
+      "type": "array", "minItems": 1, "items": { "type": "string", "pattern": "^DQ-R[0-9]+$" }
+    },
+    "approvalDigest": { "$ref": "#/$defs/digest" },
+    "verifier": {
+      "type": "object", "additionalProperties": false,
+      "required": ["name", "revision", "imageDigest", "independent", "passed", "verifiedAt", "attestation"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "revision": { "type": "string", "minLength": 1 },
+        "imageDigest": { "$ref": "#/$defs/digest" },
+        "independent": { "const": true },
+        "passed": { "type": "boolean" },
+        "verifiedAt": { "type": "string", "format": "date-time" },
+        "attestation": {
+          "type": "object", "additionalProperties": false,
+          "required": ["scheme", "signerIdentityDigest", "signedReceiptDigest", "signature"],
+          "properties": {
+            "scheme": { "enum": ["dsse", "sigstore-bundle", "openpgp-detached"] },
+            "signerIdentityDigest": { "$ref": "#/$defs/digest" },
+            "signedReceiptDigest": { "$ref": "#/$defs/digest" },
+            "signature": { "type": "string", "minLength": 16 }
+          }
+        }
+      }
+    },
+    "verdict": { "enum": ["PASS", "FAIL", "MISSING"] },
+    "missingEvidence": {
+      "type": "array", "minItems": 1, "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": { "type": "object" }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "verdict": { "const": "PASS" } }, "required": ["verdict"] },
+      "then": {
+        "not": { "required": ["missingEvidence"] },
+        "properties": {
+          "thresholds": {
+            "items": {
+              "type": "object",
+              "properties": { "passed": { "const": true } },
+              "required": ["passed"]
+            }
+          },
+          "verifier": {
+            "type": "object",
+            "properties": { "passed": { "const": true } },
+            "required": ["passed"]
+          },
+          "evidence": {
+            "allOf": [
+              { "contains": { "type": "object", "properties": { "artifactType": { "const": "fixture" } }, "required": ["artifactType"] } },
+              { "contains": { "type": "object", "properties": { "artifactType": { "const": "runtime-receipt" } }, "required": ["artifactType"] } },
+              { "contains": { "type": "object", "properties": { "artifactType": { "const": "state-digest" } }, "required": ["artifactType"] } },
+              { "contains": { "type": "object", "properties": { "artifactType": { "const": "telemetry" } }, "required": ["artifactType"] } },
+              { "contains": { "type": "object", "properties": { "artifactType": { "const": "redaction" } }, "required": ["artifactType"] } },
+              { "contains": { "type": "object", "properties": { "artifactType": { "const": "cleanup" } }, "required": ["artifactType"] } },
+              { "contains": { "type": "object", "properties": { "artifactType": { "const": "approval" } }, "required": ["artifactType"] } },
+              { "contains": { "type": "object", "properties": { "artifactType": { "const": "attestation" } }, "required": ["artifactType"] } }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "verdict": { "const": "MISSING" } }, "required": ["verdict"] },
+      "then": {
+        "required": ["missingEvidence"],
+        "properties": {
+          "verifier": {
+            "type": "object",
+            "properties": { "passed": { "const": false } },
+            "required": ["passed"]
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "verdict": { "const": "FAIL" } }, "required": ["verdict"] },
+      "then": {
+        "anyOf": [
+          { "properties": { "thresholds": { "contains": { "type": "object", "properties": { "passed": { "const": false } }, "required": ["passed"] } } } },
+          { "properties": { "verifier": { "type": "object", "properties": { "passed": { "const": false } }, "required": ["passed"] } } }
+        ]
+      }
+    },
+    {
+      "if": { "properties": { "plane": { "const": "knowledge-shard" } }, "required": ["plane"] },
+      "then": { "properties": { "profile": { "enum": ["core-v1", "record-v1", "full-v1"] } } },
+      "else": { "properties": { "profile": { "not": { "enum": ["core-v1", "record-v1", "full-v1"] } } } }
+    }
+  ],
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" },
+    "metric": { "enum": ["unauthorizedReads", "unauthorizedMutations", "redactionFindings", "cleanupOutOfScope", "unclassifiedOutcomes", "duplicateEffects", "rpoSeconds", "rtoSeconds", "canonicalMismatches", "supportedTuplePassRate", "unsupportedPrewriteRejectRate", "rejectedTupleMutations", "limitPlusOneMutations", "errorRate", "latencyP50", "latencyP95", "latencyP99", "throughput", "rssBytes", "cpuPercent", "storageGrowthBytes", "walGrowthBytes", "blobGrowthBytes", "queueDepth", "poolUtilizationPercent", "lockWaitSeconds", "indexFreshnessSeconds", "providerCost"] },
+    "result": {
+      "type": "object", "additionalProperties": false,
+      "required": ["terminalState", "stateDigest", "mutationCount", "reasonCodes"],
+      "properties": {
+        "terminalState": { "enum": ["unchanged", "committed-once", "rolled-back", "ambiguous", "rejected", "restored", "completed", "failed", "missing"] },
+        "stateDigest": { "$ref": "#/$defs/digest" },
+        "mutationCount": { "type": "integer", "minimum": 0 },
+        "recordCount": { "type": "integer", "minimum": 0 },
+        "unauthorizedReads": { "type": "integer", "minimum": 0 },
+        "unauthorizedMutations": { "type": "integer", "minimum": 0 },
+        "failureClass": { "enum": ["none", "process-death", "mid-syscall", "commit-ack-ambiguity", "kernel-fsync", "power-loss", "dependency-restart", "invalid-input", "authority-drift", "missing-evidence"] },
+        "reasonCodes": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "revision"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "revision": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "status": "candidate-not-approved",
+  "owner": "Fortemi/fortemi#1136",
+  "files": [
+    {
+      "path": "schemas/authority.schema.json",
+      "source": "../.aiwg/testing/schemas/dataset-qualification-authority.schema.json",
+      "sha256": "49c18ad193b5a2671b7583a12a2a52fbad334ee449689028c30245a199eab6c2"
+    },
+    {
+      "path": "schemas/receipt.schema.json",
+      "source": "../.aiwg/testing/schemas/dataset-qualification-receipt.schema.json",
+      "sha256": "07ecf2ac497b0a4511d58b47b8d074b208ad5d3b31f154cc947b9851ab84e5c5"
+    }
+  ]
+}
