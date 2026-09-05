@@ -232,14 +232,79 @@ docker compose -f docker-compose.bundle.yml up -d
 
 ## Database Operations
 
-### Connection
+### Tenant-scoped read-only psql
+
+Since the ADR-090 forced-RLS migration (`20260824010000`), direct SQL against
+`note`, `archive_registry`, and other guarded tables requires an explicit tenant.
+Use the checked-in [read-only recipe](https://git.integrolabs.net/Fortemi/fortemi/src/branch/main/scripts/sql/read-only-notes.sql)
+from the same release checkout. It resolves the memory name through the scoped
+registry, verifies the schema and RLS role, and counts live notes.
 
 ```bash
-# Interactive psql
-docker exec -it Fortémi-matric-1 psql -U matric -d matric
+# DATABASE_URL selects an authorized SQL login subject to RLS.
+# Use your normal password file/service configuration; do not embed passwords.
+psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 \
+  -v tenant_id=00000000-0000-0000-0000-000000000000 \
+  -v archive_name=public \
+  -f scripts/sql/read-only-notes.sql
+```
 
-# Run single command
-docker exec Fortémi-matric-1 psql -U matric -d matric -c "SELECT count(*) FROM notes;"
+For personal installations, the all-zero UUID is the reserved **local tenant**;
+`public` is the initial memory name. Use the actual memory name for a non-default
+archive (the same name used with `X-Fortemi-Memory`), not a guessed schema name.
+A changed default memory does not change this recipe's explicit selection.
+For hosted installations, obtain the tenant UUID and archive name you are
+authorized to inspect from the operator's tenant inventory. Do not use the
+reserved local UUID to inspect hosted customer data. Binding a UUID is not an
+authorization check: a SQL login able to set this parameter must only be given
+to trusted operators, with database/schema/table access restricted appropriately.
+
+The recipe's essential sequence, all on **one connection**, is:
+
+```sql
+BEGIN READ ONLY;
+SET LOCAL app.current_tenant = '00000000-0000-0000-0000-000000000000';
+-- Resolve and verify the authorized archive first; public is the initial archive.
+SET LOCAL search_path = public;
+SELECT current_user, current_setting('app.current_tenant'), current_schema();
+SELECT count(*) AS live_notes FROM note WHERE deleted_at IS NULL;
+COMMIT;
+```
+
+The downloadable recipe uses `set_config(..., true)`, equivalent to `SET LOCAL`,
+and safely quotes the registry's schema name. `note` is singular. The canonical
+live-note predicate is `deleted_at IS NULL`; `archived = true` does not mean
+soft-deleted. Add `archived = false` only when deliberately excluding archived
+notes from the count.
+
+`SET LOCAL` ends at commit/rollback. It must share the transaction and connection
+with the query; a separate `psql -c` invocation, later pooled session, or a
+statement outside a transaction does not inherit it. Bind scope for every
+transaction. `-X` ignores local psql startup customizations and `ON_ERROR_STOP`
+makes SQL/script failures exit nonzero. A read-only transaction rejects writes.
+
+With an RLS-subject role, absent tenant context fails when a guarded policy is
+evaluated (an unset setting or invalid/empty UUID); an empty relation may yield
+no rows without evaluating the policy. A valid wrong tenant cannot see another
+tenant's rows. In this recipe, an absent/invisible archive fails the one-row
+registry check before any note query. A visible archive with no live notes
+returns zero. Treat zero as a scoped result, never proof that the database is
+empty. The recipe also refuses a superuser or `BYPASSRLS` role and refuses a
+schema whose note table lacks forced RLS.
+
+### Connection
+
+For an interactive scoped read, connect with `psql "$DATABASE_URL" -X
+-v ON_ERROR_STOP=1`, then run the complete transaction above, or use `\i
+scripts/sql/read-only-notes.sql` after setting both recipe variables. For the
+bundle, run psql inside the service with the appropriate SQL login and pipe the
+recipe into the same invocation:
+
+```bash
+docker compose -f docker-compose.bundle.yml exec -T fortemi \
+  psql -U <SQL_LOGIN> -d matric -X -v ON_ERROR_STOP=1 \
+  -v tenant_id=00000000-0000-0000-0000-000000000000 \
+  -v archive_name=public < scripts/sql/read-only-notes.sql
 ```
 
 ### Common Queries
@@ -255,8 +320,7 @@ SELECT relname AS table_name, pg_size_pretty(pg_total_relation_size(relid)) AS s
 FROM pg_catalog.pg_statio_user_tables
 ORDER BY pg_total_relation_size(relid) DESC;"
 
-# Note count
-docker exec Fortémi-matric-1 psql -U matric -d matric -c "SELECT count(*) FROM notes;"
+# Live-note count: run scripts/sql/read-only-notes.sql with tenant and archive variables above.
 
 # Active connections
 docker exec Fortémi-matric-1 psql -U matric -d matric -c \
@@ -264,6 +328,15 @@ docker exec Fortémi-matric-1 psql -U matric -d matric -c \
 ```
 
 ### Maintenance
+
+Routine scoped reads above are distinct from privileged whole-database backup
+and maintenance. Use the designated maintenance/backup identity for the commands
+below and the [backup procedure](#backup-and-recovery); do not grant `BYPASSRLS`
+to the runtime role or disable RLS to make read scripts work. `VACUUM`, `REINDEX`,
+and materialized-view refreshes do not belong in `BEGIN READ ONLY`. A scoped
+SELECT/export is not a complete database backup; backup privileges and restore
+verification are tracked separately in Gitea #1115 and #727.
+
 
 ```bash
 # Vacuum analyze (weekly recommended)
@@ -802,42 +875,37 @@ previous vectors.
 
 ## Multi-Memory Operations
 
-Fortemi's multi-memory architecture provides isolated memory archives with independent schemas. All 91 API handlers route through schema-scoped transactions for complete data isolation.
+Fortemi memory archives use separate schemas. Select both the tenant and memory
+for operator reads; schema selection alone does not supply tenant context.
 
 ### Schema Monitoring
 
-```bash
-# List all memory schemas
-docker exec fortemi-matric-1 psql -U matric -d matric -c "
-SELECT name, schema_name, note_count, pg_size_pretty(size_bytes::bigint) as size, is_default
-FROM archive_registry ORDER BY created_at;"
+To list authorized memory schemas, run this query inside the same read-only,
+tenant-bound transaction described [above](#tenant-scoped-read-only-psql):
 
-# Check schema version drift (compare per-memory table counts)
-docker exec fortemi-matric-1 psql -U matric -d matric -c "
+```sql
+SELECT name, schema_name, is_default, schema_version
+FROM public.archive_registry ORDER BY created_at;
+```
+
+To compare table counts, use the same transaction:
+
+```sql
 SELECT ar.name, ar.schema_version,
   (SELECT count(*) FROM information_schema.tables
-   WHERE table_schema = ar.schema_name) as actual_tables
-FROM archive_registry ar;"
-
-# Per-memory disk usage
-docker exec fortemi-matric-1 psql -U matric -d matric -c "
-SELECT nspname AS schema, pg_size_pretty(sum(pg_total_relation_size(pg_class.oid)))
-FROM pg_class JOIN pg_namespace ON relnamespace = pg_namespace.oid
-WHERE nspname LIKE 'archive_%' OR nspname = 'public'
-GROUP BY nspname ORDER BY sum(pg_total_relation_size(pg_class.oid)) DESC;"
+   WHERE table_schema = ar.schema_name) AS actual_tables
+FROM public.archive_registry ar;
 ```
+
+Database size, catalog relation sizes, and connection counts are administrative
+metrics; they may span tenants and are not tenant-scoped note counts.
 
 ### Per-Memory Backup
 
-```bash
-# Backup specific memory
-docker exec fortemi-matric-1 pg_dump -U matric -d matric -n archive_work_2026 > work-memory-backup.sql
-
-# Backup all memories
-for schema in $(docker exec fortemi-matric-1 psql -U matric -d matric -t -c "SELECT schema_name FROM archive_registry"); do
-  docker exec fortemi-matric-1 pg_dump -U matric -d matric -n "$schema" > "backup_${schema}.sql"
-done
-```
+Schema-only dumps are maintenance artifacts and can omit shared records and
+attachment bytes. Use the [backup procedure](#backup-and-recovery) with the
+approved backup identity for recovery. Do not loop over an unscoped
+`archive_registry` query or treat a schema-only dump as a complete memory backup.
 
 ### Per-Memory Maintenance
 

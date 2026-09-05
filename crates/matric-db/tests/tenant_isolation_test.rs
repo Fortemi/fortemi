@@ -93,6 +93,184 @@ async fn register_tenant(admin: &sqlx::PgPool, tenant_id: Uuid, slug: &str) {
     .unwrap();
 }
 
+/// Executes the shipped operator recipe, not a reimplementation of its SQL.
+#[tokio::test]
+async fn operator_read_only_psql_recipe_enforces_scope() {
+    use matric_core::ArchiveRepository;
+    let Some((admin, runtime)) = setup().await else {
+        assert_ne!(
+            std::env::var("FORTEMI_REQUIRE_LIVE_POSTGRES_TESTS").as_deref(),
+            Ok("1")
+        );
+        eprintln!("skipping psql recipe test: DATABASE_URL unavailable");
+        return;
+    };
+    let db = Database::new(admin.clone());
+    let archive = db
+        .archives
+        .create_archive_schema(&format!("psql-{}", Uuid::new_v4().simple()), None)
+        .await
+        .unwrap();
+    let schema = &archive.schema_name;
+    admin
+        .execute(format!("GRANT USAGE ON SCHEMA {schema} TO {TEST_RUNTIME_ROLE}").as_str())
+        .await
+        .unwrap();
+    admin
+        .execute(
+            format!("GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO {TEST_RUNTIME_ROLE}")
+                .as_str(),
+        )
+        .await
+        .unwrap();
+    let tenant_b = Uuid::new_v4();
+    register_tenant(&admin, tenant_b, &format!("psql-{tenant_b}")).await;
+    for (tenant, deleted, archived) in [
+        (Uuid::nil(), false, false),
+        (Uuid::nil(), false, true),
+        (Uuid::nil(), true, false),
+        (tenant_b, false, false),
+    ] {
+        sqlx::query(&format!(
+            "INSERT INTO {schema}.note (id, tenant_id, format, source, created_at_utc, updated_at_utc, deleted_at, archived)
+             VALUES ($1, $2, 'markdown', 'psql-recipe-test', now(), now(), CASE WHEN $3 THEN now() END, $4)"
+        )).bind(Uuid::new_v4()).bind(tenant).bind(deleted).bind(archived).execute(&admin).await.unwrap();
+    }
+    let options = PgConnectOptions::from_str(&std::env::var("DATABASE_URL").unwrap()).unwrap();
+    let recipe = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../scripts/sql/read-only-notes.sql");
+    let command = || {
+        let mut cmd = std::process::Command::new("psql");
+        cmd.args([
+            "-X",
+            "-A",
+            "-t",
+            "-v",
+            "ON_ERROR_STOP=1",
+            "-h",
+            options.get_host(),
+            "-p",
+            &options.get_port().to_string(),
+            "-U",
+            TEST_RUNTIME_ROLE,
+            "-d",
+            options.get_database().unwrap_or("matric"),
+        ]);
+        cmd.env("PGPASSWORD", TEST_RUNTIME_PASSWORD);
+        cmd
+    };
+    let scoped = command()
+        .args([
+            "-v",
+            &format!("tenant_id={}", Uuid::nil()),
+            "-v",
+            &format!("archive_name={}", archive.name),
+            "-f",
+        ])
+        .arg(&recipe)
+        .args([
+            "-c",
+            "SELECT nullif(current_setting('app.current_tenant', true), '') IS NULL AS scope_reset",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        scoped.status.success(),
+        "{}",
+        String::from_utf8_lossy(&scoped.stderr)
+    );
+    let output = String::from_utf8(scoped.stdout).unwrap();
+    assert_eq!(
+        output.lines().last(),
+        Some("t"),
+        "SET LOCAL must reset after COMMIT"
+    );
+    assert!(
+        output.contains(&format!("{TEST_RUNTIME_ROLE}|{}|{schema}|on", Uuid::nil())),
+        "{output}"
+    );
+    assert!(
+        output.lines().any(|line| line == "2"),
+        "must count live and archived, exclude deleted and other tenant: {output}"
+    );
+    for tenant in [tenant_b.to_string(), "not-a-uuid".to_string()] {
+        let output = command()
+            .args([
+                "-v",
+                &format!("tenant_id={tenant}"),
+                "-v",
+                &format!("archive_name={}", archive.name),
+                "-f",
+            ])
+            .arg(&recipe)
+            .output()
+            .unwrap();
+        assert!(
+            !output.status.success(),
+            "invalid/invisible scope must fail"
+        );
+    }
+    let missing_archive = command()
+        .args([
+            "-v",
+            &format!("tenant_id={}", Uuid::nil()),
+            "-v",
+            "archive_name=missing-archive",
+            "-f",
+        ])
+        .arg(&recipe)
+        .output()
+        .unwrap();
+    assert!(!missing_archive.status.success());
+    // A separate psql connection must bind context again.
+    let missing = command()
+        .args(["-c", &format!("SELECT count(*) FROM {schema}.note")])
+        .output()
+        .unwrap();
+    assert!(
+        !missing.status.success(),
+        "unscoped read must fail on populated guarded table"
+    );
+    let read_only = command().args(["-c", &format!(
+        "BEGIN READ ONLY; SET LOCAL app.current_tenant = '{}'; DELETE FROM public.note; COMMIT", Uuid::nil()
+    )]).output().unwrap();
+    assert!(!read_only.status.success());
+    assert!(String::from_utf8_lossy(&read_only.stderr).contains("read-only"));
+    // The checked recipe refuses privileged roles too, even on forced-RLS tables.
+    let privileged = command()
+        .args([
+            "-U",
+            options.get_username(),
+            "-v",
+            &format!("tenant_id={}", Uuid::nil()),
+            "-v",
+            &format!("archive_name={}", archive.name),
+            "-f",
+        ])
+        .arg(&recipe)
+        .output()
+        .unwrap();
+    assert!(
+        !privileged.status.success(),
+        "recipe must refuse a privileged role"
+    );
+    admin
+        .execute(format!("DROP SCHEMA {schema} CASCADE").as_str())
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM archive_registry WHERE schema_name = $1")
+        .bind(schema)
+        .execute(&admin)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM tenant_registry WHERE id = $1")
+        .bind(tenant_b)
+        .execute(&admin)
+        .await
+        .unwrap();
+    runtime.close().await;
+}
+
 async fn insert_note(scope: &mut TenantScopedConn<'_>, note_id: Uuid, title: &str) {
     sqlx::query(
         r#"

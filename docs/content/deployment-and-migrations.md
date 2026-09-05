@@ -2,6 +2,18 @@
 
 This guide covers the complete process for building, deploying, and managing database migrations for Fortémi.
 
+## Upgrade note: direct SQL after ADR-090
+
+The forced-RLS migration `20260824010000` requires `app.current_tenant` for
+operator SQL as well as application queries. Existing read-only scripts must
+bind the authorized tenant and select the memory schema in the same transaction
+as their query. Personal installations use the reserved all-zero local tenant;
+hosted operators must select an authorized hosted tenant. Use the tested
+[tenant-scoped read-only psql recipe](./operations.md#tenant-scoped-read-only-psql),
+including its fail-fast invocation and context checks. Do not disable RLS or
+weaken the runtime role to restore old scripts. Whole-database backup and
+maintenance use their separately privileged procedures (#1115, #727).
+
 ## Quick Reference
 
 ```bash

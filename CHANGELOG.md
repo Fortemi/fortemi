@@ -13,6 +13,12 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   tenant and memory before queueing; deleted, missing, and out-of-scope IDs are
   skipped uniformly. Empty eligible batches queue no jobs (#1134).
 
+### Documentation
+
+- Add a tested tenant-scoped, read-only psql recipe and ADR-090 upgrade guidance;
+  repair operator queries and distinguish scoped reads from privileged backup
+  and maintenance (#1135).
+
 ## [2026.9.3] - 2026-09-04
 
 Corrective release for the bounded, versioned MCP dataset execution contract.
