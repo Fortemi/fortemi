@@ -64,10 +64,12 @@ but `admitted` remains false. It does not establish that the environment was
 synthetic, that evidence bytes exist, or that the independent verifier actually
 observed the claimed state.
 
-Artifact-byte verification, trusted prior-attempt/replay history, redaction and
-cleanup evidence, complete child matrices, independent verifier execution, and
-exact-cell aggregation are still required. Signature success cannot replace any
-of them. Unsupported cells must declare rejection with zero mutation; an
+The [evidence reader](evidence-policy.md) additionally checks bounded artifact
+bytes and redaction/cleanup summary bindings. The [matrix admission command](admission.md)
+checks replay history and persists exact-cell results under an exclusive store
+lock. Complete child matrices and independent scenario-verifier execution are
+still required. Signature success cannot replace those gates.
+Unsupported cells must declare rejection with zero mutation; an
 authenticated rejection receipt does not make a tuple supported. Keep missing
 evidence separate from failed observations and unsupported tuples.
 

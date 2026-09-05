@@ -2,7 +2,8 @@
 
 The [2.0.0 detached-attestation candidate](2.0.0/README.md) resolves the draft
 signature/digest cycle and adds exact cell declarations and externally pinned
-signature verification. Neither candidate admits production receipts yet.
+signature verification. Its [matrix admission command](2.0.0/admission.md)
+adds evidence and replay gates; no production qualification has been issued.
 
 Tracking authority: [Fortemi #1136](https://git.integrolabs.net/Fortemi/fortemi/issues/1136).
 The `1.0.0/readiness.json` graph records execution prerequisites separately from
@@ -28,8 +29,8 @@ The `1.0.0/schemas` directory snapshots the suite's proposed authority and recei
 schemas. `schema-sources.json` binds their original bytes and source paths. This
 is a candidate contract, with no approved authority instance or qualification
 claim. Schema changes require a new version and review of every declared consumer.
-Approved instances, receipt admission, immutable evidence inventory and independent
-verifier integration are still pending.
+Approved instances and independent scenario-verifier integration are still
+pending. Candidate v2 now implements evidence-inventory and matrix admission checks.
 No child qualification is asserted by this package. The suite audit remains
 `NO-GO` for unqualified parity and transportability. Static index, Knowledge Shard
 and live persistence claims remain separate; shard claims require the exact
