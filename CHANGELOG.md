@@ -7,6 +7,23 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.9.3] - 2026-09-04
+
+Corrective release for the bounded, versioned MCP dataset execution contract.
+
+### Fixed
+
+- Regenerate the published AsyncAPI contract, checksum, fixture manifest, and
+  producer receipt from the exact release version. The `v2026.9.2` candidate
+  failed the isolated-container contract gate before any release image, asset,
+  or release entry was published; `v2026.9.3` replaces that failed candidate.
+
+### Verification
+
+- Retain the v2026.9.2 dataset-execution implementation and its bounded alpha
+  `live-remote-persistence` claim. No full-suite parity, complete-backup,
+  universal-portability, or Knowledge Shard profile claim is added.
+
 ## [2026.9.2] - 2026-09-04
 
 Contract release for bounded, versioned MCP dataset execution over Fortemi's

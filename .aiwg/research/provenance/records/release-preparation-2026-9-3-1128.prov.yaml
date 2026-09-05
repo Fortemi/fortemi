@@ -1,0 +1,61 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-09-05T01:20:00Z"
+  description: "Provenance for Fortemi v2026.9.3 corrective release preparation"
+entity:
+  id: "urn:aiwg:artifact:docs/releases/v2026.9.3-announcement.md:sha256:e22e66a90327075c2080c023608cce340d2a162e6d62d633abb47fb2de98b120"
+  type: release_bundle
+  created_at: "2026-09-05T01:20:00Z"
+  checksum: "sha256:e22e66a90327075c2080c023608cce340d2a162e6d62d633abb47fb2de98b120"
+  size_bytes: 1467
+  attributes:
+    release: "v2026.9.3"
+    replaces_failed_candidate: "v2026.9.2"
+    failed_gate: "ci-builder run 52828 / Verify published AsyncAPI contract"
+    publication_before_failure: false
+    issue: "Fortemi/fortemi#1128"
+    contract: "dataset-execution/1.0.0"
+    implementation_commit: "6ca9aa8cbd058bcbe35fc4dd79607c90d6a8fa69"
+    threat_assessment_sha256: "9364d91aba6313de10380a5c9b20a1d706575ebfeb9e5bc0ad26f0e5d71e2e7d"
+    doc_sync_sha256: "a6ae095274a4ec8b85886d072f5de0e81491037eebe2efab84d2a55e8c950947"
+    openapi_sha256: "df0aa71463e182c94325948305cf58104021ef38e1cc5dda47a02531c35bd7a5"
+    asyncapi_sha256: "30d054773bc562a09e69e69049d01a76efef2cc79d743c8c5e40942602e6f98d"
+activity:
+  id: "urn:aiwg:activity:release-preparation:fortemi-2026-9-3:001"
+  type: corrective_release_preparation
+  started_at: "2026-09-05T01:14:57Z"
+  ended_at: "2026-09-05T01:20:00Z"
+  description: "Correct stale version-bearing AsyncAPI publication artifacts and prepare replacement release"
+  attributes:
+    verification:
+      - "v2026.9.2 candidate stopped before release publication"
+      - "OpenAPI generation/check: passed"
+      - "AsyncAPI generation/check: passed"
+      - "AsyncAPI event fixtures: 48 passed"
+      - "release-note threat assessment: proceed, score 0"
+    claim_boundary: "dataset-execution/1.0.0 alpha live-remote-persistence only"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docs/releases/v2026.9.3-announcement.md:sha256:e22e66a90327075c2080c023608cce340d2a162e6d62d633abb47fb2de98b120"
+    activity: "urn:aiwg:activity:release-preparation:fortemi-2026-9-3:001"
+    time: "2026-09-05T01:20:00Z"
+  used:
+    - activity: "urn:aiwg:activity:release-preparation:fortemi-2026-9-3:001"
+      entity: "urn:gitea:actions:Fortemi/fortemi:52828"
+      role: failed_release_gate
+    - activity: "urn:aiwg:activity:release-preparation:fortemi-2026-9-3:001"
+      entity: "urn:aiwg:artifact:contracts/dataset-execution/1.0.0/authority.json"
+      role: contract_authority
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:release-preparation:fortemi-2026-9-3:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_orchestrator
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docs/releases/v2026.9.3-announcement.md:sha256:e22e66a90327075c2080c023608cce340d2a162e6d62d633abb47fb2de98b120"
+    agent: "urn:aiwg:agent:codex-gpt-5"

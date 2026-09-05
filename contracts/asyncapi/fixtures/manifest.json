@@ -3,7 +3,7 @@
   "producer_repository": "Fortemi/fortemi",
   "producer_commit": "external-delivery-pin",
   "asyncapi_path": "contracts/asyncapi/asyncapi.yaml",
-  "asyncapi_sha256": "2046a05105836acc918afe68a96be869e61bdc6c77137b3729c8a615b9c5ab81",
+  "asyncapi_sha256": "30d054773bc562a09e69e69049d01a76efef2cc79d743c8c5e40942602e6f98d",
   "envelope_contract_revision": "1",
   "payload_revision": 1,
   "event_count": 48,
