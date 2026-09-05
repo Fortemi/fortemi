@@ -46,3 +46,26 @@ This is local single-user qualification with inference unavailable. It does not
 qualify hosted tenant isolation, Enterprise operation, full Core materialization,
 backup/restore, Knowledge Shard profiles, or suite parity. Producer and consumer
 CI and delivery remain necessary before issue closure.
+
+## Deferred production qualification control plane
+
+Fortemi #1136 owns the candidate qualification authority and admission tooling.
+The decision record is
+[ADR-dataset-qualification-admission](../../docs/architecture/adr/ADR-dataset-qualification-admission.md).
+Its version 2.0.0 schemas describe signed qualification evidence; they do not
+change the runtime request/RunReceipt contract above. No approved production
+authority instance or independently qualified child matrix is currently retained.
+
+Operator-managed trust pins authenticate a detached authority envelope. A
+separate verifier signs receipts for exact declared producer/consumer cells.
+The offline admission command checks signatures, bounded content-addressed
+artifacts, summary bindings and replay history before atomically recording a
+cell report in a protected local store. It cannot establish scenario coverage
+or independently observe a database merely by accepting a signed receipt.
+
+Child owners #1137–#1141 must supply actual isolation, fault, restore, version
+skew and load evidence under approved synthetic environments and numeric
+thresholds. The readiness graph separates those dependencies from epic closure.
+A passing report is scoped to declared authority cells; suite NO-GO and the
+existing bounded-alpha limits remain in force. See the
+[acceptance audit](../reports/issue-1136-qualification-acceptance-audit-2026-09-05.md).

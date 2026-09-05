@@ -170,3 +170,11 @@ live cell or establish product-wide parity.
 @tests `scripts/ci/verify-dataset-execution-contract.mjs`
 @depends `docs/architecture/adr/ADR-106-source-addressed-note-upsert.md`
 @depends `docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md`
+
+## Deferred production qualification
+
+Fortemi #1136 adds a separate candidate evidence-admission control plane,
+described in [ADR-dataset-qualification-admission](ADR-dataset-qualification-admission.md).
+It leaves this runtime contract unchanged. Its source tests and signed-cell
+checks do not qualify the five child production matrices or expand this ADR's
+bounded live persistence claim.
