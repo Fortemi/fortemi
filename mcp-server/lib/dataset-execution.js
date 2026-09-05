@@ -35,7 +35,6 @@ export const DATASET_RESOURCE_POLICY = Object.freeze({
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DIGEST = /^sha256:[a-f0-9]{64}$/;
-const SEMVER = /^1\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/;
 const SUPPORTED_CAPABILITIES = new Map([
   ["ingest.full", { version: "1.0.0", status: "experimental" }],
   ["ingest.snapshot", { version: "1.0.0", status: "experimental" }],
@@ -187,7 +186,7 @@ function checkVersions(input, diagnostics) {
   }
   const versions = input.schemaVersions || {};
   for (const [name, version] of Object.entries(versions)) {
-    if (!(name in DATASET_EXECUTION_SCHEMA_VERSIONS) || !SEMVER.test(version) || !version.startsWith("1.")) {
+    if (!Object.hasOwn(DATASET_EXECUTION_SCHEMA_VERSIONS, name) || version !== DATASET_EXECUTION_SCHEMA_VERSIONS[name]) {
       diagnostics.push(diagnostic("SCHEMA_VERSION_UNSUPPORTED", `Unsupported ${name} schema version`, { path: `/schemaVersions/${name}` }));
     }
   }
@@ -256,7 +255,7 @@ export function negotiateDatasetExecution(input, runtimeVersion = "0.0.0") {
 }
 
 function validateResourceEnvelope(envelope, records, diagnostics) {
-  if (!envelope || envelope.contract !== DATASET_EXECUTION_CONTRACTS.resourceEnvelope || !SEMVER.test(envelope.schemaVersion || "")) {
+  if (!envelope || envelope.contract !== DATASET_EXECUTION_CONTRACTS.resourceEnvelope || envelope.schemaVersion !== DATASET_EXECUTION_SCHEMA_VERSIONS.resourceEnvelope) {
     diagnostics.push(diagnostic("RESOURCE_ENVELOPE_UNSUPPORTED", "A v1 resource envelope is required", { path: "/resourceEnvelope" }));
     return;
   }
@@ -283,11 +282,11 @@ function validateResourceEnvelope(envelope, records, diagnostics) {
 }
 
 function validatePlanAndBatch(plan, batch, diagnostics) {
-  if (!plan || plan.contract !== DATASET_EXECUTION_CONTRACTS.plan || !SEMVER.test(plan.schemaVersion || "")) {
+  if (!plan || plan.contract !== DATASET_EXECUTION_CONTRACTS.plan || plan.schemaVersion !== DATASET_EXECUTION_SCHEMA_VERSIONS.plan) {
     diagnostics.push(diagnostic("PLAN_SCHEMA_UNSUPPORTED", "A fortemi.dataset-ingest/v1 plan is required", { path: "/plan" }));
     return;
   }
-  if (!batch || batch.contract !== DATASET_EXECUTION_CONTRACTS.plan || !SEMVER.test(batch.schemaVersion || "")) {
+  if (!batch || batch.contract !== DATASET_EXECUTION_CONTRACTS.plan || batch.schemaVersion !== DATASET_EXECUTION_SCHEMA_VERSIONS.plan) {
     diagnostics.push(diagnostic("BATCH_SCHEMA_UNSUPPORTED", "A fortemi.dataset-ingest/v1 batch is required", { path: "/batch" }));
     return;
   }
@@ -316,6 +315,7 @@ function validatePlanAndBatch(plan, batch, diagnostics) {
   }
   const scope = canonicalJson(plan.destination || {});
   for (const [name, checkpoint] of [["checkpointBefore", batch.checkpointBefore], ["checkpointAfter", batch.checkpointAfter]]) {
+    if (checkpoint && (checkpoint.contract !== DATASET_EXECUTION_CONTRACTS.checkpoint || checkpoint.schemaVersion !== DATASET_EXECUTION_SCHEMA_VERSIONS.checkpoint)) diagnostics.push(diagnostic("CHECKPOINT_INVALID", "Unsupported checkpoint revision", { path: `/batch/${name}/schemaVersion` }));
     if (checkpoint && canonicalJson(checkpoint.scope || {}) !== scope) diagnostics.push(diagnostic("CHECKPOINT_SCOPE_MISMATCH", `${name} belongs to a different destination`, { path: `/batch/${name}/scope` }));
   }
   const logicalIds = new Set();
@@ -476,24 +476,53 @@ function receiptPayload(input, preview, response, state, verification, diagnosti
 export function verifyDatasetRunReceipt(receipt) {
   const errors = [];
   if (!receipt || receipt.contract !== DATASET_EXECUTION_CONTRACTS.receipt) errors.push("RECEIPT_CONTRACT_UNSUPPORTED");
-  if (!receipt || !SEMVER.test(receipt.schemaVersion || "")) errors.push("RECEIPT_SCHEMA_UNSUPPORTED");
+  if (!receipt || receipt.schemaVersion !== DATASET_EXECUTION_SCHEMA_VERSIONS.receipt) errors.push("RECEIPT_SCHEMA_UNSUPPORTED");
   if (!receipt || !DIGEST.test(receipt.receiptDigest || "")) errors.push("RECEIPT_DIGEST_INVALID");
   if (receipt) {
     const { receiptDigest, ...payload } = receipt;
-    if (DIGEST.test(receiptDigest || "") && sha256Digest(payload) !== receiptDigest) errors.push("RECEIPT_DIGEST_MISMATCH");
-    if ((receipt.counts?.committed || 0) + (receipt.counts?.rejected || 0) !== receipt.counts?.attempted) errors.push("RECEIPT_COUNTS_INCONSISTENT");
-    if (receipt.effects?.length !== receipt.counts?.attempted) errors.push("RECEIPT_EFFECTS_INCONSISTENT");
-    if (receipt.redaction?.sourceContentIncluded !== false || receipt.redaction?.connectionDetailsIncluded !== false) errors.push("RECEIPT_REDACTION_INVALID");
-    if (["committed", "degraded"].includes(receipt.state) && receipt.verification !== "verified") errors.push("RECEIPT_STATE_INCONSISTENT");
-    if (receipt.state === "ambiguous" && receipt.verification !== "unverifiable") errors.push("RECEIPT_STATE_INCONSISTENT");
-    if (receipt.state === "failed" && receipt.verification !== "failed") errors.push("RECEIPT_STATE_INCONSISTENT");
+    try {
+      if (DIGEST.test(receiptDigest || "") && sha256Digest(payload) !== receiptDigest) errors.push("RECEIPT_DIGEST_MISMATCH");
+    } catch {
+      errors.push("RECEIPT_VALUE_INVALID");
+    }
+    const exactKeys = (value, keys) => value !== null && typeof value === "object" && !Array.isArray(value)
+      && Object.keys(value).length === keys.length && keys.every(key => Object.hasOwn(value, key));
+    const rootKeys = ["contract", "schemaVersion", "runId", "namespaceId", "idempotencyKey", "requestDigest", "bindings", "contracts", "schemas", "capabilityDecision", "profiles", "checkpoint", "resourceEnvelope", "counts", "effects", "state", "verification", "diagnostics", "redaction", "receiptDigest"];
+    if (!exactKeys(receipt, rootKeys)) errors.push("RECEIPT_STRUCTURE_INVALID");
+    const digestKeys = ["destinationDigest", "planDigest", "configurationDigest", "transformationDigest", "inputSchemaDigest", "outputSchemaDigest", "inputDigest", "outputDigest", "negotiationDigest", "resourceEnvelopeDigest"];
+    if (!exactKeys(receipt.bindings, ["planId", "sourceRevision", "mode", ...digestKeys])
+      || digestKeys.some(key => !DIGEST.test(receipt.bindings?.[key] || ""))
+      || !DIGEST.test(receipt.requestDigest || "")) errors.push("RECEIPT_BINDINGS_INVALID");
+    if (!UUID.test(receipt.runId || "") || !UUID.test(receipt.namespaceId || "")
+      || typeof receipt.idempotencyKey !== "string" || receipt.idempotencyKey.length < 1 || receipt.idempotencyKey.length > 200) errors.push("RECEIPT_IDENTITY_INVALID");
+    for (const [field, expected] of [["contracts", DATASET_EXECUTION_CONTRACTS], ["schemas", DATASET_EXECUTION_SCHEMA_VERSIONS]]) {
+      if (!exactKeys(receipt[field], Object.keys(expected)) || Object.entries(expected).some(([key, value]) => receipt[field]?.[key] !== value)) errors.push("RECEIPT_SCHEMA_UNSUPPORTED");
+    }
+    const counts = receipt.counts;
+    if (!exactKeys(counts, ["attempted", "committed", "rejected"])
+      || Object.values(counts).some(value => !Number.isSafeInteger(value) || value < 0)
+      || counts.committed + counts.rejected !== counts.attempted) errors.push("RECEIPT_COUNTS_INCONSISTENT");
+    const effects = Array.isArray(receipt.effects) ? receipt.effects : [];
+    if (!Array.isArray(receipt.effects) || effects.length !== counts?.attempted
+      || effects.some(effect => !exactKeys(effect, ["operation", "logicalIdDigest", "revision", "digest", "outcome"])
+        || effect.operation !== "upsert" || !DIGEST.test(effect.logicalIdDigest || "") || !DIGEST.test(effect.digest || "")
+        || typeof effect.revision !== "string" || effect.revision.length === 0
+        || !["committed", "conflict", "rejected", "unverifiable"].includes(effect.outcome))
+      || effects.filter(effect => effect?.outcome === "committed").length !== counts?.committed
+      || effects.filter(effect => ["conflict", "rejected", "unverifiable"].includes(effect?.outcome)).length !== counts?.rejected) errors.push("RECEIPT_EFFECTS_INCONSISTENT");
+    if (!exactKeys(receipt.redaction, ["sourceContentIncluded", "logicalIdentifiersIncluded", "connectionDetailsIncluded"])
+      || Object.values(receipt.redaction).some(value => value !== false)) errors.push("RECEIPT_REDACTION_INVALID");
+    const states = { running: "pending", committed: "verified", degraded: "verified", failed: "failed", cancelled: "unverifiable", ambiguous: "unverifiable" };
+    if (!Object.hasOwn(states, receipt.state) || states[receipt.state] !== receipt.verification
+      || (["committed", "degraded"].includes(receipt.state) && (counts?.rejected !== 0 || !receipt.capabilityDecision?.accepted))
+      || (receipt.state === "failed" && counts?.committed !== 0)) errors.push("RECEIPT_STATE_INCONSISTENT");
     if (!receipt.capabilityDecision?.runtime?.id || !receipt.capabilityDecision?.runtime?.version) errors.push("RECEIPT_RUNTIME_UNBOUND");
   }
   return {
     contract: DATASET_EXECUTION_CONTRACTS.receipt,
     schemaVersion: DATASET_EXECUTION_SCHEMA_VERSIONS.receipt,
     valid: errors.length === 0,
-    errors,
+    errors: [...new Set(errors)],
     ...(receipt?.receiptDigest ? { receiptDigest: receipt.receiptDigest } : {}),
   };
 }
@@ -554,7 +583,22 @@ export function createDatasetExecutionController({ apiRequest, runtimeVersion = 
       abortController.abort(new DOMException("dataset execution timed out", "TimeoutError"));
     }, input.resourceEnvelope.maxDurationMs);
     try {
-      const response = await apiRequest("POST", "/api/v1/notes/source-upsert", sourceRequest(input, preview.requestDigest), { signal: abortController.signal });
+      const storageRequest = sourceRequest(input, preview.requestDigest);
+      const response = await apiRequest("POST", "/api/v1/notes/source-upsert", storageRequest, { signal: abortController.signal });
+      // A resolved HTTP call is not proof that this batch durably committed.
+      if (response?.contract_version !== "1.0.0" || response.import_run_id !== input.runId
+        || response.batch_id !== storageRequest.batch_id
+        || response.dry_run !== false || !["committed", "duplicate", "rejected"].includes(response.outcome)
+        || !Array.isArray(response.items) || response.items.length !== input.batch.mutations.length
+        || response.items.some((item, index) => item?.index !== index
+          || !["inserted", "versioned", "replaced", "unchanged", "conflict", "rejected"].includes(item.outcome)
+          || !DIGEST.test(item.external_id_hash || "") || item.content_digest !== input.batch.mutations[index].digest
+          || (["inserted", "versioned", "replaced", "unchanged"].includes(item.outcome) && !UUID.test(item.note_id || "")))
+        || ["inserted", "unchanged", "versioned", "replaced", "conflict", "rejected"].some(outcome =>
+          response.counts?.[outcome] !== response.items.filter(item => item.outcome === outcome).length)
+        || (response.outcome !== "rejected" && canonicalJson(response.checkpoint ?? null) !== canonicalJson(storageRequest.checkpoint))) {
+        throw new DatasetExecutionError("STORAGE_RESPONSE_UNVERIFIABLE", "Storage did not return a complete bound batch result");
+      }
       const rejected = response?.outcome === "rejected" || (response?.counts?.rejected || 0) > 0 || (response?.counts?.conflict || 0) > 0;
       run.state = rejected ? "failed" : (preview.negotiation.degradations.length ? "degraded" : "committed");
       run.verification = rejected ? "failed" : "verified";
@@ -562,18 +606,20 @@ export function createDatasetExecutionController({ apiRequest, runtimeVersion = 
       run.noteIds = (response?.items || []).map(item => item.note_id).filter(Boolean);
       run.receipt = receiptPayload(input, preview, response, run.state, run.verification,
         (response?.items || []).flatMap(item => item.reason_code ? [diagnostic(item.reason_code.toUpperCase(), "Record rejected by storage contract", { item: item.index })] : []));
+      if (!verifyDatasetRunReceipt(run.receipt).valid) {
+        throw new DatasetExecutionError("STORAGE_RESPONSE_UNVERIFIABLE", "Storage returned inconsistent batch effects");
+      }
       return publicRun(run);
     } catch (error) {
-      const cancelled = abortController.signal.aborted;
-      run.state = cancelled ? "ambiguous" : "failed";
-      run.verification = cancelled ? "unverifiable" : "failed";
+      // Once submitted, even a connection reset may follow a durable commit.
+      run.state = "ambiguous";
+      run.verification = "unverifiable";
       const interruptedCode = timedOut ? "EXECUTION_TIMEOUT" : "COMMIT_OUTCOME_AMBIGUOUS";
       const interruptedMessage = timedOut
         ? "The negotiated duration elapsed; retry exact content to resolve the durable outcome"
-        : "Cancellation interrupted transport; retry exact content to resolve the durable outcome";
-      run.diagnostics = [diagnostic(cancelled ? interruptedCode : "EXECUTION_FAILED", cancelled ? interruptedMessage : "Execution failed before a verified receipt")];
+        : "Storage outcome is uncertain; retry exact content to resolve the durable outcome";
+      run.diagnostics = [diagnostic(interruptedCode, interruptedMessage)];
       run.receipt = receiptPayload(input, preview, null, run.state, run.verification, run.diagnostics);
-      if (!cancelled) throw error;
       return publicRun(run);
     } finally {
       clearTimeout(timeout);
@@ -609,7 +655,8 @@ export function createDatasetExecutionController({ apiRequest, runtimeVersion = 
         case "checkpoint": {
           const run = runs.get(input.runId);
           if (!run) throw new DatasetExecutionError("RUN_NOT_FOUND", "No run is known in this MCP process");
-          return { runId: run.runId, state: run.state, checkpoint: clone(run.input.batch.checkpointAfter), receiptDigest: run.receipt?.receiptDigest };
+          const committed = ["committed", "degraded"].includes(run.state) && run.verification === "verified";
+          return { runId: run.runId, state: run.state, ...(committed ? { checkpoint: clone(run.input.batch.checkpointAfter) } : {}), receiptDigest: run.receipt?.receiptDigest };
         }
         case "cancel": {
           const run = runs.get(input.runId);
@@ -633,6 +680,7 @@ export function createDatasetExecutionController({ apiRequest, runtimeVersion = 
         case "archive": {
           const run = runs.get(input.runId);
           if (!run) throw new DatasetExecutionError("RUN_NOT_FOUND", "No run is available to archive");
+          if (run.state === "ambiguous") throw new DatasetExecutionError("RUN_OUTCOME_UNRESOLVED", "Retry the exact run to resolve its durable effects before archive");
           if (!["committed", "degraded", "failed", "ambiguous"].includes(run.state)) throw new DatasetExecutionError("RUN_NOT_TERMINAL", "Only terminal runs can be archived");
           if (run.archive?.complete) return clone(run.archive);
           if (activeRuns >= DATASET_RESOURCE_POLICY.maxConcurrency) {

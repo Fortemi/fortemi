@@ -68,10 +68,10 @@ assert.equal(verifyDatasetRunReceipt(expectedReceipt).valid, true);
 const response = {
   contract_version: "1.0.0",
   import_run_id: supported.runId,
-  batch_id: "fixture-batch",
+  batch_id: preview.requestDigest,
   dry_run: false,
   outcome: "committed",
-  checkpoint: { sequence: 1 },
+  checkpoint: { contract: supported.batch.checkpointAfter.contract, schemaVersion: "1.0.0", opaque: "fixture-page-1", sequence: 1, planDigest: supported.plan.planDigest },
   counts: { inserted: 1, unchanged: 0, versioned: 0, replaced: 0, conflict: 0, rejected: 0 },
   items: [{
     index: 0,
@@ -90,4 +90,4 @@ tampered.bindings.planDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 assert.deepEqual(verifyDatasetRunReceipt(tampered).errors, ["RECEIPT_DIGEST_MISMATCH"]);
 
 assert.ok(fs.existsSync(fixtures));
-console.log(`dataset execution contract: ${manifest.files.length} files verified; positive, degradation, schema, capability, resource, tamper, and cross-runtime receipt vectors pass`);
+console.log(`dataset execution contract: ${manifest.files.length} files verified; positive, degradation, schema, capability, resource, tamper, and producer receipt vectors pass (independent consumer qualification is separate)`);

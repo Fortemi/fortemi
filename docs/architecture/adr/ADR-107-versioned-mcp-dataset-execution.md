@@ -44,7 +44,7 @@ The exact authority commits and schema digests are recorded in
 ### Negotiation and preview
 
 `capabilities` and `preview` are pure and make no REST request. Preview checks
-all contract/schema majors, required and optional capabilities, the caller's
+the exact supported contract/schema revisions, required and optional capabilities, the caller's
 resource envelope, UUID dataset namespace, checkpoint scope/sequence, record
 bounds, and record content digests. Required mismatches fail closed with stable
 codes. Optional fallback is returned as a degradation with changed guarantees;
@@ -84,6 +84,13 @@ abort cannot prove whether PostgreSQL committed before the response was lost,
 the attempt becomes `ambiguous`/`unverifiable`, never successful. Exact retry
 then resolves the durable outcome without duplicate logical records.
 
+The same ambiguity rule applies to connection failures and incomplete or
+inconsistent storage responses after submission. A resolved request alone does
+not prove commit: the response must match the run, batch, checkpoint, item
+digests, item outcomes, and counts. `checkpoint` exposes the after-checkpoint
+only for a verified committed/degraded attempt; an unresolved attempt does not
+advertise its proposed checkpoint as committed.
+
 ### Receipt integrity and privacy
 
 Canonical serialization recursively sorts object keys by UTF-16 code units,
@@ -91,6 +98,10 @@ preserves array order,
 rejects non-JSON and non-finite values, and hashes UTF-8 bytes with SHA-256.
 Receipts include digests rather than source content or raw logical IDs. The
 `verify` action needs no server state and detects mutation of every bound field.
+It also checks receipt identities, supported revisions, nonnegative integral
+counts, effect/count consistency, and state/verification consistency even when
+the checksum has been recomputed. A checksum is an integrity check, not proof
+of a trusted issuer or of execution against a live service.
 
 Dynamic time and host measurements are deliberately excluded from the
 canonical receipt digest. The negotiated resource envelope is included. This
@@ -107,14 +118,24 @@ run's negotiated duration and the controller's single-operation concurrency
 bound; expiry reports `ARCHIVE_TIMEOUT`. `resume` is an explicit alias for
 exact-content `retry`.
 
+An ambiguous run rejects archive with `RUN_OUTCOME_UNRESOLVED` until exact retry
+resolves its durable effects. An empty process-local note list after lost
+transport is not evidence of complete cleanup.
+
 ## Compatibility and evidence
 
 The repository fixture bundle covers positive preview/execution, visible
 degradation, contract/schema drift, unsupported capability, resource overflow,
 content tamper, replay/conflict, checkpoint, cancellation/ambiguous retry,
 rejection, receipt tamper, and archive. CI verifies every manifest digest and
-reproduces the canonical RunReceipt using only Node standard JSON/crypto as the
-independent runtime.
+reproduces the canonical RunReceipt using the producer implementation. That
+script does not establish independent runtime verification. The historical
+manifest's `independentRuntime` label is insufficient evidence on its own.
+
+The September 5 follow-up audit reopened #1128 and #1131 after reproducing
+invalid receipts accepted by the original verifier. Schema hardening and
+independent consumer qualification remain release gates; see
+`.aiwg/reports/issues-1128-1131-validation-audit-2026-09-05.md`.
 
 AIWG #2242 remains the owner of bounded live cross-repository qualification.
 This ADR and its repository-local fixtures do not by themselves advance that

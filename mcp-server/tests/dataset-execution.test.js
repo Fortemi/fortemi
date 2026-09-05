@@ -118,11 +118,11 @@ function committedResponse(outcome = "committed") {
   return {
     contract_version: "1.0.0",
     import_run_id: runId,
-    batch_id: "batch",
+    batch_id: previewDatasetExecution(request()).requestDigest,
     dry_run: false,
     outcome,
-    checkpoint: { sequence: 1 },
-    counts: { inserted: 1, unchanged: 0, versioned: 0, replaced: 0, conflict: 0, rejected: 0 },
+    checkpoint: { contract: DATASET_EXECUTION_CONTRACTS.checkpoint, schemaVersion: "1.0.0", opaque: "fixture-page-1", sequence: 1, planDigest: request().plan.planDigest },
+    counts: { inserted: outcome === "duplicate" ? 0 : 1, unchanged: outcome === "duplicate" ? 1 : 0, versioned: 0, replaced: 0, conflict: 0, rejected: 0 },
     items: [{
       index: 0,
       outcome: outcome === "duplicate" ? "unchanged" : "inserted",
@@ -421,8 +421,8 @@ describe("versioned dataset execution MCP contract", () => {
     const input = request();
     input.resourceEnvelope.maxDurationMs = 50;
     const controller = createDatasetExecutionController({
-      apiRequest: async (method, _path, _body, options) => {
-        if (method === "POST") return committedResponse();
+      apiRequest: async (method, _path, body, options) => {
+        if (method === "POST") return { ...committedResponse(), batch_id: body.batch_id };
         return new Promise((_resolve, reject) => options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true }));
       },
     });
@@ -454,6 +454,32 @@ describe("versioned dataset execution MCP contract", () => {
     assert.deepEqual(verifyDatasetRunReceipt(inconsistent).errors, ["RECEIPT_STATE_INCONSISTENT"]);
   });
 
+  test("receipt verification rejects semantically invalid receipts even with a matching checksum", () => {
+    const changes = {
+      unknownField: receipt => { receipt.unexpected = true; },
+      malformedDigest: receipt => { receipt.bindings.planDigest = "invalid"; },
+      unknownVersion: receipt => { receipt.schemaVersion = "1.999.999"; },
+      unknownNegotiatedVersion: receipt => { receipt.schemas.plan = "1.999.999"; },
+      negativeCounts: receipt => { receipt.counts.committed = -1; receipt.counts.rejected = 2; },
+      contradictoryEffects: receipt => { receipt.counts.committed = 0; receipt.counts.rejected = 1; },
+      cancelledVerified: receipt => { receipt.state = "cancelled"; },
+      runningVerified: receipt => { receipt.state = "running"; },
+      invalidEffect: receipt => { receipt.effects[0].outcome = "invented"; },
+      identifiersIncluded: receipt => { receipt.redaction.logicalIdentifiersIncluded = true; },
+      missingCounts: receipt => { delete receipt.counts; },
+      nullEffect: receipt => { receipt.effects[0] = null; },
+    };
+    for (const [name, change] of Object.entries(changes)) {
+      const receipt = fixture("degraded-run-receipt.json");
+      change(receipt);
+      delete receipt.receiptDigest;
+      receipt.receiptDigest = sha256Digest(receipt);
+      const result = verifyDatasetRunReceipt(receipt);
+      assert.equal(result.valid, false, name);
+      assert.ok(!result.errors.includes("RECEIPT_DIGEST_MISMATCH"), name);
+    }
+  });
+
   test("backend rejection yields an explicit failed receipt with no committed effects", async () => {
     const response = committedResponse("rejected");
     response.counts = { inserted: 0, unchanged: 0, versioned: 0, replaced: 0, conflict: 0, rejected: 1 };
@@ -465,5 +491,57 @@ describe("versioned dataset execution MCP contract", () => {
     assert.equal(result.verification, "failed");
     assert.deepEqual(result.receipt.counts, { attempted: 1, committed: 0, rejected: 1 });
     assert.equal(result.receipt.diagnostics[0].code, "SYNTHETIC_REJECTION");
+  });
+
+  test("lost and incomplete storage responses remain ambiguous without advancing the checkpoint", async () => {
+    const mismatchedItem = committedResponse();
+    mismatchedItem.items[0].content_digest = sha256Digest("another batch");
+    const missingNote = committedResponse();
+    delete missingNote.items[0].note_id;
+    const wrongCounts = committedResponse();
+    wrongCounts.counts.inserted = 99;
+    for (const response of [null, {}, { ...committedResponse(), items: [] },
+      { ...committedResponse(), batch_id: "different-batch" },
+      { ...committedResponse(), checkpoint: { sequence: 999 } },
+      mismatchedItem, missingNote, wrongCounts]) {
+      const controller = createDatasetExecutionController({ apiRequest: async () => response });
+      const result = await controller.handle({ action: "execute", ...request() });
+      assert.equal(result.state, "ambiguous");
+      assert.equal(result.verification, "unverifiable");
+      assert.equal(verifyDatasetRunReceipt(result.receipt).valid, true);
+      assert.equal((await controller.handle({ action: "checkpoint", runId })).checkpoint, undefined);
+      await assert.rejects(controller.handle({ action: "archive", runId }),
+        error => error.code === "RUN_OUTCOME_UNRESOLVED");
+    }
+    let attempts = 0;
+    const controller = createDatasetExecutionController({ apiRequest: async () => {
+      if (++attempts === 1) throw new Error("connection reset after submission");
+      return committedResponse("duplicate");
+    } });
+    const first = await controller.handle({ action: "execute", ...request() });
+    assert.equal(first.state, "ambiguous");
+    assert.equal(first.receipt.diagnostics[0].code, "COMMIT_OUTCOME_AMBIGUOUS");
+    assert.equal((await controller.handle({ action: "checkpoint", runId })).checkpoint, undefined);
+    const retried = await controller.handle({ action: "retry", runId });
+    assert.equal(retried.verification, "verified");
+    assert.equal((await controller.handle({ action: "checkpoint", runId })).checkpoint.sequence, 1);
+  });
+
+  test("unknown minor and patch schema revisions fail closed before storage", async () => {
+    for (const mutate of [
+      input => { input.schemaVersions.receipt = "1.999.999"; },
+      input => { input.plan.schemaVersion = "1.0.99"; },
+      input => { input.batch.schemaVersion = "1.0.99"; },
+      input => { input.batch.checkpointAfter.schemaVersion = "1.0.99"; },
+      input => { input.resourceEnvelope.schemaVersion = "1.0.99"; },
+    ]) {
+      let calls = 0;
+      const input = request();
+      mutate(input);
+      const controller = createDatasetExecutionController({ apiRequest: async () => { calls++; return committedResponse(); } });
+      assert.equal((await controller.handle({ action: "preview", ...input })).accepted, false);
+      await assert.rejects(controller.handle({ action: "execute", ...input }));
+      assert.equal(calls, 0);
+    }
   });
 });
