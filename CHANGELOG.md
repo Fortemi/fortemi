@@ -7,6 +7,12 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+### Fixed
+
+- Bulk reprocessing filters explicit IDs against live notes in the selected
+  tenant and memory before queueing; deleted, missing, and out-of-scope IDs are
+  skipped uniformly. Empty eligible batches queue no jobs (#1134).
+
 ## [2026.9.3] - 2026-09-04
 
 Corrective release for the bounded, versioned MCP dataset execution contract.

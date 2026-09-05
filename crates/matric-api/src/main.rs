@@ -14976,7 +14976,8 @@ async fn reprocess_note(
 struct BulkReprocessBody {
     /// AI revision mode: "full", "light" (default), or "none"
     revision_mode: Option<String>,
-    /// Specific note IDs to reprocess. If omitted, reprocesses all non-deleted notes.
+    /// Specific note IDs to reprocess. Only live notes in the selected tenant/archive
+    /// are eligible. Missing, deleted, and out-of-scope IDs are silently skipped.
     note_ids: Option<Vec<Uuid>>,
     /// Pipeline steps to run. Defaults to all steps.
     steps: Option<Vec<String>>,
@@ -15037,7 +15038,11 @@ async fn bulk_reprocess_notes(
     body: Option<Json<BulkReprocessBody>>,
 ) -> Result<impl IntoResponse, ApiError> {
     let body = body.map(|b| b.0);
-    let limit = body.as_ref().and_then(|b| b.limit).unwrap_or(500).min(5000);
+    let limit = body
+        .as_ref()
+        .and_then(|b| b.limit)
+        .unwrap_or(500)
+        .clamp(0, 5000);
 
     // Parse revision mode (default to Light)
     let revision_mode = match body.as_ref().and_then(|b| b.revision_mode.as_deref()) {
@@ -15064,7 +15069,20 @@ async fn bulk_reprocess_notes(
 
     // Get note IDs to process
     let note_ids: Vec<Uuid> = if let Some(ids) = body.as_ref().and_then(|b| b.note_ids.clone()) {
-        ids.into_iter().take(limit as usize).collect()
+        // Bound candidates before filtering: skipped IDs still consume the input
+        // limit, and later IDs must not backfill them. Resolve the whole bounded
+        // batch on the same tenant/archive connection used by the implicit path.
+        let candidates: Vec<Uuid> = ids.into_iter().take(limit as usize).collect();
+        let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
+        with_request_schema(
+            &state,
+            scope.map(|Extension(scope)| scope),
+            archive_ctx.schema.clone(),
+            move |connection| {
+                Box::pin(async move { notes_repo.live_ids_tx(connection, &candidates).await })
+            },
+        )
+        .await?
     } else {
         // Fetch all active note IDs from this archive. The listing repo caps
         // each page at 100 rows, so paginate until `limit` or exhaustion —
@@ -15254,7 +15272,7 @@ async fn bulk_reprocess_notes(
     // the bulk linking jobs complete.  This ensures the graph quality
     // pipeline (normalize → SNN → PFNET → Louvain → snapshot) runs
     // automatically after bulk reprocessing.
-    if should_run("linking") || run_all {
+    if total > 0 && (should_run("linking") || run_all) {
         let maint_payload = serde_json::json!({ "schema": &archive_ctx.schema });
         if let Ok(Some(job_id)) = state
             .db
@@ -40838,6 +40856,7 @@ fn get_db_size_via_psql(expr: &str) -> Option<i64> {
 
 #[cfg(test)]
 mod tests {
+    include!("bulk_reprocess_tests.rs");
     use super::*;
     use tower::ServiceExt;
 

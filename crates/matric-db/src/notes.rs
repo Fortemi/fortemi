@@ -1369,6 +1369,20 @@ impl PgNoteRepository {
         Ok(())
     }
 
+    /// Resolve live IDs in one query using the caller's tenant/archive scope.
+    /// Preserve input order and multiplicity; callers bound the candidate list
+    /// before this lookup. Archived (but not soft-deleted) notes remain eligible.
+    pub async fn live_ids_tx(&self, tx: &mut PgConnection, ids: &[Uuid]) -> Result<Vec<Uuid>> {
+        Ok(sqlx::query_scalar(
+            "SELECT candidate.id FROM unnest($1::uuid[]) WITH ORDINALITY AS candidate(id, position)
+             JOIN note n ON n.id = candidate.id
+             WHERE n.deleted_at IS NULL ORDER BY candidate.position",
+        )
+        .bind(ids)
+        .fetch_all(tx)
+        .await?)
+    }
+
     /// List all note IDs within an existing transaction.
     pub async fn list_all_ids_tx(&self, tx: &mut PgConnection) -> Result<Vec<Uuid>> {
         let sql = "SELECT id FROM note WHERE deleted_at IS NULL ORDER BY created_at_utc DESC";

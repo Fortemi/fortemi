@@ -239,7 +239,7 @@ Content-Type: application/json
 {
   "limit": 500,
   "revision_mode": "light",
-  "steps": ["embedding", "linking", "title"],
+  "steps": ["embedding", "linking", "title_generation"],
   "note_ids": ["550e8400-...", "660e8400-..."]
 }
 ```
@@ -250,21 +250,35 @@ Queues NLP pipeline jobs for multiple notes at once. Useful after model changes 
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| limit | int | No | Max notes to process (default: 500, max: 5000) |
+| limit | int | No | Input note limit (default: 500, capped at 5000; zero or negative queues no work) |
 | revision_mode | string | No | `full`, `light` (default), or `none` |
-| steps | string[] | No | Steps to run: `embedding`, `linking`, `title`, `concept_tagging`, `reference_extraction`, `metadata_extraction`, `document_type`, `revision`, or `all` (default) |
-| note_ids | UUID[] | No | Specific note IDs to reprocess. If omitted, all active notes up to `limit` are processed. |
+| steps | string[] | No | Steps to run: `embedding`, `linking`, `title_generation`, `concept_tagging`, `reference_extraction`, `metadata_extraction`, `document_type_inference`, `ai_revision`, `related_concept_inference`, `extraction`, or `all` (default) |
+| note_ids | UUID[] | No | Specific IDs; the first `limit` entries are checked for live notes in the authorized tenant and selected memory. If omitted, lists non-deleted notes up to `limit`, including archived notes. |
 
 **Response:**
 
 ```json
 {
-  "queued": 42,
-  "total": 42,
-  "revision_mode": "light",
-  "steps": ["embedding", "linking"]
+  "message": "Bulk reprocessing queued",
+  "notes_count": 42,
+  "jobs_queued": 84,
+  "revision_mode": "light"
 }
 ```
+
+Missing, soft-deleted, and out-of-scope IDs are silently skipped with the same
+behavior; the response exposes no per-ID reason or existence information.
+`notes_count` counts eligible input entries after filtering. Duplicate eligible
+IDs retain their input multiplicity; job deduplication can reduce `jobs_queued`.
+`jobs_queued` counts newly queued jobs, so existing pending/running jobs do not
+increase it. There is no skipped-count field. IDs beyond `limit` are not checked,
+and skipped entries inside the limit are not replaced by later IDs. An empty
+eligible set queues no jobs, including graph maintenance.
+
+Eligibility is checked before any pipeline step is queued, using one bounded
+query for explicit IDs. This is not a deletion lock: a note can be deleted after
+selection or while queued. Workers retain their normal missing/deleted-note
+failure handling; already queued jobs are not canceled by this preflight.
 
 **Example:**
 
