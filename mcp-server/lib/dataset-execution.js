@@ -1,4 +1,16 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import Ajv2020 from "ajv/dist/2020.js";
+import addFormats from "ajv-formats";
+
+const receiptAjv = new Ajv2020({ strict: true, allErrors: true });
+addFormats(receiptAjv);
+const validateReceiptStructure = receiptAjv.compile(JSON.parse(fs.readFileSync(
+  new URL("./dataset-run-receipt.schema.json", import.meta.url), "utf8",
+)));
+const validateRequestStructure = receiptAjv.compile(JSON.parse(fs.readFileSync(
+  new URL("./dataset-request.schema.json", import.meta.url), "utf8",
+)));
 
 export const DATASET_EXECUTION_CONTRACTS = Object.freeze({
   capability: "fortemi.dataset-execution-capabilities/v1",
@@ -331,6 +343,15 @@ function validatePlanAndBatch(plan, batch, diagnostics) {
 }
 
 export function previewDatasetExecution(input, runtimeVersion = "0.0.0") {
+  input = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const { action: _action, ...request } = input;
+  const structurallyValid = validateRequestStructure(request);
+  // Keep the established precise diagnostics for otherwise traversable input.
+  // Malformed containers must also fail with a stable read-only response.
+  if (!structurallyValid && validateRequestStructure.errors.some(error => error.keyword === "type")) {
+    return { contract: DATASET_EXECUTION_CONTRACTS.plan, schemaVersion: "1.0.0", mode: "preview", accepted: false,
+      diagnostics: [diagnostic("REQUEST_SCHEMA_INVALID", "Request does not satisfy the implemented schema")], noSideEffects: true };
+  }
   const records = input.batch?.mutations || [];
   const negotiation = negotiateDatasetExecution(input, runtimeVersion);
   const diagnostics = [...negotiation.diagnostics];
@@ -340,6 +361,7 @@ export function previewDatasetExecution(input, runtimeVersion = "0.0.0") {
   if (!DIGEST.test(input.inputSchemaDigest || "") || !DIGEST.test(input.outputSchemaDigest || "")) {
     diagnostics.push(diagnostic("SCHEMA_DIGEST_INVALID", "inputSchemaDigest and outputSchemaDigest are required sha256 digests"));
   }
+  if (!structurallyValid && diagnostics.length === 0) diagnostics.push(diagnostic("REQUEST_SCHEMA_INVALID", "Request does not satisfy the implemented schema"));
   const accepted = diagnostics.length === 0;
   const requestDigest = accepted ? sha256Digest({
     contractVersions: input.contractVersions || {},
@@ -349,6 +371,8 @@ export function previewDatasetExecution(input, runtimeVersion = "0.0.0") {
     batch: input.batch,
     resourceEnvelope: input.resourceEnvelope,
     profiles: input.profiles || {},
+    inputSchemaDigest: input.inputSchemaDigest,
+    outputSchemaDigest: input.outputSchemaDigest,
   }) : undefined;
   return {
     contract: DATASET_EXECUTION_CONTRACTS.plan,
@@ -402,6 +426,7 @@ function sourceRequest(input, requestDigest) {
             logical_id_digest: sha256Digest(mutation.logicalId),
             revision: mutation.revision,
             plan_digest: plan.planDigest,
+            request_digest: requestDigest,
           },
         },
       };
@@ -475,6 +500,8 @@ function receiptPayload(input, preview, response, state, verification, diagnosti
 
 export function verifyDatasetRunReceipt(receipt) {
   const errors = [];
+  const structurallyValid = validateReceiptStructure(receipt);
+  if (!structurallyValid) errors.push("RECEIPT_STRUCTURE_INVALID");
   if (!receipt || receipt.contract !== DATASET_EXECUTION_CONTRACTS.receipt) errors.push("RECEIPT_CONTRACT_UNSUPPORTED");
   if (!receipt || receipt.schemaVersion !== DATASET_EXECUTION_SCHEMA_VERSIONS.receipt) errors.push("RECEIPT_SCHEMA_UNSUPPORTED");
   if (!receipt || !DIGEST.test(receipt.receiptDigest || "")) errors.push("RECEIPT_DIGEST_INVALID");
@@ -517,6 +544,17 @@ export function verifyDatasetRunReceipt(receipt) {
       || (["committed", "degraded"].includes(receipt.state) && (counts?.rejected !== 0 || !receipt.capabilityDecision?.accepted))
       || (receipt.state === "failed" && counts?.committed !== 0)) errors.push("RECEIPT_STATE_INCONSISTENT");
     if (!receipt.capabilityDecision?.runtime?.id || !receipt.capabilityDecision?.runtime?.version) errors.push("RECEIPT_RUNTIME_UNBOUND");
+    if (structurallyValid) {
+      const bindings = receipt.bindings;
+      if (bindings.outputDigest !== sha256Digest(receipt.effects)
+        || bindings.resourceEnvelopeDigest !== sha256Digest(receipt.resourceEnvelope)
+        || bindings.negotiationDigest !== sha256Digest({ selected: receipt.capabilityDecision.selected, degradations: receipt.capabilityDecision.degradations, diagnostics: [] })) errors.push("RECEIPT_BINDINGS_INCONSISTENT");
+      const after = receipt.checkpoint.after;
+      const before = receipt.checkpoint.before;
+      if (after.scope.dataset !== receipt.namespaceId || bindings.destinationDigest !== sha256Digest(after.scope)
+        || (before && (canonicalJson(before.scope) !== canonicalJson(after.scope) || before.sequence >= after.sequence))) errors.push("RECEIPT_CHECKPOINT_INCONSISTENT");
+      if (receipt.counts.attempted > receipt.resourceEnvelope.maxRecords) errors.push("RECEIPT_RESOURCE_LIMIT_EXCEEDED");
+    }
   }
   return {
     contract: DATASET_EXECUTION_CONTRACTS.receipt,
@@ -636,6 +674,7 @@ export function createDatasetExecutionController({ apiRequest, runtimeVersion = 
             descriptor: buildDatasetExecutionDescriptor(runtimeVersion),
             contracts: clone(DATASET_EXECUTION_CONTRACTS),
             schemaVersions: clone(DATASET_EXECUTION_SCHEMA_VERSIONS),
+            receiptValidation: { revision: "1.0.1", requestBindingRevision: "1.0.1", wireSchemaVersions: ["1.0.0"] },
             resourcePolicy: clone(DATASET_RESOURCE_POLICY),
             profiles: {
               indexing: { id: "fortemi-note-materialization", version: "1.0.0", maturity: "experimental" },

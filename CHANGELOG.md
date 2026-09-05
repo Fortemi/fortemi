@@ -9,6 +9,11 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Fixed
 
+- Dataset execution validates nested requests and receipts before attesting
+  success, binds input/output schema digests into approval and durable replay,
+  and reports uncertain storage outcomes without advancing checkpoints
+  (#1128–#1131).
+
 - Bulk reprocessing filters explicit IDs against live notes in the selected
   tenant and memory before queueing; deleted, missing, and out-of-scope IDs are
   skipped uniformly. Empty eligible batches queue no jobs (#1134).

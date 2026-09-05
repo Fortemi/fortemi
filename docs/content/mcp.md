@@ -151,6 +151,14 @@ content.
 
 #### `manage_dataset_execution`
 
+The capability response advertises receipt validation and request binding
+revision `1.0.1`. Discover this revision before approving a preview digest.
+Input/output schema digests participate in the request identity; changing either
+requires new approval and cannot reuse an existing run's idempotency identity.
+Strict schemas and executable count/digest checks apply even to freshly
+checksummed receipts. Historical receipts remain readable, but legacy
+cross-release replay is not qualified by this revision.
+
 Exposes the versioned Dataset Intelligence execution adapter. `capabilities`
 returns the alpha live-server descriptor and supported contract/profile
 revisions. `preview` performs pure fail-closed negotiation and resource checks.

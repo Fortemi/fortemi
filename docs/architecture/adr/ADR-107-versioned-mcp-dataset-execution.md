@@ -133,8 +133,14 @@ script does not establish independent runtime verification. The historical
 manifest's `independentRuntime` label is insufficient evidence on its own.
 
 The September 5 follow-up audit reopened #1128 and #1131 after reproducing
-invalid receipts accepted by the original verifier. Schema hardening and
-independent consumer qualification remain release gates; see
+invalid receipts accepted by the original verifier. Validation and request
+binding revision 1.0.1 now lives in
+`contracts/dataset-execution/validation/1.0.1`. Both request and receipt schemas
+are enforced; executable semantic checks cover arithmetic and digest relations.
+The corrected request digest includes input/output schema digests and is stored
+in source-upsert metadata to preserve durable conflict detection. The revision
+changes request-derived keys; legacy cross-release replay remains unqualified.
+Independent consumer delivery and qualification remain release gates; see
 `.aiwg/reports/issues-1128-1131-validation-audit-2026-09-05.md`.
 
 AIWG #2242 remains the owner of bounded live cross-repository qualification.

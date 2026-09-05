@@ -65,6 +65,28 @@ for (const name of ["unsupported-schema-request.json", "unsupported-capability-r
 
 const expectedReceipt = load("fixtures/degraded-run-receipt.json");
 assert.equal(verifyDatasetRunReceipt(expectedReceipt).valid, true);
+const validationRoot = path.join(contractRoot, "../validation/1.0.1");
+const validationManifest = JSON.parse(fs.readFileSync(path.join(validationRoot, "manifest.json"), "utf8"));
+for (const vector of JSON.parse(fs.readFileSync(path.join(validationRoot, "canonical-vectors.json"), "utf8")).vectors) {
+  assert.equal(canonicalJson(vector.value), vector.canonicalUtf8);
+  assert.equal(sha256Digest(vector.value), vector.digest);
+}
+assert.equal(verifyDatasetRunReceipt(JSON.parse(fs.readFileSync(path.join(validationRoot, "evidence/local-postgres-run-receipt.json"), "utf8"))).valid, true);
+for (const entry of validationManifest.files) {
+  const bytes = fs.readFileSync(path.join(validationRoot, entry.path));
+  assert.equal(crypto.createHash("sha256").update(bytes).digest("hex"), entry.sha256, entry.path);
+}
+assert.deepEqual(fs.readFileSync(path.join(validationRoot, "run-receipt.schema.json")),
+  fs.readFileSync(path.join(repositoryRoot, "mcp-server/lib/dataset-run-receipt.schema.json")), "packaged schema matches authority");
+assert.deepEqual(fs.readFileSync(path.join(validationRoot, "request.schema.json")),
+  fs.readFileSync(path.join(repositoryRoot, "mcp-server/lib/dataset-request.schema.json")), "packaged request schema matches authority");
+const negativeReceipts = JSON.parse(fs.readFileSync(path.join(validationRoot, "negative-receipts.json"), "utf8"));
+for (const vector of negativeReceipts.cases) {
+  const receipt = applyPatch(expectedReceipt, vector.patch);
+  delete receipt.receiptDigest;
+  receipt.receiptDigest = sha256Digest(receipt);
+  assert.ok(verifyDatasetRunReceipt(receipt).errors.includes(vector.expectedCode), vector.id);
+}
 const response = {
   contract_version: "1.0.0",
   import_run_id: supported.runId,
@@ -83,7 +105,7 @@ const response = {
 };
 const controller = createDatasetExecutionController({ runtimeVersion: "2026.9.2", apiRequest: async () => response });
 const actual = await controller.handle({ action: "execute", ...supported });
-assert.deepEqual(actual.receipt, expectedReceipt);
+assert.deepEqual(actual.receipt, JSON.parse(fs.readFileSync(path.join(validationRoot, "degraded-run-receipt.json"), "utf8")));
 
 const tampered = structuredClone(expectedReceipt);
 tampered.bindings.planDigest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

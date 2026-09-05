@@ -1,0 +1,37 @@
+{
+  "contract": "fortemi.dataset-receipt-validation-authority/v1",
+  "validationRevision": "1.0.1",
+  "wireContract": "fortemi.dataset-run-receipt/v1",
+  "wireSchemaVersions": [
+    "1.0.0"
+  ],
+  "producer": {
+    "repository": "Fortemi/fortemi",
+    "issue": 1131
+  },
+  "consumers": [
+    {
+      "repository": "roctinam/aiwg",
+      "issue": 2242,
+      "status": "implemented; local packaged qualification passed; PR delivery pending"
+    }
+  ],
+  "compatibility": "Wire schema 1.0.0 is retained. Revision 1.0.1 rejects invalid nested fields and binds input/output schema digests into the request identity; request/idempotency and resulting receipt digests differ from legacy 1.0.0. Historical artifacts remain immutable. Cross-revision replay requires the recorded request binding revision and is not qualified by this bundle.",
+  "requiredSemanticChecks": [
+    "receiptDigest",
+    "countsMatchEffects",
+    "outputDigest",
+    "resourceEnvelopeDigest",
+    "negotiationDigest",
+    "checkpointScope",
+    "checkpointSequence",
+    "resourceRecordLimit",
+    "requestApprovalIncludesSchemaDigests"
+  ],
+  "limits": {
+    "profile": "live-remote-persistence",
+    "maturity": "alpha",
+    "suiteParity": false
+  },
+  "requestBindingRevision": "1.0.1"
+}

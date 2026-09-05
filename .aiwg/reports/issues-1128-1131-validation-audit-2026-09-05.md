@@ -72,3 +72,35 @@ No new live qualification or production mutation was performed in this audit.
 
 The broader Enterprise, recovery injection, backup/restore, and production load
 matrix remains deferred under #1136–#1141; none is claimed by these corrections.
+
+## Follow-up: strict validation and independent live consumer
+
+The preceding results describe the first correction commit. The follow-up adds
+validation and request binding revision 1.0.1 while retaining immutable 1.0.0
+artifacts. Unlike the first correction, this revision changes request-derived
+idempotency and receipt digests by binding input/output schema digests. Added
+source metadata makes that binding durable even with explicit batch keys.
+
+Strict packaged schemas, semantic checks, shared negative fixtures, and canonical
+vectors now cover nested receipt fields. AIWG has an independent verifier and
+client for the actual consolidated MCP tool; its discovery receipt moves to v2
+while the historical v1 discovery receipt remains readable.
+
+A fresh installed consumer and clean MCP package passed a bounded PostgreSQL run,
+including replay, checkpoint, resume, replay after MCP restart, repeated archive,
+and preservation of an unrelated sentinel. Retained evidence is under
+`contracts/dataset-execution/validation/1.0.1/evidence`. This is pre-release local
+qualification, not production or suite-wide qualification.
+
+Current validation: 23 focused producer tests; MCP selection 87 passed and one
+existing skip; producer contract and retained receipt verification pass. AIWG
+build, typecheck, and schema lint pass. Its full suite reports 10,083 passing,
+57 skipped, and one OMP stderr timing assertion failure; the affected OMP suite
+and three dataset suites pass together on focused rerun (41 tests). Repository
+Markdown lint reports pre-existing violations across hundreds of documents;
+these unrelated documents are outside this correction.
+
+Remaining gates are exact delivery pins, AIWG PR review and CI, Fortemi CI, and
+requirement-level closure review. All four producer issues remain open, as does
+the broader consumer #2242. See `../architecture/dataset-execution-sad.md` for
+system boundaries and qualification limits.

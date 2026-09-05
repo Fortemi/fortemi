@@ -1,0 +1,38 @@
+{
+  "contract": "fortemi.dataset-receipt-validation-manifest/v1",
+  "validationRevision": "1.0.1",
+  "files": [
+    {
+      "path": "authority.json",
+      "sha256": "71a9dfb75a737409e0fbd8b7b6bdde11ba9ae5bba6257250f3b1e8fe89ef5e54"
+    },
+    {
+      "path": "canonical-vectors.json",
+      "sha256": "d8d1de330d093dc80e259bfa2399724e8ec73a8afbac7a310c5a89e10c6b71bb"
+    },
+    {
+      "path": "degraded-run-receipt.json",
+      "sha256": "96247d44b6426bd1cd45dfdcb1093a718a9d429a98415807e95330422fa670e5"
+    },
+    {
+      "path": "evidence/local-postgres-qualification.json",
+      "sha256": "d6ad2e819da7166358438f3a6566fcf8217221d7cc2b42d55dc4f2fad3b97321"
+    },
+    {
+      "path": "evidence/local-postgres-run-receipt.json",
+      "sha256": "6537a73730924afcfbe5841ad322ea53b9745448af0085fc1a8d67d67df66a27"
+    },
+    {
+      "path": "negative-receipts.json",
+      "sha256": "b8d605244b6fe6ef00ebf0698991831f6fb0f174c0181215e6c0c24db3421d68"
+    },
+    {
+      "path": "request.schema.json",
+      "sha256": "1016161b24a1f299b31530893033f0a418a08651b6cadaa95925d65dc70e0979"
+    },
+    {
+      "path": "run-receipt.schema.json",
+      "sha256": "ef99ec0fb7cde6b59746c61ed80a308a25fe1a54fb3052f0f4af97798ee0af5c"
+    }
+  ]
+}

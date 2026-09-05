@@ -240,6 +240,7 @@ describe("versioned dataset execution MCP contract", () => {
     assert.equal(calls[0][1], "/api/v1/notes/source-upsert");
     assert.equal(calls[0][2].source_namespace, `dataset:${namespaceId}`);
     assert.equal(calls[0][2].items.length, 1);
+    assert.equal(calls[0][2].items[0].metadata.dataset_execution.request_digest, result.receipt.requestDigest);
     assert.equal(result.receipt.effects[0].logicalIdDigest, sha256Digest("record-1"));
     assert.equal(result.receipt.capabilityDecision.runtime.version, "2026.9.2");
     assert.equal(result.receipt.bindings.sourceRevision, "fixture-r1");
@@ -252,7 +253,7 @@ describe("versioned dataset execution MCP contract", () => {
       errors: [],
       receiptDigest: result.receipt.receiptDigest,
     });
-    assert.deepEqual(result.receipt, fixture("degraded-run-receipt.json"));
+    assert.deepEqual(result.receipt, fixture("../../validation/1.0.1/degraded-run-receipt.json"));
   });
 
   test("published request fixtures produce their stable negative reason codes", () => {
@@ -451,7 +452,20 @@ describe("versioned dataset execution MCP contract", () => {
     inconsistent.verification = "failed";
     delete inconsistent.receiptDigest;
     inconsistent.receiptDigest = sha256Digest(inconsistent);
-    assert.deepEqual(verifyDatasetRunReceipt(inconsistent).errors, ["RECEIPT_STATE_INCONSISTENT"]);
+    assert.deepEqual(verifyDatasetRunReceipt(inconsistent).errors, ["RECEIPT_STRUCTURE_INVALID", "RECEIPT_STATE_INCONSISTENT"]);
+  });
+
+  test("strict validation rejects nested extensions and inconsistent bindings from shared fixtures", () => {
+    const vectors = fixture("../../validation/1.0.1/negative-receipts.json");
+    for (const vector of vectors.cases) {
+      const receipt = applyFixturePatch(fixture("degraded-run-receipt.json"), vector.patch);
+      delete receipt.receiptDigest;
+      receipt.receiptDigest = sha256Digest(receipt);
+      const result = verifyDatasetRunReceipt(receipt);
+      assert.equal(result.valid, false, vector.id);
+      assert.ok(result.errors.includes(vector.expectedCode), `${vector.id}: ${result.errors}`);
+      assert.ok(!result.errors.includes("RECEIPT_DIGEST_MISMATCH"), vector.id);
+    }
   });
 
   test("receipt verification rejects semantically invalid receipts even with a matching checksum", () => {
@@ -540,6 +554,39 @@ describe("versioned dataset execution MCP contract", () => {
       mutate(input);
       const controller = createDatasetExecutionController({ apiRequest: async () => { calls++; return committedResponse(); } });
       assert.equal((await controller.handle({ action: "preview", ...input })).accepted, false);
+      await assert.rejects(controller.handle({ action: "execute", ...input }));
+      assert.equal(calls, 0);
+    }
+  });
+
+  test("input and output schema digests participate in preview approval and idempotency", async () => {
+    for (const field of ["inputSchemaDigest", "outputSchemaDigest"]) {
+      const input = request();
+      const changed = { ...input, [field]: sha256Digest("changed-schema") };
+      assert.notEqual(previewDatasetExecution(input).requestDigest, previewDatasetExecution(changed).requestDigest);
+      let calls = 0;
+      const controller = createDatasetExecutionController({ apiRequest: async () => { calls++; return committedResponse(); } });
+      await controller.handle({ action: "execute", ...input });
+      await assert.rejects(controller.handle({ action: "execute", ...changed }), error => error.code === "IDEMPOTENCY_CONFLICT");
+      assert.equal(calls, 1);
+    }
+  });
+
+  test("strict request validation rejects missing profiles and nested extensions before writes", async () => {
+    for (const change of [
+      input => { delete input.profiles; },
+      input => { input.profiles.indexing.id = "unknown"; },
+      input => { input.plan.destination.extra = "undeclared"; },
+      input => { input.batch.mutations = {}; },
+      input => { input.batch.mutations = [null]; },
+    ]) {
+      const input = request();
+      change(input);
+      let calls = 0;
+      const controller = createDatasetExecutionController({ apiRequest: async () => { calls++; return committedResponse(); } });
+      const preview = await controller.handle({ action: "preview", ...input });
+      assert.equal(preview.accepted, false);
+      assert.equal(preview.noSideEffects, true);
       await assert.rejects(controller.handle({ action: "execute", ...input }));
       assert.equal(calls, 0);
     }
