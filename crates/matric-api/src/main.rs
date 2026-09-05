@@ -14976,8 +14976,7 @@ async fn reprocess_note(
 struct BulkReprocessBody {
     /// AI revision mode: "full", "light" (default), or "none"
     revision_mode: Option<String>,
-    /// Specific note IDs to reprocess. Only live notes in the selected tenant/archive
-    /// are eligible. Missing, deleted, and out-of-scope IDs are silently skipped.
+    /// Specific note IDs to reprocess. If omitted, reprocesses all non-deleted notes.
     note_ids: Option<Vec<Uuid>>,
     /// Pipeline steps to run. Defaults to all steps.
     steps: Option<Vec<String>>,

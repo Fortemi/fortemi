@@ -64,3 +64,20 @@ Results: API regression passed; all 7 tenant-isolation tests passed; strict
 Clippy, formatting, whitespace, documentation contract (zero findings), docsite
 build, and asset-link checks passed. No production data was used or changed.
 CI and final tracker closure are recorded in the issue threads after push.
+
+## CI correction
+
+Run `53253` passed lint, conformance, dependency/policy checks, auth consumer
+checks, and MCP tests. The API suite had 983 passing tests and one failure:
+`committed_openapi_artifact_is_current`. A Rust doc comment had inadvertently
+changed the generated OpenAPI description. Restored that original description;
+the detailed eligibility/count/race documentation remains in the API guide.
+No wire schema or committed OpenAPI artifact change is needed for this fix.
+
+Verified the correction with:
+
+```sh
+cargo test -p matric-api --bin matric-api committed_openapi_artifact_is_current -- --nocapture
+```
+
+Result: passed. A new push CI run must pass before closing the issues.
