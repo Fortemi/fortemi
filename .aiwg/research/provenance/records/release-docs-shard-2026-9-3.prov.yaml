@@ -1,0 +1,59 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-09-05T01:29:10Z"
+  description: "Provenance for the Fortemi v2026.9.3 documentation shard"
+entity:
+  id: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard:sha256:0c46a28a7cea8e328dc1efa9ecb92b0f434380911076c80e120e797eef37c106"
+  type: knowledge_shard
+  created_at: "2026-09-05T01:29:09Z"
+  checksum: "sha256:0c46a28a7cea8e328dc1efa9ecb92b0f434380911076c80e120e797eef37c106"
+  size_bytes: 2529417
+  attributes:
+    release: "v2026.9.3"
+    profile: "documentation-shard/1.2.0"
+    source_count: 408
+    failed_sources: 0
+    note_count: 408
+    tag_count: 20
+    source_commit: "f9379f0bc0d7009b3d0232636eaf45f1ec821808"
+    server_commit: "f9379f0bc0d7009b3d0232636eaf45f1ec821808"
+    server_version: "2026.9.3"
+    receipt_sha256: "fdc2cadce99bcca00c0c2a9813d84da83c41663f16f682f328a9a07f27729189"
+activity:
+  id: "urn:aiwg:activity:release-docs-shard:fortemi-2026-9-3:001"
+  type: documentation_shard_rebuild
+  started_at: "2026-09-05T01:27:00Z"
+  ended_at: "2026-09-05T01:29:10Z"
+  description: "Build the exact corrective release image and regenerate the tracked documentation shard"
+  attributes:
+    generator: "scripts/ci/rebuild-shard-in-ci.sh"
+    server_image: "fortemi-release-local:2026.9.3"
+    verification:
+      - "tracked source coverage: 408/408"
+      - "failed imports: 0"
+      - "receipt server/source commit match: passed"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard:sha256:0c46a28a7cea8e328dc1efa9ecb92b0f434380911076c80e120e797eef37c106"
+    activity: "urn:aiwg:activity:release-docs-shard:fortemi-2026-9-3:001"
+    time: "2026-09-05T01:29:10Z"
+  used:
+    - activity: "urn:aiwg:activity:release-docs-shard:fortemi-2026-9-3:001"
+      entity: "urn:git:commit:f9379f0bc0d7009b3d0232636eaf45f1ec821808"
+      role: tracked_source_revision
+    - activity: "urn:aiwg:activity:release-docs-shard:fortemi-2026-9-3:001"
+      entity: "urn:docker:image:fortemi-release-local:2026.9.3"
+      role: shard_server
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:release-docs-shard:fortemi-2026-9-3:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: release_orchestrator
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard:sha256:0c46a28a7cea8e328dc1efa9ecb92b0f434380911076c80e120e797eef37c106"
+    agent: "urn:aiwg:agent:codex-gpt-5"

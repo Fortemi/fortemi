@@ -1084,3 +1084,7 @@ records:
     record: "records/release-preparation-2026-9-3-1128.prov.yaml"
   - entity: ".aiwg/reports/doc-sync-audit-v2026.9.3-2026-09-04.md"
     record: "records/release-preparation-2026-9-3-1128.prov.yaml"
+  - entity: "docker/seed-data/fortemi-docs.shard"
+    record: "records/release-docs-shard-2026-9-3.prov.yaml"
+  - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"
+    record: "records/release-docs-shard-2026-9-3.prov.yaml"
