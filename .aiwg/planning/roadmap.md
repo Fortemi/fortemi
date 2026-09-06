@@ -1,11 +1,16 @@
 # Fortemi Delivery Roadmap
 
 > **Status:** Active — reference until all planned phases are complete.
-> **Created:** 2026-06-24 · **Last updated:** 2026-08-23
+> **Created:** 2026-06-24 · **Last updated:** 2026-09-06
 > **Tracker:** Gitea `Fortemi/fortemi` (authoritative). Issue numbers below are Gitea issues.
 > **Source:** Synthesized from the 2026-06-21→23 open-issue audit sweep (#746–#1006), the milestone structure, the 2026-06-23 interactive product-decision Q&A (31 decisions recorded on-issue), and the 2026-08-23 full-open-backlog rebaseline.
 
 ## How to use this document
+
+- The [September execution addendum](backlog-execution-2026-09.md) and [complete server issue register](backlog-2026-09.csv) are the current selection and closure baseline. They reconcile the historical phase narrative below without discarding its recorded product decisions.
+
+- The approved [release cadence](release-cadence-2026-09.md) adds weekly triage, fortnightly stable opportunities beginning September 17, and monthly suite compatibility review. [#1143](https://git.integrolabs.net/Fortemi/fortemi/issues/1143) owns process rollout and first-cycle evidence. Cadence dates do not replace phase prerequisites or create phase completion estimates.
+- The 2026-09-06 approved backlog reconciliation is in progress. Its initial refreshed snapshot contains 353 open suite issues, including 254 server issues, before new coordination issues. Customer #1132/#1133/#1127 and shared-contract #1091 are marked `roadmap/next`; #736/#863/#586 are `roadmap/later`. These labels express selection order, not proof that a gate has passed. The historical August snapshot below is retained until the full reconciliation is delivered.
 
 - This is the **living plan of record**. Update the checkboxes and status as work lands.
 - Future agents should treat this as the **main operating project plan** until all phases are complete or the operator explicitly replaces it. For "what next" / "continue the plan" / "advance roadmap" requests, run `aiwg discover "advance roadmap"` and use `fortemi-roadmap-skill`.
@@ -20,7 +25,9 @@
 - `tier/licensed-server` (#574) — advanced auth + multi-tenant hosting; omitted from the open build (per #853).
 - `tier/open-build` (#575) — single-user desktop; basic MCP; local/API-key auth.
 
-### Infrastructure prerequisites (`roctinam/devops`)
+### Historical infrastructure prerequisites (`roctinam/devops`)
+
+**2026-09-06 correction:** the requests below record the June distribution design, not current proof of a blocker. Public `fortemi-auth` now uses immutable HTTPS-tag consumption under ADR-AUTH-002; do not gate it on a private registry or SSH deploy key. Auth #12/#20 private-distribution scope is superseded. Separate Enterprise provider repositories and current ITOps environment admission retain their own gates. The old skills MIT listing below is historical; skills #4 owns its requested license correction, and this roadmap does not grant or change a license.
 
 Phases 2–3 (licensed-server / bridge) require the EE org, repos, and private Cargo registry per **ADR-095** (CE/EE distribution) and **ADR-096** (private registry). Repo-creation requests filed 2026-06-24 in `roctinam/devops`:
 - **devops#33** — stand up `Fortemi-Enterprise` private Gitea org (gates all EE repos).
@@ -32,9 +39,9 @@ Near-term EE repos gating **Phase 2**: kms (devops#41 → #897), mcp-gate (devop
 
 ---
 
-## 2026-08-23 backlog rebaseline
+## Historical 2026-08-23 backlog rebaseline
 
-The full Gitea backlog has **238 open issues**: 54 P0, 100 P1, 61 P2, 18 P3, and 5 without a priority. **124 are blocked** and **173 have not been updated since 2026-07-01**. Referenced storage alone contributes 70 open issues, 42 P0 labels, and 59 blocked descendants; that volume must not override current production, contract, and open-build gates.
+The August snapshot had **238 open issues**: 54 P0, 100 P1, 61 P2, 18 P3, and 5 without a priority. **124 were blocked** and **173 had not been updated since 2026-07-01**. Referenced storage alone contributed 70 open issues, 42 P0 labels, and 59 blocked descendants; that volume must not override current production, contract, and open-build gates. Current selection and counts are in the September addendum.
 
 Use this operating order when selecting work:
 
