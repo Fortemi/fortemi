@@ -228,8 +228,9 @@ as ambiguous until independently reconciled, never as zero-mutation rejections.
 The local integration regression runs the actual dataset controller against a
 synthetic HTTP server using the existing supported-request fixture and a bound
 storage response. It verifies transport/controller compatibility only; it does
-not use PostgreSQL or qualify durable execution. Binary export/import and SSE
-are not supported by this JSON transport and still require bounded adapters.
+not use PostgreSQL or qualify durable execution. Archive export/import transport is covered by the mode described below. SSE
+is conditional on the approved workload; it is not an additional closure
+requirement inferred from this transport implementation.
 The origin and credentials must be approved and bound to the isolated topology
 before runtime use. Same-origin URL checks are not network/DNS isolation proof.
 
@@ -373,3 +374,31 @@ numbackends. Blob metadata records size_bytes and database/object-storage type
 in attachment_blob, but those logical sizes cannot prove physical staging,
 orphan or object-store occupancy. These are concrete remaining instrumentation
 and coverage requirements, not zero-valued observations.
+
+## Archive transport and scope correction
+
+Source inspection confirms GET /api/v1/backup/knowledge-shard streams
+application/gzip and X-Fortemi-Shard-Loss-Report. The JSON import endpoint accepts
+ShardImportBody.shard_base64. The transport now permits responseKind:gzip-archive
+only on explicitly configured method/path entries. It preserves bounded raw
+archive bytes and the bounded loss-report header. Default routes still require
+JSON; call-time options cannot change that approved response mode. Unexpected
+media types, content encoding, excessive headers and response bytes reject.
+
+Archive mode returns bytes, contentType and shardLossReport. It does not
+extract, decompress, verify the tar manifest or declare profile conformance.
+The independent verifier must inspect archive bytes, loss report, exact named
+profile and clean-destination effects. A missing loss-report header stays null
+for that verifier to reject where required. Base64 JSON import requests retain
+the request-byte cap, including encoding expansion; the existing API owns its
+compressed/uncompressed validation and atomic import behavior.
+
+The transport regression preserves a local synthetic gzip payload through export
+and a base64 JSON import request. It does not call the real shard producer or
+importer and is not portability, backup or load qualification evidence.
+
+SSE was previously listed among generic adapter gaps, but #1141 does not
+explicitly require an SSE workload. It becomes a gate only if selected in the
+approved workload. Export/import, all nine declared operation classes, all five
+phases and every required resource/provider metric remain required; this
+correction does not remove any explicit acceptance criterion.

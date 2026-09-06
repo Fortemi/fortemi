@@ -76,3 +76,41 @@ test('evidence observer cannot hang past transport timeout', async t => {
   const api = createLoadApiTransport({ ...f.config, timeoutMs: 30, observe: () => new Promise(() => {}) });
   await assert.rejects(api('GET', '/api/v1/search?q=test'), { code: 'REQUEST_ABORTED' });
 });
+test('preserves archive bytes and loss header, then carries existing base64 JSON import shape', async t => {
+  const { gzipSync } = await import('node:zlib'); const archive = gzipSync('synthetic archive fixture');
+  let imported = false;
+  const f = await fixture(t, (req, res) => {
+    if (req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/gzip', 'X-Fortemi-Shard-Loss-Report': '{"synthetic":true}' }); res.end(archive);
+    } else {
+      const chunks = []; req.on('data', d => chunks.push(d)); req.on('end', () => {
+        const body = JSON.parse(Buffer.concat(chunks)); assert.deepEqual(Buffer.from(body.shard_base64, 'base64'), archive);
+        imported = true; res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}');
+      });
+    }
+  });
+  const api = createLoadApiTransport({ ...f.config, maxRequestBytes: 1000, maxResponseBytes: 1000,
+    allowedRequests: [{ method: 'GET', path: '/api/v1/backup/knowledge-shard', responseKind: 'gzip-archive' },
+      { method: 'POST', path: '/api/v1/backup/knowledge-shard/import' }] });
+  const r = await api('GET', '/api/v1/backup/knowledge-shard'); assert.deepEqual(r.bytes, archive);
+  assert.equal(r.shardLossReport, '{"synthetic":true}');
+  await api('POST', '/api/v1/backup/knowledge-shard/import', { shard_base64: r.bytes.toString('base64') }); assert.equal(imported, true);
+});
+test('archive handling cannot be enabled by call options for a JSON-only route', async t => {
+  const f = await fixture(t, (_, res) => { res.writeHead(200, { 'Content-Type': 'application/gzip' }); res.end('binary'); });
+  await assert.rejects(f.api('GET', '/api/v1/search?q=test', null, { responseKind: 'gzip-archive' }), { code: 'JSON_RESPONSE_REQUIRED' });
+});
+for (const [headers, code] of [
+  [{ 'Content-Type': 'application/json' }, 'ARCHIVE_MEDIA_TYPE_REQUIRED'],
+  [{ 'Content-Type': 'application/gzip', 'Content-Encoding': 'gzip' }, 'ARCHIVE_CONTENT_ENCODING_REJECTED'],
+  [{ 'Content-Type': 'application/gzip', 'X-Fortemi-Shard-Loss-Report': 'x'.repeat(4097) }, 'ARCHIVE_HEADER_LIMIT_EXCEEDED'],
+]) test(`archive rejects ${code}`, async t => {
+  const f = await fixture(t, (_, res) => { res.writeHead(200, headers); res.end(); });
+  const api = createLoadApiTransport({ ...f.config, allowedRequests: [{ method: 'GET', path: '/api/v1/backup/knowledge-shard', responseKind: 'gzip-archive' }] });
+  await assert.rejects(api('GET', '/api/v1/backup/knowledge-shard'), { code });
+});
+test('archive streams remain subject to the response byte cap', async t => {
+  const f = await fixture(t, (_, res) => { res.writeHead(200, { 'Content-Type': 'application/gzip' }); res.write(Buffer.alloc(101)); res.end(); });
+  const api = createLoadApiTransport({ ...f.config, allowedRequests: [{ method: 'GET', path: '/api/v1/backup/knowledge-shard', responseKind: 'gzip-archive' }] });
+  await assert.rejects(api('GET', '/api/v1/backup/knowledge-shard'), { code: 'RESPONSE_BYTES_EXCEEDED' });
+});
