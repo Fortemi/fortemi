@@ -102,3 +102,36 @@ limit-plus-one, topology, recovery, redaction or cleanup. The caller must bind
 these inputs to signed immutable evidence and supply the remaining checks.
 The test fixtures' numeric values are synthetic regression values, not proposed
 production thresholds. Driver and collector integration remain outstanding.
+
+## Resource observation evaluation
+
+[evaluateLoadTelemetry](../../scripts/qualification/evaluate-load-telemetry.mjs)
+checks a bounded interval of telemetry frames independently of request summaries.
+The policy requires durationMs, maxGapMs, maxAgeMs and a threshold for each metric
+in LOAD_TELEMETRY. Each frame has a monotonic timeMs and metric observations with
+value, unit and observedMs. Each collector's own timestamp is checked, so a fresh
+frame timestamp cannot conceal an old provider or storage reading.
+
+Required fields cover RSS, allocated-core-normalized CPU percent, storage growth,
+retained/generated WAL, blob growth, queue depth/age, pool utilization/timeouts,
+lock waits/deadlocks, freshness, cumulative provider calls/cost and free bytes/
+inodes. Bytes/counts must be safe integers; percentages use a 0–100 scale.
+Provider cost uses USD under a separately pinned pricing policy. Cumulative
+counters cannot reset during an interval; snapshots such as retained WAL may
+shrink, but every observed peak is still compared. Baseline normalization and
+counter provenance remain the collector's responsibility.
+
+The first frame must be at zero and the final frame at the declared duration;
+interior gaps and individual observation ages are bounded by policy. A missing
+metric or stale reading is MISSING, while an invalid value, inconsistent clock,
+counter reset or breached threshold is FAIL. Both finding counts are retained
+when both occur. Reports retain at most 1000 details of each kind and explicitly
+flag truncation; total counts remain authoritative. The input limit is 10000
+frames. No interpolation or whole-run average can erase an observed violation.
+
+`telemetryChecksPass` means only that retained resource observations satisfy the
+supplied policy. The evaluator does not collect measurements, authenticate them,
+or enforce a live abort. Between-sample behavior is unproven; select collection
+cadence and independent watchdog reserves accordingly. Actual baseline capture,
+collector adapters, authority binding, phase orchestration, growth-rate safety,
+abort/recovery deadlines and independent cleanup remain required for #1141.
