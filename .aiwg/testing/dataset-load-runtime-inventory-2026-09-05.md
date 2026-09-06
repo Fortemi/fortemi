@@ -168,3 +168,38 @@ collector's acquisition time, map it to the phase clock and reject stale input.
 Database/WAL/blob, queue, lock, freshness and provider collectors remain absent;
 they must not be filled with zeros. The local kernel-interface regression test
 exercises only collection in this environment and is not a load qualification.
+
+## Bounded scheduling mechanism
+
+[runLoadSchedule](../../scripts/qualification/run-load-schedule.mjs) executes an
+ordered retained schedule through caller-supplied execute and checkSafety
+adapters. The caller must authorize the exact plan and adapters before invocation;
+this module has no endpoints, credential discovery or dynamic code loading.
+Each request retains its original scheduledMs even when concurrency is saturated.
+Excessive scheduling delay stops dispatch; saturation cannot rewrite the workload
+into an easier closed-loop schedule. The full schedule and undispatched IDs remain
+in the result, alongside terminal observations and unresolved request IDs.
+
+The plan supplies durationMs, drainMs, maxConcurrency, maxScheduleLagMs, pollMs and
+safetyTimeoutMs. Implementation ceilings are 12 hours, 5 minutes drain, 32 active
+calls, 100000 arrivals, 1 second polling and 10 seconds per safety callback. These
+are mechanism bounds, not approved capacity or SLO values. A true safety result
+is required before dispatch and on subsequent polling, including normal drain.
+A safety exception, false result or timeout stops new arrivals. Executor exceptions
+are ambiguous rather than assumed to have produced no effect; private adapter
+error text is not copied into receipts.
+
+Abort uses a shared AbortSignal. Cooperative adapters must honor it and report
+outcomes only after checking their actual effects. A hung executor retains its
+slot; elapsed drain produces unresolved IDs and executionSettled:false. Results
+are copied before return so a late promise cannot rewrite a retained report.
+Cleanup is always unverified at this layer. Expected cancellation must be
+classified independently; absence of an exception is not correctness evidence.
+
+This in-process scheduler cannot interrupt blocking JavaScript, terminate an
+uncooperative adapter or prove cancellation of remote work. After an abort it
+stops further safety callbacks and relies on the independent external watchdog
+and bounded teardown to control residual work. The OS-level watchdog, actual
+runtime adapters, durable receipt writer, state observer and namespace cleanup
+must be supplied before this mechanism can support a qualification run. Tests
+use local synthetic callbacks only; no deployed service or provider is targeted.
