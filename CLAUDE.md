@@ -401,6 +401,13 @@ cargo test              # Unit tests
 cargo test --workspace  # All crates
 ```
 
+For release checks against a disposable shared database, run
+`cargo test --workspace -- --test-threads=1`. Comprehensive integration and
+coverage lanes serialize test cases because hosted-role checks inspect the whole
+archive catalog; request concurrency exercised inside a test remains intact.
+See [release validation](docs/content/releasing.md#pre-release). A failed signed
+tag remains immutable; a correction receives a new patch version.
+
 ### Testing Standards
 
 **NEVER use `#[ignore]` to skip failing tests.** Fix tests properly instead:

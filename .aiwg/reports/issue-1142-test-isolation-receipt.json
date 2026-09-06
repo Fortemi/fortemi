@@ -1,0 +1,50 @@
+{
+  "source": "40a0c928282ea4d7f83bb0a851cf62419e8835d9",
+  "fresh_database_per_case": true,
+  "cases": [
+    {
+      "mode": "bulk",
+      "binary": "/home/roctinam/dev/fortemi-suite/fortemi/target/debug/deps/matric_api-2a49ca359561d536",
+      "container": "fortemi-1142-8004f467b6",
+      "exit_code": 0,
+      "cleanup_exit": 0,
+      "log_sha256": "116c9540cb0e250b8ab363d1dc2b4662168a627e9e7a409d77d0cbe9af4eb9ca"
+    },
+    {
+      "mode": "tus",
+      "binary": "/home/roctinam/dev/fortemi-suite/fortemi/target/debug/deps/matric_api-2a49ca359561d536",
+      "container": "fortemi-1142-3cc126adc4",
+      "exit_code": 0,
+      "cleanup_exit": 0,
+      "log_sha256": "b9cf6025f579e8cc8df955abc490029666b83a54494f5eb34b25143403241c86"
+    },
+    {
+      "mode": "parallel",
+      "binary": "/home/roctinam/dev/fortemi-suite/fortemi/target/debug/deps/matric_api-2a49ca359561d536",
+      "container": "fortemi-1142-2c2790c8da",
+      "exit_code": 101,
+      "cleanup_exit": 0,
+      "log_sha256": "ecfaf70918a3982be65869f776108b5483f808d35ccd5f27ecb4d21e798b3045"
+    },
+    {
+      "mode": "serial",
+      "binary": "/home/roctinam/dev/fortemi-suite/fortemi/target/debug/deps/matric_api-2a49ca359561d536",
+      "container": "fortemi-1142-04dc7d1f88",
+      "exit_code": 0,
+      "cleanup_exit": 0,
+      "log_sha256": "6a528bcd142df24c6bf08e85cffe332a74318910fcdc5423373d10bcbea0de89"
+    }
+  ],
+  "fixed_serial": {
+    "mode": "serial",
+    "binary": "/home/roctinam/dev/fortemi-suite/fortemi/target/debug/deps/matric_api-5483499b38b6d3d1",
+    "container": "fortemi-1142-912907c12a",
+    "exit_code": 0,
+    "cleanup_exit": 0,
+    "log_sha256": "2c878e714876f8bb1c0c45536061f0a390b34c6acd78ebfd4cb8c74969351e57",
+    "passed": 991,
+    "failed": 0,
+    "ignored": 0
+  },
+  "verdict": "PASS: baseline parallel failure reproduced; isolated and serial cases pass; fixed serial suite passes"
+}

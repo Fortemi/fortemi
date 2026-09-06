@@ -18,7 +18,7 @@ Fortémi uses **CalVer** (Calendar Versioning):
 
 ### Pre-Release
 
-- [ ] All tests passing: `cargo test --workspace`
+- [ ] All tests passing: `cargo test --workspace -- --test-threads=1` with a disposable test database
 - [ ] Linting clean: `cargo clippy --all-targets --all-features -- -D warnings`
 - [ ] Format check: `cargo fmt --all -- --check`
 - [ ] Dependency policy: `cargo deny check advisories bans licenses sources`
@@ -69,6 +69,16 @@ The wrapper accepts stable CalVer versions. It does not replace CI, lockfile or
 publication verification. Do not bypass it with a raw annotated tag or publish
 unrelated local tags. A failed gate leaves the release incomplete.
 
+Shared-database integration and coverage test cases run serially. Hosted-role
+checks inspect the entire archive catalog, and schema-changing fixtures and
+child processes cannot be isolated by separate Rust mutexes. Tests that issue
+concurrent requests internally still exercise that concurrency. Run reproductions
+against a fresh disposable database; never point them at an operational database.
+
+After a pushed tag fails a required gate, preserve it and its failure evidence.
+Fix and validate the cause, then cut a new patch version. Do not move the old tag
+or waive coverage to finish publication.
+
 ### CI/CD Automation
 
 When you push the tag, the CI pipeline automatically:
@@ -106,8 +116,11 @@ tags to these digests. Verify and retain them as described in
 The Gitea and GitHub release entries are finalized together only after the
 tag-only `verify-ghcr-release` job repeats those checks with an anonymous
 Docker configuration and verifies the published image revision/version labels.
-This prevents a private or stale GHCR package from producing an apparently
-complete release or leaving the two release entries under different gates.
+This checks public container availability and keeps both entries under the same
+container publication gate. Comprehensive `test.yml` runs afterward and gates
+native binary publication. An entry and images can therefore exist while the
+release remains incomplete. Require both configured workflows to pass and verify
+the native assets, checksums and provenance before declaring release completion.
 
 > **Sidecar images** (GLiNER, pyannote) are released independently with their own tags. See [CI/CD docs](#/operations-ci-cd) for details.
 

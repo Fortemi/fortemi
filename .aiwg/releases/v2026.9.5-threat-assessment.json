@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "1",
+  "engineVersion": "1.0.1",
+  "policyVersion": "1",
+  "profileVersion": "1.0.0",
+  "policyHash": "47a7c0fb8b84c31524e93300665ee10811df3c4d8fcee44c76ba19cbf7d311fd",
+  "mode": "enforce",
+  "profile": "balanced",
+  "surface": "release-note",
+  "source": {
+    "kind": "unknown"
+  },
+  "actor": {
+    "trust": "unknown"
+  },
+  "requestedAction": "consume-as-data",
+  "policyProvenance": {
+    "source": "aiwg-default",
+    "path": "aiwg:balanced"
+  },
+  "assessed": true,
+  "findings": [
+    {
+      "ruleId": "unverifiable-authority-claim",
+      "ruleProvenance": "aiwg:builtin",
+      "severity": "low",
+      "likelihood": 2,
+      "impact": 3,
+      "taxonomy": [
+        "ASI01",
+        "ASI09"
+      ],
+      "partId": "content",
+      "context": "requested",
+      "evidence": "Integration and coverage test cases now run serially against their shared test database. Hosted-role validation inspects the complete archive catalog, so separate test mutexes cannot isolate unrelated schema changes or child processes. All assertions and concurrency exercised inside individual tests remain active. Bulk fixture cleanup uses the archive repository transaction and advisory lock.",
+      "suppressed": false,
+      "matchedStatements": []
+    }
+  ],
+  "risk": {
+    "score": 6,
+    "severity": "low",
+    "likelihood": 2,
+    "impact": 3
+  },
+  "decision": {
+    "action": "proceed",
+    "wouldAction": "proceed",
+    "interrupts": false,
+    "reason": "profile threshold selected 'proceed'"
+  }
+}

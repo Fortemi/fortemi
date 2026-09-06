@@ -212,15 +212,8 @@ async fn bulk_reprocess_filters_live_ids_in_selected_tenant_and_archive() {
         .execute(&admin)
         .await
         .unwrap();
-    sqlx::raw_sql(&format!("DROP SCHEMA {schema} CASCADE"))
-        .execute(&admin)
-        .await
-        .unwrap();
-    sqlx::query("DELETE FROM archive_registry WHERE schema_name = $1")
-        .bind(schema)
-        .execute(&admin)
-        .await
-        .unwrap();
+    // Use the same transaction/advisory-lock protocol as other archive DDL.
+    db.archives.drop_archive_schema(&archive.name).await.unwrap();
     sqlx::query("DELETE FROM note WHERE id = $1")
         .bind(foreign)
         .execute(&admin)

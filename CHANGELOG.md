@@ -7,6 +7,29 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.9.5] - 2026-09-06
+
+Corrective release for shared-database test isolation (#1142).
+
+### Fixed
+
+- Serialize shared-database integration and coverage test cases, matching the
+  build lane. Hosted-role checks inspect the complete archive catalog; separate
+  fixture mutexes do not isolate catalog changes made by other tests or child
+  processes. Tests retain their assertions and internally concurrent requests.
+- Route bulk-reprocessing fixture cleanup through the archive repository's
+  transaction and advisory-lock protocol.
+
+### Release recovery
+
+- Preserve the immutable v2026.9.4 tag and failed coverage evidence. Its container
+  images and release entries were published, but its required coverage gate
+  failed and native binary publication was skipped. This patch carries the
+  recovery fix; release completion still requires every configured gate and
+  publication check to pass.
+- Clarify that release entries and images can precede comprehensive validation
+  and native assets. Their presence alone does not establish release completion.
+
 ## [2026.9.4] - 2026-09-05
 
 Dataset validation fixes and configurable load experiment tooling.
@@ -2375,7 +2398,11 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.9.1...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.9.5...HEAD
+[2026.9.5]: https://github.com/fortemi/fortemi/compare/v2026.9.4...v2026.9.5
+[2026.9.4]: https://github.com/fortemi/fortemi/compare/v2026.9.3...v2026.9.4
+[2026.9.3]: https://github.com/fortemi/fortemi/compare/v2026.9.2...v2026.9.3
+[2026.9.2]: https://github.com/fortemi/fortemi/compare/v2026.9.1...v2026.9.2
 [2026.9.1]: https://github.com/fortemi/fortemi/compare/v2026.9.0...v2026.9.1
 [2026.9.0]: https://github.com/fortemi/fortemi/compare/v2026.8.3...v2026.9.0
 [2026.8.3]: https://github.com/fortemi/fortemi/compare/v2026.8.2...v2026.8.3
