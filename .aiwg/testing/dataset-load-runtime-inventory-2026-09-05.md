@@ -306,3 +306,34 @@ Regression tests use only owned local synthetic children. They cover normal
 completion, blocking JavaScript, ignored SIGTERM, output flooding, rejected
 configuration, pre-abort and replacement of the original entrypoint. No deployed
 service is stopped or restarted by these tests.
+
+## Raw evidence publication
+
+[createLoadEvidenceWriter](../../scripts/qualification/write-load-evidence.mjs)
+anchors an existing evidence directory with a Linux directory descriptor.
+It accepts already bounded byte buffers, copies them, writes a private temporary
+file, removes write permission, fsyncs it, and publishes by a non-replacing hard
+link under its SHA-256 filename. The directory is fsynced after temporary-file
+removal. An existing artifact must be a regular nonsymlink file with exactly the
+same bytes. Conflicting content is never overwritten. Directory renaming cannot
+redirect the writer into a replacement directory.
+
+The caller supplies per-file, total-byte and file-count budgets. Every accepted
+write attempt is charged, including retries and failed publication, to prevent
+retry loops from bypassing the per-run budget. Budgets apply to this writer
+instance; the orchestrator must prevent concurrent instances or restarts from
+resetting an approved run budget. The caller must also bound JSON serialization
+before constructing input buffers. The writer does not truncate or rewrite
+artifacts to fit the budget.
+
+Only the current writer's temporary file is removed after failure. If failure
+occurs after publication, the final artifact may exist even though the call
+failed; retain that ambiguity and verify it on retry. This is atomic publication
+and fsync discipline, not certified power-loss durability. Host administrators
+can still alter stored bytes; signature/digest verification and protected storage
+remain necessary. This writer neither signs nor admits receipts and does not
+make raw content safe for publication without independent redaction checks.
+
+The regression suite covers conflicts, symlinks, directory replacement, budgets,
+failure before publication, and consumption of a published artifact by the
+existing signed-evidence verifier using synthetic signing fixtures.
