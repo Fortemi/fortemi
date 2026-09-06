@@ -232,3 +232,43 @@ not use PostgreSQL or qualify durable execution. Binary export/import and SSE
 are not supported by this JSON transport and still require bounded adapters.
 The origin and credentials must be approved and bound to the isolated topology
 before runtime use. Same-origin URL checks are not network/DNS isolation proof.
+
+## PostgreSQL 18 monitoring adapter
+
+[collectPostgresLoad](../../scripts/qualification/collect-postgres-load.mjs)
+runs the fixed [snapshot SQL](../../scripts/qualification/load-postgres-snapshot.sql)
+through psql with an explicit connection object. It does not discover deployed
+credentials. It ignores psql startup files, disables password prompts, enforces
+read-only transactions and statement/lock/connect timeouts, and caps subprocess
+output and elapsed time. Private connection/server errors are replaced by a
+stable unavailable-observation error.
+
+The snapshot records server/database identities and statistics-reset timestamps,
+database size, deadlocks, connections, waiting locks, oldest observed lock wait,
+WAL generated and WAL retained. A monitoring role must have the required
+statistics and WAL-directory privileges; the adapter requires visible complete
+statistics and rejects unavailable wait timestamps. The regression creates a
+small disposable PostgreSQL 18 cluster on a private Unix socket, grants pg_monitor
+to its test observer, reads the snapshot and tears down that cluster. It never
+connects to the configured application database.
+
+PostgreSQL [statistics can lag and are cached within a transaction](https://www.postgresql.org/docs/18/monitoring-stats.html).
+Every collection uses a new bounded read-only transaction. Lock waits use
+[pg_locks.waitstart](https://www.postgresql.org/docs/18/view-pg-locks.html), not
+query start time. WAL observations cover the entire cluster; database-size and
+deadlock observations cover the connected database. Connection count is not
+application pool utilization, and statistics alone do not prove real-time
+resource ceilings. Sampling cadence must account for statistics lag.
+
+postgresLoadDelta derives growth from a retained baseline only when database,
+server-start and reset identities agree, rejecting cumulative counter decreases.
+Retained database/WAL size can shrink; reported growth is floored at zero while
+raw snapshots remain retained. Apply comparisons to every sample, not only the
+last one. Environment identity and topology still require external binding;
+these fields alone do not distinguish two unrelated clusters with copied state.
+
+Remaining application-specific gaps include SQLx pool utilization/timeouts,
+queue age, blob staging, independent freshness and provider billing. Source
+inventory found log_pool_metrics in crates/matric-db/src/pool.rs and queue_stats
+in crates/matric-db/src/jobs.rs, exposed at GET /api/v1/jobs/stats. Existing pool
+logs and queue counts do not yet supply the full required collector matrix.
