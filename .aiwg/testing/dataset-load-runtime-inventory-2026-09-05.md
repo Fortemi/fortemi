@@ -272,3 +272,37 @@ queue age, blob staging, independent freshness and provider billing. Source
 inventory found log_pool_metrics in crates/matric-db/src/pool.rs and queue_stats
 in crates/matric-db/src/jobs.rs, exposed at GET /api/v1/jobs/stats. Existing pool
 logs and queue counts do not yet supply the full required collector matrix.
+
+## External process watchdog
+
+[superviseLoadProcess](../../scripts/qualification/supervise-load-process.mjs)
+runs an explicitly authorized Node entrypoint in a new Linux process group.
+It verifies bounded entrypoint bytes against the supplied digest and executes a
+private read-only snapshot adjacent to the source, preserving relative import
+resolution while avoiding replacement of the original path after verification.
+It removes only that newly created snapshot on completion. Its parent enforces
+a wall-clock deadline and combined stdout/stderr budget independently of the
+child's JavaScript event loop. Stop sends SIGTERM, then SIGKILL after bounded
+grace, and reports whether the original process group is gone.
+
+Input JSON is capped at 1 MiB; source is capped at 4 MiB; output capture is bounded.
+Only explicit environment values are passed, with loader-injection variables
+rejected. HeapMiB limits the Node heap, not total native/child process memory.
+The supervisor reports exit status, stop reason and raw bounded output; redact
+and persist those bytes under the approved evidence policy before publication.
+Neither a zero exit code nor a gone process group proves remote work or namespace
+cleanup. cleanupVerified and admitted remain false.
+
+The entrypoint's imports, executable, working directory and environment still
+require the approved immutable execution environment. A source digest alone
+cannot establish dependency integrity. The snapshot directory must be trusted;
+this is not isolation from a hostile same-user process. A descendant can escape
+a process group by creating another session, and the supervisor cannot prove
+escaped descendants are absent. Use an approved cgroup/container boundary and
+independent residual inventory for live qualification. Network, storage, provider
+quotas and host resource reservations remain separate controls.
+
+Regression tests use only owned local synthetic children. They cover normal
+completion, blocking JavaScript, ignored SIGTERM, output flooding, rejected
+configuration, pre-abort and replacement of the original entrypoint. No deployed
+service is stopped or restarted by these tests.
