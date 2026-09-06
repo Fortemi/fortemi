@@ -24,6 +24,34 @@ export function parsePostgresLoad(text) {
 }
 /** Explicit connection configuration only; never discovers a deployed database. */
 export async function collectPostgresLoad(connection) {
+  return collectSnapshot(connection, 'load-postgres-snapshot.sql', parsePostgresLoad,
+    { databaseScope: 'connected-database', walScope: 'whole-cluster' });
+}
+
+export function parsePostgresQueueLoad(text) {
+  if (typeof text !== 'string' || Buffer.byteLength(text) > 65536) throw new Error('invalid queue snapshot size');
+  let value;
+  try { value = JSON.parse(text); } catch { throw new Error('invalid queue snapshot JSON'); }
+  if (!value || value.scope !== 'public.job_queue' || value.rowSecurity !== false
+    || typeof value.observedAt !== 'string' || !Number.isFinite(Date.parse(value.observedAt))) throw new Error('complete public queue scope required');
+  for (const field of ['databaseOid', 'relationOid', 'active', 'missingCreatedAt', 'futureCreatedAt']) {
+    if (typeof value[field] !== 'string' || !/^\d{1,30}$/.test(value[field]) || BigInt(value[field]) > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('invalid queue counter');
+  }
+  if (BigInt(value.databaseOid) === 0n || BigInt(value.relationOid) === 0n
+    || value.missingCreatedAt !== '0' || value.futureCreatedAt !== '0'
+    || typeof value.oldestActiveSeconds !== 'string' || !/^\d+(?:\.\d+)?$/.test(value.oldestActiveSeconds)
+    || !Number.isFinite(Number(value.oldestActiveSeconds))
+    || (BigInt(value.active) === 0n && Number(value.oldestActiveSeconds) !== 0)) throw new Error('complete queue age observation required');
+  return value;
+}
+
+/** All pending/running rows, including delayed and unsupported job types. */
+export async function collectPostgresQueueLoad(connection) {
+  return collectSnapshot(connection, 'load-postgres-queue-snapshot.sql', parsePostgresQueueLoad,
+    { databaseScope: 'connected-database', queueScope: 'public.job_queue:all-pending-and-running' });
+}
+
+async function collectSnapshot(connection, filename, parse, scope) {
   if (!connection || typeof connection !== 'object' || Array.isArray(connection)
     || Object.entries(connection).some(([k, v]) => !connectionKeys.has(k) || typeof v !== 'string' || v.includes('\0'))
     || ['PGHOST', 'PGPORT', 'PGDATABASE', 'PGUSER'].some(k => !connection[k])
@@ -31,13 +59,13 @@ export async function collectPostgresLoad(connection) {
   const startNs = process.hrtime.bigint().toString();
   try {
     const { stdout } = await execute('/usr/bin/psql', ['--no-psqlrc', '--no-password', '--quiet', '--tuples-only', '--no-align',
-      '--set=ON_ERROR_STOP=1', '--file', fileURLToPath(new URL('./load-postgres-snapshot.sql', import.meta.url))], {
+      '--set=ON_ERROR_STOP=1', '--file', fileURLToPath(new URL(filename, import.meta.url))], {
       timeout: 5000, killSignal: 'SIGKILL', maxBuffer: 65536,
       env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8', ...connection, PGCONNECT_TIMEOUT: '3',
         PGOPTIONS: '-c default_transaction_read_only=on -c statement_timeout=2000 -c lock_timeout=1000' },
     });
     return { admitted: false, executionAuthorized: false, startNs, endNs: process.hrtime.bigint().toString(),
-      databaseScope: 'connected-database', walScope: 'whole-cluster', snapshot: parsePostgresLoad(stdout) };
+      ...scope, snapshot: parse(stdout) };
   } catch { throw new Error('POSTGRES_OBSERVATION_UNAVAILABLE'); }
 }
 

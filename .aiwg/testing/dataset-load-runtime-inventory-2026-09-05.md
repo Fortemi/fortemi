@@ -443,3 +443,42 @@ abort isolation. These are adapter tests, not production-load or profile matrix
 receipts. Remaining work includes integrated phase orchestration, real independent
 state/cleanup verification, missing instrumentation and the signed approved run
 configuration and dependency evidence described above.
+
+## Database queue-age observation
+
+collectPostgresQueueLoad now offers a separate fixed read-only query against
+public.job_queue in the explicitly selected database. It measures creation age
+of all pending/running rows, including delayed retries and unsupported job types;
+completed/failed rows do not contribute. Empty active queues produce zero age.
+Missing or future creation timestamps reject rather than making the queue appear
+younger. The result retains database/relation OIDs, server observation timestamp,
+raw decimal seconds, active count and exact table scope. Local monotonic bounds
+surround the subprocess; the orchestrator still must map observation age and
+clock assumptions into approved telemetry windows.
+
+This is intentionally distinct from the runtime API's supported-type counts.
+The approved metric definition must select and justify the physical backlog
+scope, bind public.job_queue to the measured worker, and account for other
+queue schemas or services. It cannot infer a tenant namespace or replace the
+API's incompatible/dead counts. The earlier API collector still reports its
+queueOldestSeconds gap; this database observation is an additional source whose
+coverage must be approved before combination.
+
+The subprocess shares the existing explicit connection allowlist, disabled psql
+startup files, read-only transaction, 2-second statement, 1-second lock and
+5-second process deadlines, and 64-KiB output limit. The aggregate may scan a
+large queue and time out; timeout is missing evidence, not zero backlog. The
+collector never grants itself table access. pg_monitor alone did not grant
+SELECT in the local integration test.
+
+The query sets row_security=off to reject policy-filtered results. It does not
+grant RLS bypass, as specified by the [PostgreSQL row-security documentation](https://www.postgresql.org/docs/18/ddl-rowsecurity.html).
+The selected observer role and scope still require approval; this collector is
+not the non-owner runtime-role isolation proof required by #1137.
+
+Nine new parser regressions and the extended disposable PostgreSQL 18 test cover
+missing permissions, empty queues, delayed/unsupported backlog, future timestamps
+and RLS filtering. The table in that test is a minimal physical fixture; it does
+not prove production migrations or actual worker coverage. No deployed database
+was contacted. Pool utilization/timeouts, physical blob occupancy, freshness,
+provider measurements and integrated admission remain incomplete.
