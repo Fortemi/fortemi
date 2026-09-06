@@ -203,3 +203,32 @@ and bounded teardown to control residual work. The OS-level watchdog, actual
 runtime adapters, durable receipt writer, state observer and namespace cleanup
 must be supplied before this mechanism can support a qualification run. Tests
 use local synthetic callbacks only; no deployed service or provider is targeted.
+
+## Existing API transport integration
+
+[createLoadApiTransport](../../scripts/qualification/load-api-transport.mjs)
+implements the apiRequest signature accepted by the existing
+createDatasetExecutionController. Configuration explicitly supplies an origin,
+authentication token, memory namespace, exact method/path permissions, request/
+response byte bounds, timeout and evidence observer. No environment credentials
+or default namespace are discovered. Redirects and requests outside the configured
+scope reject; request-size failures occur before fetch. Response limits apply to
+streamed bytes as well as Content-Length. Caller cancellation and a fixed timeout
+cover the network operation and metadata observer.
+
+Successful JSON responses are returned to the existing controller, which retains
+its own storage receipt/checkpoint checks. Transport success alone is not a
+successful operation classification. HTTP errors expose only stable transport
+codes and status, not private response bodies. Metadata retains timing, status,
+byte counts and a response digest without token, URL query, namespace or content.
+The full independent state/content proof is still required. Network failures,
+oversized responses and missing metadata can occur after mutation; classify them
+as ambiguous until independently reconciled, never as zero-mutation rejections.
+
+The local integration regression runs the actual dataset controller against a
+synthetic HTTP server using the existing supported-request fixture and a bound
+storage response. It verifies transport/controller compatibility only; it does
+not use PostgreSQL or qualify durable execution. Binary export/import and SSE
+are not supported by this JSON transport and still require bounded adapters.
+The origin and credentials must be approved and bound to the isolated topology
+before runtime use. Same-origin URL checks are not network/DNS isolation proof.
