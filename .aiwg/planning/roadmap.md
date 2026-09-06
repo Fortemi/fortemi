@@ -613,7 +613,7 @@ Single-user desktop product; no multi-tenancy or advanced OAuth.
 
 - [ ] Streaming: #906 (cost/default mode) / #915 / #939 (outbox backpressure + payload minimization) / #896 (ADR refresh).
 - [~] Native distribution: #64 packaging/service lifecycle/CI publish; supply-chain #916/#888/#887/#886; licensing notices #901/#894. (2026-08-13: publication audit verified `v2026.7.19` across Gitea release, GitHub release assets, GHCR stable aliases, and current-main GHCR aliases; workflow pinning and release-policy checks pass. Release CI now blocks both release entries until an anonymous client verifies public GHCR pulls, stable-alias digest binding, platform policy, and source labels. The current Rust and MCP audit blockers were remediated by upgrading `lru` to `0.18.2` and refreshing patched MCP transitive locks. `Fortemi/fortemi.com#37` routes download controls to GitHub release authorities with regression coverage; #916 binary signing remains an explicit open gate.)
-- [!] Release infrastructure: #1072 still needs operator-owned automated cleanup/monitoring and concurrency-aware runner capacity reservation. #1078 appears implemented by `79e60214` plus workflow guard tests and should close after exact main/tag evidence is attached.
+- [~] Release infrastructure: #1072 closed after independent scheduled monitoring and failure diagnostics on titan, with successful main CI 54374. This does not claim concurrency-aware capacity reservation or remote alerts. #1078 appears implemented by `79e60214` plus workflow guard tests and should close after exact main/tag evidence is attached.
 
 ## Parallel gated integrations (not current GA critical path)
 
@@ -683,6 +683,8 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - Current backlog rebaseline: `.aiwg/planning/issue-roadmap-audit-2026-08-23.md`.
 
 ## Progress log
+
+- 2026-09-06 — #1072 and #1127 closed after successful CI 54374 at main `361c1820`, scheduled monitor/failure-probe receipts and installed fresh-browser cutover evidence. Scope remains titan monitoring and host cutover verification; broader auth, recovery, publication and suite compatibility gates remain open.
 
 - 2026-09-06: #1127 installed localhost:4180 fresh-browser recheck passed after 15 seconds: API Connected, notes/events HTTP 200; topology, health and compatibility probes passed. Delivering external-network override, probe and cutover runbook; five regression tests and Compose validation pass. Receipt remains host-specific and does not certify broader authentication or suite compatibility.
 
