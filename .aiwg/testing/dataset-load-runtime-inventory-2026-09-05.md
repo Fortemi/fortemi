@@ -74,3 +74,31 @@ Next: finish the API and provider limit inventory, bind raw-request reduction
 to an approved phase/window threshold evaluator, and build bounded driver and
 collector adapters. The execution plan's dependency and approval gates remain
 in force; this utility and its synthetic tests do not qualify #1141.
+
+## Request threshold evaluation
+
+[evaluateLoadRequests](../../scripts/qualification/evaluate-load-requests.mjs)
+consumes a separate five-phase plan and observations keyed by phase name. Each
+plan phase contains name, durationMs, windowMs, drainMs, retained schedule and
+thresholds for every operation. Each operation policy contains minimumSamples,
+latencyP50/P95/P99, throughputPerSecond and errorRate. Each threshold has an
+explicit operator, limit and unit. Latency upper bounds use milliseconds;
+throughput lower bounds use operations/second and must be positive; error bounds
+use a ratio. Missing policy, incorrect units, inverted comparisons and nonfinite
+limits reject before observations are considered.
+
+The same approved policy applies to the phase and each of its windows; a window
+cannot be excluded after results are known. Sample floors also apply to every
+window. Raw input is reduced internally rather than accepting caller-supplied
+percentiles. Phase reports preserve both failed comparisons and missing coverage.
+An invalid observation stream produces FAIL; absent phase evidence or incomplete
+samples produce MISSING. Reports use canonical phase order irrespective of input
+order. The total plan is bounded to 100000 scheduled requests and 1000 windows.
+
+`requestChecksPass` applies only to these request metrics. `admitted` and
+`executionAuthorized` remain false. This module does not authenticate the plan,
+verify resource/provider measurements, enforce the driver schedule, or qualify
+limit-plus-one, topology, recovery, redaction or cleanup. The caller must bind
+these inputs to signed immutable evidence and supply the remaining checks.
+The test fixtures' numeric values are synthetic regression values, not proposed
+production thresholds. Driver and collector integration remain outstanding.
