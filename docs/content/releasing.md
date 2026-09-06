@@ -1,6 +1,8 @@
 # Release Process
 
-This document describes the release process for Fortémi.
+This document describes the release process for Fortémi. The executable release
+policy is `.aiwg/release.config`; stable tags must use
+`tools/release/cut-tag.sh` and its distinct OpenBao-backed release signing key.
 
 ## Versioning
 
@@ -17,8 +19,10 @@ Fortémi uses **CalVer** (Calendar Versioning):
 ### Pre-Release
 
 - [ ] All tests passing: `cargo test --workspace`
-- [ ] Linting clean: `cargo clippy -- -D warnings`
-- [ ] Format check: `cargo fmt --check`
+- [ ] Linting clean: `cargo clippy --all-targets --all-features -- -D warnings`
+- [ ] Format check: `cargo fmt --all -- --check`
+- [ ] Dependency policy: `cargo deny check advisories bans licenses sources`
+- [ ] Documentation contract: `DOCS_CONTRACT_MODE=blocking npm run docs:contract -- --profile=hosted_strict`
 - [ ] CI pipeline green on main branch
 - [ ] Documentation updated for new features
 - [ ] No critical open issues blocking release
@@ -28,48 +32,42 @@ Fortémi uses **CalVer** (Calendar Versioning):
 
 ### Version Bump
 
-1. **Update Cargo.toml**
-   ```bash
-   # Edit workspace version in Cargo.toml
-   # Change: version = "0.1.0"
-   # To:     version = "2026.1.0"
-   ```
-
-2. **Update CHANGELOG.md**
-   - Move items from `[Unreleased]` to new version section
-   - Add release date
-   - Update comparison links at bottom
-
-3. **Update mcp-server/package.json** (if applicable)
-   ```json
-   {
-     "version": "2026.1.0"
-   }
-   ```
+1. Set the workspace version in `Cargo.toml` and refresh the corresponding
+   workspace package entries in `Cargo.lock`.
+2. Set the same version in `mcp-server/package.json` and
+   `mcp-server/package-lock.json`. MCP version alignment is required for every
+   server release.
+3. Move the selected `CHANGELOG.md` entries into the dated release section and
+   update comparison links. Add `docs/releases/vYYYY.M.PATCH-announcement.md`.
 
 ### Create Release
 
+Commit the reviewed release files with the configured OpenBao-backed commit
+signing authority. Ordinary commits and release tags use distinct keys:
+
 ```bash
-# 1. Ensure working directory is clean
-git status
-
-# 2. Commit version changes
-git add Cargo.toml CHANGELOG.md mcp-server/package.json
-git commit -m "chore: release v2026.1.0"
-
-# 3. Create annotated tag
-git tag -a v2026.1.0 -m "v2026.1.0 - First CalVer release
-
-Highlights:
-- Strict tag filtering for data segregation
-- W3C SKOS tagging system
-- Hybrid search with RRF fusion
-- MCP server with 65+ tools
-- PKE encryption support"
-
-# 4. Push to remote
-git push origin main --tags
+git add Cargo.toml Cargo.lock mcp-server/package.json mcp-server/package-lock.json \
+  CHANGELOG.md docs/releases/vYYYY.M.PATCH-announcement.md
+git -c user.signingkey=62297562B1C7053088F405DB0117DAAA677A5BF2 \
+  -c gpg.program=tools/git/gpg-from-openbao.sh commit -S \
+  -m "chore: release vYYYY.M.PATCH"
+git push origin main
 ```
+
+After the required gates pass, use a clean checkout at the exact current
+`origin/main` commit. If the working checkout contains unrelated files, use an
+isolated clean checkout and preserve the original work. The tag wrapper checks
+workspace/MCP versions, changelog, announcement, clean status and `origin/main`,
+then signs and verifies with the published release key:
+
+```bash
+tools/release/cut-tag.sh YYYY.M.PATCH -m "vYYYY.M.PATCH - Release title"
+git push origin vYYYY.M.PATCH
+```
+
+The wrapper accepts stable CalVer versions. It does not replace CI, lockfile or
+publication verification. Do not bypass it with a raw annotated tag or publish
+unrelated local tags. A failed gate leaves the release incomplete.
 
 ### CI/CD Automation
 
@@ -115,7 +113,8 @@ complete release or leaving the two release entries under different gates.
 
 ### Post-Release
 
-- [ ] Verify release appears on [GitHub Releases](https://github.com/fortemi/fortemi/releases)
+- [ ] Verify the canonical [Gitea release](https://git.integrolabs.net/Fortemi/fortemi/releases) and required assets
+- [ ] Verify the mirrored release appears on [GitHub Releases](https://github.com/fortemi/fortemi/releases)
 - [ ] Verify Docker images on [ghcr.io](https://ghcr.io/fortemi/fortemi)
 - [ ] Record immutable Docker digest references for `{version}` and `bundle-{version}`
 - [ ] Update any deployment configurations

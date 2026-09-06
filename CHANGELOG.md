@@ -7,6 +7,32 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.9.4] - 2026-09-05
+
+Dataset validation fixes and configurable load experiment tooling.
+
+### Highlights
+
+| What changed | Why it matters |
+|---|---|
+| Strict nested dataset request and receipt validation | Unverifiable storage outcomes cannot attest success or advance checkpoints. |
+| Tenant-scoped bulk reprocessing | Deleted, missing and out-of-scope notes cannot enter reprocessing jobs. |
+| Configurable bounded load experiments | Operators can select profiles and override parameters without editing scripts; preflight rejects infeasible coverage and budgets. |
+
+### Added
+
+- Add detached dataset qualification candidate 2.0.0 with independent signing
+  roles, immutable evidence checks, matrix admission and replay history (#1136).
+  This is qualification tooling; operational approval and consumer receipts
+  remain separate gates.
+- Add configurable rehearsal/calibration/qualification profiles, deterministic
+  schedules, sample and resource preflight, bounded HTTP/process/evidence
+  adapters, Linux/PostgreSQL/queue collectors, exact decimal attempt budgets,
+  and independent state/cleanup comparison mechanisms (#1141).
+- Retain real local k6 arrival-reference evidence, including the raw endpoint
+  mismatch and explicit rejection of out-of-window starts before dispatch.
+  This proves only the selected admitted-arrival accounting check.
+
 ### Fixed
 
 - Dataset execution validates nested requests and receipts before attesting

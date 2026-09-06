@@ -169,9 +169,18 @@ Resume is an explicit alias for exact-content retry. Archive shares the negotiat
 duration and single-operation concurrency bound and reports hashed unresolved
 residue if its cleanup deadline expires.
 
+Once a batch is submitted, connection failures and incomplete or inconsistent
+storage responses leave the attempt `ambiguous`/`unverifiable`: transport failure
+does not prove that storage rolled back. Retry the stored exact request to resolve
+its durable outcome. `checkpoint` returns the after-checkpoint only for verified
+`committed`/`degraded` attempts. `archive` rejects an ambiguous attempt with
+`RUN_OUTCOME_UNRESOLVED` until exact retry resolves it. These lifecycle diagnostics
+are distinct from the HTTP API's RFC 9457 error response contract.
+
 The compact MCP schema accepts the canonical request under `request`; the full
 language-neutral schema and fixtures are published under
-`contracts/dataset-execution/1.0.0`. Receipts bind plan/configuration/input/
+`contracts/dataset-execution/1.0.0`, with current strict validation and request
+binding under `contracts/dataset-execution/validation/1.0.1`. Receipts bind plan/configuration/input/
 output schema digests, negotiation, resource envelope, checkpoint, profiles,
 counts, outcomes, and diagnostics. They contain no source content, raw logical
 IDs, or connection details.

@@ -385,6 +385,15 @@ For Claude Code integration, configure `.mcp.json`:
 }
 ```
 
+Dataset execution uses request/receipt validation revision `1.0.1`; discover the
+binding revision and obtain a fresh preview before approving changed schema
+bindings. See [the MCP lifecycle guide](docs/content/mcp.md#manage_dataset_execution)
+and [ADR-107](docs/architecture/adr/ADR-107-versioned-mcp-dataset-execution.md).
+The [configurable load tooling](scripts/qualification/README.md) compiles editable
+profiles and runs bounded experiments through explicit adapters. Its local results
+do not grant qualification admission, establish the Enterprise MCP gate described
+in [ADR-100](docs/architecture/adr/ADR-100-mcp-scope-gate.md), or change suite NO-GO.
+
 ## Testing
 
 ```bash
@@ -539,27 +548,27 @@ matric-memory uses **CalVer**: `YYYY.M.PATCH` (e.g., `2026.1.0`)
 
 ### Quick Release Checklist
 
-1. **Pre-release checks**
+1. Run the required build, test, documentation and publication gates in
+   [.aiwg/release.config](.aiwg/release.config). Main and release CI must pass.
+2. Keep `Cargo.toml`, workspace entries in `Cargo.lock`,
+   `mcp-server/package.json` and `mcp-server/package-lock.json` in lockstep.
+   Update `CHANGELOG.md` and `docs/releases/vYYYY.M.PATCH-announcement.md`.
+3. Commit the reviewed files with the configured OpenBao-backed commit authority,
+   then push `main`. Use a clean checkout at the exact `origin/main` commit for
+   tagging; preserve unrelated working files in the original checkout.
+4. Create and verify the tag using the distinct release authority, then push only
+   that tag:
+
    ```bash
-   cargo test --workspace
-   cargo clippy -- -D warnings
-   cargo fmt --check
+   tools/release/cut-tag.sh YYYY.M.PATCH -m "vYYYY.M.PATCH - Release title"
+   git push origin vYYYY.M.PATCH
    ```
 
-2. **Update versions**
-   - `Cargo.toml` - workspace version
-   - `CHANGELOG.md` - add release section
-   - `mcp-server/package.json` - if applicable
-
-3. **Commit and tag**
-   ```bash
-   git add Cargo.toml CHANGELOG.md
-   git commit -m "chore: release vYYYY.M.PATCH"
-   git tag -a vYYYY.M.PATCH -m "vYYYY.M.PATCH - Release title"
-   git push origin main --tags
-   ```
-
-4. **Create Gitea release** with highlights from CHANGELOG.md
+   The wrapper checks the release inputs and clean checkout, signs with the
+   OpenBao-backed release key, and verifies the signature. A raw annotated tag
+   does not satisfy this gate.
+5. Verify exact-revision CI, Gitea release assets, mirrored publication and
+   immutable image digests before finalizing the release.
 
 See `docs/content/releasing.md` for full details.
 

@@ -117,6 +117,14 @@ tests alone do not establish that operational independence.
 
 ## Evidence and compatibility
 
+The persisted fixture/state plan and raw operation records can contain source
+content and resource identities. Public RunReceipt redaction does not apply to
+these local artifacts. `createLoadEvidenceWriter` bounds and hashes bytes; it does
+not redact them. Use synthetic fixtures, an operator-controlled evidence directory
+and the selected retention policy. Adapter evidence shared outside that directory
+must follow the telemetry redaction policy while retaining the independently
+verifiable bindings required by the run.
+
 Raw workload records preserve acknowledgement timestamps, logical IDs and each
 HTTP attempt; verifier records add independently verified completion timestamps.
 The transport records failed and abandoned dispatched attempts as well as complete
