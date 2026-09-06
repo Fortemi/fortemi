@@ -135,3 +135,36 @@ or enforce a live abort. Between-sample behavior is unproven; select collection
 cadence and independent watchdog reserves accordingly. Actual baseline capture,
 collector adapters, authority binding, phase orchestration, growth-rate safety,
 abort/recovery deadlines and independent cleanup remain required for #1141.
+
+## Read-only Linux adapter
+
+[collectLinuxLoad](../../scripts/qualification/collect-linux-load.mjs) reads
+explicitly selected process smaps_rollup RSS, cgroup-v2 cpu.stat usage, and
+filesystem free bytes/inodes. Kernel interface reads are capped at 64 KiB;
+nonregular files and final-component symlinks reject. At most 32 explicit PIDs
+are accepted. Process start identities are checked around each RSS read to
+reject PID reuse. The cgroup directory is anchored by an open descriptor and
+its filesystem type is checked. No process is spawned or terminated and no
+service, namespace or filesystem is modified.
+
+Raw samples retain monotonic acquisition timestamps, process start identities
+and cgroup device/inode. CPU percent is derived from two observations of the
+same cgroup, normalized by the operator's allocated-core count; counter/clock
+resets reject and values are never clamped. The adapter uses the kernel's
+[cgroup-v2 CPU interface](https://docs.kernel.org/admin-guide/cgroup-v2.html)
+and [proc memory reporting](https://docs.kernel.org/filesystems/proc.html).
+
+Summed RSS can count shared pages more than once. Cgroup CPU includes the
+selected cgroup's hierarchy, whereas RSS covers only the supplied PIDs. The
+operator/verifier must bind both scopes to the signed topology, account for
+worker churn and check membership separately. Device/inode is not a substitute
+for machine/boot identity across separate runs. Filesystem availability is a
+snapshot for the supplied path, not a reservation or proof of isolated storage.
+Snapshots cannot establish between-sample peaks or cross-process atomicity.
+
+This adapter deliberately returns raw timestamps, not fabricated time-zero
+telemetry frames. The orchestrator must establish a baseline, preserve each
+collector's acquisition time, map it to the phase clock and reject stale input.
+Database/WAL/blob, queue, lock, freshness and provider collectors remain absent;
+they must not be filled with zeros. The local kernel-interface regression test
+exercises only collection in this environment and is not a load qualification.
