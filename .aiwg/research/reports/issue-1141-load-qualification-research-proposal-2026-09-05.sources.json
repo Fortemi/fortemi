@@ -1,0 +1,148 @@
+{
+  "type": "research-spike-provenance",
+  "issue": "Fortemi/fortemi#1141",
+  "status": "proposal-not-qualification",
+  "retrievedDate": "2026-09-05 America/New_York",
+  "implementationRevision": "4d2ccd5740b02737e67db68d3635d3fdcf33339d",
+  "corpus": {
+    "repository": "section9/research-papers",
+    "revision": "126758e2776f742445a1d2703fbd42d27dffa0a9",
+    "references": [
+      {
+        "ref": "REF-320",
+        "path": "documentation/references/REF-320-postgres-listen-notify-scale.md",
+        "sha256": "7f509036a7a0c5b4fcec46dfb57ff0d0219b21433d01a47a9f39047996229ce8",
+        "use": "retrieval lead; original public source checked; no numerical transfer"
+      },
+      {
+        "ref": "REF-324",
+        "path": "documentation/references/REF-324-scaling-pg-queues-100k.md",
+        "sha256": "8caa8975f6ef6933885d0772d186d1d6a1ab33beba224415fae017ceb7b4b8f4",
+        "use": "retrieval lead; original public source checked; no numerical transfer"
+      },
+      {
+        "ref": "REF-326",
+        "path": "documentation/references/REF-326-multi-tenant-pg-queues.md",
+        "sha256": "61dcdba23054528e337033a4e2eb7b16efbe333530e672258910b1df7238a98f",
+        "use": "retrieval lead; original public source checked; no numerical transfer"
+      },
+      {
+        "ref": "REF-475",
+        "path": "documentation/references/REF-475-pineau-2020-reproducibility.md",
+        "sha256": "4ea9dcdbf317671d50f44a053d078bea9f54ceddfa740fc1cb5f5b579a91bab7",
+        "use": "retrieval lead; original public source checked; no numerical transfer"
+      },
+      {
+        "ref": "REF-1518",
+        "path": "documentation/references/REF-1518-maiorano-2026-llm-readiness-harness.md",
+        "sha256": "1ecd4da00f3ea32a476e53932b32f1c5da5c186ffc2a9fa539aebae12b64cba6",
+        "use": "retrieval lead; original public source checked; no numerical transfer"
+      },
+      {
+        "ref": "REF-1592",
+        "path": "documentation/references/REF-1592-maiorano-2026-self-testing-quality-gate.md",
+        "sha256": "5380b2217d56479fb859bc299915d5be157471c359a40c26ebcf6961f6091aa1",
+        "use": "retrieval lead; original public source checked; no numerical transfer"
+      }
+    ]
+  },
+  "publicSources": [
+    {
+      "id": "S1",
+      "title": "k6 open and closed models",
+      "url": "https://grafana.com/docs/k6/latest/using-k6/scenarios/concepts/open-vs-closed/"
+    },
+    {
+      "id": "S2",
+      "title": "k6 dropped iterations",
+      "url": "https://grafana.com/docs/k6/latest/using-k6/scenarios/concepts/dropped-iterations/"
+    },
+    {
+      "id": "S3",
+      "title": "Dean and Barroso, The Tail at Scale",
+      "url": "https://research.google/pubs/the-tail-at-scale/"
+    },
+    {
+      "id": "S4",
+      "title": "YCSB Core Workloads",
+      "url": "https://github.com/brianfrankcooper/YCSB/wiki/Core-Workloads"
+    },
+    {
+      "id": "S5",
+      "title": "Elle",
+      "url": "https://github.com/jepsen-io/elle"
+    },
+    {
+      "id": "S6",
+      "title": "ACM SIGSIM PADS 2026 artifact evaluation",
+      "url": "https://sigsim.acm.org/conf/pads/2026/blog/artifact-evaluation/"
+    },
+    {
+      "id": "S7",
+      "title": "OpenTelemetry database metrics",
+      "url": "https://opentelemetry.io/docs/specs/semconv/db/database-metrics/"
+    },
+    {
+      "id": "S8",
+      "title": "PostgreSQL 18 cumulative statistics",
+      "url": "https://www.postgresql.org/docs/18/monitoring-stats.html"
+    },
+    {
+      "id": "S9",
+      "title": "Google SRE: Handling Overload",
+      "url": "https://sre.google/sre-book/handling-overload/"
+    },
+    {
+      "id": "S10",
+      "title": "AWS: Timeouts, retries and backoff with jitter",
+      "url": "https://d1.awsstatic.com/builderslibrary/pdfs/timeouts-retries-and-backoff-with-jitter.pdf"
+    },
+    {
+      "id": "S11",
+      "title": "Pineau et al., Improving Reproducibility in Machine Learning Research",
+      "url": "https://jmlr.org/papers/v22/20-303.html"
+    },
+    {
+      "id": "S12",
+      "title": "Recall.ai LISTEN/NOTIFY incident",
+      "url": "https://www.recall.ai/blog/postgres-listen-notify-does-not-scale"
+    },
+    {
+      "id": "S13",
+      "title": "PostgreSQL LISTEN/NOTIFY optimization commit",
+      "url": "https://github.com/postgres/postgres/commit/282b1cde9dedf456ecf02eb27caf086023a7bb71"
+    },
+    {
+      "id": "S14",
+      "title": "RudderStack queue scaling",
+      "url": "https://www.rudderstack.com/blog/scaling-postgres-queue/"
+    },
+    {
+      "id": "S15",
+      "title": "Hatchet multi-tenant queues",
+      "url": "https://hatchet.run/blog/multi-tenant-queues"
+    },
+    {
+      "id": "S16",
+      "title": "Maiorano, LLM Readiness Harness",
+      "url": "https://arxiv.org/abs/2603.27355"
+    },
+    {
+      "id": "S17",
+      "title": "Maiorano, Automated Self-Testing as a Quality Gate",
+      "url": "https://arxiv.org/abs/2603.15676"
+    },
+    {
+      "id": "S18",
+      "title": "Linux cgroup v2",
+      "url": "https://docs.kernel.org/admin-guide/cgroup-v2.html"
+    }
+  ],
+  "validation": [
+    "18 distinct public source identifiers",
+    "all inline source groups resolve",
+    "six corpus reference files read and hashed",
+    "independent proposal review corrected logical-operation versus request budget distinction"
+  ],
+  "executionPerformed": false
+}
