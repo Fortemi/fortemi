@@ -402,3 +402,44 @@ explicitly require an SSE workload. It becomes a gate only if selected in the
 approved workload. Export/import, all nine declared operation classes, all five
 phases and every required resource/provider metric remain required; this
 correction does not remove any explicit acceptance criterion.
+
+## Workload dispatch and verification boundary
+
+scripts/qualification/load-workload.mjs binds scheduled IDs and operation labels
+to copied fixtures. Ingest and retry invoke the existing dataset controller
+with the complete execution input; status and cancellation use that same
+controller instance. Query uses search, lineage uses the note provenance or
+links read endpoints, and materialization uses note reprocess. Export names one
+Knowledge Shard profile in its URL; import retains its intended named profile
+alongside the existing base64 request body for independent comparison.
+
+Dispatch does not establish equivalent lineage semantics across interfaces.
+The provenance/link endpoints alone do not verify the fortemi-source-identity
+profile. Reprocess acceptance does not prove completed materialization. A cached
+retry receipt does not prove a network retry or duplicate-free durable effects;
+cancelling a terminal run does not exercise active cancellation. Approved fixture
+preconditions, independent state reads and expected effects must distinguish
+these cases before their observations can qualify the requested workload.
+
+The adapter retains each raw result or sanitized transport failure before asking
+a mandatory verifier callback for a classification. It retains the returned
+verdict, including unsuccessful or malformed verdicts. Only a verified verdict
+with a recognized outcome and evidence digest supplies a classified outcome;
+otherwise the scheduler receives ambiguous. Evidence write failures propagate
+and cannot count as success. The digest syntax check is not signature validation,
+artifact admission or proof that a callback is independent: the approved runner
+must connect it to the trusted state observer and existing admission machinery.
+
+Async request context carries each scheduler signal through the controller's
+internal timeout signals. Direct routes receive that request's signal. Callback
+execution still needs the external bounded worker, and cancellation does not
+establish remote rollback. Archive Buffer values become Uint8Array under
+structuredClone; evidence serialization must preserve their bytes explicitly.
+Raw result retention also still requires the approved redaction policy.
+
+Eleven local regressions exercise the actual controller with synthetic storage
+responses, dispatch, fixture/label binding, evidence failures and per-request
+abort isolation. These are adapter tests, not production-load or profile matrix
+receipts. Remaining work includes integrated phase orchestration, real independent
+state/cleanup verification, missing instrumentation and the signed approved run
+configuration and dependency evidence described above.
