@@ -1,0 +1,19 @@
+[Unit]
+Description=Check Fortemi runner disk and inode capacity
+
+[Service]
+Type=oneshot
+DynamicUser=true
+User=fortemi-capacity
+Environment=RUNNER_MIN_FREE_KIB=41943040
+Environment=RUNNER_MIN_FREE_INODES=1000000
+ExecStart=/usr/local/libexec/fortemi-check-runner-capacity --path /var/lib/docker
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+RestrictSUIDSGID=true
+TimeoutStartSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=fortemi-runner-capacity

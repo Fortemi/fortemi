@@ -684,6 +684,10 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 
 ## Progress log
 
+- 2026-09-06: Lane A #1072 independent capacity monitor installed on titan: root-owned guard, dynamic unprivileged service, five-minute timer; initial runtime pass and controlled failure diagnostics verified. Five capacity tests and unit validation pass. The scheduled repeat passed at 18:26:19 EDT; unit/runbook delivery is proceeding independently. No remote alert forwarding or cleanup claimed. HotM #304 review continues after UI/SDLC CI failures; #301 cleanup handed off to roctinam/itops#658.
+
+- 2026-09-06 — Lane A execution started with parallel workers for #1132, HotM #304 and React #415. #1132 readiness/MCP hardening is locally implemented (11 startup tests including a real 61-second readiness wait, plus four review regressions); #1127 has a persistent external-network override, cutover runbook and read-only probe (five tests and local 4180 health/compatibility pass). Browser/published-artifact verification, integrated server CI and delivery remain pending. #1133 recovery-point reuse is under implementation; no closure or completed release cycle is claimed.
+
 - 2026-08-23 — Audited all 238 open Fortemi issues; rebaselined operating priority around #1098 hypercare, #1081 independent audit, Phase 0/1, and the #1090→#1091/#1092 cross-repository contract lane; filed `fortemi-react#404–#406` and AIWG#2155 for identified traceability/discovery gaps.
 - 2026-08-23 — Reconciled `fortemi-react v2026.8.0`: #404-#406 consumer implementations are released at `4c335a86804dcf5f306218459ccccd8137ceafda` with green delivered-main CI. The issues remain open for Fortemi authority pinning and shared conformance fixtures/receipts; their stale backlog labels were removed and reciprocal tracker checkpoints added.
 - 2026-06-25 — Roadmap handoff clarified: `.aiwg/planning/roadmap.md` is the main operating project plan for future agents; `fortemi-roadmap-skill` is the resume/advance procedure.

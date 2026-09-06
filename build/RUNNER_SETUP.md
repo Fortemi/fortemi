@@ -372,47 +372,50 @@ the runner-owned labels.
 
 #### Continuous Monitoring
 
-Install the repository guard on the runner and call it from the host scheduler
-against the filesystem that backs both Actions workspaces and Docker:
+Install the checked-in service and timer against the filesystem that backs
+both Actions workspaces and Docker. Confirm the paths share a filesystem with
+`df -Pk /var/lib/docker /srv/gitea-runner-host/workdir`; configure additional
+service instances if the host uses separate filesystems.
 
-```ini
-# /etc/systemd/system/fortemi-runner-capacity.service
-[Unit]
-Description=Check Fortemi runner disk and inode capacity
-
-[Service]
-Type=oneshot
-Environment=RUNNER_MIN_FREE_KIB=41943040
-Environment=RUNNER_MIN_FREE_INODES=1000000
-ExecStart=/opt/fortemi/scripts/ci/check-runner-capacity.sh --path /var/lib/docker
-```
-
-```ini
-# /etc/systemd/system/fortemi-runner-capacity.timer
-[Unit]
-Description=Monitor Fortemi runner capacity every five minutes
-
-[Timer]
-OnBootSec=2min
-OnUnitActiveSec=5min
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-```
-
-Connect unit failures to the host's existing alerting. After installing or
-updating the script:
+The service runs with a dynamic unprivileged user and a read-only filesystem.
+Install a root-owned copy of the reviewed guard so the timer never executes a
+mutable developer checkout. From the repository root:
 
 ```bash
+sudo install -D -o root -g root -m 0755 scripts/ci/check-runner-capacity.sh /usr/local/libexec/fortemi-check-runner-capacity
+systemd-analyze verify build/systemd/fortemi-runner-capacity.service build/systemd/fortemi-runner-capacity.timer
+sudo install -o root -g root -m 0644 build/systemd/fortemi-runner-capacity.service build/systemd/fortemi-runner-capacity.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now fortemi-runner-capacity.timer
+sudo systemctl start fortemi-runner-capacity.service
+systemctl show fortemi-runner-capacity.service -p Result -p ExecMainStatus
 systemctl list-timers fortemi-runner-capacity.timer
+sudo journalctl -u fortemi-runner-capacity.service -n 20 --no-pager
 ```
 
-The scheduled monitor and workflow sentinel use the same thresholds. Cleanup
-remains a separate, drain-required operator action so monitoring cannot delete
-active-job state.
+The monitor runs independently of CI every five minutes, beginning two minutes
+after boot (immediately when enabled later). Its floors match the workflow
+sentinel: 40 GiB free and one million free inodes. Below either floor, the unit
+fails and records diagnostics in the journal. Forward unit failures through the
+host's alerting system if remote notification is required; installing this timer
+alone does not configure remote alerts.
+
+A non-destructive failure probe uses an impossible threshold in a separate
+transient unit, leaving the scheduled monitor unchanged:
+
+```bash
+sudo systemd-run --unit=fortemi-capacity-failure-probe --wait --collect --property=DynamicUser=yes --property=ProtectSystem=strict --property=ProtectHome=yes --property=NoNewPrivileges=yes /usr/local/libexec/fortemi-check-runner-capacity --path /var/lib/docker --min-free-kib 999999999999999
+sudo journalctl -u fortemi-capacity-failure-probe.service -n 20 --no-pager
+```
+
+Expect exit status 1 and a below-floor diagnostic. After each script update,
+repeat installation, compare `sha256sum` of source and installed guard, and
+verify the next scheduled execution. To remove the monitor, disable the timer
+with `sudo systemctl disable --now fortemi-runner-capacity.timer`, remove only
+its two installed unit files and guard, then reload systemd.
+
+Cleanup remains a separate, drain-required operator action so monitoring cannot
+delete active-job state.
 
 ## Boundary With the User-Facing Bundle
 
