@@ -167,14 +167,41 @@ Do not relabel successful signature/file verification as successful load testing
 Any schema revision needed for these fields must follow the authority and
 consumer versioning policy rather than silently editing the existing snapshot.
 
-Remaining implementation: a bounded workload driver using existing runtime
-interfaces; telemetry adapters; an independent raw-observation verifier;
-preflight and watchdog enforcement; limit inventory and fixtures; namespace
-cleanup verification; and a versioned representation of the complete approved
-envelope. Existing qualification unit tests are not these deliverables.
+The approved research direction now has a configurable plan compiler, integrated
+bounded experiment lifecycle, attempt accounting, deterministic inventory oracle
+and explicit k6 arrival reference. See the
+[configuration guide](../../scripts/qualification/README.md) and
+[accepted design](../../docs/architecture/adr/ADR-configurable-load-experiments.md).
+Selected parameters are editable profiles and ordered overrides; every effective
+value and schedule is digest-bound before execution. These implementations do not
+supply the missing live adapter evidence.
+
+Remaining integration: actual SQLx/provider measurement coverage, independent live
+state/telemetry adapters, dedicated resource allocation and watchdog deployment,
+complete limit fixtures, operational cleanup verification, prerequisite receipts
+and the final approved envelope. Any incompatible signed-envelope change still
+requires a new contract version and all declared consumer gates.
 
 Review sequence: complete source-backed limit/collector inventory, prepare the
 executable driver and verifier with synthetic regression fixtures, finalize the
 actual environment and proposed numeric values from its constraints, then
 present the complete immutable authority for operator approval. Execution and
 issue closure remain gated on dependencies, approval and actual passing receipts.
+
+## Approved configurable implementation validation
+
+The operator approved the research recommendations and requested easy parameter
+reconfiguration. The implementation provides strict defaults/profile/override
+precedence, explicit null selections, deterministic allocation, per-window sample
+feasibility, complete repeated-run budgets, fresh configuration digests and bounded
+runtime evidence checks. Candidate 2.0.0 remains unchanged.
+
+355 qualification/readiness tests passed with no skips. A real loopback-only k6
+v1.7.1 reference first exposed an endpoint mismatch (Node four offers, k6 five).
+The explicitly bounded reference now reconciles five raw k6 starts, one boundary
+rejection before HTTP and four admitted/completed requests, matching four Node
+requests and eight independent loopback receipts. Both experiments and the binary
+provenance are retained in
+[load-arrival-reference-2026-09-05](load-arrival-reference-2026-09-05/).
+This establishes local admitted-arrival accounting, not identical raw engine
+scheduling, target capacity or qualification. No Fortemi load was executed.

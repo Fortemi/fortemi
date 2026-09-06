@@ -1,0 +1,14 @@
+{
+  "version": "v1.7.1",
+  "binaryVersion": "k6 v1.7.1 (commit/9f82e6f1fc, go1.26.1, linux/amd64)",
+  "release": "https://github.com/grafana/k6/releases/tag/v1.7.1",
+  "asset": "https://github.com/grafana/k6/releases/download/v1.7.1/k6-v1.7.1-linux-amd64.tar.gz",
+  "sha256": "cc127a656f734f8ea1e89f8a417777905ae6a93d42f3e763e95313518180655b",
+  "verifiedAgainst": [
+    "GitHub release API digest",
+    "official k6-v1.7.1-checksums.txt"
+  ],
+  "installation": "temporary /tmp binary only",
+  "result": "FAIL: 4 Node arrivals versus 5 k6 arrivals; endpoint-boundary overrun remains visible",
+  "productionTraffic": false
+}

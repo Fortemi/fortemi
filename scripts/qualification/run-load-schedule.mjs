@@ -33,6 +33,7 @@ export async function runLoadSchedule(plan, { execute, checkSafety, signal }) {
   if (signal?.aborted) externalAbort();
   signal?.addEventListener('abort', externalAbort, { once: true });
   const origin = performance.now(), now = () => performance.now() - origin;
+  let completionDeadline = policy.durationMs + policy.drainMs;
   async function safety(deadline = policy.durationMs) {
     if (abortReason) return;
     let timer;
@@ -51,14 +52,22 @@ export async function runLoadSchedule(plan, { execute, checkSafety, signal }) {
   function dispatch(request) {
     const startedMs = now();
     pending.set(request.id, { startedMs });
+    const complete = (outcome, failureReason) => {
+      const finishedMs = now();
+      // An event-loop stall can deliver an executor completion before the drain
+      // timer runs. Keep that dispatched ID unresolved rather than accepting an
+      // observation outside the approved phase/drain interval.
+      if (finishedMs > completionDeadline) { stop('drain-timeout'); return; }
+      observations.push({ id: request.id, startedMs, finishedMs, outcome });
+      pending.delete(request.id);
+      if (failureReason) stop(failureReason);
+    };
     Promise.resolve().then(() => execute(structuredClone(request), controller.signal)).then(result => {
       const outcome = typeof result === 'string' && outcomes.has(result) ? result : 'ambiguous';
-      if (outcome === 'ambiguous') stop('ambiguous-outcome');
-      observations.push({ id: request.id, startedMs, finishedMs: now(), outcome });
+      complete(outcome, outcome === 'ambiguous' ? 'ambiguous-outcome' : null);
     }, () => {
-      observations.push({ id: request.id, startedMs, finishedMs: now(), outcome: 'ambiguous' });
-      stop('executor-error');
-    }).finally(() => pending.delete(request.id));
+      complete('ambiguous', 'executor-error');
+    });
   }
   try {
     while (!abortReason && now() < policy.durationMs) {
@@ -74,7 +83,8 @@ export async function runLoadSchedule(plan, { execute, checkSafety, signal }) {
       if (!abortReason) await delay(Math.min(policy.pollMs, Math.max(1, policy.durationMs - now())));
     }
     if (!abortReason && index !== schedule.length) stop('schedule-incomplete');
-    const drainDeadline = now() + policy.drainMs;
+    const drainDeadline = Math.min(now() + policy.drainMs, policy.durationMs + policy.drainMs);
+    completionDeadline = drainDeadline;
     while (pending.size && now() < drainDeadline) {
       await safety(drainDeadline);
       await delay(Math.min(policy.pollMs, Math.max(1, drainDeadline - now())));

@@ -96,3 +96,59 @@ test('concurrent execution retains each request abort signal', async () => {
   assert.equal(seen.find(c => c.path.endsWith('source-upsert')).signal.aborted, true);
   assert.equal(seen.find(c => c.path.startsWith('/api/v1/search')).signal.aborted, false);
 });
+
+test('all dispatched calls carry bounded identities and concurrent logical context stays isolated', async () => {
+  const f = fixture(), seen = [], originalApi = f.options.apiRequest;
+  f.options.apiRequest = async (method, path, body, options) => {
+    await new Promise(resolve => setImmediate(resolve));
+    seen.push({ path, ...options });
+    return originalApi(method, path, body);
+  };
+  const run = createLoadWorkload(f.options);
+  await Promise.all([run(f.fixtures[0]), run(f.fixtures[4]), run(f.fixtures[6]), run(f.fixtures[8])]);
+  const expected = { '/api/v1/notes/source-upsert': 'i', '/api/v1/search?q=synthetic': 'q',
+    [`/api/v1/notes/${noteId}/reprocess`]: 'm', '/api/v1/backup/knowledge-shard/import': 'b' };
+  assert.equal(seen.length, 4);
+  for (const call of seen) {
+    assert.equal(call.logicalOperationId, expected[call.path]);
+    for (const key of ['requestId', 'attemptId']) assert.match(call[key], /^[A-Za-z0-9_.:-]{1,200}$/);
+    const raw = f.records.find(record => record.fixtureId === call.logicalOperationId && record.startNs);
+    assert.equal(raw.attempts[0].requestId, call.requestId);
+    assert.equal(raw.attempts[0].attemptId, call.attemptId);
+  }
+  assert.equal(new Set(seen.map(call => call.requestId)).size, 4);
+  assert.equal(new Set(seen.map(call => call.attemptId)).size, 4);
+});
+test('failed dispatch retains identities and separates acknowledgement from verified completion', async () => {
+  const f = fixture(); let identity;
+  f.options.apiRequest = async (_method, _path, _body, options) => {
+    identity = options; throw Object.assign(new Error('private'), { code: 'REQUEST_ABORTED' });
+  };
+  f.options.verifyOutcome = async () => {
+    await new Promise(resolve => setImmediate(resolve));
+    return { verified: true, outcome: 'cancelled', evidenceDigest };
+  };
+  assert.equal(await createLoadWorkload(f.options)(f.fixtures[4]), 'cancelled');
+  const [raw, verification] = f.records;
+  assert.equal(raw.failure.code, 'REQUEST_ABORTED');
+  assert.equal(raw.logicalOperationId, 'q');
+  assert.equal(raw.attempts[0].attemptId, identity.attemptId);
+  assert.deepEqual(verification.attempts, raw.attempts);
+  assert.equal(verification.acknowledgementEndNs, raw.endNs);
+  assert.ok(BigInt(verification.completionNs) > BigInt(raw.endNs));
+});
+test('unverified classifications have no completion timestamp and unusual fixture IDs remain supported', async () => {
+  const f = fixture(); f.fixtures[4].id = 'query fixture / α';
+  f.options.verifyOutcome = async () => ({ verified: false });
+  let identity;
+  f.options.apiRequest = async (_method, _path, _body, options) => { identity = options; return {}; };
+  const run = createLoadWorkload(f.options);
+  await run(f.fixtures[4]);
+  assert.match(identity.logicalOperationId, /^fixture:[a-f0-9]{64}$/);
+  assert.equal(f.records[1].completionNs, null);
+  assert.ok(BigInt(f.records[1].verificationEndNs) >= BigInt(f.records[0].endNs));
+  const first = identity.logicalOperationId;
+  await run(f.fixtures[4]);
+  assert.equal(identity.logicalOperationId, first);
+  assert.notEqual(f.records[0].attempts[0].attemptId, f.records[2].attempts[0].attemptId);
+});

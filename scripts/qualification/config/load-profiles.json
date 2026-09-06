@@ -1,0 +1,299 @@
+{
+  "version": 1,
+  "defaults": {
+    "stage": "calibration",
+    "repetitions": 1,
+    "seed": 1,
+    "phases": [
+      {
+        "name": "step-1",
+        "ratePerSecond": 0.5,
+        "durationMs": 120000,
+        "windowMs": 120000
+      },
+      {
+        "name": "step-2",
+        "ratePerSecond": 1,
+        "durationMs": 120000,
+        "windowMs": 120000
+      },
+      {
+        "name": "step-3",
+        "ratePerSecond": 2,
+        "durationMs": 120000,
+        "windowMs": 120000
+      }
+    ],
+    "mix": {
+      "ingest": 20,
+      "query": 25,
+      "lineage": 10,
+      "materialization": 10,
+      "export": 5,
+      "import": 5,
+      "status": 10,
+      "cancellation": 5,
+      "retry": 10
+    },
+    "runner": {
+      "drainMs": 60000,
+      "maxConcurrency": 1,
+      "maxScheduleLagMs": 1000,
+      "pollMs": 10,
+      "safetyTimeoutMs": 1000
+    },
+    "cleanup": {
+      "timeoutMs": 300000,
+      "settleMs": 1000
+    },
+    "budgets": {
+      "maxLogicalOperations": 100000,
+      "maxHttpRequests": 1000000,
+      "maxProviderAttempts": 100000,
+      "maxEvidenceBytes": 67108864,
+      "maxEvidenceFiles": 10000,
+      "maxRunMs": 43200000
+    },
+    "provider": {
+      "maxCostUsd": null,
+      "priceRevision": null
+    },
+    "operationBounds": {
+      "ingest": {
+        "httpRequests": null,
+        "providerAttempts": null,
+        "evidenceBytes": null,
+        "deadlineMs": null
+      },
+      "query": {
+        "httpRequests": null,
+        "providerAttempts": null,
+        "evidenceBytes": null,
+        "deadlineMs": null
+      },
+      "lineage": {
+        "httpRequests": null,
+        "providerAttempts": null,
+        "evidenceBytes": null,
+        "deadlineMs": null
+      },
+      "materialization": {
+        "httpRequests": null,
+        "providerAttempts": null,
+        "evidenceBytes": null,
+        "deadlineMs": null
+      },
+      "export": {
+        "httpRequests": null,
+        "providerAttempts": null,
+        "evidenceBytes": null,
+        "deadlineMs": null
+      },
+      "import": {
+        "httpRequests": null,
+        "providerAttempts": null,
+        "evidenceBytes": null,
+        "deadlineMs": null
+      },
+      "status": {
+        "httpRequests": null,
+        "providerAttempts": null,
+        "evidenceBytes": null,
+        "deadlineMs": null
+      },
+      "cancellation": {
+        "httpRequests": null,
+        "providerAttempts": null,
+        "evidenceBytes": null,
+        "deadlineMs": null
+      },
+      "retry": {
+        "httpRequests": null,
+        "providerAttempts": null,
+        "evidenceBytes": null,
+        "deadlineMs": null
+      }
+    },
+    "requestPolicy": {
+      "minimumSamples": 1000,
+      "latencyP50": {
+        "operator": "lte",
+        "limit": null,
+        "unit": "milliseconds"
+      },
+      "latencyP95": {
+        "operator": "lte",
+        "limit": null,
+        "unit": "milliseconds"
+      },
+      "latencyP99": {
+        "operator": "lte",
+        "limit": null,
+        "unit": "milliseconds"
+      },
+      "throughputPerSecond": {
+        "operator": "gte",
+        "limit": null,
+        "unit": "operations/second"
+      },
+      "errorRate": {
+        "operator": "lte",
+        "limit": null,
+        "unit": "ratio"
+      }
+    },
+    "perOperation": {
+      "ingest": {},
+      "query": {},
+      "lineage": {},
+      "materialization": {},
+      "export": {},
+      "import": {},
+      "status": {},
+      "cancellation": {},
+      "retry": {}
+    },
+    "telemetry": {
+      "maxGapMs": 1000,
+      "maxAgeMs": 1000,
+      "thresholds": {
+        "rssBytes": {
+          "operator": "lte",
+          "limit": null,
+          "unit": "bytes"
+        },
+        "cpuPercent": {
+          "operator": "lte",
+          "limit": null,
+          "unit": "percent"
+        },
+        "storageGrowthBytes": {
+          "operator": "lte",
+          "limit": null,
+          "unit": "bytes"
+        },
+        "walGrowthBytes": {
+          "operator": "lte",
+          "limit": null,
+          "unit": "bytes"
+        },
+        "walGeneratedBytes": {
+          "operator": "lte",
+          "limit": null,
+          "unit": "bytes"
+        },
+        "blobGrowthBytes": {
+          "operator": "lte",
+          "limit": null,
+          "unit": "bytes"
+        },
+        "queueDepth": {
+          "operator": "lte",
+          "limit": null,
+          "unit": "count"
+        },
+        "queueOldestSeconds": {
+          "operator": "lte",
+          "limit": null,
+          "unit": "seconds"
+        },
+        "poolUtilizationPercent": {
+          "operator": "lte",
+          "limit": null,
+          "unit": "percent"
+        },
+        "poolTimeouts": {
+          "operator": "lte",
+          "limit": null,
+          "unit": "count"
+        },
+        "lockWaitSeconds": {
+          "operator": "lte",
+          "limit": null,
+          "unit": "seconds"
+        },
+        "deadlocks": {
+          "operator": "lte",
+          "limit": null,
+          "unit": "count"
+        },
+        "indexFreshnessSeconds": {
+          "operator": "lte",
+          "limit": null,
+          "unit": "seconds"
+        },
+        "providerCalls": {
+          "operator": "lte",
+          "limit": null,
+          "unit": "count"
+        },
+        "providerCost": {
+          "operator": "lte",
+          "limit": null,
+          "unit": "USD"
+        },
+        "freeBytes": {
+          "operator": "gte",
+          "limit": null,
+          "unit": "bytes"
+        },
+        "freeInodes": {
+          "operator": "gte",
+          "limit": null,
+          "unit": "count"
+        }
+      }
+    },
+    "environment": {
+      "target": null,
+      "generator": null,
+      "observer": null,
+      "runtimeRevision": null,
+      "fixtureDigest": null,
+      "runtimeTenants": [
+        "load-a",
+        "load-b"
+      ],
+      "controlNamespace": "load-control"
+    }
+  },
+  "profiles": {
+    "calibration": {},
+    "qualification": {
+      "stage": "qualification",
+      "repetitions": 3,
+      "phases": [
+        {
+          "name": "smoke",
+          "ratePerSecond": 2,
+          "durationMs": 120000,
+          "windowMs": 120000
+        },
+        {
+          "name": "average",
+          "ratePerSecond": 2,
+          "durationMs": 120000,
+          "windowMs": 120000
+        },
+        {
+          "name": "stress",
+          "ratePerSecond": 2,
+          "durationMs": 120000,
+          "windowMs": 120000
+        },
+        {
+          "name": "spike",
+          "ratePerSecond": 2,
+          "durationMs": 120000,
+          "windowMs": 120000
+        },
+        {
+          "name": "soak",
+          "ratePerSecond": 2,
+          "durationMs": 120000,
+          "windowMs": 120000
+        }
+      ]
+    }
+  }
+}

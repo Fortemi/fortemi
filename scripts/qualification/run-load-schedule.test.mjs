@@ -44,3 +44,28 @@ test('invalid or unordered schedules reject before callbacks', async () => {
     await assert.rejects(runLoadSchedule(p, { execute: () => { calls++; }, checkSafety: () => { calls++; } })); assert.equal(calls, 0);
   }
 });
+test('late completion during an event-loop stall remains unresolved beyond the fixed drain bound', async () => {
+  const p = plan(); p.durationMs = 40; p.drainMs = 20; p.maxConcurrency = 1;
+  p.schedule = p.schedule.slice(0, 2);
+  let finish, stalled = false;
+  const r = await runLoadSchedule(p, {
+    execute: () => new Promise(resolve => { finish = resolve; }),
+    checkSafety: () => {
+      if (finish && !stalled) {
+        stalled = true;
+        // Force completion delivery beyond the entire budget, without relying
+        // on timer ordering or asserting an exact elapsed wall-clock duration.
+        finish('succeeded');
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, p.durationMs + p.drainMs + 30);
+      }
+      return true;
+    },
+  });
+  assert.equal(stalled, true);
+  assert.equal(r.abortReason, 'drain-timeout');
+  assert.deepEqual(r.observations, []);
+  assert.deepEqual(r.unresolved, ['0']);
+  assert.deepEqual(r.undispatched, ['1']);
+  assert.equal(r.observations.length + r.unresolved.length + r.undispatched.length, p.schedule.length);
+  assert.equal(r.executionSettled, false); assert.equal(r.qualificationPassed, false);
+});

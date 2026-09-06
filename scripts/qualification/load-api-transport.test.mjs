@@ -114,3 +114,40 @@ test('archive streams remain subject to the response byte cap', async t => {
   const api = createLoadApiTransport({ ...f.config, allowedRequests: [{ method: 'GET', path: '/api/v1/backup/knowledge-shard', responseKind: 'gzip-archive' }] });
   await assert.rejects(api('GET', '/api/v1/backup/knowledge-shard'), { code: 'RESPONSE_BYTES_EXCEEDED' });
 });
+
+test('observes network failures and invalid responses exactly once with explicit attempt identities', async t => {
+  for (const [handler, errorCode] of [
+    [(req) => req.socket.destroy(), 'TRANSPORT_OR_OBSERVER_FAILED'],
+    [(_, res) => { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('invalid'); }, 'INVALID_JSON_RESPONSE'],
+    [(_, res) => { res.writeHead(302, { Location: '/elsewhere' }); res.end(); }, 'REDIRECT_REJECTED'],
+  ]) {
+    const f = await fixture(t, handler);
+    await assert.rejects(f.api('GET', '/api/v1/search?q=test', null,
+      { logicalOperationId: 'logical-1', requestId: 'request-1', attemptId: 'attempt-1' }), { code: errorCode });
+    assert.equal(f.observed.length, 1);
+    assert.equal(f.observed[0].errorCode, errorCode);
+    assert.equal(f.observed[0].outcome, 'failed');
+    assert.equal(f.observed[0].attemptId, 'attempt-1');
+  }
+});
+test('aborted dispatched fetch is observed, pre-aborted calls are not dispatched', async t => {
+  const f = await fixture(t, () => {}), c = new AbortController();
+  const request = f.api('GET', '/api/v1/search?q=test', null, { signal: c.signal }); c.abort();
+  await assert.rejects(request, { code: 'REQUEST_ABORTED' });
+  assert.equal(f.observed.length, 1); assert.equal(f.observed[0].errorCode, 'REQUEST_ABORTED');
+  await assert.rejects(f.api('GET', '/api/v1/search?q=test', null, { signal: c.signal }), { code: 'REQUEST_ABORTED' });
+  assert.equal(f.observed.length, 1);
+});
+test('budget admission bounds failed attempts before further network dispatch', async t => {
+  const { createLoadAttemptBudget } = await import('./load-attempt-budget.mjs');
+  let calls = 0;
+  const f = await fixture(t, (_, res) => { calls++; res.writeHead(503); res.end(); });
+  const budget = createLoadAttemptBudget({ maxLogicalOperations: 1, maxRequests: 1, maxAttempts: 2, maxCostUsd: '0.2' });
+  const api = createLoadApiTransport({ ...f.config, attemptBudget: budget });
+  const options = { logicalOperationId: 'operation-1', requestId: 'request-1', reserveCostUsd: '0.1' };
+  for (let n = 1; n <= 2; n++) await assert.rejects(api('GET', '/api/v1/search?q=test', null, { ...options, attemptId: `attempt-${n}` }), { code: 'HTTP_REJECTED' });
+  await assert.rejects(api('GET', '/api/v1/search?q=test', null, { ...options, attemptId: 'attempt-3' }), { code: 'ATTEMPT_BUDGET_EXCEEDED' });
+  assert.equal(calls, 2); assert.equal(f.observed.length, 2);
+  assert.equal(budget.snapshot().chargedCostUsd, '0.2');
+  assert.equal(budget.snapshot().unresolvedAttempts, 2);
+});

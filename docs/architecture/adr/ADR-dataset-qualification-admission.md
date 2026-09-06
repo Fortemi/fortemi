@@ -60,3 +60,11 @@ validity does not satisfy its readiness nodes. Epic closure remains gated on
 all five child matrices and their dependencies. The
 [acceptance audit](../../../.aiwg/reports/issue-1136-qualification-acceptance-audit-2026-09-05.md)
 records the outstanding approvals, receipts, adoption and CI checks.
+
+## Configurable experiment authoring
+
+The [configurable experiment ADR](ADR-configurable-load-experiments.md) implements
+the approved research direction as local versioned profiles and digest-bound plans.
+It does not change this candidate's schemas or admit results. Independent runtime
+adapters, selected resources, prerequisite receipts and exact-tuple authority
+binding remain required for operational qualification.
