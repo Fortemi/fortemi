@@ -337,3 +337,39 @@ make raw content safe for publication without independent redaction checks.
 The regression suite covers conflicts, symlinks, directory replacement, budgets,
 failure before publication, and consumption of a published artifact by the
 existing signed-evidence verifier using synthetic signing fixtures.
+
+## Queue adapter and remaining source gaps
+
+[collectQueueLoad](../../scripts/qualification/collect-queue-load.mjs) consumes
+the existing GET /api/v1/jobs/stats QueueStats response through the explicitly
+configured JSON API transport. Its schema is sourced from
+crates/matric-core/src/models.rs; aggregate semantics are implemented in
+crates/matric-db/src/jobs.rs. Queue depth is pending + delayed + processing.
+Terminal dead jobs and incompatible rows remain separate explicit counts; they
+cannot disappear into a successful throughput total. Component sums and the
+failed-last-hour subset are checked against retained totals. Missing, unsafe,
+negative or unknown fields reject rather than defaulting to zero.
+
+The endpoint supplies no oldest-job age, so queueOldestSeconds remains explicitly
+missing. The route accesses the API's job repository; a request namespace header
+alone does not prove tenant-specific queue scope. The collector never changes
+pause/resume state. Its HTTP integration test uses a local synthetic response;
+actual job-repository coverage and role/namespace binding remain qualification
+requirements.
+
+Provider metering source audit: main.rs parse_usage_meter_mode defaults to noop,
+and startup constructs NoOpMeter unless MATRIC_USAGE_METER_MODE=durable-required.
+Durable mode checks ledger readiness before startup. Usage events retain exact
+decimal quantities and semantic units in matric-core/src/metering.rs. The
+usage_event_ledger stores event JSON and immutable fingerprints. Event count is
+not upstream call count or billed cost; a complete measurement adapter must map
+actual dimensions, retries, missing/estimated measurements and pricing revisions.
+An empty no-op ledger cannot establish zero provider cost.
+
+Pool source audit: log_pool_metrics exposes size and idle counts in debug logs,
+but no call site was found in crates at this revision. It supplies no cumulative
+acquisition-timeout counter. Do not derive SQLx utilization from PostgreSQL's
+numbackends. Blob metadata records size_bytes and database/object-storage type
+in attachment_blob, but those logical sizes cannot prove physical staging,
+orphan or object-store occupancy. These are concrete remaining instrumentation
+and coverage requirements, not zero-valued observations.
