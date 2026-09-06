@@ -704,6 +704,8 @@ Use the returned `ghcr.io/fortemi/fortemi@sha256:...` reference as `FORTEMI_IMAG
 
 All data is stored in Docker volumes (`matric-pgdata`, `matric-files`, `matric-backups`, `matric-redis`). Stopping and starting containers preserves data. Only `docker compose down -v` deletes volumes.
 
+When preserving HotM across a bundle update, follow the [HotM cutover checks](hotm-cutover.md), including the persistent shared-network override and a fresh browser smoke on port 4180.
+
 ---
 
 ## What's Next?

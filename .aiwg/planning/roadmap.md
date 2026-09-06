@@ -684,6 +684,8 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 
 ## Progress log
 
+- 2026-09-06: #1127 installed localhost:4180 fresh-browser recheck passed after 15 seconds: API Connected, notes/events HTTP 200; topology, health and compatibility probes passed. Delivering external-network override, probe and cutover runbook; five regression tests and Compose validation pass. Receipt remains host-specific and does not certify broader authentication or suite compatibility.
+
 - 2026-09-06: Lane A #1072 independent capacity monitor installed on titan: root-owned guard, dynamic unprivileged service, five-minute timer; initial runtime pass and controlled failure diagnostics verified. Five capacity tests and unit validation pass. The scheduled repeat passed at 18:26:19 EDT; unit/runbook delivery is proceeding independently. No remote alert forwarding or cleanup claimed. HotM #304 review continues after UI/SDLC CI failures; #301 cleanup handed off to roctinam/itops#658.
 
 - 2026-09-06 — Lane A execution started with parallel workers for #1132, HotM #304 and React #415. #1132 readiness/MCP hardening is locally implemented (11 startup tests including a real 61-second readiness wait, plus four review regressions); #1127 has a persistent external-network override, cutover runbook and read-only probe (five tests and local 4180 health/compatibility pass). Browser/published-artifact verification, integrated server CI and delivery remain pending. #1133 recovery-point reuse is under implementation; no closure or completed release cycle is claimed.

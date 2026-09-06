@@ -1,0 +1,14 @@
+# Preserve the upstream edge when HotM lives in a separate Compose project.
+# FORTEMI_HOTM_NETWORK must name the existing network used by HotM.
+# Apply together with docker-compose.bundle.yml on EVERY pull/up/recreate.
+services:
+  fortemi:
+    networks:
+      default: {}
+      hotm_shared:
+        aliases:
+          - fortemi
+networks:
+  hotm_shared:
+    external: true
+    name: ${FORTEMI_HOTM_NETWORK:?Set FORTEMI_HOTM_NETWORK to the existing HotM network}
