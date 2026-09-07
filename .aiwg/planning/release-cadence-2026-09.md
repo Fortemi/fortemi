@@ -50,3 +50,7 @@ The baseline backlog is cleared only when each baseline issue is completed again
 [DORA's small-batch guidance](https://dora.dev/capabilities/working-in-small-batches/) supports independent increments and rapid feedback. It also cautions against regrouping completed changes into large downstream batches. The fortnightly stable opportunity is a suite operating decision, not an interval established by that research. Canonical induction: section9/research-papers#1112.
 
 [Google SRE's Canarying Releases](https://sre.google/workbook/canarying-releases/) supports reproducible builds, small changes and limited deployment evaluation before wider rollout. The actual Fortemi observation criteria still require local definition and evidence. Canonical induction: section9/research-papers#1113. Both sources accessed 2026-09-06.
+
+## Expedited Lane A delivery evidence
+
+The [September delivery ledger](lane-a-delivery-2026-09.md) records the independently qualified React and HotM corrections and the server publication still in progress. These expedited corrections do not count as two completed scheduled cycles. The first scheduled candidate/verification/stable/review dates remain September 15–18; named maintainer acceptance and two-cycle measurement remain open under #1143.

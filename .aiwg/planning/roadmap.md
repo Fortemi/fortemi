@@ -1,7 +1,7 @@
 # Fortemi Delivery Roadmap
 
 > **Status:** Active — reference until all planned phases are complete.
-> **Created:** 2026-06-24 · **Last updated:** 2026-09-06
+> **Created:** 2026-06-24 · **Last updated:** 2026-09-06 (America/New_York; receipts through 2026-09-07 UTC)
 > **Tracker:** Gitea `Fortemi/fortemi` (authoritative). Issue numbers below are Gitea issues.
 > **Source:** Synthesized from the 2026-06-21→23 open-issue audit sweep (#746–#1006), the milestone structure, the 2026-06-23 interactive product-decision Q&A (31 decisions recorded on-issue), and the 2026-08-23 full-open-backlog rebaseline.
 
@@ -565,7 +565,7 @@ Detailed evidence and cleanup recommendations: `.aiwg/planning/issue-roadmap-aud
 Single-user desktop product; no multi-tenancy or advanced OAuth.
 
 - [~] **#1098** embedding-job timeout/panic/recovery correction shipped in `v2026.7.22`; keep as the first operational gate until one previously failing customer note reaches a bounded completed/retry/failed outcome or the issue records an explicit hypercare disposition.
-- [ ] **#1041** complete the real-world 2026.2.x → 2026.7.x upgrade and restore hypercare gate with a large dataset and verified pre-migration backup.
+- [~] **#1041** complete February-to-current upgrade hypercare. The 102,000-note seeded upgrade and backup restore passed; published 2026.9.6 Gitea bundle startup/recovery checks also passed. GHCR/native delivery, field-report reconciliation, the observation window and explicit sign-off remain open. See the [Lane A delivery ledger](lane-a-delivery-2026-09.md).
 - [ ] **#884** finish ADR-094 sidecar AuthContext + middleware coverage; basic MCP any-client on the user's own data via local/API-key auth.
 - [ ] **#950** webhook receive/validate hardening (per-route body cap, validate-public decision, 401/404 uniformity).
 - [ ] **#994 / #970 / #922** attachment & upload hardening (pre-validation buffering bounds; malware/scan gate + quarantine; TUS finalization).
@@ -683,6 +683,8 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - Current backlog rebaseline: `.aiwg/planning/issue-roadmap-audit-2026-08-23.md`.
 
 ## Progress log
+
+- 2026-09-06 (2026-09-07 UTC receipts) — Lane A: HotM 2026.9.1 is published and installed, mirrored native assets verified, and ten installed desktop/mobile browser checks passed; real hosted-auth reconnection remains open in HotM #304. Server #1132/#1133 passed published Gitea bundle delayed readiness and verified recovery reuse/fresh restore at digest `f463db4e…`; GHCR/native delivery remains pending. React #415 is closed on verified 2026.9.2 publication. [Delivery ledger](lane-a-delivery-2026-09.md) records exact identities and remaining gates.
 
 - 2026-09-06 — Preparing server 2026.9.6 for Lane A startup, recovery and legacy archive migration fixes. Local formatting, Clippy, blocking documentation contracts, dependency policy and library gates passed. The non-root recovery smoke harness now asserts PostgreSQL identity/permissions while running unprivileged; corrected CI and published-artifact qualification remain required. React #415 closed after verified 2026.9.2 publication on both registries.
 
