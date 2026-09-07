@@ -564,7 +564,7 @@ Detailed evidence and cleanup recommendations: `.aiwg/planning/issue-roadmap-aud
 **Gating:** Phase 0 contracts (partial — error shape, config validation). **Parallel to Phase 2.**
 Single-user desktop product; no multi-tenancy or advanced OAuth.
 
-- [~] **#1098** embedding-job timeout/panic/recovery correction shipped in `v2026.7.22`; keep as the first operational gate until one previously failing customer note reaches a bounded completed/retry/failed outcome or the issue records an explicit hypercare disposition.
+- [x] **#1098** embedding-job timeout/panic/recovery correction is closed on engineering, release and forwarded customer confirmation; remaining field-window/sign-off work belongs to #1041.
 - [~] **#1041** complete February-to-current upgrade hypercare. The 102,000-note seeded upgrade and backup restore passed; published 2026.9.6 Gitea bundle startup/recovery checks also passed. GHCR/native delivery, field-report reconciliation, the observation window and explicit sign-off remain open. See the [Lane A delivery ledger](lane-a-delivery-2026-09.md).
 - [ ] **#884** finish ADR-094 sidecar AuthContext + middleware coverage; basic MCP any-client on the user's own data via local/API-key auth.
 - [ ] **#950** webhook receive/validate hardening (per-route body cap, validate-public decision, 401/404 uniformity).
@@ -626,7 +626,7 @@ Single-user desktop product; no multi-tenancy or advanced OAuth.
 
 ## Immediate next actions (decisions + implementation patterns ready)
 
-1. **#1098** — obtain customer confirmation on `v2026.7.22` or record the bounded residual hypercare trigger; then close.
+1. **#1041** — complete the remaining customer observation window and hypercare sign-off; #1098 is closed on recorded customer confirmation.
 2. **#1081** — run the independent final audit and publish the exact suite claim verdict.
 3. **#710** — finish the remaining per-tool MCP authorization dependency path; preserve completed route/action inventory work.
 4. **#1090 + `fortemi-react#404`** — reconcile the released `v2026.8.0` consumer with the final Fortemi authority revision and publish shared source-upsert conformance fixtures/receipts.
@@ -1378,3 +1378,5 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-08-13 — #64 release CI gained a credential-free GHCR verification gate; Gitea and GitHub release creation now require public pull, digest-alias, platform, and revision/version proof.
 - 2026-08-13 — #64 publication blockers from hosted dependency audits were remediated: `lru` upgraded to `0.18.2`, MCP transitive locks refreshed, and local MCP audit returned zero vulnerabilities.
 - 2026-08-14 — #64 release finalization was consolidated into one tag-only Gitea/GitHub job after internal publication, GHCR publication, and anonymous verification. `roctinam/itops#312` restored boot-persistent mutsu authorization; run #6672 published immutable `sidecar-79e60214c40c` plus `sidecar-latest` with four binaries, checksums, and provenance. A later authorized client-key rotation was reconciled by deriving the new public fingerprint through the TPM-sealed CI AppRole, proving strict-host-key authentication, exercising the remote boot-auth contract, and updating the repository pin without weakening verification. The shared-database workspace gate is now serialized after a transient archive-cleanup deadlock blocked GHCR promotion; Gitea task/log loss remains tracked by `roctinam/itops#314`.
+
+- 2026-09-07 — Server 2026.9.6 ARM64 publication, downstream CI, public GHCR and native mirror verification passed; #1132/#1133 closed. HotM live-auth setup handed to itops #662/#663. Cleanup authorized and exact versions mapped, but first GHCR DELETE returned 403; itops #550/#658 track credential capability. No deletion or completed cadence cycle is claimed.
