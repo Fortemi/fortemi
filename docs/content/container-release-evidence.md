@@ -29,9 +29,12 @@ or workload identity.
 
 The approved Docker build arguments `VERSION`, `GIT_SHA`, and `BUILD_DATE` are
 public metadata. `RUST_MIN_STACK` is also approved non-secret build
-configuration: both release Dockerfiles default it to 16 MiB for rustc worker
-threads, preventing the observed Rust 1.92 thin-LTO stack failure while keeping
-the locked dependency graph unchanged. The release builders are pinned to Rust
+configuration: both release Dockerfiles default it to 256 MiB for rustc worker
+threads, following the Rust 1.92 compiler diagnostic from CI run 54869 after a
+SIGSEGV with 128 MiB. This mitigation keeps the locked dependency graph
+unchanged; successful image builds remain the verification gate.
+`FORTEMI_API_FEATURES` is non-secret image build configuration and defaults to
+`hosted-auth`; selecting compiled features does not bypass runtime admission. The release builders are pinned to Rust
 1.92. Registry credentials, the Hugging Face token, and all other secrets
 remain runtime or login inputs and must not be passed as Docker build
 arguments.

@@ -17,8 +17,9 @@ ARG BUILD_DATE=unknown
 ARG FORTEMI_API_FEATURES=hosted-auth
 # rustc 1.92 can exhaust its default worker-thread stack while compiling the
 # release binary with thin LTO. Keep this configurable while using rustc's
-# documented diagnostic recommendation as the deterministic default.
-ARG RUST_MIN_STACK=134217728
+# diagnostic recommendation (256 MiB after CI 54869) as the default.
+# The compiler suggestion is a mitigation; image builds verify the outcome.
+ARG RUST_MIN_STACK=268435456
 
 WORKDIR /app
 

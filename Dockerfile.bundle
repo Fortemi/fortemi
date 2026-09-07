@@ -16,7 +16,8 @@ ARG BUILD_DATE=unknown
 # Include the public OIDC verifier; hosted runtime admission remains opt-in.
 ARG FORTEMI_API_FEATURES=hosted-auth
 ARG CARGO_BUILD_JOBS=8
-ARG RUST_MIN_STACK=134217728
+# Rust 1.92 SIGSEGV in CI 54869 recommended a 256 MiB worker stack.
+ARG RUST_MIN_STACK=268435456
 ARG TARGETARCH
 
 WORKDIR /app
