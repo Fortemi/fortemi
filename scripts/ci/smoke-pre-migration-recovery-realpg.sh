@@ -38,12 +38,12 @@ if [[ "${FORTEMI_REALPG_IN_CLIENT:-false}" != "true" && "${FORTEMI_REALPG_USE_HO
 FROM $POSTGRES_IMAGE
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends python3 gzip ca-certificates coreutils findutils && rm -rf /var/lib/apt/lists/*
+WORKDIR /work
+COPY . /work
 ENTRYPOINT ["/bin/bash"]
 DOCKERFILE
 
     docker run --rm --network "$network" \
-        -v "$ROOT:/work" \
-        -w /work \
         -e FORTEMI_REALPG_IN_CLIENT=true \
         -e FORTEMI_REALPG_DB_HOST="$db_container" \
         -e FORTEMI_REALPG_DB_PORT=5432 \
