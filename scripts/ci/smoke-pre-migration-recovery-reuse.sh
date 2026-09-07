@@ -48,6 +48,67 @@ awk '
   capture { print }
 ' "$ROOT/docker/bundle-entrypoint.sh" > "$FUNCTIONS_FILE"
 
+# The entrypoint function creates postgres-owned backup directories and
+# delegates through runuser in production. This smoke test runs in a non-root
+# lint runner, so assert the production identity contract before executing the
+# filesystem and helper operations as the current user. Real postgres-owned
+# permissions remain covered by the container startup/recovery gates.
+INSTALL_STUB_LOG="$TMP_DIR/install.calls"
+RUNUSER_STUB_LOG="$TMP_DIR/runuser.calls"
+install() {
+    local saw_mode=false
+    local saw_owner=false
+    local saw_group=false
+    local args=()
+    printf 'install %s\n' "$*" >> "$INSTALL_STUB_LOG"
+    while (($#)); do
+        case "$1" in
+            -d) args+=("$1"); shift ;;
+            -m)
+                if [[ "${2:-}" != "0700" ]]; then
+                    echo "FAIL: smoke expected install -m 0700, got -m ${2:-}" >&2
+                    exit 1
+                fi
+                saw_mode=true
+                args+=("$1" "$2")
+                shift 2
+                ;;
+            -o)
+                if [[ "${2:-}" != "postgres" ]]; then
+                    echo "FAIL: smoke expected install -o postgres, got -o ${2:-}" >&2
+                    exit 1
+                fi
+                saw_owner=true
+                shift 2
+                ;;
+            -g)
+                if [[ "${2:-}" != "postgres" ]]; then
+                    echo "FAIL: smoke expected install -g postgres, got -g ${2:-}" >&2
+                    exit 1
+                fi
+                saw_group=true
+                shift 2
+                ;;
+            *) args+=("$1"); shift ;;
+        esac
+    done
+    if [[ "$saw_mode" != true || "$saw_owner" != true || "$saw_group" != true ]]; then
+        echo "FAIL: smoke expected install to request -m 0700 -o postgres -g postgres" >&2
+        exit 1
+    fi
+    command install "${args[@]}"
+}
+
+runuser() {
+    printf 'runuser %s\n' "$*" >> "$RUNUSER_STUB_LOG"
+    if [[ "${1:-}" != "-u" || "${2:-}" != "postgres" || "${3:-}" != "--" ]]; then
+        echo "FAIL: smoke expected runuser -u postgres --, got: $*" >&2
+        exit 1
+    fi
+    shift 3
+    "$@"
+}
+
 # shellcheck source=/dev/null
 source "$FUNCTIONS_FILE"
 
@@ -58,6 +119,8 @@ current_migration_version() { echo from-a; }
 
 POSTGRES_DB=matric
 PRE_MIGRATION_BACKUP_ACK_NO_BACKUP=false
+PRE_MIGRATION_BACKUP_RETAIN=7
+BACKUP_SCRIPT_PATH="$ROOT/scripts/backup.sh"
 PRE_MIGRATION_RECOVERY_HELPER_PATH="$TMP_DIR/helper.sh"
 cat > "$PRE_MIGRATION_RECOVERY_HELPER_PATH" <<'SH2'
 #!/usr/bin/env bash
@@ -71,6 +134,14 @@ chmod +x "$PRE_MIGRATION_RECOVERY_HELPER_PATH"
 ensure_pre_migration_backup > "$TMP_DIR/reuse.out" 2> "$TMP_DIR/reuse.err"
 if ! grep -q "reusing verified pre-migration backup" "$TMP_DIR/reuse.out"; then
     echo "FAIL: entrypoint did not delegate recovery reuse to helper" >&2
+    exit 1
+fi
+if [[ "$(grep -c -- '-m 0700 -o postgres -g postgres' "$INSTALL_STUB_LOG")" -ne 2 ]]; then
+    echo "FAIL: entrypoint did not request postgres-owned 0700 backup directories" >&2
+    exit 1
+fi
+if [[ "$(grep -c '^runuser -u postgres -- env ' "$RUNUSER_STUB_LOG")" -ne 1 ]]; then
+    echo "FAIL: entrypoint did not delegate helper through runuser -u postgres -- env" >&2
     exit 1
 fi
 
