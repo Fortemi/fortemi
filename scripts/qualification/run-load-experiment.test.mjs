@@ -56,6 +56,35 @@ test('repetitions reset the workload and inventory while budgets count the whole
   assert.equal(result.trials.length, 2); assert.equal(result.httpUsage.logicalOperations, 2);
   assert.equal(f.calls.filter(c => c === 'delete').length, 2);
 });
+test('early timer wakeups still satisfy the full cleanup settling interval', async t => {
+  const f = setup();
+  f.document.defaults.repetitions = 2;
+  f.document.defaults.cleanup.settleMs = 17;
+  f.adapters.statePlan.minimumSettleMs = 17;
+  f.document.defaults.environment.fixtureDigest = jsonDigest({ fixtures: f.adapters.fixtures, statePlan: f.adapters.statePlan });
+  const cleanup = f.adapters.cleanup, schedule = globalThis.setTimeout;
+  let earlyWakeups = 0, shortenNextSettle = false;
+  f.adapters.cleanup = async input => { await cleanup(input); shortenNextSettle = true; };
+  t.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+    // Model a timer firing before the monotonic observation clock reaches its
+    // deadline. Keep operation, evidence, and safety timeouts unchanged.
+    if (shortenNextSettle && delay <= 17) {
+      shortenNextSettle = false;
+      earlyWakeups++;
+      return schedule(callback, 1, ...args);
+    }
+    return schedule(callback, delay, ...args);
+  });
+  const result = await runLoadExperiment(f.compile(), f.adapters);
+  assert.equal(earlyWakeups, 2);
+  assert.equal(result.trials.length, 2);
+  assert.equal(result.httpUsage.logicalOperations, 2);
+  assert.equal(result.cleanupVerified, true);
+  for (const { value } of f.records.filter(record => record.kind === 'state')) {
+    assert.ok(value.settled.observedAtMs - value.cleanup.observedAtMs >= 17);
+    assert.equal(value.check.status, 'PASS');
+  }
+});
 test('edited compiled parameters and fixture inventories reject before adapters', async () => {
   for (const mutate of [p => { p.config.runner.maxConcurrency = 2; }, p => { p.ready = true; p.missing = []; p.phases[0].schedule = []; }]) {
     const f = setup(), p = f.compile(); mutate(p); let called = false;

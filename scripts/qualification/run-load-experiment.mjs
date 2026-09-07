@@ -174,7 +174,13 @@ export async function runLoadExperiment(compiled, adapters) {
           });
         } catch { failures.push({ trialIndex, reason: 'cleanup-failed-or-unsettled' }); }
         if (clean) {
-          await new Promise(resolve => setTimeout(resolve, config.cleanup.settleMs));
+          // Timers can wake before the monotonic observation clock reaches the
+          // requested interval. Recheck the actual deadline instead of marking
+          // an early snapshot settled and stopping otherwise valid repetitions.
+          const settleDeadline = clean.observedAtMs + config.cleanup.settleMs;
+          while (now() < settleDeadline) {
+            await new Promise(resolve => setTimeout(resolve, settleDeadline - now()));
+          }
           try {
             const inventory = await bounded('settled', config.cleanup.timeoutMs, signal => adapters.observeState({ trialIndex, point: 'settled', signal }));
             settled = { observedAtMs: now(), inventory };
