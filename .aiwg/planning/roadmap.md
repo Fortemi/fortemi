@@ -684,6 +684,8 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 
 ## Progress log
 
+- 2026-09-06 — Preparing server 2026.9.6 for Lane A startup, recovery and legacy archive migration fixes. Local formatting, Clippy, blocking documentation contracts, dependency policy and library gates passed. The non-root recovery smoke harness now asserts PostgreSQL identity/permissions while running unprivileged; corrected CI and published-artifact qualification remain required. React #415 closed after verified 2026.9.2 publication on both registries.
+
 - 2026-09-06 — Lane A #1041 repaired legacy archive tenant-note uniqueness without changing published migration SQL. The expanded 102,000-note February upgrade passed in 1,687 seconds and backup restore preserved recorded counts and invariants. Final checksum prevalidation passed four real PostgreSQL regressions and a small end-to-end upgrade; the large snapshot predates that validation-only refactor. #1132 startup and #1133 recovery changes are entering integrated CI; published-bundle/customer qualification and hypercare sign-off remain open. React corrective 2026.9.2 signed publication is underway after all eight CI jobs passed; HotM 2026.9.0 preparation is in review.
 
 - 2026-09-06 — #1072 and #1127 closed after successful CI 54374 at main `361c1820`, scheduled monitor/failure-probe receipts and installed fresh-browser cutover evidence. Scope remains titan monitoring and host cutover verification; broader auth, recovery, publication and suite compatibility gates remain open.

@@ -80,14 +80,21 @@ prior dump only when the marker and artifact verify and every binding still
 matches. Missing, corrupt, unverified, future-dated, stale, or incompatible
 recovery points are rejected with a non-secret reason and the entrypoint creates
 a new verified dump. Partial migration progress changes the current migration
-version and invalidates reuse. Changing migration files or the target migration version invalidates reuse. Restoring or
-replacing the database changes the database identity or row-version fingerprint
+version and invalidates reuse. Changing migration files or the target migration
+version invalidates reuse. Restoring or replacing the database changes the
+database identity or row-version fingerprint
 and invalidates reuse. Intervening application writes before validation change
 the state fingerprint and invalidate reuse.
 
 This policy relies on PostgreSQL `pg_dump`'s documented support for exported
 snapshots and full-database large-object dumps:
 https://www.postgresql.org/docs/18/app-pgdump.html.
+
+This recovery path is implemented by the Linux Docker bundle entrypoint and its
+shell/Python helpers. Windows-native HotM/MSI installs do not run it. Docker
+Desktop on Windows can use it only through the Linux container/WSL2 runtime, so
+scratch capacity and backup-volume free space must be verified from inside that
+environment.
 
 The release fixture also restores the generated dump into a fresh database and
 compares seeded relation counts and chunk, attachment, and archive invariants

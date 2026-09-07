@@ -392,7 +392,10 @@ docker compose -f docker-compose.bundle.yml logs -f fortemi
 
 MCP credential validation and registration do not run until `/health` succeeds.
 If the API is temporarily unavailable during validation, the persisted
-credentials are preserved instead of being overwritten.
+credentials are preserved instead of being overwritten. On existing bundle
+volumes with pending migrations, the pre-migration recovery helper runs before
+API startup; see the February-to-current upgrade runbook for the backup/reuse
+policy, scratch-space guidance, and Windows Docker Desktop limits.
 
 ### Health Checks
 

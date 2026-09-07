@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "1",
+  "engineVersion": "1.0.1",
+  "policyVersion": "1",
+  "profileVersion": "1.0.0",
+  "policyHash": "e296d70fbe06da370d17affdceb5f93ea920d4c859d0eda06a5cd63ec214e9b9",
+  "mode": "enforce",
+  "profile": "balanced",
+  "surface": "release-note",
+  "source": {
+    "kind": "unknown"
+  },
+  "actor": {
+    "trust": "unknown"
+  },
+  "requestedAction": "consume-as-data",
+  "policyProvenance": {
+    "source": ".aiwg/aiwg.config",
+    "path": "security.threatAssessment"
+  },
+  "assessed": true,
+  "findings": [],
+  "risk": {
+    "score": 0,
+    "severity": "informational",
+    "likelihood": 0,
+    "impact": 0
+  },
+  "decision": {
+    "action": "proceed",
+    "wouldAction": "proceed",
+    "interrupts": false,
+    "reason": "no active findings"
+  }
+}

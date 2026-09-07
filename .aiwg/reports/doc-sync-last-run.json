@@ -1,66 +1,58 @@
 {
-  "schema_version": 1,
-  "workflow": "release-doc-sync",
+  "timestamp": "2026-09-07T00:00:00-04:00",
+  "worktree": "/tmp/fortemi-release-2026.9.6",
+  "head": "ab24adca237e27aa117979de2a966e491eeb6d99",
+  "artifact_root": "/tmp/fortemi-release-2026.9.6/.aiwg",
+  "release_config": ".aiwg/release.config",
+  "skill": {
+    "name": "doc-sync",
+    "id": "aiwg:skill:89d1e9d44a6d896e"
+  },
+  "flow": {
+    "name": "release-doc-sync",
+    "id": "aiwg:flow:b7fad3d5008601ca"
+  },
   "direction": "code-to-docs",
-  "started_from_clean_worktree": false,
-  "completed_at": "2026-09-05T00:48:03Z",
-  "repository": {
-    "name": "Fortemi/fortemi",
-    "path": "isolated issue/release worktree",
-    "baseline_tag": "v2026.9.1",
-    "baseline_commit": "c8cef90218514299026de030472218feeb25c03a",
-    "head_commit": "6ca9aa8cbd058bcbe35fc4dd79607c90d6a8fa69"
-  },
-  "scope": {
-    "source_of_truth": [
-      "dataset-execution/1.0.0 authority and implementation",
-      "ADR-107 and MCP/storage-plane documentation",
-      "dataset lifecycle and RunReceipt tests",
-      "profile-qualified suite claim policy"
-    ],
-    "write_boundary": [
-      "CHANGELOG.md",
-      "docs/releases/v2026.9.2-announcement.md",
-      "tests/uat/phases/phase-14-mcp-operations.md",
-      ".aiwg/reports/doc-sync-audit-2026-09-04.md",
-      ".aiwg/reports/doc-sync-last-run.json"
-    ],
-    "excluded": [
-      "full suite transportability claims",
-      "AIWG downstream adapter implementation",
-      "commit, tag, publication, deployment, and live qualification"
-    ]
-  },
-  "summary": "The bounded audit found and resolved release documentation and archive-timeout UAT drift. No documentation blocker remains, and all claims stay limited to the alpha live-remote-persistence dataset profile.",
-  "findings": [],
-  "changed_files": [
-    "CHANGELOG.md",
-    "docs/releases/v2026.9.2-announcement.md",
-    "tests/uat/phases/phase-14-mcp-operations.md",
-    ".aiwg/reports/doc-sync-audit-2026-09-04.md",
-    ".aiwg/reports/doc-sync-last-run.json",
-    ".aiwg/.last-doc-sync"
+  "scope": [
+    "startup",
+    "pre-migration recovery",
+    "MCP readiness",
+    "February-to-current migration gate"
+  ],
+  "dry_run_report": ".aiwg/reports/doc-sync-2026-09-07-release-2026.9.6-dry-run.md",
+  "final_report": ".aiwg/reports/doc-sync-2026-09-07-release-2026.9.6.md",
+  "modified_files": [
+    "README.md",
+    "docs/content/configuration.md",
+    "docs/content/mcp-deployment.md",
+    "docs/ops/feb-to-current-upgrade-runbook.md"
   ],
   "validation": [
-    { "command": "cargo check --workspace", "status": "passed" },
     {
-      "command": "node mcp-server/validate-schemas.cjs",
-      "status": "passed",
-      "details": "All 207 tool schemas are valid."
+      "command": "git diff --check",
+      "status": "pass"
     },
     {
-      "command": "DOCS_CONTRACT_MODE=blocking npm run docs:contract -- --profile=hosted_strict",
-      "status": "passed",
-      "details": "Zero findings and zero stale baseline entries."
+      "command": "python3 scripts/ci/verify-docs-shard-freshness.py",
+      "status": "pass",
+      "summary": "server=2026.9.5 bytes=2587104 sha256=3c7ee370b52cc1f5a5e48c9d322b0f6fef342b18bc02b195358a0965a8802b41"
     },
     {
-      "command": "release-note threat assessment",
-      "status": "passed",
-      "details": "Proceed, score 0."
+      "command": "node scripts/ci/docs-contract.cjs --profile hosted_strict",
+      "status": "pass",
+      "summary": "findings=0 known=0 new=0 stale_baseline=0"
     }
   ],
-  "human_review": [
-    "Do not infer full suite parity, complete backup, or universal portability from the dataset execution contract.",
-    "Do not claim dataset execution is part of Knowledge Shard core-v1, record-v1, or full-v1."
-  ]
+  "shard_handoff": {
+    "mutated": false,
+    "regenerate_command": "scripts/ci/rebuild-shard-in-ci.sh <api-image-tag>",
+    "verify_command": "python3 scripts/ci/verify-docs-shard-freshness.py",
+    "tracked_inputs": [
+      "docs/**/*.md",
+      ".aiwg/**/*.md",
+      "CHANGELOG.md",
+      "README.md"
+    ]
+  },
+  "release_preparation_note": "Parent clarified rejection of reuse vs failure of startup, prepared 2026.9.6 versions and announcement, reran blocking docs contract; docs shard regeneration remains pending."
 }

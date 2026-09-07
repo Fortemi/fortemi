@@ -83,6 +83,25 @@ MATRIC_ATTACHMENT_SCAN_MAX_BYTES=104857600
 FORTEMI_SHARD_TRUSTED_KEYS_JSON='[{"key_id":"publisher-1","public_key":"<BASE64URL_PUBLIC_KEY>"}]'
 ```
 
+#### Docker bundle pre-migration recovery
+
+These settings apply to the Docker bundle entrypoint before database migrations run on an existing non-empty database with pending migrations:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BACKUP_DEST` | `/var/backups/matric-memory` in the bundle | Directory for pre-migration backup artifacts, recovery metadata, and the helper lock file. The entrypoint creates it as `postgres` with mode `0700`. |
+| `BACKUP_TEMP_DIR` | `/dev/shm/fortemi-pre-migration-backup` | Private scratch directory for `pg_dump` staging and verification. It must not be shared `/tmp`; standalone `backup.sh` requires tmpfs/ramfs or `BACKUP_TEMP_TRUSTED_ENCRYPTED=true`. |
+| `BACKUP_TEMP_TRUSTED_ENCRYPTED` | `false` | Set `true` only when an operator-supplied `BACKUP_TEMP_DIR` is encrypted at rest. |
+| `PRE_MIGRATION_BACKUP_RETAIN` | `7` days | Retention window for `pre-migration-*.sql*` artifacts after a new recovery point has passed final validation and metadata publication. |
+| `PRE_MIGRATION_BACKUP_ACK_NO_BACKUP` | `false` | Emergency bypass. Set `true` only after accepting rollback risk and confirming an external recovery point. |
+| `FORTEMI_PRE_MIGRATION_REUSE_MAX_AGE_SECONDS` | `86400` | Maximum age for reusing a verified recovery point whose artifact, database identity, migration versions, migration manifest, and snapshot-bound logical state still match. `0` disables reuse and forces a new verified backup on each qualifying startup. |
+
+The recovery helper uses PostgreSQL exported read-only snapshots for consistent fingerprinting and for `pg_dump --snapshot`. It does not set a persistent database-wide read-only mode and does not terminate other clients. It rejects reuse when artifact metadata is missing or stale, migrations changed, schema/data/large-object fingerprints differ, or materialized-view state changes. Startup then requires a newly verified recovery point. Sequence movement during the final validation check prevents publishing a verified replacement. PostgreSQL sequences are not MVCC, so a sequence-movement failure means retry after writers are idle rather than treating reuse as safe.
+
+Large databases need enough scratch headroom for the staged dump and verification. Prefer increasing Docker `shm_size` or pointing `BACKUP_TEMP_DIR` at a larger tmpfs. If the bundle helper has to fall back from `/dev/shm` to private staging under `BACKUP_DEST`, it logs the disk fallback because plaintext dump bytes may touch the backup volume unless that storage is encrypted by the operator.
+
+The reusable recovery-point path is a Linux container bundle feature. Windows-native HotM/MSI installs do not run these shell/Python backup helpers. On Windows Docker Desktop with WSL2, validate capacity and mount behavior inside the Linux container/WSL environment.
+
 Forwarded request metadata is a security boundary. Fortemi ignores
 `Forwarded`, `X-Forwarded-Host`, `X-Forwarded-Proto`, `X-Forwarded-Port`,
 `X-Forwarded-For`, and `X-Real-IP` unless the immediate socket peer matches

@@ -7,6 +7,20 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.9.6] - 2026-09-06
+
+### Fixed
+
+- Keep bundle startup alive through extended migrations with configurable API readiness waiting, process liveness checks, and progress diagnostics (#1132).
+- Gate MCP registration on readiness and handle unavailable or malformed responses without losing saved registration or exiting through unchecked parsing (#1132).
+- Reuse only recent recovery artifacts verified against database state and migration identity; publish metadata atomically and retain older backups when replacement fails (#1133).
+- Repair legacy archive tenant-qualified note keys before source-addressed migration without changing published migration SQL (#1041).
+
+### Verification
+
+- Expanded February-baseline upgrade and backup restore passed with 102,000 notes and recorded archive, chunk and attachment invariants.
+- Added PostgreSQL migration-ledger rejection and recovery invalidation regressions. Published-bundle qualification and hypercare sign-off remain separately gated.
+
 ## [2026.9.5] - 2026-09-06
 
 Corrective release for shared-database test isolation (#1142).
