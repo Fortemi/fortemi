@@ -170,10 +170,10 @@ Hosted auth responses additionally include `claim_contract_version`,
 `claim_contract_profile`, `authority_release`, `authority_commit`,
 `manifest_sha256`, and `release_policy_sha256`. The additive 2026-08-24 update
 pins contract `1.1.0`, profile `rust-node-jwt-v1`, signed authority release
-`v2026.8.1`, commit `1b6ddb1b58a12efc5b631386ad783cb12edec518`, manifest SHA-256
+`v2026.9.0`, commit `cff36d293d73080c186e2f35115dd92a594982d2`, manifest SHA-256
 `2df0a35edad67cc3e8869286183a4d098b1eb8fc2161432ed0b54ba69b17e242`, and
 release-policy SHA-256
-`d70491c336a62508ef3c7937af709dd121a6ec4f421ceab66486af3f371de8db`.
+`bd77fbeba24991f969d07e5f45c5259504e52bb5ab9d7c4137abb22270c4abe8`.
 Community and legacy single-tenant OAuth responses omit these fields.
 
 ### Capability `state`
@@ -268,3 +268,5 @@ Minimum HotM tests for `Fortemi/HotM#244`:
 - `/health` and `/api/v1/health/streaming` remain operational health endpoints. They can feed this response, but they are not the compatibility contract.
 - This contract can exist before hosted production readiness by returning `preview`, `unavailable`, and `unknown` states for gated surfaces.
 - Backoffice-specific tenant health, audit, quota, KMS, and support diagnostics details must remain behind authenticated admin APIs. This public compatibility endpoint only decides whether HotM may show, hide, or disable coarse surfaces.
+
+Custom CA transport consumption is recorded in `.aiwg/reports/fortemi-auth-ca-consumer-2026-09-07.json` for v2026.9.0. Local corpus and dependency verification do not substitute for the live hosted environment gate.

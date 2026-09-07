@@ -27,10 +27,10 @@ use uuid::Uuid;
 use xjp_oidc::{HttpClient, HttpClientError, JwtVerifier, MemoryCache};
 
 const TENANT_ID: Uuid = Uuid::from_u128(0x00000000000040008000000000000001);
-const AUTHORITY_COMMIT: &str = "1b6ddb1b58a12efc5b631386ad783cb12edec518";
+const AUTHORITY_COMMIT: &str = "cff36d293d73080c186e2f35115dd92a594982d2";
 const MANIFEST_SHA256: &str = "2df0a35edad67cc3e8869286183a4d098b1eb8fc2161432ed0b54ba69b17e242";
 const RELEASE_POLICY_SHA256: &str =
-    "d70491c336a62508ef3c7937af709dd121a6ec4f421ceab66486af3f371de8db";
+    "bd77fbeba24991f969d07e5f45c5259504e52bb5ab9d7c4137abb22270c4abe8";
 
 struct FixtureClaims(AuthContext);
 
@@ -434,8 +434,8 @@ fn fortemi_enforces_the_calver_release_policy() {
     assert_eq!(AUTHORITY_COMMIT.len(), 40);
     assert_eq!(policy.policy_version, "1.1.0");
     assert_eq!(policy.release_scheme, "calver-yyyy-m-patch");
-    assert_eq!(policy.current_release.version, "2026.8.1");
-    assert_eq!(policy.current_release.tag.as_deref(), Some("v2026.8.1"));
+    assert_eq!(policy.current_release.version, "2026.9.0");
+    assert_eq!(policy.current_release.tag.as_deref(), Some("v2026.9.0"));
     assert_eq!(policy.current_release.contract_version, "1.1.0");
     assert_eq!(policy.current_release.profile, "rust-node-jwt-v1");
     assert_eq!(policy.current_release.manifest_sha256, MANIFEST_SHA256);
@@ -460,7 +460,7 @@ fn fortemi_enforces_the_calver_release_policy() {
 fn fortemi_pins_the_signed_authority_release_commit() {
     let lock = include_str!("../Cargo.lock");
     let source = format!(
-        "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.8.1#{AUTHORITY_COMMIT}"
+        "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.9.0#{AUTHORITY_COMMIT}"
     );
     assert!(
         lock.contains(&source),

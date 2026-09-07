@@ -87,6 +87,75 @@ identity-provider credentials must come from the hosted configuration/secret
 authority, not committed examples. This profile is distinct from Fortemi's
 self-hosted `/oauth/*` authorization-code and client-credentials flows.
 
+### Custom OIDC certificate trust
+
+For a Keycloak or other supported issuer using a private CA, set
+`FORTEMI_AUTH_CA_BUNDLE` to a PEM certificate file readable by the API process.
+The hosted OIDC verifier adds every certificate in the bundle to its default
+trust roots for both discovery and JWKS requests. HTTPS, hostname validation,
+certificate validation, issuer/audience validation, and the redirect prohibition
+remain enforced. The bundle does not change inbound server TLS or trust for
+unrelated HTTP clients. No private keys belong in this file.
+
+The variable is optional. When explicitly set, a blank path, unreadable or empty
+file, malformed PEM/DER, or non-certificate PEM block prevents startup with a
+`FORTEMI_AUTH_CA_BUNDLE` diagnostic. There is no fallback on configuration errors.
+The file is read once during initialization; restart the API after changing it.
+For CA rotation, deploy a bundle containing both old and new CA certificates,
+restart, rotate the issuer certificate, then remove the retired CA and restart.
+
+For a standalone process, use an absolute path:
+
+```bash
+export FORTEMI_AUTH_CA_BUNDLE=/etc/fortemi/trust/oidc-ca.pem
+matric-api
+```
+
+For a container running the standalone API, add this to its Compose service
+(alongside its existing hosted configuration):
+
+```yaml
+services:
+  api:
+    environment:
+      FORTEMI_AUTH_CA_BUNDLE: /etc/fortemi/trust/oidc-ca.pem
+    volumes:
+      - ./trust/oidc-ca.pem:/etc/fortemi/trust/oidc-ca.pem:ro
+```
+
+For the bundle image, put the same environment variable and mount on the
+bundle service when configuring a deployment that satisfies hosted admission:
+
+```yaml
+services:
+  fortemi:
+    environment:
+      FORTEMI_AUTH_CA_BUNDLE: /etc/fortemi/trust/oidc-ca.pem
+    volumes:
+      - ./trust/oidc-ca.pem:/etc/fortemi/trust/oidc-ca.pem:ro
+```
+
+The host file must exist before starting either container and be readable by the
+API runtime user. Recreate/restart the service after replacing the mounted file.
+The standard API and bundle Dockerfiles compile the public `hosted-auth`
+capability by default through `ARG FORTEMI_API_FEATURES=hosted-auth`. This does
+not activate hosted mode or satisfy all hosted deployment prerequisites.
+`FORTEMI_MULTI_TENANT` remains opt-in; hardened database roles, audit, quotas,
+scanning, and key custody retain their existing admission checks. In particular,
+these default images do not compile the separate `kms-aws` feature required by
+the current multi-tenant KMS admission. Internal image builders can explicitly
+select the feature combination required by their deployment, for example
+`--build-arg FORTEMI_API_FEATURES=hosted-auth,kms-aws`; that still requires valid
+runtime AWS KMS configuration and every other hosted prerequisite. A bare Cargo
+build continues to require explicit `--features hosted-auth` for this verifier.
+
+Issuer URL validation also remains unchanged. Keycloak realm paths currently
+require the existing `FORTEMI_ALLOW_LOCAL_ISSUER=true` override. This override
+relaxes the server's local/private/path restriction, but the hosted provider
+still independently requires HTTPS and verifies TLS certificates and hostnames;
+it does not make HTTP or an untrusted certificate acceptable. Configure only
+the intended issuer and trust roots for the qualification deployment.
+
 ---
 
 ## API Key Authentication

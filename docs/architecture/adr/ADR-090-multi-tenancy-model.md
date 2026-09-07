@@ -15,6 +15,7 @@
 | 0 | 2026-05-20 | Initial draft proposed schema-per-tenant with `TenantScopedDb` newtype |
 | 1 | 2026-05-20 | **Revised** to match HotM ADR-MOBILE-001 Decision 6 and Gitea Fortemi/fortemi#707: shared-schema with Postgres RLS, `NOSUPERUSER NOBYPASSRLS` role, `SET LOCAL app.current_tenant` per request, FORCE RLS on every tenant-scoped table, CI gate via `pg_class`/`pg_policy`. Schema-per-tenant retained only as documented escalation trigger. |
 | 2 | 2026-08-24 | Pin hosted auth to signed `fortemi-auth` `v2026.8.0` (`36ba38efdd5ed57da2f2c2638529ee166255e198`), contract `1.1.0`, profile `rust-node-jwt-v1`, manifest SHA-256 `ab846ba11f479b11638fb3f5bc7029f98ad498b028f6cf060171316b90552e94`, and release-policy SHA-256 `828c6ff24f63b10f114b78e6f83a8db6bd53d53f903e4c4f246eaccb6eeac949`. Tenant-store unavailability, timeout, and malformed dependency responses fail closed as HTTP 503; inactive and missing tenants remain HTTP 403. |
+| 3 | 2026-09-07 | Hosted OIDC trust can add PEM CA certificates through `FORTEMI_AUTH_CA_BUNDLE`, read once at verifier startup using the authority's additive provider constructor. Default roots, HTTPS, hostname checks, and redirect rejection remain enabled. Explicit invalid files fail startup; rotation requires restart. Producer: [fortemi-auth#50](https://git.integrolabs.net/Fortemi/fortemi-auth/issues/50); consumer: [fortemi#1144](https://git.integrolabs.net/Fortemi/fortemi/issues/1144). |
 
 ## July 2026 checkpoint rebaseline
 

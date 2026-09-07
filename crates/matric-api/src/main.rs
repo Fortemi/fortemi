@@ -3430,10 +3430,8 @@ async fn main() -> anyhow::Result<()> {
 
     #[cfg(feature = "hosted-auth")]
     let hosted_auth = if security_config.multi_tenant {
-        let auth_config = HostedAuthConfig::from_env(|name| std::env::var(name).ok())
-            .map_err(|_| anyhow::anyhow!("hosted OIDC configuration is invalid"))?;
-        let authenticator = build_clerk_authenticator(&auth_config, db.pool.clone())
-            .map_err(|_| anyhow::anyhow!("hosted OIDC verifier initialization failed"))?;
+        let auth_config = HostedAuthConfig::from_process_env()?;
+        let authenticator = build_clerk_authenticator(&auth_config, db.pool.clone())?;
         info!(
             target: "fortemi.security",
             clock_skew_seconds = auth_config.clock_skew_seconds,
@@ -12021,16 +12019,16 @@ fn build_compatibility_response_from_inputs(
             tenant_context_available: inputs.multi_tenant,
             claim_contract_version: inputs.multi_tenant.then_some("1.1.0"),
             claim_contract_profile: inputs.multi_tenant.then_some("rust-node-jwt-v1"),
-            authority_release: inputs.multi_tenant.then_some("v2026.8.1"),
+            authority_release: inputs.multi_tenant.then_some("v2026.9.0"),
             authority_commit: inputs
                 .multi_tenant
-                .then_some("1b6ddb1b58a12efc5b631386ad783cb12edec518"),
+                .then_some("cff36d293d73080c186e2f35115dd92a594982d2"),
             manifest_sha256: inputs
                 .multi_tenant
                 .then_some("2df0a35edad67cc3e8869286183a4d098b1eb8fc2161432ed0b54ba69b17e242"),
             release_policy_sha256: inputs
                 .multi_tenant
-                .then_some("d70491c336a62508ef3c7937af709dd121a6ec4f421ceab66486af3f371de8db"),
+                .then_some("bd77fbeba24991f969d07e5f45c5259504e52bb5ab9d7c4137abb22270c4abe8"),
         },
         capabilities: serde_json::json!({
             "core_notes": capability_state("available"),
@@ -44983,10 +44981,10 @@ mod tests {
         assert_eq!(body["auth"]["tenant_context_available"], true);
         assert_eq!(body["auth"]["claim_contract_version"], "1.1.0");
         assert_eq!(body["auth"]["claim_contract_profile"], "rust-node-jwt-v1");
-        assert_eq!(body["auth"]["authority_release"], "v2026.8.1");
+        assert_eq!(body["auth"]["authority_release"], "v2026.9.0");
         assert_eq!(
             body["auth"]["authority_commit"],
-            "1b6ddb1b58a12efc5b631386ad783cb12edec518"
+            "cff36d293d73080c186e2f35115dd92a594982d2"
         );
         assert_eq!(
             body["auth"]["manifest_sha256"],
@@ -44994,7 +44992,7 @@ mod tests {
         );
         assert_eq!(
             body["auth"]["release_policy_sha256"],
-            "d70491c336a62508ef3c7937af709dd121a6ec4f421ceab66486af3f371de8db"
+            "bd77fbeba24991f969d07e5f45c5259504e52bb5ab9d7c4137abb22270c4abe8"
         );
         assert_eq!(body["capabilities"]["hosted_auth"]["state"], "preview");
         assert_eq!(

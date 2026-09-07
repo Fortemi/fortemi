@@ -260,8 +260,15 @@ closed unless all of the following classes are configured and healthy:
 | `FORTEMI_AUTH_CLOCK_SKEW_SECONDS` | `60` | Accepted clock skew, bounded to `0..60`. |
 | `FORTEMI_AUTH_JWKS_CACHE_CAPACITY` | `128` | JWKS cache entries, bounded to `1..4096`. |
 | `FORTEMI_AUTH_HTTP_TIMEOUT_SECONDS` | `5` | OIDC/JWKS HTTP timeout, bounded to `1..30`. |
+| `FORTEMI_AUTH_CA_BUNDLE` | Unset | PEM file containing additional OIDC discovery/JWKS trust roots. Read once at verifier startup; explicit empty, unreadable, or invalid bundles fail startup. Default roots remain enabled. See [custom OIDC trust](authentication.md#custom-oidc-certificate-trust). |
 | `MIGRATION_DATABASE_URL` | None | Privileged migration connection; must differ from `DATABASE_URL`. |
 | `FORTEMI_AWS_KMS_KEY_ID` | None | Required KMS key identifier, injected by the hosted secret/configuration authority. |
+
+The standard Dockerfiles include `hosted-auth` through the
+`FORTEMI_API_FEATURES` build argument; runtime hosted mode remains opt-in and
+the separate KMS and service admission checks still apply. See
+[custom OIDC trust](authentication.md#custom-oidc-certificate-trust) for image
+build selection and the current Keycloak realm-path qualification prerequisite.
 
 These are configuration names, not example credential values. Inject database,
 Redis, identity-provider, and cloud credentials from the hosted secret manager.

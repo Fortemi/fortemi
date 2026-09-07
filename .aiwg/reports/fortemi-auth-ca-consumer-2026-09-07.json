@@ -1,0 +1,36 @@
+{
+  "timestamp": "2026-09-07T16:30:35.583328+00:00",
+  "result": "pass",
+  "authority_release": "v2026.9.0",
+  "authority_commit": "cff36d293d73080c186e2f35115dd92a594982d2",
+  "authority_tag_object": "fb4c74a0918c9d5206c48b511dff19f6e2072053",
+  "contract_version": "1.1.0",
+  "profile": "rust-node-jwt-v1",
+  "manifest_sha256": "2df0a35edad67cc3e8869286183a4d098b1eb8fc2161432ed0b54ba69b17e242",
+  "policy_sha256": "bd77fbeba24991f969d07e5f45c5259504e52bb5ab9d7c4137abb22270c4abe8",
+  "command": "cargo test --manifest-path tests/fortemi-auth-consumer/Cargo.toml",
+  "consumer_tests_passed": 6,
+  "dependency_source": "immutable HTTPS Git tag and Cargo.lock commit; no path override",
+  "producer_ci": 54930,
+  "limitations": [
+    "Full hosted KMS/quota/RLS and real token/realtime qualification remain with itops#662/#663.",
+    "CA trust adds no claim/schema/algorithm changes."
+  ],
+  "server_checks": {
+    "hosted_configuration": {
+      "passed": 5,
+      "includes": "non-Unicode explicit setting, empty/unreadable/malformed CA, valid CA and startup file lifetime"
+    },
+    "main_compatibility": {
+      "passed": 3
+    },
+    "workspace_libraries": {
+      "passed": 2542,
+      "ignored": 1,
+      "failed": 0
+    },
+    "blocking_hosted_docs": "pass",
+    "dependency_policy": "pass",
+    "clippy_all_targets_all_features_deny_warnings": "pass"
+  }
+}

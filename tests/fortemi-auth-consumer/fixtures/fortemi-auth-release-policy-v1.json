@@ -3,8 +3,8 @@
   "policy_version": "1.1.0",
   "release_scheme": "calver-yyyy-m-patch",
   "current_release": {
-    "version": "2026.8.1",
-    "tag": "v2026.8.1",
+    "version": "2026.9.0",
+    "tag": "v2026.9.0",
     "contract_version": "1.1.0",
     "profile": "rust-node-jwt-v1",
     "manifest_sha256": "2df0a35edad67cc3e8869286183a4d098b1eb8fc2161432ed0b54ba69b17e242"
@@ -50,9 +50,22 @@
       }
     },
     {
-      "id": "current-exact",
+      "id": "previous-authority-release",
       "candidate": {
         "version": "2026.8.1",
+        "contract_version": "1.1.0",
+        "profile": "rust-node-jwt-v1",
+        "manifest_sha256": "2df0a35edad67cc3e8869286183a4d098b1eb8fc2161432ed0b54ba69b17e242"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "unsupported_release"
+      }
+    },
+    {
+      "id": "current-exact",
+      "candidate": {
+        "version": "2026.9.0",
         "contract_version": "1.1.0",
         "profile": "rust-node-jwt-v1",
         "manifest_sha256": "2df0a35edad67cc3e8869286183a4d098b1eb8fc2161432ed0b54ba69b17e242"
@@ -64,7 +77,7 @@
     {
       "id": "current-contract-drift",
       "candidate": {
-        "version": "2026.8.1",
+        "version": "2026.9.0",
         "contract_version": "1.0.0",
         "profile": "rust-node-jwt-v1",
         "manifest_sha256": "2df0a35edad67cc3e8869286183a4d098b1eb8fc2161432ed0b54ba69b17e242"
@@ -77,7 +90,7 @@
     {
       "id": "current-profile-drift",
       "candidate": {
-        "version": "2026.8.1",
+        "version": "2026.9.0",
         "contract_version": "1.1.0",
         "profile": "rust-node-jwt-v2",
         "manifest_sha256": "2df0a35edad67cc3e8869286183a4d098b1eb8fc2161432ed0b54ba69b17e242"
@@ -90,7 +103,7 @@
     {
       "id": "current-manifest-drift",
       "candidate": {
-        "version": "2026.8.1",
+        "version": "2026.9.0",
         "contract_version": "1.1.0",
         "profile": "rust-node-jwt-v1",
         "manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -103,7 +116,7 @@
     {
       "id": "next-calendar-train",
       "candidate": {
-        "version": "2026.9.0",
+        "version": "2026.10.0",
         "contract_version": "1.1.0",
         "profile": "rust-node-jwt-v1",
         "manifest_sha256": "2df0a35edad67cc3e8869286183a4d098b1eb8fc2161432ed0b54ba69b17e242"

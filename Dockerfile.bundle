@@ -13,6 +13,8 @@ FROM rust:1.92.0-slim-bookworm@sha256:f1f73538ebe623fd3673a35aff3df358ae1084c64c
 ARG VERSION=dev
 ARG GIT_SHA=unknown
 ARG BUILD_DATE=unknown
+# Include the public OIDC verifier; hosted runtime admission remains opt-in.
+ARG FORTEMI_API_FEATURES=hosted-auth
 ARG CARGO_BUILD_JOBS=8
 ARG RUST_MIN_STACK=134217728
 ARG TARGETARCH
@@ -37,7 +39,7 @@ ENV MATRIC_BUILD_DATE=${BUILD_DATE}
 RUN --mount=type=cache,id=fortemi-bundle-cargo-registry-${TARGETARCH},target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=fortemi-bundle-target-${TARGETARCH},target=/app/target,sharing=locked \
     RUST_MIN_STACK="${RUST_MIN_STACK}" \
-    cargo build --locked --release --jobs ${CARGO_BUILD_JOBS} --package matric-api --package matric-crypto && \
+    cargo build --locked --release --jobs ${CARGO_BUILD_JOBS} --package matric-api --package matric-crypto --features "${FORTEMI_API_FEATURES}" && \
     cp target/release/matric-api /app/matric-api && \
     cp target/release/matric-pke /app/matric-pke
 

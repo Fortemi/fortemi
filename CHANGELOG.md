@@ -7,6 +7,21 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.9.7] - 2026-09-07
+
+### Added
+
+- Configure additional CA trust for hosted OIDC discovery and JWKS with `FORTEMI_AUTH_CA_BUNDLE`, including read-only container mounts and explicit startup errors for invalid files (#1144).
+- Include the hosted verifier in standard API/bundle builds; hosted runtime activation still requires its separate key-provider, quota and database-isolation configuration.
+
+### Changed
+
+- Pin the immutable fortemi-auth v2026.9.0 authority and updated release-policy receipt, retaining contract 1.1.0 and the RS256 profile.
+
+### Verification
+
+- Private-CA TLS tests retain hostname, expiry, HTTPS and redirect restrictions. Live issuer discovery/JWKS passed in the producer; full hosted token/tenant/realtime qualification remains with itops #662/#663.
+
 ## [2026.9.6] - 2026-09-06
 
 ### Fixed
