@@ -40,8 +40,59 @@ PRE_MIGRATION_BACKUP_ACK_NO_BACKUP=true
 The backup script verifies non-zero size, parses the custom-format dump with
 `pg_restore --list`, and logs a SHA-256 checksum.
 
+After verification, the pre-migration recovery helper publishes
+`<backup>.recovery.meta` beside the dump with an atomic temp-file rename. The
+metadata binds the recovery point to the artifact SHA-256 and size, database
+identity, current successful migration version, target migration version,
+migration-file manifest digest, and a snapshot-bound pre-migration state
+fingerprint.
+
+The helper holds a PostgreSQL repeatable-read, read-only exporter transaction
+open with `pg_export_snapshot()`. Reuse validation imports that snapshot into
+bounded streaming checks instead of running another full data `pg_dump`: a
+schema-only `pg_dump` hash with deterministic restrict key, ordered `COPY`
+streams for non-system regular tables and populated materialized views,
+including each row's `xmin`, ordered large
+object metadata/page streams, and explicit all-schema sequence state including
+`last_value` and `is_called`. The same exported snapshot is passed to the
+creation backup with `pg_dump --snapshot`, so a newly created artifact and its
+state marker describe the same database view. Relation locks use a bounded
+`lock_timeout` to fail closed on conflicting table DDL rather than waiting
+forever. Materialized-view population state is recorded explicitly; an
+unpopulated view is not queried. Before publishing a new recovery marker, a
+second exported snapshot verifies the final state coherently. A failed final
+check removes the new artifact and preserves older recovery points. Retention
+runs only after final verification and marker publication, under the same
+exclusive recovery lock used for selection and creation.
+
+Sequences are not MVCC in PostgreSQL. The helper brackets sequence state before
+and after fingerprint/backup work and fails closed if it observes movement; it
+does not claim to prevent all possible sequence writes. Operators should treat a
+sequence-movement failure as a retry signal after writers are idle. The default
+reuse window is `FORTEMI_PRE_MIGRATION_REUSE_MAX_AGE_SECONDS=86400` seconds. Set
+it to `0` to disable reuse and always create a new verified backup; positive
+values define the finite maximum reuse age while the database, migration,
+artifact, and state bindings still match.
+
+On a restart retry, the entrypoint takes no persistent database read-only
+setting and terminates no clients. It delegates to the helper, which reuses a
+prior dump only when the marker and artifact verify and every binding still
+matches. Missing, corrupt, unverified, future-dated, stale, or incompatible
+recovery points are rejected with a non-secret reason and the entrypoint creates
+a new verified dump. Partial migration progress changes the current migration
+version and invalidates reuse. Changing migration files or the target migration version invalidates reuse. Restoring or
+replacing the database changes the database identity or row-version fingerprint
+and invalidates reuse. Intervening application writes before validation change
+the state fingerprint and invalidate reuse.
+
+This policy relies on PostgreSQL `pg_dump`'s documented support for exported
+snapshots and full-database large-object dumps:
+https://www.postgresql.org/docs/18/app-pgdump.html.
+
 The release fixture also restores the generated dump into a fresh database and
-checks the seeded `note_original` count before running current migrations.
+compares seeded relation counts and chunk, attachment, and archive invariants
+before running current migrations. A fixture failure does not qualify the
+upgrade, even when backup creation and restoration passed.
 
 ## Seeded Large-Data Gate
 

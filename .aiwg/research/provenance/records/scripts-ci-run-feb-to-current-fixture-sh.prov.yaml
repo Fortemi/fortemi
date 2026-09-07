@@ -1,0 +1,26 @@
+entity:
+  id: urn:aiwg:artifact:scripts/ci/run-feb-to-current-fixture.sh
+  type: file
+  path: scripts/ci/run-feb-to-current-fixture.sh
+  sha256: 0ae9b142818a336f7d4c4ca8b4f36680750db86eb37f966d97b242e438deb7c3
+activity:
+  id: urn:aiwg:activity:issue-1041-legacy-archive-migration-repair
+  type: modification
+  started_at: 2026-09-07T00:11:00Z
+  ended_at: 2026-09-07T00:11:00Z
+  description: >-
+    Implemented and tested February baseline fixture expansion plus legacy archive tenant-qualified note index pre-migration repair for issue #1041.
+agent:
+  id: urn:aiwg:agent:software-implementer
+  type: software-implementer
+  tool_version: codex-gpt-6
+wasGeneratedBy:
+  entity: urn:aiwg:artifact:scripts/ci/run-feb-to-current-fixture.sh
+  activity: urn:aiwg:activity:issue-1041-legacy-archive-migration-repair
+wasAssociatedWith:
+  activity: urn:aiwg:activity:issue-1041-legacy-archive-migration-repair
+  agent: urn:aiwg:agent:software-implementer
+wasDerivedFrom:
+  - urn:aiwg:issue:Fortemi/fortemi#1041
+  - urn:aiwg:adr:crates/matric-db/ADR-028-shard-archive-migration-system
+  - urn:aiwg:policy:published-migration-immutability

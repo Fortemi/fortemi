@@ -38,13 +38,19 @@ The bundle entrypoint automatically manages MCP OAuth credentials on startup:
 **Startup sequence:**
 
 1. PostgreSQL starts and waits for readiness
-2. API starts and waits for health check to pass
+2. API starts and waits for `/health` to pass. The bundle default is
+   `API_STARTUP_TIMEOUT_SECONDS=7200` seconds; set
+   `API_STARTUP_TIMEOUT_SECONDS=0` to wait indefinitely while the API process
+   remains alive. Progress logs default to every
+   `API_STARTUP_PROGRESS_SECONDS=30` seconds.
 3. Entrypoint checks for persisted credentials at `$PGDATA/.fortemi-mcp-credentials`
 4. If credentials exist:
    - Loads credentials from file
    - Validates against API's introspection endpoint
    - If valid, proceeds to step 7
    - If invalid, proceeds to step 5
+   - If validation cannot reach the API or receives a transient server error,
+     preserves the existing credentials and starts MCP with them
 5. If credentials missing or invalid:
    - Registers new OAuth client via `POST /oauth/register`
    - Request body: `{"client_name":"MCP Server (auto-registered)","grant_types":["client_credentials"],"scope":"mcp read write"}`
@@ -346,17 +352,47 @@ docker compose -f docker-compose.bundle.yml logs matric | grep -E "MCP|credentia
 ```
 >>> Auto-registering MCP OAuth client...
   WARNING: MCP client auto-registration failed
+  Registration request failed or returned an empty response
+  MCP server will start but token introspection will fail
+  Fix: manually register via POST /oauth/register
+```
+
+or:
+
+```
+>>> Auto-registering MCP OAuth client...
+  WARNING: MCP client auto-registration failed
   Registration response omitted because it may contain credentials
   MCP server will start but token introspection will fail
   Fix: manually register via POST /oauth/register
 ```
 
-**Cause:** API not ready, database migration failed, or registration validation
-returned a Problem Details response.
+**Cause:** API startup exceeded `API_STARTUP_TIMEOUT_SECONDS`, the API process
+exited during migrations, registration returned an HTTP error, or the register
+response was empty, malformed, or missing `client_id` or `client_secret`.
 
 **Fix:** Inspect the API logs around the registration timestamp and ensure
 migrations completed successfully. The bundle intentionally does not print the
 registration response because a successful response contains a client secret.
+
+**Extended first upgrade on constrained Windows/CPU hosts:**
+
+Keep the Docker volume, leave existing credentials in place, and free memory
+headroom for migrations by disabling optional startup work until the first boot
+finishes:
+
+```bash
+COMPOSE_PROFILES=edge
+RENDERER_ENABLED=false
+LOAD_SUPPORT_MEMORY=false
+API_STARTUP_TIMEOUT_SECONDS=0
+docker compose -f docker-compose.bundle.yml up -d
+docker compose -f docker-compose.bundle.yml logs -f fortemi
+```
+
+MCP credential validation and registration do not run until `/health` succeeds.
+If the API is temporarily unavailable during validation, the persisted
+credentials are preserved instead of being overwritten.
 
 ### Health Checks
 

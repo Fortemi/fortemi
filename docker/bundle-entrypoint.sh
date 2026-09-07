@@ -278,82 +278,40 @@ ensure_pre_migration_backup() {
         return 0
     fi
 
-    if [ ! -x "$BACKUP_SCRIPT_PATH" ]; then
-        echo "ERROR: pre-migration backup script is not executable: $BACKUP_SCRIPT_PATH" >&2
+    local from_version
+    local helper_path
+    from_version="$(current_migration_version)"
+    helper_path="${PRE_MIGRATION_RECOVERY_HELPER_PATH:-/app/scripts/pre-migration-recovery.py}"
+
+    if [ ! -x "$helper_path" ]; then
+        echo "ERROR: pre-migration recovery helper is not executable: $helper_path" >&2
         echo "Set PRE_MIGRATION_BACKUP_ACK_NO_BACKUP=true only after accepting rollback risk." >&2
         exit 1
     fi
 
-    local from_version
-    local timestamp
-    local basename
-    local backup_log
-    from_version="$(current_migration_version)"
-    timestamp="$(date -u '+%Y%m%dT%H%M%SZ')"
-    basename="pre-migration-${from_version}-${to_version}-${timestamp}"
-    backup_log="${BACKUP_DEST}/.${basename}.log"
-
-    echo ">>> Pending migrations on non-empty database: creating verified pre-migration backup"
-    # A full bundle backup is an administrative operation: the application
-    # role is intentionally NOBYPASSRLS and cannot dump forced-RLS tables.
-    # Restrict the local backup directory before delegating only the dump
-    # subprocess to PostgreSQL's local peer-authenticated OS account.
     install -d -m 0700 -o postgres -g postgres "$BACKUP_DEST"
-
-    # Pre-flight: the dump stages in BACKUP_TEMP_DIR before compression, and
-    # Docker's default /dev/shm is only 64MB. Refuse to start a dump that
-    # cannot fit; fall back to disk staging under BACKUP_DEST with a loud
-    # warning rather than restart-looping. (#1049)
-    local staging_dir staging_trusted db_size avail_staging avail_disk
-    staging_dir="${BACKUP_TEMP_DIR:-/dev/shm/fortemi-pre-migration-backup}"
-    staging_trusted="${BACKUP_TEMP_TRUSTED_ENCRYPTED:-false}"
-    db_size=$(su postgres -c "psql -d ${POSTGRES_DB} -At -v ON_ERROR_STOP=1 -c 'SELECT pg_database_size(current_database())'" || echo "")
-    install -d -m 0700 -o postgres -g postgres "$staging_dir" 2>/dev/null || true
-    avail_staging=$(df -B1 --output=avail "$staging_dir" 2>/dev/null | tail -1 || echo "")
-    if [ -n "$db_size" ] && [ -n "$avail_staging" ] && [ "$avail_staging" -lt "$db_size" ]; then
-        echo "!!! WARNING: backup staging dir ${staging_dir} has ${avail_staging} bytes free"
-        echo "!!! but the database is ${db_size} bytes; the staged dump may not fit."
-        echo "!!! Falling back to DISK staging under ${BACKUP_DEST}/.staging — the dump"
-        echo "!!! will touch disk unencrypted while the backup runs."
-        echo "!!! To keep RAM-backed staging, raise the container shm size (compose:"
-        echo "!!! shm_size on the fortemi service) or point BACKUP_TEMP_DIR at a larger tmpfs."
-        staging_dir="${BACKUP_DEST}/.staging"
-        staging_trusted=true
-        install -d -m 0700 -o postgres -g postgres "$staging_dir"
-        avail_disk=$(df -B1 --output=avail "$staging_dir" 2>/dev/null | tail -1 || echo "")
-        if [ -n "$avail_disk" ] && [ "$avail_disk" -lt "$db_size" ]; then
-            echo "ERROR: disk staging under ${BACKUP_DEST} also lacks space (${avail_disk} bytes free, database is ${db_size} bytes)." >&2
-            echo "Free up space, mount a larger BACKUP_DEST, or set BACKUP_TEMP_DIR to a location with enough room." >&2
-            exit 1
-        fi
-    fi
+    install -d -m 0700 -o postgres -g postgres "${BACKUP_TEMP_DIR:-/dev/shm/fortemi-pre-migration-backup}"
 
     if ! runuser -u postgres -- env -u PGPASSWORD -u PGPASSFILE \
+        POSTGRES_DB="$POSTGRES_DB" \
         BACKUP_DEST="$BACKUP_DEST" \
-        BACKUP_BASENAME="$basename" \
-        BACKUP_CLEANUP_PATTERN='pre-migration-*.sql*' \
-        BACKUP_RETAIN="$PRE_MIGRATION_BACKUP_RETAIN" \
-        BACKUP_TEMP_DIR="$staging_dir" \
-        BACKUP_TEMP_TRUSTED_ENCRYPTED="$staging_trusted" \
+        BACKUP_SCRIPT_PATH="$BACKUP_SCRIPT_PATH" \
+        PRE_MIGRATION_BACKUP_RETAIN="$PRE_MIGRATION_BACKUP_RETAIN" \
+        BACKUP_TEMP_DIR="${BACKUP_TEMP_DIR:-/dev/shm/fortemi-pre-migration-backup}" \
+        BACKUP_TEMP_TRUSTED_ENCRYPTED="${BACKUP_TEMP_TRUSTED_ENCRYPTED:-false}" \
         BACKUP_COMPRESS="${BACKUP_COMPRESS:-gzip}" \
+        FORTEMI_PRE_MIGRATION_REUSE_MAX_AGE_SECONDS="${FORTEMI_PRE_MIGRATION_REUSE_MAX_AGE_SECONDS:-86400}" \
+        FORTEMI_MIGRATIONS_DIR="${FORTEMI_MIGRATIONS_DIR:-/app/migrations}" \
         PGUSER=postgres \
         PGHOST=/var/run/postgresql \
         PGPORT=5432 \
         PGDATABASE="$POSTGRES_DB" \
         LOG_FILE="${LOG_FILE:-/var/log/fortemi/backup.log}" \
-        "$BACKUP_SCRIPT_PATH" -d local | tee "$backup_log"; then
-        # A failed verification must not leave an artifact that backup inventory
-        # can mistake for a recovery point. The basename is generated above and
-        # contains no glob characters, so cleanup is limited to this attempt.
-        find "$BACKUP_DEST" -maxdepth 1 -type f -name "${basename}.sql*" -delete
-        echo "ERROR: verified pre-migration backup failed; aborting before checksum repair and migrations" >&2
+        "$helper_path" "$from_version" "$to_version"; then
+        echo "ERROR: verified pre-migration recovery point unavailable; aborting before checksum repair and migrations" >&2
         echo "Set PRE_MIGRATION_BACKUP_ACK_NO_BACKUP=true only for constrained environments with an external recovery point." >&2
         exit 1
     fi
-
-    local final_file
-    final_file="$(tail -n 1 "$backup_log")"
-    echo ">>> Pre-migration backup ready: ${BACKUP_DEST}/${final_file}"
 }
 
 repair_legacy_restore_compatibility
@@ -392,6 +350,219 @@ mkdir -p "$BACKUP_DEST"
 echo "  File storage: /var/lib/matric/files"
 echo "  Backup storage: $BACKUP_DEST"
 
+# --- Testable bundle runtime helpers (sourced by startup regression tests) ---
+bundle_positive_int_or_default() {
+    local name="$1"
+    local default_value="$2"
+    local allow_zero="$3"
+    local value="${!name:-}"
+
+    if [ -z "$value" ]; then
+        printf '%s\n' "$default_value"
+        return 0
+    fi
+
+    case "$value" in
+        *[!0-9]*)
+            echo "WARNING: $name must be an integer number of seconds; using ${default_value}" >&2
+            printf '%s\n' "$default_value"
+            return 0
+            ;;
+    esac
+
+    # Bound arithmetic and normalize decimal input (08 must not become octal).
+    if [ "${#value}" -gt 7 ]; then
+        echo "WARNING: $name is too large; using ${default_value}" >&2
+        printf '%s\n' "$default_value"
+        return 0
+    fi
+    value=$((10#$value))
+    if [ "$allow_zero" != "true" ] && [ "$value" -eq 0 ]; then
+        echo "WARNING: $name must be greater than zero; using ${default_value}" >&2
+        printf '%s\n' "$default_value"
+        return 0
+    fi
+
+    printf '%s\n' "$value"
+}
+
+wait_for_api_ready() {
+    local api_port="${PORT:-3000}"
+    local timeout_seconds progress_seconds poll_seconds elapsed next_progress started
+
+    timeout_seconds="$(bundle_positive_int_or_default API_STARTUP_TIMEOUT_SECONDS 7200 true)"
+    progress_seconds="$(bundle_positive_int_or_default API_STARTUP_PROGRESS_SECONDS 30 false)"
+    poll_seconds="$(bundle_positive_int_or_default API_STARTUP_POLL_SECONDS 1 false)"
+    elapsed=0
+    started=$SECONDS
+    next_progress="$progress_seconds"
+    API_READY=false
+
+    echo ">>> Waiting for API to be healthy..."
+    if [ "$timeout_seconds" -eq 0 ]; then
+        echo "  API startup wait timeout: disabled; waiting until healthy while PID ${API_PID} remains alive"
+    else
+        echo "  API startup wait timeout: ${timeout_seconds}s"
+    fi
+
+    while true; do
+        elapsed=$((SECONDS - started))
+        if ! kill -0 "$API_PID" 2>/dev/null; then
+            echo "ERROR: API process died during startup" >&2
+            exit 1
+        fi
+        if curl --connect-timeout 1 --max-time 2 -sf "http://localhost:${api_port}/health" >/dev/null 2>&1; then
+            echo "  API is healthy after ${elapsed}s"
+            API_READY=true
+            return 0
+        fi
+
+        if ! kill -0 "$API_PID" 2>/dev/null; then
+            echo "ERROR: API process died during startup" >&2
+            cat /var/log/matric/api.log 2>/dev/null | tail -50 || true
+            exit 1
+        fi
+
+        if [ "$timeout_seconds" -gt 0 ] && [ "$elapsed" -ge "$timeout_seconds" ]; then
+            echo "ERROR: API health check timed out after ${timeout_seconds}s; MCP credential setup was not attempted" >&2
+            echo "Increase API_STARTUP_TIMEOUT_SECONDS for first upgrades with long migrations, or set it to 0 to wait indefinitely." >&2
+            cat /var/log/matric/api.log 2>/dev/null | tail -50 || true
+            exit 1
+        fi
+
+        if [ "$elapsed" -ge "$next_progress" ]; then
+            echo "  Still waiting for API after ${elapsed}s; migrations may still be running"
+            next_progress=$((next_progress + progress_seconds))
+        fi
+
+        sleep "$poll_seconds"
+        elapsed=$((SECONDS - started))
+    done
+}
+
+parse_mcp_register_response() {
+    python3 -c '
+import json
+import sys
+
+try:
+    payload = json.load(sys.stdin)
+except Exception:
+    sys.exit(1)
+
+if not isinstance(payload, dict):
+    sys.exit(1)
+
+client_id = payload.get("client_id")
+client_secret = payload.get("client_secret")
+if not isinstance(client_id, str) or not client_id:
+    sys.exit(1)
+if not isinstance(client_secret, str) or not client_secret:
+    sys.exit(1)
+
+if any(c in client_id + client_secret for c in "\r\n\x00"):
+    sys.exit(1)
+print(client_id)
+print(client_secret)
+'
+}
+
+persist_mcp_credentials() {
+    local temporary
+    temporary=$(mktemp "${MCP_CREDS_FILE}.XXXXXX") || return 1
+    if ! (umask 077; declare -p MCP_CLIENT_ID MCP_CLIENT_SECRET > "$temporary") ||
+       ! chmod 600 "$temporary" || ! mv -f "$temporary" "$MCP_CREDS_FILE"; then
+        rm -f "$temporary"
+        return 1
+    fi
+}
+
+validate_mcp_credentials() {
+    local http_code curl_status
+
+    MCP_CREDS_VALID=false
+    if [ -z "${MCP_CLIENT_ID:-}" ] || [ -z "${MCP_CLIENT_SECRET:-}" ]; then
+        echo ">>> No MCP credentials configured"
+        return 0
+    fi
+
+    echo ">>> Validating MCP credentials (client_id: $MCP_CLIENT_ID)..."
+    curl_status=0
+    http_code=$(curl --connect-timeout 2 --max-time 10 -s -o /dev/null -w "%{http_code}" -X POST \
+        "http://localhost:${PORT:-3000}/oauth/introspect" \
+        -u "$MCP_CLIENT_ID:$MCP_CLIENT_SECRET" \
+        -d "token=startup_validation_check" 2>/dev/null) || curl_status=$?
+
+    if [ "$curl_status" -ne 0 ] || [ -z "$http_code" ] || [ "$http_code" = "000" ]; then
+        MCP_CREDS_VALID=true
+        echo "  WARNING: API unavailable during MCP credential validation; preserving existing MCP credentials"
+        return 0
+    fi
+
+    case "$http_code" in
+        200)
+            MCP_CREDS_VALID=true
+            echo "  MCP credentials valid"
+            ;;
+        400|401|403)
+            echo "  MCP credentials invalid (HTTP $http_code)"
+            ;;
+        *)
+            MCP_CREDS_VALID=true
+            echo "  WARNING: MCP credential validation returned HTTP $http_code; preserving existing MCP credentials"
+            ;;
+    esac
+}
+
+register_mcp_client() {
+    local register_response register_status parsed_credentials
+
+    echo ">>> Auto-registering MCP OAuth client..."
+    register_status=0
+    register_response=$(curl --connect-timeout 2 --max-time 10 -fsS -X POST "http://localhost:${PORT:-3000}/oauth/register" \
+        -H "Content-Type: application/json" \
+        -d '{"client_name":"MCP Server (auto-registered)","grant_types":["client_credentials"],"scope":"mcp read write"}' 2>/dev/null) || register_status=$?
+
+    if [ "$register_status" -ne 0 ] || [ -z "$register_response" ]; then
+        echo "  WARNING: MCP client auto-registration failed"
+        echo "  Registration request failed or returned an empty response"
+        echo "  MCP server will start but token introspection will fail"
+        echo "  Fix: manually register via POST /oauth/register"
+        return 0
+    fi
+
+    if ! parsed_credentials="$(printf '%s' "$register_response" | parse_mcp_register_response 2>/dev/null)"; then
+        echo "  WARNING: MCP client auto-registration failed"
+        echo "  Registration response omitted because it may contain credentials"
+        echo "  MCP server will start but token introspection will fail"
+        echo "  Fix: manually register via POST /oauth/register"
+        return 0
+    fi
+
+    MCP_CLIENT_ID="$(printf '%s\n' "$parsed_credentials" | sed -n '1p')"
+    MCP_CLIENT_SECRET="$(printf '%s\n' "$parsed_credentials" | sed -n '2p')"
+    export MCP_CLIENT_ID MCP_CLIENT_SECRET
+
+    if ! persist_mcp_credentials; then
+        echo "  WARNING: MCP credentials could not be persisted; API remains running" >&2
+        echo "  Repair credential storage before restarting; current credentials remain in memory" >&2
+        return 0
+    fi
+
+    echo "  Registered MCP client: $MCP_CLIENT_ID"
+    echo "  Credentials persisted to $MCP_CREDS_FILE"
+    echo ""
+    echo "  ================================================================"
+    echo "  MCP credentials registered and persisted (mode 600):"
+    echo "    $MCP_CREDS_FILE"
+    echo "  Client ID: $MCP_CLIENT_ID"
+    echo "  Secret: (masked - never logged; read from the creds file if"
+    echo "          you need it, e.g. for .env after a volume wipe)"
+    echo "  ================================================================"
+    echo ""
+}
+# --- End testable bundle runtime helpers ---
+
 # --- Start API first (MCP needs the API for credential validation) ---
 echo ">>> Starting Matric API..."
 mkdir -p /var/log/matric
@@ -400,9 +571,10 @@ echo "  Listening on: ${HOST:-0.0.0.0}:${PORT:-3000}"
 # Trap to clean up background processes on exit
 cleanup() {
     echo "Shutting down..."
-    kill $MCP_PID 2>/dev/null || true
-    kill $RENDERER_PID 2>/dev/null || true
-    kill $API_PID 2>/dev/null || true
+    kill ${MCP_PID:-} 2>/dev/null || true
+    kill ${SEED_PID:-} 2>/dev/null || true
+    kill ${RENDERER_PID:-} 2>/dev/null || true
+    kill ${API_PID:-} 2>/dev/null || true
     su postgres -c "pg_ctl -D $PGDATA stop -m fast" 2>/dev/null || true
     exit 0
 }
@@ -517,26 +689,10 @@ fi
 /app/matric-api &
 API_PID=$!
 
-# Wait for API to be healthy before starting MCP server
-echo ">>> Waiting for API to be healthy..."
-API_READY=false
-for i in {1..60}; do
-    if curl -sf http://localhost:${PORT:-3000}/health >/dev/null 2>&1; then
-        echo "  API is healthy!"
-        API_READY=true
-        break
-    fi
-    # Check API process is still alive
-    if ! kill -0 $API_PID 2>/dev/null; then
-        echo "ERROR: API process died during startup"
-        exit 1
-    fi
-    sleep 1
-done
-
-if [ "$API_READY" = false ]; then
-    echo "WARNING: API health check timed out after 60s, continuing anyway..."
-fi
+# Wait for API to be healthy before starting MCP server. The API applies sqlx
+# migrations on startup, so first upgrades on constrained machines can spend
+# substantially longer than ordinary cold starts before listening.
+wait_for_api_ready
 
 # --- MCP Credential Management ---
 # Credentials are persisted on the pgdata volume so they survive container restarts.
@@ -556,62 +712,11 @@ if [ -f "$MCP_CREDS_FILE" ]; then
 fi
 
 # Validate existing credentials against the API's introspection endpoint
-MCP_CREDS_VALID=false
-if [ -n "$MCP_CLIENT_ID" ] && [ -n "$MCP_CLIENT_SECRET" ]; then
-    echo ">>> Validating MCP credentials (client_id: $MCP_CLIENT_ID)..."
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
-        "http://localhost:${PORT:-3000}/oauth/introspect" \
-        -u "$MCP_CLIENT_ID:$MCP_CLIENT_SECRET" \
-        -d "token=startup_validation_check" 2>/dev/null || echo "000")
-    if [ "$HTTP_CODE" = "200" ]; then
-        MCP_CREDS_VALID=true
-        echo "  MCP credentials valid"
-    else
-        echo "  MCP credentials invalid (HTTP $HTTP_CODE)"
-    fi
-else
-    echo ">>> No MCP credentials configured"
-fi
+validate_mcp_credentials
 
 # Auto-register if credentials are missing or invalid
 if [ "$MCP_CREDS_VALID" = false ]; then
-    echo ">>> Auto-registering MCP OAuth client..."
-    REGISTER_RESPONSE=$(curl -s -X POST "http://localhost:${PORT:-3000}/oauth/register" \
-        -H "Content-Type: application/json" \
-        -d '{"client_name":"MCP Server (auto-registered)","grant_types":["client_credentials"],"scope":"mcp read write"}' 2>/dev/null || echo "")
-
-    # Parse client_id and client_secret from JSON response (no jq dependency)
-    NEW_CLIENT_ID=$(echo "$REGISTER_RESPONSE" | grep -o '"client_id":"[^"]*"' | head -1 | cut -d'"' -f4)
-    NEW_CLIENT_SECRET=$(echo "$REGISTER_RESPONSE" | grep -o '"client_secret":"[^"]*"' | head -1 | cut -d'"' -f4)
-
-    if [ -n "$NEW_CLIENT_ID" ] && [ -n "$NEW_CLIENT_SECRET" ]; then
-        export MCP_CLIENT_ID="$NEW_CLIENT_ID"
-        export MCP_CLIENT_SECRET="$NEW_CLIENT_SECRET"
-
-        # Persist credentials on pgdata volume (survives container restarts)
-        cat > "$MCP_CREDS_FILE" <<CREDS
-MCP_CLIENT_ID="$MCP_CLIENT_ID"
-MCP_CLIENT_SECRET="$MCP_CLIENT_SECRET"
-CREDS
-        chmod 600 "$MCP_CREDS_FILE"
-
-        echo "  Registered MCP client: $MCP_CLIENT_ID"
-        echo "  Credentials persisted to $MCP_CREDS_FILE"
-        echo ""
-        echo "  ================================================================"
-        echo "  MCP credentials registered and persisted (mode 600):"
-        echo "    $MCP_CREDS_FILE"
-        echo "  Client ID: $MCP_CLIENT_ID"
-        echo "  Secret: (masked — never logged; read from the creds file if"
-        echo "          you need it, e.g. for .env after a volume wipe)"
-        echo "  ================================================================"
-        echo ""
-    else
-        echo "  WARNING: MCP client auto-registration failed"
-        echo "  Registration response omitted because it may contain credentials"
-        echo "  MCP server will start but token introspection will fail"
-        echo "  Fix: manually register via POST /oauth/register"
-    fi
+    register_mcp_client
 fi
 
 # --- Seed Support Archive (opt-in, background, non-blocking) ---

@@ -16,8 +16,16 @@
 #   BACKUP_TEMP_DIR      Explicit private scratch directory for temporary dump files
 #   BACKUP_RETAIN        Days to retain backups (default: 7)
 #   BACKUP_COMPRESS      Compression: gzip, zstd, none (default: gzip)
+#   BACKUP_PG_DUMP_SNAPSHOT PostgreSQL exported snapshot for pg_dump (optional)
+#   BACKUP_RETENTION_DEFERRED Skip retention because a caller will apply it after
+#                         external validation succeeds
 #   BACKUP_REMOTE_RSYNC  Rsync destination (user@host:/path)
 #   BACKUP_REMOTE_S3     S3 bucket path (s3://bucket/prefix)
+#   BACKUP_RECOVERY_META_ENABLED
+#                         When true, publish verified pre-migration recovery
+#                         metadata beside the local artifact
+#   BACKUP_RECOVERY_*     Non-secret recovery binding values supplied by the
+#                         bundle entrypoint
 #   PGUSER, PGPASSWORD or PGPASSFILE, PGHOST, PGPORT, PGDATABASE
 #   Passwordless peer auth is accepted only when PGHOST is a Unix-socket
 #   directory and the operating-system user matches PGUSER.
@@ -37,6 +45,8 @@ BACKUP_TEMP_DIR="${BACKUP_TEMP_DIR:-}"
 BACKUP_TEMP_TRUSTED_ENCRYPTED="${BACKUP_TEMP_TRUSTED_ENCRYPTED:-false}"
 BACKUP_RETAIN="${BACKUP_RETAIN:-7}"
 BACKUP_COMPRESS="${BACKUP_COMPRESS:-gzip}"
+BACKUP_PG_DUMP_SNAPSHOT="${BACKUP_PG_DUMP_SNAPSHOT:-}"
+BACKUP_RETENTION_DEFERRED="${BACKUP_RETENTION_DEFERRED:-false}"
 BACKUP_ENCRYPT="${BACKUP_ENCRYPT:-}"
 BACKUP_REMOTE_RSYNC="${BACKUP_REMOTE_RSYNC:-}"
 BACKUP_REMOTE_S3="${BACKUP_REMOTE_S3:-}"
@@ -162,6 +172,8 @@ Environment Variables:
   BACKUP_ENCRYPT         Path to age public key for encryption
   BACKUP_REMOTE_RSYNC    Rsync destination (user@host:/path)
   BACKUP_REMOTE_S3       S3 bucket path (s3://bucket/prefix)
+  BACKUP_RECOVERY_META_ENABLED
+                         Set true only for bundle pre-migration backups
   PGUSER                 PostgreSQL user (default: matric)
   PGPASSWORD             PostgreSQL password (required unless PGPASSFILE is set
                          or matching-user Unix-socket peer auth is used)
@@ -362,7 +374,11 @@ create_database_dump() {
     # compression keeps the staged dump several times smaller than the raw
     # database so it fits RAM-backed staging (BACKUP_TEMP_DIR) (#1049).
     local dump_log
+    local -a dump_args=()
     dump_log="${BACKUP_TEMP_DIR}/pg_dump.output"
+    if [[ -n "$BACKUP_PG_DUMP_SNAPSHOT" ]]; then
+        dump_args+=(--snapshot="$BACKUP_PG_DUMP_SNAPSHOT")
+    fi
     if ! env "${pg_env[@]}" pg_dump \
         -U "$PGUSER" \
         -h "$PGHOST" \
@@ -371,7 +387,8 @@ create_database_dump() {
         --format=custom \
         --compress=6 \
         --file="$temp_path" \
-        --verbose >"$dump_log" 2>&1; then
+        --verbose \
+        "${dump_args[@]}" >"$dump_log" 2>&1; then
         # Surface the failure cause: without this, auth failures and ENOSPC
         # died silently behind metadata-only logging (#1050).
         while IFS= read -r line; do
@@ -720,6 +737,53 @@ verify_backup() {
     return 0
 }
 
+publish_recovery_metadata() {
+    local file="$1"
+    local backup_path="${BACKUP_DEST}/${file}"
+    local metadata_path="${backup_path}.recovery.meta"
+    local metadata_tmp
+    local checksum size created_epoch
+
+    if [[ "${BACKUP_RECOVERY_META_ENABLED:-false}" != "true" ]]; then
+        return 0
+    fi
+    case "$file" in
+        */*|"")
+            error_exit "Invalid recovery metadata artifact filename"
+            ;;
+    esac
+    if [[ ! -f "$backup_path" ]]; then
+        error_exit "Cannot publish recovery metadata without backup artifact"
+    fi
+
+    checksum="$(sha256sum "$backup_path" | awk '{print $1}')"
+    size="$(stat -c%s "$backup_path" 2>/dev/null || stat -f%z "$backup_path" 2>/dev/null || echo "")"
+    if [[ -z "$size" ]]; then
+        error_exit "Cannot publish recovery metadata without artifact size"
+    fi
+    created_epoch="$(date +%s)"
+    metadata_tmp="$(mktemp "${BACKUP_DEST}/.${file}.recovery.meta.XXXXXX")"
+
+    {
+        printf 'format_version=1\n'
+        printf 'verified=true\n'
+        printf 'artifact_file=%s\n' "$file"
+        printf 'artifact_sha256=%s\n' "$checksum"
+        printf 'artifact_size_bytes=%s\n' "$size"
+        printf 'created_at_epoch=%s\n' "$created_epoch"
+        printf 'db_identity_sha256=%s\n' "${BACKUP_RECOVERY_DB_IDENTITY_SHA256:-}"
+        printf 'from_version=%s\n' "${BACKUP_RECOVERY_FROM_VERSION:-}"
+        printf 'to_version=%s\n' "${BACKUP_RECOVERY_TO_VERSION:-}"
+        printf 'migration_manifest_sha256=%s\n' "${BACKUP_RECOVERY_MIGRATION_MANIFEST_SHA256:-}"
+        printf 'state_sha256=%s\n' "${BACKUP_RECOVERY_STATE_SHA256:-}"
+        printf 'reuse_max_age_seconds=%s\n' "${BACKUP_RECOVERY_REUSE_MAX_AGE_SECONDS:-}"
+    } > "$metadata_tmp"
+
+    chmod 600 "$metadata_tmp"
+    mv -f "$metadata_tmp" "$metadata_path"
+    log_success "Recovery metadata published: $(backup_path_metadata "$metadata_path")"
+}
+
 # Cleanup temporary files
 cleanup_temp() {
     if [[ -n "$BACKUP_TEMP_DIR" && -d "$BACKUP_TEMP_DIR" ]]; then
@@ -781,11 +845,19 @@ main() {
     # Distribute to destinations
     distribute_backup "$final_filename"
 
-    # Apply retention policy
-    cleanup_old_backups
-
-    # Verify
+    # Verify before retention so a failed replacement cannot delete older recovery points.
     verify_backup "$final_filename"
+
+    # Publish reusable recovery metadata only after artifact verification passes.
+    publish_recovery_metadata "$final_filename"
+
+    # Apply retention policy after verification/metadata, unless an orchestrator
+    # defers cleanup until its own post-backup validation succeeds.
+    if [[ "$BACKUP_RETENTION_DEFERRED" == "true" ]]; then
+        log "Retention deferred by caller until post-backup validation completes"
+    else
+        cleanup_old_backups
+    fi
 
     # Calculate duration
     local end_time
@@ -799,4 +871,6 @@ main() {
 }
 
 # Run main
-main "$@"
+if [[ "${FORTEMI_BACKUP_LIBRARY_ONLY:-false}" != "1" ]]; then
+    main "$@"
+fi

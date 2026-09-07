@@ -21,17 +21,20 @@ if ! grep -q "d.classid = 'pg_class'::regclass" "$FUNCTIONS_FILE" \
     exit 1
 fi
 
-if ! grep -q 'runuser -u postgres -- env -u PGPASSWORD -u PGPASSFILE' "$FUNCTIONS_FILE" \
-    || ! grep -q 'PGHOST=/var/run/postgresql' "$FUNCTIONS_FILE"; then
-    echo "FAIL: pre-migration backup does not use local postgres peer authentication" >&2
-    exit 1
-fi
+latest_available_migration_version() { echo "20260614140000"; }
+current_migration_version() { echo "20260215000000"; }
+pending_migrations_exist() { true; }
+database_has_user_data() { true; }
 
-# The entrypoint runs as root in the bundle. Keep this unit smoke test
-# unprivileged while preserving the administrative-user and environment
-# assertions made by ensure_pre_migration_backup.
 install() {
     local path="${*: -1}"
+    case "$path" in
+        "$BACKUP_DEST"|"$BACKUP_TEMP_DIR") ;;
+        *)
+            echo "FAIL: unexpected install target: $path" >&2
+            return 96
+            ;;
+    esac
     mkdir -p "$path"
     chmod 700 "$path"
 }
@@ -45,94 +48,119 @@ runuser() {
     "$@"
 }
 
-latest_available_migration_version() {
-    echo "20260614140000"
-}
-
-current_migration_version() {
-    echo "20260215000000"
-}
-
-pending_migrations_exist() {
-    true
-}
-
-database_has_user_data() {
-    true
-}
-
 POSTGRES_USER=matric
 POSTGRES_PASSWORD=test-password
 POSTGRES_DB=matric
+PGUSER=hostile_user
+PGPASSWORD=should_be_stripped
+PGPASSFILE=/tmp/should-be-stripped
+PGHOST=hostile.example.invalid
+PGPORT=6543
+PGDATABASE=hostile_db
+export PGUSER PGPASSWORD PGPASSFILE PGHOST PGPORT PGDATABASE
 BACKUP_DEST="$TMP_DIR/backups"
-BACKUP_SCRIPT_PATH="$TMP_DIR/failing-backup.sh"
+BACKUP_SCRIPT_PATH="$TMP_DIR/unused-backup.sh"
 PRE_MIGRATION_BACKUP_RETAIN=7
 PRE_MIGRATION_BACKUP_ACK_NO_BACKUP=false
 BACKUP_COMPRESS=gzip
 BACKUP_TEMP_DIR="$TMP_DIR/scratch"
 LOG_FILE="$TMP_DIR/backup.log"
+PRE_MIGRATION_RECOVERY_HELPER_PATH="$TMP_DIR/failing-helper.sh"
 
-cat > "$BACKUP_SCRIPT_PATH" <<'SH'
+cat > "$PRE_MIGRATION_RECOVERY_HELPER_PATH" <<'SH2'
 #!/usr/bin/env bash
-if [[ "$PGUSER" != "postgres" || "$PGHOST" != "/var/run/postgresql" ]]; then
-    echo "pre-migration backup did not select postgres peer authentication" >&2
+if [[ "$PGUSER" != "postgres" || "$PGHOST" != "/var/run/postgresql" || "$PGPORT" != "5432" || "$PGDATABASE" != "matric" ]]; then
+    echo "pre-migration recovery helper did not select postgres peer authentication" >&2
     exit 90
 fi
 if [[ -n "${PGPASSWORD:-}" || -n "${PGPASSFILE:-}" ]]; then
-    echo "pre-migration backup leaked a database secret to the peer-auth subprocess" >&2
+    echo "pre-migration recovery helper leaked a database secret" >&2
     exit 91
 fi
-mkdir -p "$BACKUP_DEST"
-touch "$BACKUP_DEST/${BACKUP_BASENAME}.sql.gz"
-echo "simulated backup failure"
+echo "simulated recovery helper failure" >&2
 exit 42
-SH
-chmod +x "$BACKUP_SCRIPT_PATH"
+SH2
+chmod +x "$PRE_MIGRATION_RECOVERY_HELPER_PATH"
 
 if ( ensure_pre_migration_backup ) >"$TMP_DIR/fail.out" 2>"$TMP_DIR/fail.err"; then
     echo "FAIL: backup failure did not abort the gate" >&2
     exit 1
 fi
-
-if ! grep -q "verified pre-migration backup failed; aborting" "$TMP_DIR/fail.err"; then
+if ! grep -q "verified pre-migration recovery point unavailable; aborting" "$TMP_DIR/fail.err"; then
     echo "FAIL: backup failure did not emit fail-closed diagnostic" >&2
     exit 1
 fi
 
-if find "$BACKUP_DEST" -maxdepth 1 -type f -name 'pre-migration-*.sql*' | grep -q .; then
-    echo "FAIL: failed backup left an unverified dump artifact" >&2
-    exit 1
-fi
-
-cat > "$BACKUP_SCRIPT_PATH" <<'SH'
+PRE_MIGRATION_RECOVERY_HELPER_PATH="$TMP_DIR/success-helper.sh"
+cat > "$PRE_MIGRATION_RECOVERY_HELPER_PATH" <<'SH2'
 #!/usr/bin/env bash
-echo "pre-migration-20260215000000-20260614140000-20260711T000000Z.sql.gz"
-exit 0
-SH
-chmod +x "$BACKUP_SCRIPT_PATH"
+if [[ "$PGUSER" != "postgres" || "$PGHOST" != "/var/run/postgresql" || "$PGPORT" != "5432" || "$PGDATABASE" != "matric" ]]; then
+    echo "pre-migration recovery helper did not select postgres peer authentication" >&2
+    exit 90
+fi
+if [[ -n "${PGPASSWORD:-}" || -n "${PGPASSFILE:-}" ]]; then
+    echo "pre-migration recovery helper leaked a database secret" >&2
+    exit 91
+fi
+if [[ "$1" != "20260215000000" || "$2" != "20260614140000" ]]; then
+    echo "unexpected migration versions: $*" >&2
+    exit 43
+fi
+echo ">>> Pre-migration backup ready: /tmp/pre-migration-20260215000000-20260614140000.sql.gz"
+SH2
+chmod +x "$PRE_MIGRATION_RECOVERY_HELPER_PATH"
 
 ensure_pre_migration_backup >"$TMP_DIR/success.out" 2>"$TMP_DIR/success.err"
-
 if ! grep -q "Pre-migration backup ready:" "$TMP_DIR/success.out"; then
-    echo "FAIL: successful backup did not report ready path" >&2
+    echo "FAIL: successful recovery helper output did not report ready path" >&2
     exit 1
 fi
 
-database_has_user_data() {
-    false
-}
-
-cat > "$BACKUP_SCRIPT_PATH" <<'SH'
+database_has_user_data() { false; }
+PRE_MIGRATION_RECOVERY_HELPER_PATH="$TMP_DIR/should-not-run.sh"
+cat > "$PRE_MIGRATION_RECOVERY_HELPER_PATH" <<'SH2'
 #!/usr/bin/env bash
 echo "backup should not run for empty databases" >&2
 exit 99
-SH
-chmod +x "$BACKUP_SCRIPT_PATH"
+SH2
+chmod +x "$PRE_MIGRATION_RECOVERY_HELPER_PATH"
 
 ensure_pre_migration_backup >"$TMP_DIR/empty.out" 2>"$TMP_DIR/empty.err"
-
 if ! grep -q "Pre-migration backup skipped: database has no user data" "$TMP_DIR/empty.out"; then
     echo "FAIL: empty database skip was not reported" >&2
+    exit 1
+fi
+
+PRE_MIGRATION_RECOVERY_HELPER_PATH="$TMP_DIR/missing-helper.sh"
+database_has_user_data() { true; }
+
+install() {
+    local path="${*: -1}"
+    case "$path" in
+        "$BACKUP_DEST"|"$BACKUP_TEMP_DIR") ;;
+        *)
+            echo "FAIL: unexpected install target: $path" >&2
+            return 96
+            ;;
+    esac
+    mkdir -p "$path"
+    chmod 700 "$path"
+}
+
+runuser() {
+    if [[ "$1" != "-u" || "$2" != "postgres" || "$3" != "--" ]]; then
+        echo "FAIL: unexpected runuser invocation" >&2
+        return 97
+    fi
+    shift 3
+    "$@"
+}
+if ( ensure_pre_migration_backup ) >"$TMP_DIR/missing.out" 2>"$TMP_DIR/missing.err"; then
+    echo "FAIL: missing recovery helper did not abort" >&2
+    exit 1
+fi
+if ! grep -q "pre-migration recovery helper is not executable" "$TMP_DIR/missing.err"; then
+    echo "FAIL: missing recovery helper diagnostic was not emitted" >&2
     exit 1
 fi
 

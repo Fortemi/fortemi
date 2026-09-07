@@ -340,6 +340,11 @@ jobs:
       - name: Smoke pre-migration backup gate
         run: bash scripts/ci/smoke-pre-migration-backup-gate.sh
 
+      - name: Smoke pre-migration recovery reuse
+        run: |
+          bash scripts/ci/smoke-pre-migration-recovery-reuse.sh
+          python3 -m unittest tests.test_pre_migration_recovery_metadata tests.test_pre_migration_recovery_final_cleanup
+
       - name: Analyze post-Feb migration risk
         run: python3 scripts/ci/analyze-post-feb-migrations.py > migration-risk-report.json
 
@@ -593,6 +598,9 @@ jobs:
         run: |
           docker build -f build/Dockerfile.testdb -t matric-testdb:local .
 
+      - name: Smoke pre-migration recovery metadata with PostgreSQL
+        run: bash scripts/ci/smoke-pre-migration-recovery-realpg.sh
+
       - name: Setup PostgreSQL
         run: |
           set -e
@@ -634,6 +642,13 @@ jobs:
             echo "Waiting for PostgreSQL... ($i/30)"
             sleep 2
           done
+
+      - name: Run migration repair regressions with PostgreSQL
+        run: |
+          set -euo pipefail
+          DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
+          export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
+          cargo test -p matric-db --features migrations migration_repair_tests -- --nocapture
 
       - name: Run migrations
         run: |

@@ -50,6 +50,9 @@ DATABASE_URL=<DATABASE_URL>
 |----------|------|---------|-------------|
 | `HOST` | String | `0.0.0.0` | IP address to bind the API server (0.0.0.0 = all interfaces) |
 | `PORT` | Integer | `3000` | Port number for the HTTP API server |
+| `API_STARTUP_TIMEOUT_SECONDS` | Integer | `7200` in Docker bundle | Bundle entrypoint wait, in seconds, for `/health` before MCP credential validation/registration. Set `0` to wait indefinitely while the API process remains alive. |
+| `API_STARTUP_PROGRESS_SECONDS` | Integer | `30` in Docker bundle | Progress log interval, in seconds, while the bundle waits through extended API startup or migrations. |
+| `FORTEMI_PRE_MIGRATION_REUSE_MAX_AGE_SECONDS` | Integer | `86400` in Docker bundle | Maximum age, in seconds, for reusing a verified pre-migration recovery point whose artifact, database, migration, and logical-state bindings still match. Set `0` to disable reuse and always create a new verified backup. |
 | `ALLOWED_ORIGINS` | String | `http://localhost:3000` | Comma-separated list of allowed CORS origins |
 | `FORTEMI_TRUSTED_PROXY_CIDRS` | CIDR list | None | Comma-separated numeric CIDRs for immediate reverse-proxy peers whose canonical forwarding metadata Fortemi may consume. Unset trusts no proxy. |
 | `MATRIC_SHUTDOWN_GRACE_SECS` | Integer | `30` | Maximum graceful HTTP drain window after SIGINT/SIGTERM, from 1 through 300 seconds. Set the orchestrator stop grace period to at least this value. |
@@ -67,6 +70,9 @@ DATABASE_URL=<DATABASE_URL>
 ```bash
 HOST=127.0.0.1  # Localhost only
 PORT=8080       # Custom port
+API_STARTUP_TIMEOUT_SECONDS=7200
+API_STARTUP_PROGRESS_SECONDS=30
+FORTEMI_PRE_MIGRATION_REUSE_MAX_AGE_SECONDS=86400
 ALLOWED_ORIGINS=https://memory.example.com,http://localhost:3000
 FORTEMI_TRUSTED_PROXY_CIDRS=127.0.0.1/32,::1/128
 MATRIC_MAX_BODY_SIZE_BYTES=2147483648

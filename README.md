@@ -298,7 +298,20 @@ from Fortemi-published image evidence.
 
 **Ports:** 3000 (API + Swagger UI at `/docs`), 3001 (MCP), 8080 (Open3D renderer). API and MCP publish to `127.0.0.1` by default. If host port 3001 is taken, set `MCP_HOST_PORT=3002` in `.env`; `API_HOST_PORT` does the same for the API. Run `scripts/validate-bundle-exposure.sh` before starting the bundle.
 
-The bundle automatically initializes PostgreSQL, runs all migrations, auto-registers MCP OAuth credentials, starts Redis, and launches all services. The Fortémi documentation knowledge base (the "support archive") is **not loaded by default** — see [Support Archive](#support-archive-fortemi-docs) below to add it with one command.
+The bundle automatically initializes PostgreSQL, runs all migrations, auto-registers MCP OAuth credentials, starts Redis, and launches all services. During first upgrades, the API may spend longer applying database migrations before it begins listening. The entrypoint waits up to `API_STARTUP_TIMEOUT_SECONDS=7200` seconds by default, emits progress every `API_STARTUP_PROGRESS_SECONDS=30` seconds, and starts MCP only after `/health` succeeds. Set `API_STARTUP_TIMEOUT_SECONDS=0` to wait indefinitely while the API process remains alive. The Fortémi documentation knowledge base (the "support archive") is **not loaded by default** — see [Support Archive](#support-archive-fortemi-docs) below to add it with one command.
+
+For constrained CPU-only Windows Docker Desktop upgrades, keep the existing Docker volume, run `scripts/init-bundle-env.sh` once if `.env` predates generated secrets, then start with optional sidecars disabled or reduced until migrations finish:
+
+```bash
+COMPOSE_PROFILES=edge
+RENDERER_ENABLED=false
+LOAD_SUPPORT_MEMORY=false
+API_STARTUP_TIMEOUT_SECONDS=0
+docker compose -f docker-compose.bundle.yml up -d
+docker compose -f docker-compose.bundle.yml logs -f fortemi
+```
+
+After the logs show `Matric Memory Bundle Ready`, restore the desired sidecar/profile settings and recreate the bundle normally.
 
 **Guided installer:** `installer/scripts/` provides 8 shell scripts for step-by-step deployment, plus a `setup.manifest.yaml` for the AIWG installer framework.
 
@@ -910,6 +923,9 @@ Key variables (see [full reference](docs/content/configuration.md) for all ~27 v
 | `WHISPER_BASE_URL` | `http://whisper:8000` | Audio transcription endpoint |
 | `MAX_MEMORIES` | `10` | Max archives (scale with RAM: 10→8GB, 50→16GB, 200→32GB, 500→64GB+) |
 | `MCP_TOOL_MODE` | `core` | `core` (44 tools) or `full` (206 tools) |
+| `API_STARTUP_TIMEOUT_SECONDS` | `7200` | Bundle API readiness wait in seconds before MCP credential validation/registration; set `0` to wait indefinitely while the API process is alive. |
+| `API_STARTUP_PROGRESS_SECONDS` | `30` | Progress log interval in seconds during extended API startup or migrations. |
+| `FORTEMI_PRE_MIGRATION_REUSE_MAX_AGE_SECONDS` | `86400` | Maximum age, in seconds, for reusing a verified pre-migration recovery point whose artifact, database, migration, and logical-state bindings still match. Set `0` to disable reuse and always create a new verified backup. |
 
 ---
 

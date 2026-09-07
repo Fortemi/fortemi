@@ -2,4 +2,6 @@
 
 mod collection_hierarchy_tests;
 mod embedding_pipeline_tests;
+#[cfg(feature = "migrations")]
+mod migration_repair_tests;
 mod oauth_token_lifetime_tests;

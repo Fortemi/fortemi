@@ -76,6 +76,9 @@ pub mod webhooks;
 #[cfg(test)]
 mod tests;
 
+#[cfg(feature = "migrations")]
+const LEGACY_ARCHIVE_TENANT_NOTE_REPAIR_BEFORE: i64 = 20260903010000;
+
 // Test fixtures for integration tests
 // Note: Always compiled so integration tests (in tests/) can use DEFAULT_TEST_DATABASE_URL
 pub mod test_fixtures;
@@ -353,10 +356,145 @@ impl Database {
     pub async fn migrate(&self) -> Result<()> {
         self.require_postgres_18().await?;
         self.repair_legacy_migration_history().await?;
-        sqlx::migrate!("../../migrations")
-            .run(&self.pool)
+        self.run_migrations_with_legacy_repairs().await?;
+        Ok(())
+    }
+
+    #[cfg(feature = "migrations")]
+    async fn run_migrations_with_legacy_repairs(&self) -> Result<()> {
+        use std::collections::{HashMap, HashSet};
+
+        use sqlx::migrate::Migrate;
+
+        let migrator = sqlx::migrate!("../../migrations");
+        let mut conn = self.pool.acquire().await.map_err(Error::Database)?;
+
+        conn.lock()
             .await
-            .map_err(|e| Error::Database(sqlx::Error::Migrate(Box::new(e))))?;
+            .map_err(|error| Error::Database(sqlx::Error::Migrate(Box::new(error))))?;
+
+        let result = async {
+            conn.ensure_migrations_table().await?;
+
+            if let Some(version) = conn.dirty_version().await? {
+                return Err(sqlx::migrate::MigrateError::Dirty(version));
+            }
+
+            let current_migrations: HashMap<_, _> = migrator
+                .iter()
+                .filter(|migration| !migration.migration_type.is_down_migration())
+                .map(|migration| (migration.version, migration))
+                .collect();
+            let applied_migrations = conn.list_applied_migrations().await?;
+            for applied in &applied_migrations {
+                let Some(current) = current_migrations.get(&applied.version) else {
+                    return Err(sqlx::migrate::MigrateError::VersionMissing(applied.version));
+                };
+                if current.checksum != applied.checksum {
+                    return Err(sqlx::migrate::MigrateError::VersionMismatch(
+                        applied.version,
+                    ));
+                }
+            }
+
+            let applied_versions: HashSet<_> = applied_migrations
+                .into_iter()
+                .map(|migration| migration.version)
+                .collect();
+            let mut repaired_legacy_archives = false;
+
+            for migration in migrator.iter() {
+                if migration.migration_type.is_down_migration() {
+                    continue;
+                }
+
+                if !applied_versions.contains(&migration.version) {
+                    if !repaired_legacy_archives
+                        && migration.version >= LEGACY_ARCHIVE_TENANT_NOTE_REPAIR_BEFORE
+                    {
+                        Self::repair_legacy_archive_tenant_note_indexes(&mut conn).await?;
+                        repaired_legacy_archives = true;
+                    }
+                    conn.apply(migration).await?;
+                }
+            }
+
+            Ok::<(), sqlx::migrate::MigrateError>(())
+        }
+        .await;
+
+        let unlock_result = conn.unlock().await;
+
+        match (result, unlock_result) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(error), _) | (Ok(()), Err(error)) => {
+                Err(Error::Database(sqlx::Error::Migrate(Box::new(error))))
+            }
+        }
+    }
+
+    #[cfg(feature = "migrations")]
+    async fn repair_legacy_archive_tenant_note_indexes(
+        conn: &mut sqlx::pool::PoolConnection<sqlx::Postgres>,
+    ) -> std::result::Result<(), sqlx::migrate::MigrateError> {
+        sqlx::query(
+            r#"
+            DO $legacy_archive_note_indexes$
+            DECLARE
+                archive_row RECORD;
+            BEGIN
+                IF to_regclass('public.archive_registry') IS NULL THEN
+                    RETURN;
+                END IF;
+                IF to_regclass('public.tenant_registry') IS NULL THEN
+                    RETURN;
+                END IF;
+                IF NOT EXISTS (
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = 'archive_registry'
+                      AND column_name = 'tenant_id'
+                ) THEN
+                    RETURN;
+                END IF;
+
+                FOR archive_row IN
+                    SELECT schema_name
+                    FROM public.archive_registry
+                    WHERE schema_name <> 'public'
+                    ORDER BY schema_name
+                LOOP
+                    IF archive_row.schema_name !~ '^archive_[a-z0-9_]+$' THEN
+                        RAISE EXCEPTION 'refusing unsafe archive schema name';
+                    END IF;
+                    IF to_regclass(format('%I.note', archive_row.schema_name)) IS NULL THEN
+                        CONTINUE;
+                    END IF;
+                    IF NOT EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_schema = archive_row.schema_name
+                          AND table_name = 'note'
+                          AND column_name = 'tenant_id'
+                    ) THEN
+                        CONTINUE;
+                    END IF;
+
+                    EXECUTE format(
+                        'CREATE UNIQUE INDEX IF NOT EXISTS %I ON %I.note (tenant_id, id)',
+                        'uq_archive_note_tenant_id_id',
+                        archive_row.schema_name
+                    );
+                END LOOP;
+            END
+            $legacy_archive_note_indexes$;
+            "#,
+        )
+        .execute(&mut **conn)
+        .await
+        .map_err(sqlx::migrate::MigrateError::Execute)?;
+
         Ok(())
     }
 

@@ -684,6 +684,8 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 
 ## Progress log
 
+- 2026-09-06 — Lane A #1041 repaired legacy archive tenant-note uniqueness without changing published migration SQL. The expanded 102,000-note February upgrade passed in 1,687 seconds and backup restore preserved recorded counts and invariants. Final checksum prevalidation passed four real PostgreSQL regressions and a small end-to-end upgrade; the large snapshot predates that validation-only refactor. #1132 startup and #1133 recovery changes are entering integrated CI; published-bundle/customer qualification and hypercare sign-off remain open. React corrective 2026.9.2 signed publication is underway after all eight CI jobs passed; HotM 2026.9.0 preparation is in review.
+
 - 2026-09-06 — #1072 and #1127 closed after successful CI 54374 at main `361c1820`, scheduled monitor/failure-probe receipts and installed fresh-browser cutover evidence. Scope remains titan monitoring and host cutover verification; broader auth, recovery, publication and suite compatibility gates remain open.
 
 - 2026-09-06: #1127 installed localhost:4180 fresh-browser recheck passed after 15 seconds: API Connected, notes/events HTTP 200; topology, health and compatibility probes passed. Delivering external-network override, probe and cutover runbook; five regression tests and Compose validation pass. Receipt remains host-specific and does not certify broader authentication or suite compatibility.
