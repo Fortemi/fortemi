@@ -129,6 +129,9 @@ pub fn build_asyncapi_spec(version: &str, server_url: &str) -> Value {
         }
     }
 
+    // Dependency feature unification can enable serde_json's preserve_order.
+    // Keep exported and runtime YAML stable across build feature combinations.
+    spec.sort_all_objects();
     spec
 }
 
@@ -189,6 +192,20 @@ fn remap_refs_value(mut val: Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn serialized_spec_matches_published_contract() {
+        let published = include_str!("../../../contracts/asyncapi/asyncapi.yaml");
+        let contract: Value = serde_yaml::from_str(published).unwrap();
+        let spec = build_asyncapi_spec(
+            contract["info"]["version"].as_str().unwrap(),
+            contract["servers"]["production"]["host"].as_str().unwrap(),
+        );
+
+        // Compare bytes, including nested object ordering. Array order remains
+        // part of the contract and must not be changed by canonicalization.
+        assert_eq!(serde_yaml::to_string(&spec).unwrap(), published);
+    }
 
     #[test]
     fn build_spec_produces_valid_structure() {
