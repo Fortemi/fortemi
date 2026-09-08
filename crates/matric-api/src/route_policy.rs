@@ -1577,7 +1577,9 @@ pub fn hosted_tenant_transaction_ready(method: &Method, path: &str) -> bool {
 
     matches!(
         (method, policy.path),
-        (&Method::GET, "/api/v1/notes")
+        (&Method::GET, "/api/v1/events")
+            | (&Method::GET, "/api/v1/notes")
+            | (&Method::POST, "/api/v1/notes")
             | (&Method::POST, "/api/v1/notes/source-upsert")
             | (&Method::GET, "/api/v1/notes/{id}")
             | (&Method::DELETE, "/api/v1/notes/{id}")
@@ -2359,6 +2361,8 @@ mod tests {
                 Method::POST,
                 "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001/links",
             ),
+            (Method::GET, "/api/v1/events"),
+            (Method::POST, "/api/v1/notes"),
             (Method::POST, "/api/v1/collections"),
             (
                 Method::GET,
@@ -2379,7 +2383,6 @@ mod tests {
         }
 
         for (method, path) in [
-            (Method::POST, "/api/v1/notes"),
             (Method::POST, "/api/v1/notes/bulk"),
             (
                 Method::PATCH,

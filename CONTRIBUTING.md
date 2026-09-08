@@ -30,6 +30,12 @@ sqlx migrate run
 cargo test --workspace
 ```
 
+API integration tests require `DATABASE_URL` to explicitly select a disposable,
+fully migrated database. They create and remove schemas and fixtures; do not use a
+personal or shared application database. The hosted non-owner isolation matrix
+also requires `FORTEMI_HOSTED_CREATE_TEST_ADMIN_URL` pointing at that disposable
+database with permission to create its temporary runtime role.
+
 ### sqlx compile-time query checks
 
 Fortemi uses `sqlx::query!` macros that verify SQL against a real Postgres at **compile time**. The first build on a new machine fails with a confusing "missing graph" error if neither of these is true:

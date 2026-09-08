@@ -162,6 +162,9 @@ jobs:
           cargo test --lib --workspace
           cargo test --locked -p matric-crypto --features kms-vault --lib
           cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api kms::tests
+          cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api verified_tenant_policy_context
+          cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api hosted_sse_filters
+          FORTEMI_HOSTED_CREATE_TEST_ADMIN_URL="$DATABASE_URL" cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api hosted_create_note_tests -- --test-threads=1
           cargo test --doc --workspace
 
       - name: Teardown PostgreSQL

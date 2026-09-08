@@ -234,6 +234,53 @@ fn archive_problem_response(
         .into_response()
 }
 
+/// Resolve hosted archive metadata on the request-owned tenant connection.
+/// Public/default aliases select the tenant's RLS-protected public tables when
+/// no per-tenant archive is configured. Never use the process-wide archive cache.
+pub(crate) async fn resolve_hosted_archive(
+    scope: &super::tenant_scope::TenantRequestScope,
+    name: Option<String>,
+) -> matric_core::Result<ArchiveContext> {
+    let requested = name.clone();
+    let row = scope
+        .with_connection(move |connection| {
+            Box::pin(async move {
+                sqlx::query_as::<_, (String, String, bool)>(
+                    "SELECT name, schema_name, is_default FROM public.archive_registry \
+             WHERE (($1::text IS NULL AND is_default) OR name = $1) LIMIT 1",
+                )
+                .bind(name)
+                .fetch_optional(connection)
+                .await
+                .map_err(matric_core::Error::Database)
+            })
+        })
+        .await?;
+    match row {
+        Some((name, schema, is_default)) => {
+            matric_db::validate_schema_name(&schema)?;
+            Ok(ArchiveContext {
+                schema,
+                name: Some(name),
+                is_default,
+            })
+        }
+        None if requested
+            .as_deref()
+            .is_none_or(|name| matches!(name, "public" | "default")) =>
+        {
+            Ok(ArchiveContext {
+                schema: "public".into(),
+                name: Some("public".into()),
+                is_default: true,
+            })
+        }
+        None => Err(matric_core::Error::NotFound(
+            "Requested memory is not present or not visible to the caller.".into(),
+        )),
+    }
+}
+
 /// Archive routing middleware function.
 ///
 /// Injects an ArchiveContext into request extensions based on:
@@ -247,6 +294,37 @@ pub async fn archive_routing_middleware(
     mut req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
+    if state.multi_tenant {
+        // Exempt public probes need no archive database access. Protected routes
+        // have already authenticated and established their tenant transaction.
+        let Some(scope) = req
+            .extensions()
+            .get::<super::tenant_scope::TenantRequestScope>()
+        else {
+            req.extensions_mut().insert(ArchiveContext::default());
+            return next.run(req).await;
+        };
+        let name = match req.headers().get(MEMORY_HEADER).map(|v| v.to_str()) {
+            Some(Err(_)) => {
+                return archive_problem_response(
+                    axum::http::StatusCode::BAD_REQUEST,
+                    "validation-error",
+                    "Bad Request",
+                    "Invalid memory selection header.",
+                )
+            }
+            Some(Ok(name)) => Some(name.to_owned()),
+            None => None,
+        };
+        match resolve_hosted_archive(scope, name).await {
+            Ok(context) => {
+                req.extensions_mut().insert(context);
+                return next.run(req).await;
+            }
+            Err(error) => return crate::ApiError::from(error).into_response(),
+        }
+    }
+
     // Check for explicit memory selection via header
     if let Some(memory_name) = req.headers().get(MEMORY_HEADER) {
         let name = match memory_name.to_str() {

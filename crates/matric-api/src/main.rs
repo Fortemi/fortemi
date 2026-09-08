@@ -4992,16 +4992,16 @@ async fn main() -> anyhow::Result<()> {
             authorize_middleware,
         ))
         .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            archive_routing_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
             state.db.pool.clone(),
             tenant_scope_middleware,
         ))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
-        ))
-        .layer(axum::middleware::from_fn_with_state(
-            state.clone(),
-            archive_routing_middleware,
         ))
         .layer(TraceLayer::new_for_http())
         .layer(PropagateRequestIdLayer::x_request_id())
@@ -6165,7 +6165,7 @@ struct SseDisconnectStream<S> {
     event_bus: Arc<EventBus>,
 }
 
-impl<S: futures::Stream + Unpin> futures::Stream for SseDisconnectStream<S> {
+impl<S: futures::Stream> futures::Stream for SseDisconnectStream<S> {
     type Item = S::Item;
 
     fn poll_next(
@@ -6303,8 +6303,10 @@ async fn sse_events(
     State(state): State<AppState>,
     Query(params): Query<SseQuery>,
     Extension(archive_ctx): Extension<ArchiveContext>,
+    scope: Option<Extension<TenantRequestScope>>,
+    identity: Option<Extension<ValidatedBearerIdentity>>,
     headers: HeaderMap,
-) -> Result<Sse<impl futures::Stream<Item = Result<Event, std::convert::Infallible>>>, ApiError> {
+) -> Result<axum::response::Response, ApiError> {
     // --- Auth (Issue #452/#953) ---
     // Query auth is browser EventSource compatibility only and accepts a
     // distinct short-lived event-stream token class. Normal credentials must
@@ -6315,7 +6317,33 @@ async fn sse_events(
         .and_then(|s| s.strip_prefix("Bearer "))
         .map(|s| s.trim());
 
-    let (principal, query_token_schema) =
+    let scope = scope.map(|Extension(scope)| scope);
+    let identity = identity.map(|Extension(identity)| identity);
+    let tenant_id = identity.as_ref().and_then(|identity| identity.tenant_id);
+    #[cfg(feature = "hosted-auth")]
+    let expires_at = identity
+        .as_ref()
+        .and_then(|identity| identity.canonical_context.as_ref())
+        .map(|context| context.expires_at);
+    #[cfg(not(feature = "hosted-auth"))]
+    let expires_at: Option<chrono::DateTime<chrono::Utc>> = None;
+    let (principal, query_token_schema) = if state.multi_tenant {
+        if params.token.is_some() {
+            return Err(ApiError::Unauthorized(
+                "Hosted streams require a bearer token.".into(),
+            ));
+        }
+        let identity = identity
+            .as_ref()
+            .filter(|identity| identity.tenant_id.is_some())
+            .ok_or_else(|| ApiError::Unauthorized("A verified tenant is required.".into()))?;
+        if scope.is_none() {
+            return Err(ApiError::ServiceUnavailable(
+                "Tenant stream scope is unavailable.".into(),
+            ));
+        }
+        (identity.principal.clone(), None)
+    } else {
         match (params.token.as_deref().map(str::trim), header_token) {
             (Some(tok), _) => validate_event_stream_query_principal(&state, tok)
                 .await
@@ -6341,32 +6369,73 @@ async fn sse_events(
                 ));
             }
             (None, None) => (AuthPrincipal::Anonymous, None),
-        };
+        }
+    };
 
     // --- Memory scope resolution (Issue #452) ---
     // Priority: query param > X-Fortemi-Memory header (via middleware) > none (all events)
-    let (memory_filter, memory_schema): (Option<String>, Option<String>) =
-        if let Some(ref name) = params.memory {
-            // Validate requested memory exists
-            let archive = state
-                .db
-                .archives
-                .get_archive_by_name(name)
+    let (memory_filter, memory_schema): (Option<String>, Option<String>) = if let Some(scope) =
+        scope.as_ref()
+    {
+        let context = if params.memory.is_some() {
+            middleware::archive_routing::resolve_hosted_archive(scope, params.memory.clone())
                 .await?
-                .ok_or_else(memory_not_found)?;
-            (Some(name.clone()), Some(archive.schema_name))
-        } else if !archive_ctx.is_default {
-            // Explicitly selected via X-Fortemi-Memory header
-            (
-                archive_ctx.name.clone(),
-                archive_ctx
-                    .name
-                    .as_ref()
-                    .map(|_| archive_ctx.schema.clone()),
-            )
         } else {
-            (None, None) // Default — deliver all events (admin/monitoring view)
+            archive_ctx.clone()
         };
+        let memory_name = context.name.clone().unwrap_or_else(|| "public".into());
+        let path = format!("/api/v1/archives/{memory_name}");
+        let mut input = route_policy::authorization_input_for_request(&Method::GET, &path, None)
+            .ok_or_else(|| {
+                ApiError::Forbidden("Stream memory authorization is unavailable.".into())
+            })?;
+        // The request-scoped resolver above established the archive under
+        // RLS, or the built-in public-table fallback. Never normalize from
+        // an unchecked query parameter or from the personal archive cache.
+        route_policy::mark_resource_id_normalized(&mut input);
+        input
+            .resource
+            .attrs
+            .insert("archive_schema".into(), serde_json::json!(context.schema));
+        input = apply_verified_tenant_to_policy_input(input, Some(scope.tenant()));
+        authorize_policy_input(
+            state.authorization_policy.as_ref(),
+            state.audit_sink.as_ref(),
+            &Auth {
+                principal: principal.clone(),
+            },
+            &input,
+        )
+        .await
+        .map_err(|response| {
+            if response.status() == StatusCode::SERVICE_UNAVAILABLE {
+                ApiError::ServiceUnavailable("Authorization audit storage is unavailable.".into())
+            } else {
+                ApiError::Forbidden("SSE memory authorization denied".into())
+            }
+        })?;
+        (Some(memory_name), Some(context.schema))
+    } else if let Some(ref name) = params.memory {
+        // Validate requested memory exists
+        let archive = state
+            .db
+            .archives
+            .get_archive_by_name(name)
+            .await?
+            .ok_or_else(memory_not_found)?;
+        (Some(name.clone()), Some(archive.schema_name))
+    } else if !archive_ctx.is_default {
+        // Explicitly selected via X-Fortemi-Memory header
+        (
+            archive_ctx.name.clone(),
+            archive_ctx
+                .name
+                .as_ref()
+                .map(|_| archive_ctx.schema.clone()),
+        )
+    } else {
+        (None, None) // Default — deliver all events (admin/monitoring view)
+    };
 
     if !sse_query_token_allows_memory(query_token_schema.as_deref(), memory_schema.as_deref()) {
         return Err(ApiError::Forbidden(
@@ -6374,7 +6443,7 @@ async fn sse_events(
         ));
     }
 
-    if principal.is_authenticated() {
+    if principal.is_authenticated() && !state.multi_tenant {
         let auth = Auth {
             principal: principal.clone(),
         };
@@ -6455,12 +6524,13 @@ async fn sse_events(
                 let frames: Vec<Event> = events
                     .into_iter()
                     .filter(|envelope| {
-                        envelope_matches_filters(
-                            envelope,
-                            &memory_filter,
-                            &type_filters,
-                            &entity_id_filter,
-                        )
+                        sse_tenant_matches(envelope, tenant_id)
+                            && envelope_matches_filters(
+                                envelope,
+                                &memory_filter,
+                                &type_filters,
+                                &entity_id_filter,
+                            )
                     })
                     .filter_map(|envelope| {
                         serde_json::to_string(&envelope).ok().map(|json| {
@@ -6566,7 +6636,7 @@ async fn sse_events(
                     }
 
                     // Apply all filters: memory + type + entity (Issues #452, #457)
-                    if !envelope_matches_filters(
+                    if !sse_tenant_matches(&envelope, tenant_id) || !envelope_matches_filters(
                         &envelope,
                         &memory_filter,
                         &type_filters,
@@ -6621,7 +6691,16 @@ async fn sse_events(
     );
 
     // Replay first, then seamlessly transition to live stream
-    let combined = replay_stream.chain(live_stream);
+    let combined = futures::StreamExt::take_until(replay_stream.chain(live_stream), async move {
+        if let Some(expires_at) = expires_at {
+            let remaining = (expires_at - chrono::Utc::now())
+                .to_std()
+                .unwrap_or_default();
+            tokio::time::sleep(remaining).await;
+        } else {
+            futures::future::pending::<()>().await;
+        }
+    });
 
     // Wrap in a stream that tracks disconnection when dropped (Issue #459)
     let tracked_stream = SseDisconnectStream {
@@ -6629,11 +6708,50 @@ async fn sse_events(
         event_bus: disconnect_bus,
     };
 
-    Ok(Sse::new(tracked_stream).keep_alive(
-        KeepAlive::new()
-            .interval(std::time::Duration::from_secs(15))
-            .text("keepalive"),
-    ))
+    let mut response = Sse::new(tracked_stream)
+        .keep_alive(
+            KeepAlive::new()
+                .interval(std::time::Duration::from_secs(15))
+                .text("keepalive"),
+        )
+        .into_response();
+    if state.multi_tenant {
+        response
+            .extensions_mut()
+            .insert(TenantScopeReleasedBeforeStreaming);
+    }
+    Ok(response)
+}
+
+/// Hosted streams accept only events explicitly owned by the verified tenant.
+/// Unattributed process-wide events are not safe for tenant subscribers.
+fn sse_tenant_matches(envelope: &EventEnvelope, tenant_id: Option<Uuid>) -> bool {
+    tenant_id
+        .is_none_or(|tenant| envelope.tenant_id.as_deref() == Some(tenant.to_string().as_str()))
+}
+
+#[cfg(test)]
+#[test]
+fn hosted_sse_filters_foreign_and_unattributed_live_and_replay_events() {
+    let tenant_a = Uuid::new_v4();
+    let tenant_b = Uuid::new_v4();
+    let event = ServerEvent::NoteDeleted {
+        note_id: Uuid::new_v4(),
+    };
+    let owned = EventEnvelope::with_context(
+        event.clone(),
+        EventContext {
+            tenant_id: Some(tenant_a.to_string()),
+            memory: Some("public".into()),
+            ..Default::default()
+        },
+    );
+    let unscoped = EventEnvelope::new(event);
+    assert!(sse_tenant_matches(&owned, Some(tenant_a)));
+    assert!(!sse_tenant_matches(&owned, Some(tenant_b)));
+    assert!(!sse_tenant_matches(&unscoped, Some(tenant_a)));
+    assert!(sse_tenant_matches(&owned, None));
+    assert!(sse_tenant_matches(&unscoped, None));
 }
 
 async fn authorize_sse_memory_subscription(
@@ -9361,7 +9479,9 @@ async fn auth_middleware(
     let requires_bearer = route_requires_bearer(state.require_auth, &path);
 
     // Public routes and CORS preflights bypass all auth.
-    if is_auth_exempt(&method, &path) {
+    if is_auth_exempt(&method, &path)
+        && !(state.multi_tenant && method == Method::GET && path == "/api/v1/events")
+    {
         return next.run(request).await;
     }
 
@@ -9387,6 +9507,7 @@ async fn auth_middleware(
         Some(Ok(identity)) => {
             // Inject auth info into request extensions
             let mut request = request;
+            request.extensions_mut().insert(identity.clone());
             let tenant_id = identity.tenant_id.map(|tenant_id| tenant_id.to_string());
             if let Some(input) =
                 route_policy::authorization_input_for_request(&method, &path, tenant_id.as_deref())
@@ -9577,8 +9698,12 @@ async fn authorize_middleware(
     };
 
     let archive_ctx = request.extensions().get::<ArchiveContext>().cloned();
+    let tenant = request.extensions().get::<VerifiedRequestTenant>().copied();
+    let scope = request.extensions().get::<TenantRequestScope>();
+    let input = apply_verified_tenant_to_policy_input(input, tenant);
     let input =
-        normalize_route_policy_input_for_authorization(&state, input, archive_ctx.as_ref()).await;
+        normalize_route_policy_input_for_authorization(&state, input, archive_ctx.as_ref(), scope)
+            .await;
 
     let decision = if route_policy::is_operator_docs_route(input.policy.path) {
         // Generated API inventory is operator-only even when personal mode uses
@@ -9604,14 +9729,40 @@ fn route_requires_bearer(require_auth: bool, path: &str) -> bool {
     require_auth || route_policy::is_operator_docs_route(path)
 }
 
+/// Bind policy and audit context to the identity admitted by authentication.
+/// Resource normalization still has to prove visibility on the tenant transaction.
+fn apply_verified_tenant_to_policy_input(
+    mut input: route_policy::RoutePolicyInput,
+    tenant: Option<VerifiedRequestTenant>,
+) -> route_policy::RoutePolicyInput {
+    if let Some(tenant) = tenant {
+        let tenant_id = tenant.tenant_id().to_string();
+        // Preserve an independently resolved resource tenant so the policy can
+        // reject a cross-tenant mismatch rather than relabeling the resource.
+        input.resource.tenant_id.get_or_insert(tenant_id.clone());
+        input.context.tenant_id = Some(tenant_id);
+    }
+    input
+}
+
 async fn normalize_route_policy_input_for_authorization(
     state: &AppState,
     input: route_policy::RoutePolicyInput,
     archive_ctx: Option<&ArchiveContext>,
+    scope: Option<&TenantRequestScope>,
 ) -> route_policy::RoutePolicyInput {
     let input = apply_archive_context_to_policy_input(input, archive_ctx);
-    let input =
-        normalize_note_route_policy_input(input, |note_id| state.db.notes.exists(note_id)).await;
+    let input = normalize_note_route_policy_input(input, |note_id| async move {
+        let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+        let schema = archive_ctx
+            .map(|context| context.schema.clone())
+            .unwrap_or_else(|| "public".to_string());
+        with_request_schema(state, scope.cloned(), schema, move |connection| {
+            Box::pin(async move { notes.exists_tx(connection, note_id).await })
+        })
+        .await
+    })
+    .await;
     let input = normalize_credential_route_policy_input(input, |api_key_id| {
         state.db.oauth.get_api_key(api_key_id)
     })
@@ -11524,10 +11675,10 @@ fn auth_decision_audit_event(
         .with_attr("resource_kind", format!("{:?}", input.resource.kind));
 
     if let Some(tenant_id) = input
-        .resource
+        .context
         .tenant_id
         .clone()
-        .or_else(|| input.context.tenant_id.clone())
+        .or_else(|| input.resource.tenant_id.clone())
     {
         event = event.with_tenant(tenant_id);
     }
@@ -11555,7 +11706,6 @@ fn auth_decision_audit_event(
         AuditOutcome::Error | AuditOutcome::Failure => AuditSeverity::Error,
         AuditOutcome::Unknown => AuditSeverity::Warn,
     };
-    event.failure_policy = AuditFailurePolicy::BestEffort;
     event.sanitized()
 }
 
@@ -13822,6 +13972,13 @@ async fn create_note(
     Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<CreateNoteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    if state.multi_tenant || scope.is_some() {
+        let scope = scope.ok_or_else(|| {
+            ApiError::ServiceUnavailable("Hosted request transaction is unavailable".to_string())
+        })?;
+        return create_note_hosted(&state, scope.0, archive_ctx, body).await;
+    }
+
     // Validate revision_mode (returns 400 for invalid values)
     let mut revision_mode = parse_revision_mode(body.revision_mode.as_deref())?;
     let caller_set_revision_mode = body.revision_mode.is_some();
@@ -13983,6 +14140,201 @@ async fn create_note(
         StatusCode::CREATED,
         Json(serde_json::json!({ "id": note_id })),
     ))
+}
+
+/// Persist every hosted creation dependency on the request-owned connection.
+/// The response middleware commits before delivering deferred events or waking jobs.
+async fn create_note_hosted(
+    state: &AppState,
+    scope: TenantRequestScope,
+    archive_ctx: ArchiveContext,
+    body: CreateNoteBody,
+) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    let mut revision_mode = parse_revision_mode(body.revision_mode.as_deref())?;
+    validate_chunking_params(body.chunk_max_chars, body.chunk_overlap)
+        .map_err(ApiError::BadRequest)?;
+    if let Some(tags) = &body.tags {
+        validate_request_tags(tags, None)?;
+    }
+    let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
+    let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
+    let tags = matric_db::PgTagRepository::new(state.db.pool.clone());
+    let schema = archive_ctx.schema.clone();
+    let tenant_id = scope.tenant().tenant_id();
+    let (note_id, tags_for_event, queued) = scope
+        .with_schema_connection(schema.clone(), move |connection| {
+            Box::pin(async move {
+                // Foreign keys alone do not prove that a referenced object is visible
+                // to this tenant: PostgreSQL referential checks bypass row security.
+                if let Some(collection_id) = body.collection_id {
+                    let visible: bool = sqlx::query_scalar(
+                        "SELECT EXISTS(SELECT 1 FROM collection WHERE id = $1)",
+                    )
+                    .bind(collection_id)
+                    .fetch_one(&mut *connection)
+                    .await?;
+                    if !visible {
+                        return Err(matric_core::Error::NotFound("Collection not found".into()));
+                    }
+                }
+                let mut skip_title_gen = body.title.as_deref().is_some_and(|s| !s.is_empty());
+                let resolved_doc_type_id = if body.document_type.is_some() || body.document_type_id.is_some() {
+                    let document_type: Option<(Uuid, serde_json::Value)> = sqlx::query_as(
+                        "SELECT id, COALESCE(agentic_config, '{}'::jsonb) FROM document_type
+                         WHERE ($1::text IS NOT NULL AND name = $1)
+                            OR ($1::text IS NULL AND id = $2)",
+                    )
+                    .bind(body.document_type.as_deref())
+                    .bind(body.document_type_id)
+                    .fetch_optional(&mut *connection)
+                    .await?;
+                    let (id, config) = document_type.ok_or_else(|| {
+                        matric_core::Error::InvalidInput("Unknown document type".into())
+                    })?;
+                    // Preserve slug-driven hints and explicit caller overrides.
+                    if body.document_type.is_some() {
+                        let hints = &config["agent_hints"];
+                        if body.revision_mode.is_none() && hints["skip_revision"].as_bool().unwrap_or(false) {
+                            revision_mode = RevisionMode::None;
+                        }
+                        skip_title_gen |= hints["skip_title_generation"].as_bool().unwrap_or(false);
+                    }
+                    Some(id)
+                } else {
+                    None
+                };
+                let jobs = hosted_create_note_jobs(&body, revision_mode, skip_title_gen, &schema, tenant_id);
+                let requested_tags = body.tags.clone().unwrap_or_default();
+                let note_id = notes.insert_tx(connection, CreateNoteRequest {
+                    content: body.content,
+                    format: body.format.unwrap_or_else(|| "markdown".into()),
+                    source: body.source.unwrap_or_else(|| "api".into()),
+                    collection_id: body.collection_id,
+                    tags: body.tags,
+                    metadata: body.metadata,
+                    document_type_id: resolved_doc_type_id,
+                    title: body.title,
+                }).await?;
+                // SKOS repositories accept Transaction; this is a savepoint
+                // within the already tenant-bound request transaction.
+                let mut tag_tx = sqlx::Connection::begin(&mut *connection).await?;
+                let mut concept_ids = Vec::new();
+                for tag in requested_tags {
+                    let resolved = skos.resolve_or_create_tag_tx(&mut tag_tx, &TagInput::parse(&tag)).await?;
+                    concept_ids.push(resolved.concept_id);
+                }
+                if !concept_ids.is_empty() {
+                    skos.batch_tag_note_tx(&mut tag_tx, BatchTagNoteRequest {
+                        note_id, concept_ids, source: "user".into(), confidence: None, created_by: None,
+                    }).await?;
+                }
+                tag_tx.commit().await?;
+                let mut queued = Vec::new();
+                for (job_type, payload) in jobs {
+                    let job_id = matric_core::new_v7();
+                    // A new note has no existing jobs. Persist queue rows atomically
+                    // with it, carrying trusted tenant/archive routing for workers.
+                    sqlx::query(
+                        "INSERT INTO job_queue (id, note_id, job_type, status, priority, payload, cost_tier)
+                         VALUES ($1, $2, $3::job_type, 'pending'::job_status, $4, $5, $6)",
+                    )
+                    .bind(job_id).bind(note_id).bind(job_type.as_str())
+                    .bind(job_type.default_priority()).bind(payload).bind(job_type.default_cost_tier())
+                    .execute(&mut *connection).await?;
+                    queued.push((job_id, job_type));
+                }
+                let tags_for_event = tags.get_for_note_tx(connection, note_id).await?;
+                Ok((note_id, tags_for_event, queued))
+            })
+        })
+        .await?;
+    let mut context = event_context_for(&archive_ctx);
+    context.tenant_id = Some(tenant_id.to_string());
+    let event_bus = state.event_bus.clone();
+    let search_cache = state.search_cache.clone();
+    let notify = state.db.jobs.job_notify();
+    scope.after_commit(move || {
+        for (job_id, job_type) in queued {
+            event_bus.emit_with_context(
+                ServerEvent::JobQueued {
+                    job_id,
+                    job_type: format!("{job_type:?}"),
+                    note_id: Some(note_id),
+                },
+                context.clone(),
+            );
+        }
+        event_bus.emit_with_context(
+            ServerEvent::NoteCreated {
+                note_id,
+                title: None,
+                tags: tags_for_event,
+            },
+            context,
+        );
+        tokio::spawn(async move {
+            search_cache.invalidate_all().await;
+        });
+        notify.notify_waiters();
+    });
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::json!({ "id": note_id })),
+    ))
+}
+
+#[cfg(test)]
+#[path = "hosted_create_note_tests.rs"]
+mod hosted_create_note_tests;
+
+fn hosted_create_note_jobs(
+    body: &CreateNoteBody,
+    revision_mode: RevisionMode,
+    skip_title_gen: bool,
+    schema: &str,
+    tenant_id: Uuid,
+) -> Vec<(JobType, serde_json::Value)> {
+    let enabled = |feature: &str| {
+        body.pipeline
+            .as_ref()
+            .is_none_or(|features| features.iter().any(|f| f == feature))
+    };
+    let mut jobs = Vec::new();
+    let revision = revision_mode != RevisionMode::None && enabled("revision");
+    if revision {
+        jobs.push(JobType::AiRevision);
+    }
+    for (job, feature) in [
+        (JobType::TitleGeneration, "title_generation"),
+        (JobType::ReferenceExtraction, "reference_extraction"),
+        (JobType::MetadataExtraction, "metadata_extraction"),
+        (JobType::DocumentTypeInference, "document_type_inference"),
+    ] {
+        if enabled(feature) && !(skip_title_gen && job == JobType::TitleGeneration) {
+            jobs.push(job);
+        }
+    }
+    if !revision && enabled("concept_tagging") {
+        jobs.push(JobType::ConceptTagging);
+    }
+    jobs.into_iter()
+        .map(|job| {
+            let mut payload = serde_json::json!({ "schema": schema, "tenant_id": tenant_id });
+            if let Some(model) = &body.model {
+                payload["model"] = serde_json::json!(model);
+            }
+            if job == JobType::AiRevision {
+                payload["revision_mode"] = serde_json::json!(revision_mode);
+                if let Some(value) = body.chunk_max_chars {
+                    payload["chunk_max_chars"] = serde_json::json!(value);
+                }
+                if let Some(value) = body.chunk_overlap {
+                    payload["chunk_overlap"] = serde_json::json!(value);
+                }
+            }
+            (job, payload)
+        })
+        .collect()
 }
 
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -14532,17 +14884,23 @@ async fn delete_note(
     let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
     with_request_schema(
         &state,
-        scope.map(|Extension(scope)| scope),
+        scope.as_ref().map(|Extension(scope)| scope.clone()),
         archive_ctx.schema.clone(),
         move |connection| Box::pin(async move { notes.soft_delete_tx(connection, id).await }),
     )
     .await?;
 
     // Emit NoteDeleted event (Issue #453, scoped via #452)
-    state.event_bus.emit_with_context(
-        ServerEvent::NoteDeleted { note_id: id },
-        event_context_for(&archive_ctx),
-    );
+    let mut context = event_context_for(&archive_ctx);
+    let event_bus = state.event_bus.clone();
+    if let Some(Extension(scope)) = scope {
+        context.tenant_id = Some(scope.tenant().tenant_id().to_string());
+        scope.after_commit(move || {
+            event_bus.emit_with_context(ServerEvent::NoteDeleted { note_id: id }, context)
+        });
+    } else {
+        event_bus.emit_with_context(ServerEvent::NoteDeleted { note_id: id }, context);
+    }
 
     // Invalidate search cache so deleted notes don't appear in results (#247)
     state.search_cache.invalidate_all().await;
@@ -38110,10 +38468,10 @@ async fn apply_validated_shard_components(
             for tag in tags {
                 if !opts.dry_run {
                     let conflict = if matches!(opts.on_conflict, ConflictStrategy::Replace) {
-                        "ON CONFLICT (name) DO UPDATE SET
+                        "ON CONFLICT (tenant_id, name) DO UPDATE SET
                              created_at_utc = EXCLUDED.created_at_utc"
                     } else {
-                        "ON CONFLICT (name) DO NOTHING"
+                        "ON CONFLICT (tenant_id, name) DO NOTHING"
                     };
                     sqlx::query(&format!(
                         "INSERT INTO tag (name, created_at_utc)
@@ -49512,7 +49870,7 @@ not-json
     async fn shard_core_v1_server_export_clean_import_preserves_semantic_state() {
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let db = Database::connect(&database_url)
             .await
             .expect("connect integration database");
@@ -50275,7 +50633,7 @@ not-json
 
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let db = Database::connect(&database_url)
             .await
             .expect("connect integration database");
@@ -50573,7 +50931,7 @@ not-json
     async fn aiwg_core_v1_current_fixture_rejects_invalid_inputs_before_mutation() {
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let db = Database::connect(&database_url)
             .await
             .expect("connect integration database");
@@ -50672,7 +51030,7 @@ not-json
     async fn pglite_core_v1_published_fixture_clean_import_reexport() {
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let db = Database::connect(&database_url)
             .await
             .expect("connect integration database");
@@ -50848,7 +51206,7 @@ not-json
 
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let db = Database::connect(&database_url)
             .await
             .expect("connect integration database");
@@ -50997,7 +51355,7 @@ not-json
     async fn shard_record_v1_clean_import_is_atomic_and_repeatable() {
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let db = Database::connect(&database_url)
             .await
             .expect("connect integration database");
@@ -51256,7 +51614,7 @@ not-json
 
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let db = Database::connect(&database_url)
             .await
             .expect("connect integration database");
@@ -51388,7 +51746,7 @@ not-json
     async fn shard_optional_sidecars_round_trip_and_fail_without_partial_storage() {
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let storage = tempfile::tempdir().expect("create isolated attachment storage");
         let storage_root = storage.path().to_string_lossy().to_string();
         let db = Database::connect(&database_url)
@@ -53165,7 +53523,7 @@ not-json
         let storage_root = std::env::var("FORTEMI_TEST_SHARD_PROCESS_ABORT_STORAGE")
             .expect("process-abort child storage root");
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let db = Database::connect(&database_url)
             .await
             .expect("connect process-abort child database")
@@ -53214,7 +53572,7 @@ not-json
 
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let storage = tempfile::tempdir().expect("create isolated full-v1 storage");
         let storage_root = storage.path().to_string_lossy().to_string();
         let db = Database::connect(&database_url)
@@ -53458,7 +53816,7 @@ not-json
     async fn al_sys04_live_tus_restart_and_clean_full_v1_recovery_preserves_asset_bytes() {
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let storage = tempfile::tempdir().expect("create isolated asset lifecycle storage");
         let tus = tempfile::tempdir().expect("create isolated tus lifecycle storage");
         let db = Database::connect(&database_url)
@@ -53612,7 +53970,7 @@ not-json
     async fn al_sys04_tus_crash_after_offset_commit_retries_finalization_without_partial_state() {
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let storage = tempfile::tempdir().expect("create isolated AL-SYS04 crash storage");
         let tus = tempfile::tempdir().expect("create isolated AL-SYS04 crash tus storage");
         let db = Database::connect(&database_url)
@@ -53768,7 +54126,7 @@ not-json
     async fn al_sys05_same_byte_upload_import_and_reference_delete_preserve_refcounts() {
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let storage = tempfile::tempdir().expect("create isolated AL-SYS05 storage");
         let tus = tempfile::tempdir().expect("create isolated AL-SYS05 tus storage");
         let db = Database::connect(&database_url)
@@ -53931,7 +54289,7 @@ not-json
     async fn al_perf01_configurable_corpus_records_receipt_and_limit_plus_one_gate() {
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let corpus_bytes = std::env::var("FORTEMI_AL_PERF_CORPUS_BYTES")
             .ok()
             .and_then(|value| value.parse::<usize>().ok())
@@ -54368,7 +54726,7 @@ not-json
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let receipts = tempfile::tempdir().expect("create isolated TUS memory receipt directory");
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let run_child = |corpus_bytes: usize, name: &str| -> serde_json::Value {
             let receipt_path = receipts.path().join(name);
             let status =
@@ -54554,7 +54912,7 @@ not-json
 
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let storage = tempfile::tempdir().expect("create isolated schema-2 storage");
         let storage_root = storage.path().to_string_lossy().to_string();
         let db = Database::connect(&database_url)
@@ -56231,7 +56589,7 @@ not-json
     #[tokio::test]
     async fn shard_timestamp_range_projection_normalizes_database_timezone() {
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let db = Database::connect(&database_url)
             .await
             .expect("connect range projection database");
@@ -57240,7 +57598,7 @@ not-json
     async fn shard_note_history_apply_is_atomic_and_repeatable() {
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let db = Database::connect(&database_url)
             .await
             .expect("connect integration database");
@@ -57582,7 +57940,7 @@ not-json
     async fn shard_revision_provenance_apply_is_atomic_and_repeatable() {
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let db = Database::connect(&database_url)
             .await
             .expect("connect integration database");
@@ -57925,7 +58283,7 @@ not-json
     async fn shard_spatial_provenance_apply_is_atomic_and_repeatable() {
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let db = Database::connect(&database_url)
             .await
             .expect("connect integration database");
@@ -58272,7 +58630,7 @@ not-json
     async fn shard_unified_provenance_apply_is_atomic_and_repeatable() {
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let db = Database::connect(&database_url)
             .await
             .expect("connect integration database");
@@ -58809,7 +59167,7 @@ not-json
     async fn shard_embedding_apply_is_atomic_and_repeatable() {
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let db = Database::connect(&database_url)
             .await
             .expect("connect integration database");
@@ -59929,7 +60287,7 @@ not-json
     async fn shard_skos_apply_is_atomic_and_repeatable() {
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let db = Database::connect(&database_url)
             .await
             .expect("connect integration database");
@@ -60309,7 +60667,7 @@ not-json
     async fn shard_graph_apply_is_atomic_and_repeatable() {
         let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let db = Database::connect(&database_url)
             .await
             .expect("connect integration database");
@@ -60897,7 +61255,7 @@ not-json
         assert_eq!(counts.embeddings, 0);
     }
 
-    async fn build_call_api_test_state(db: Database, database_url: &str) -> AppState {
+    pub(super) async fn build_call_api_test_state(db: Database, database_url: &str) -> AppState {
         AppState {
             db: db.clone(),
             search: Arc::new(matric_search::HybridSearchEngine::new(db.clone())),
@@ -61086,7 +61444,7 @@ not-json
         let receipt_path = std::env::var_os(TUS_MEMORY_CHILD_RECEIPT_ENV)
             .expect("process-isolated TUS memory child receipt path");
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let storage = tempfile::tempdir().expect("create TUS memory storage");
         let tus = tempfile::tempdir().expect("create TUS memory staging");
         let db = Database::connect(&database_url)
@@ -61644,7 +62002,7 @@ not-json
     #[tokio::test]
     async fn get_call_returns_session_segments_pagination_and_404() {
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let db = Database::connect(&database_url)
             .await
             .expect("Failed to connect to test DB");
@@ -62077,7 +62435,7 @@ not-json
     #[tokio::test]
     async fn readiness_fails_before_ready_and_during_drain() {
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let db = Database::connect(&database_url)
             .await
             .expect("connect to test database");
@@ -62534,6 +62892,61 @@ not-json
         let serialized = serde_json::to_string(&event).expect("startup event serializes");
         assert!(!serialized.contains("token:secret"));
         assert!(!serialized.contains("example.com"));
+    }
+
+    #[tokio::test]
+    async fn verified_tenant_policy_context_preserves_resource_mismatch_and_audits_actor() {
+        let tenant = VerifiedRequestTenant::from_verified(Uuid::new_v4()).unwrap();
+        let foreign_tenant = Uuid::new_v4().to_string();
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/notes",
+            Some(&foreign_tenant),
+        )
+        .unwrap();
+        let input = apply_verified_tenant_to_policy_input(input, Some(tenant));
+        assert_eq!(
+            input.resource.tenant_id.as_deref(),
+            Some(foreign_tenant.as_str())
+        );
+        assert_eq!(
+            input.context.tenant_id,
+            Some(tenant.tenant_id().to_string())
+        );
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "read".to_string(),
+            },
+        };
+        let event = auth_decision_audit_event(
+            &auth,
+            &input,
+            AuditOutcome::Denied,
+            Some(DenyReason::InvalidResource),
+            "role_based",
+            "test",
+        );
+        assert_eq!(event.tenant_id, Some(tenant.tenant_id().to_string()));
+        assert_eq!(event.failure_policy, AuditFailurePolicy::FailClosed);
+        let response = authorize_policy_input(&RoleBasedPolicy, &TracingSink, &auth, &input)
+            .await
+            .expect_err("a verified caller must not relabel a foreign resource");
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn verified_tenant_policy_context_fills_missing_route_tenant() {
+        let tenant = VerifiedRequestTenant::from_verified(Uuid::new_v4()).unwrap();
+        let input =
+            route_policy::authorization_input_for_request(&Method::GET, "/api/v1/events", None)
+                .unwrap();
+        let input = apply_verified_tenant_to_policy_input(input, Some(tenant));
+        assert_eq!(
+            input.resource.tenant_id,
+            Some(tenant.tenant_id().to_string())
+        );
+        assert_eq!(input.context.tenant_id, input.resource.tenant_id);
     }
 
     #[test]
@@ -66263,7 +66676,7 @@ not-json
         require_auth: bool,
     ) -> (String, Arc<EventBus>, Arc<AtomicUsize>) {
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let db = Database::connect(&database_url)
             .await
             .expect("Failed to connect to test DB");
@@ -67759,7 +68172,7 @@ not-json
             .unwrap();
 
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let db = Database::connect(&database_url)
             .await
             .expect("Failed to connect to test DB");
@@ -67857,7 +68270,7 @@ not-json
         Arc<EventBus>,
     ) {
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let db = Database::connect(&database_url)
             .await
             .expect("Failed to connect to test DB");
@@ -68043,7 +68456,7 @@ not-json
         Database,
     ) {
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let db = Database::connect(&database_url)
             .await
             .expect("Failed to connect to test DB");
@@ -68409,7 +68822,7 @@ not-json
     /// can insert spatial data and verify HTTP results.
     async fn spawn_memory_search_test_server() -> (String, sqlx::PgPool) {
         let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
         let pool = matric_db::create_pool(&database_url)
             .await
             .expect("Failed to connect to test DB");

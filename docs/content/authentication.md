@@ -87,6 +87,38 @@ identity-provider credentials must come from the hosted configuration/secret
 authority, not committed examples. This profile is distinct from Fortemi's
 self-hosted `/oauth/*` authorization-code and client-credentials flows.
 
+#### Hosted note and event qualification
+
+The migrated hosted routes include ordinary `POST /api/v1/notes`, note list,
+owner detail/delete, and `GET /api/v1/events`. Creation resolves referenced
+collections, document types, tags and queue writes through the same tenant
+transaction. Missing tenant-visible configuration fails the request and rolls
+back its writes. Use `"pipeline": []` for store-only qualification; enqueueing
+NLP jobs does not establish tenant-worker execution readiness. Apply the
+September 8 tenant tag migrations with the migration identity before upgrading
+the API. They qualify default scheme notation and flat tag identity by tenant;
+existing data and tenant-qualified foreign-key guards are preserved. Provision
+any required default SKOS scheme or document types under the intended tenant,
+not by sharing the personal tenant's seed rows.
+
+Hosted SSE requires a bearer header with the canonical tenant and `mcp` scope.
+Memory access also requires `read` scope. The default subscription is the caller's default memory, never a cross-tenant
+monitoring stream. `memory=default` and `memory=public` select tenant-protected
+public tables when no tenant archive exists. Other archive names must resolve
+under that tenant's RLS transaction. Hosted archive selection does not share the
+personal profile's process-wide default cache or attempt runtime migrations.
+
+The request releases its database transaction before streaming. Live and replay
+frames require an explicit matching envelope tenant; unattributed global events
+are withheld. Note-created/deleted events publish only after commit. A hosted
+stream closes at verified token expiry: obtain a replacement token, close the
+old connection, reopen with its bearer header, and refresh the note list. Query
+stream tokens remain a personal-profile feature and cannot replace hosted
+canonical identity. Existing TLS, JWT, RLS and durable authorization-audit checks
+remain enforced. These route gates do not enable `hosted_multi_tenant_ready` or
+qualify unrelated routes or worker execution. The suite audit remains NO-GO.
+
+
 ### Custom OIDC certificate trust
 
 For a Keycloak or other supported issuer using a private CA, set

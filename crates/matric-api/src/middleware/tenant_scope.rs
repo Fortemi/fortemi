@@ -67,6 +67,8 @@ pub type TenantConnectionFuture<'connection, T> =
 type ErasedValue = Box<dyn Any + Send>;
 type ErasedConnectionFuture<'connection> =
     Pin<Box<dyn Future<Output = Result<ErasedValue>> + Send + 'connection>>;
+type AfterCommitActions = std::sync::Arc<std::sync::Mutex<Vec<Box<dyn FnOnce() + Send>>>>;
+
 type ConnectionOperation = Box<
     dyn for<'connection> FnOnce(
             &'connection mut PgConnection,
@@ -88,6 +90,7 @@ struct ConnectionCommand {
 pub struct TenantRequestScope {
     tenant: VerifiedRequestTenant,
     commands: mpsc::Sender<ConnectionCommand>,
+    after_commit: AfterCommitActions,
 }
 
 impl std::fmt::Debug for TenantRequestScope {
@@ -101,6 +104,14 @@ impl std::fmt::Debug for TenantRequestScope {
 }
 
 impl TenantRequestScope {
+    /// Publish external effects only after the request transaction commits.
+    pub fn after_commit(&self, action: impl FnOnce() + Send + 'static) {
+        self.after_commit
+            .lock()
+            .expect("postcommit actions lock")
+            .push(Box::new(action));
+    }
+
     pub fn tenant(&self) -> VerifiedRequestTenant {
         self.tenant
     }
@@ -419,9 +430,11 @@ pub async fn tenant_scope_middleware(
         }
     }
 
+    let after_commit = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     request.extensions_mut().insert(TenantRequestScope {
         tenant,
         commands: commands_tx,
+        after_commit: after_commit.clone(),
     });
 
     let response = next.run(request).await;
@@ -452,6 +465,13 @@ pub async fn tenant_scope_middleware(
                 "tenant-scope-coordinator-failed",
                 "The tenant transaction coordinator stopped during finalization.",
             );
+        }
+    }
+
+    if action == FinishAction::Commit {
+        let actions = std::mem::take(&mut *after_commit.lock().expect("postcommit actions lock"));
+        for action in actions {
+            action();
         }
     }
 
@@ -514,6 +534,7 @@ mod tests {
         TenantRequestScope {
             tenant: verified_tenant(),
             commands,
+            after_commit: Default::default(),
         }
     }
 
