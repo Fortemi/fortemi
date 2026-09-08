@@ -142,11 +142,11 @@ capability by default through `ARG FORTEMI_API_FEATURES=hosted-auth`. This does
 not activate hosted mode or satisfy all hosted deployment prerequisites.
 `FORTEMI_MULTI_TENANT` remains opt-in; hardened database roles, audit, quotas,
 scanning, and key custody retain their existing admission checks. In particular,
-these default images do not compile the separate `kms-aws` feature required by
-the current multi-tenant KMS admission. Internal image builders can explicitly
-select the feature combination required by their deployment, for example
-`--build-arg FORTEMI_API_FEATURES=hosted-auth,kms-aws`; that still requires valid
-runtime AWS KMS configuration and every other hosted prerequisite. A bare Cargo
+these default images do not compile a KMS backend. Internal image builders select
+`--build-arg FORTEMI_API_FEATURES=hosted-auth,kms-vault` for OpenBao or
+`hosted-auth,kms-aws` for AWS. Runtime `FORTEMI_KEY_PROVIDER` selects the backend;
+its credentials/configuration and every other hosted prerequisite remain required.
+The Integro Labs environment requires [OpenBao Transit](#/security-openbao-kms). A bare Cargo
 build continues to require explicit `--features hosted-auth` for this verifier.
 
 Issuer URL validation also remains unchanged. Keycloak realm paths currently
@@ -1154,3 +1154,10 @@ if __name__ == "__main__":
 - **Token Introspection RFC 7662:** https://datatracker.ietf.org/doc/html/rfc7662
 
 For questions or issues, please contact support or open an issue on the project repository.
+
+## Hosted OpenBao key custody
+
+On-prem hosted deployments use the separately compiled OpenBao Transit provider.
+See [OpenBao KMS](#/security-openbao-kms) for provider selection, independent TLS
+trust, scoped token-file delivery, runtime policy, startup checks and rotation.
+OIDC CA support alone does not supply the KMS backend.

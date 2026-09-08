@@ -72,6 +72,7 @@
       "sections": [
         { "id": "security-encryption", "title": "Encryption Overview", "summary": "Cryptographic architecture and threat model.", "file": "encryption.md" },
         { "id": "security-pke", "title": "PKE Encryption", "summary": "X25519 public-key encryption for multi-recipient sharing.", "file": "pke-encryption.md" },
+        { "id": "security-openbao-kms", "title": "OpenBao KMS", "summary": "Hosted Transit key custody, independent CA trust and token lifecycle.", "file": "openbao-kms.md" },
         { "id": "security-authentication", "title": "Authentication", "summary": "API authentication and access control.", "file": "authentication.md" }
       ]
     },

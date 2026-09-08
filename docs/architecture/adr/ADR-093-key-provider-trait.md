@@ -43,6 +43,16 @@ compare-and-swap replacing only the wrapped key. This is not a hosted GA claim:
 OpenBao/Vault Transit and live provider policy/outage/rotation/recovery receipts
 remain open.
 
+## September 2026 provider placement clarification
+
+Baseline OpenBao follows the existing AWS implementation in feature-gated core
+`matric-crypto/kms-vault`. Enterprise KMS consumes the exact core revision for
+internal packaging and executable qualification. No private dependency is added
+to public Cargo resolution, and the provider-neutral envelope is unchanged.
+The configurable-provider contract is authoritative over the earlier AWS-only
+startup. Delivery evidence and supported profiles are recorded in
+`docs/architecture/cryptographic-decisions.md` and `docs/content/openbao-kms.md`.
+
 ## Context
 
 `matric-crypto` provides symmetric encryption (ADR-006), envelope encryption (ADR-007), and in-memory encryption (ADR-010). The current implementation reads its master key material from an environment variable or local file — acceptable for the HotM desktop sidecar (single-tenant, root-owned, local trust boundary).

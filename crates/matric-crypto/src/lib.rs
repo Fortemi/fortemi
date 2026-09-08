@@ -110,6 +110,8 @@ pub use provider::{
     KeyProviderKind, KeyPurpose, KeyPurposeKind, PlaintextDek, ProviderSignature, RotationInfo,
     WrappedKey,
 };
+#[cfg(feature = "kms-vault")]
+pub use provider::{VaultTransitConfig, VaultTransitProvider};
 
 // Re-export PKE types at crate level for convenience
 pub use pke::{

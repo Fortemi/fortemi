@@ -15,6 +15,18 @@ This ADR remains proposed. The `Fortemi-Enterprise` organization and nine privat
 - **Phase owner:** `Fortemi/fortemi#715`, with legal posture in `Fortemi/licensing#1` and private distribution in `Fortemi-Enterprise/distribution#1`.
 - **Checkpoint decision date:** 2026-07-14.
 
+## September 2026 KMS implementation reconciliation
+
+The accepted ADR-093 baseline providers use feature-gated public core code:
+AWS is already delivered there; OpenBao is implemented beside it. The private
+`Fortemi-Enterprise/kms` repository owns exact-source internal packaging and
+qualification receipts, consuming those implementations without copying the
+trait or envelope. Its older README-only/implementation-only assignment is
+superseded for these baseline backends. GCP remains a follow-on; proprietary
+HSM/BYOK extensions retain the proposed enterprise location. This technical
+placement clarification does not approve the outstanding commercial license
+or general Enterprise distribution launch gates.
+
 ## Context
 
 Fortemi core is BSL-1.1 licensed (LICENSE.txt). `fortemi-auth` is MIT (intentionally permissive so anyone can link). `fortemi-react` is AGPL-3.0. HotM is BSL-1.1. The codebase is open and visible, but plugin-based commercial extensions need a clear, declared distribution model so:

@@ -6,6 +6,10 @@
 
 mod aws_kms;
 mod env;
+#[cfg(feature = "kms-vault")]
+mod vault_transit;
+#[cfg(feature = "kms-vault")]
+pub use vault_transit::{VaultTransitConfig, VaultTransitProvider};
 
 #[cfg(feature = "kms-aws")]
 pub use aws_kms::AwsSdkKmsClient;

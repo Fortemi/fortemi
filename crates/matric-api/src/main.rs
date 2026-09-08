@@ -1,5 +1,7 @@
 //! matric-api - HTTP API server for matric-memory
 
+mod kms;
+
 mod audit_policy;
 mod handlers;
 mod middleware;
@@ -71,8 +73,6 @@ use matric_core::{
 };
 use matric_core::{EmbeddingBackend, GenerationBackend};
 use matric_crypto::KeyProvider;
-#[cfg(feature = "kms-aws")]
-use matric_crypto::{HealthStatus as KeyHealthStatus, KeyContext, KeyPurpose};
 use matric_db::{
     assert_hosted_runtime_role, Database, FileSource, FilesystemBackend, PoolConfig,
     PostgresAuditSink, ShardImportJournal, ShardImportJournalLease, SkosCollectionRepository,
@@ -2791,34 +2791,7 @@ async fn audit_sink_for_mode(
 }
 
 async fn key_provider_for_mode(multi_tenant: bool) -> anyhow::Result<Option<Arc<dyn KeyProvider>>> {
-    if !multi_tenant {
-        return Ok(None);
-    }
-
-    #[cfg(not(feature = "kms-aws"))]
-    anyhow::bail!(
-        "FORTEMI_MULTI_TENANT=true requires an internal build compiled with the kms-aws feature"
-    );
-
-    #[cfg(feature = "kms-aws")]
-    {
-        let key_id = std::env::var("FORTEMI_AWS_KMS_KEY_ID").map_err(|_| {
-            anyhow::anyhow!("FORTEMI_MULTI_TENANT=true requires FORTEMI_AWS_KMS_KEY_ID")
-        })?;
-        let provider = matric_crypto::AwsKmsProvider::from_environment(key_id)
-            .await
-            .map_err(|_| anyhow::anyhow!("AWS KMS provider configuration is invalid"))?;
-        let context = KeyContext::new(KeyPurpose::USER_SECRET, "hosted_startup_canary")?
-            .with_resource_id("kms_health")?;
-        match provider.health_check(&context).await {
-            Ok(KeyHealthStatus::Ready) => Ok(Some(Arc::new(provider))),
-            Ok(KeyHealthStatus::Degraded { .. })
-            | Ok(KeyHealthStatus::Unavailable { .. })
-            | Err(_) => {
-                anyhow::bail!("AWS KMS provider health check failed")
-            }
-        }
-    }
+    kms::provider_for_mode(multi_tenant).await
 }
 
 async fn request_quota_for_mode(

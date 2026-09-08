@@ -586,7 +586,7 @@ Single-user desktop product; no multi-tenancy or advanced OAuth.
 - [ ] **Object-level authorization** #956–#963 — note CRUD/status/versions/sharing, attachments, collections/templates/export, provenance, SKOS governance, memory admin/federated search, document-type use, ad-hoc AI gating.
 - [ ] **Control-plane admin-gating** #945–#964 (incl. #946 inference config, #954 queue control, #955 graph/embedding control, #949 webhook mgmt, #978 backup inventory).
 - [ ] **Advanced OAuth** (decided 2026-06-23): #1003 capabilities/profile source-of-truth → #943 (P0) consent/redirect → #972/#944 CIMD-first + gated DCR → #941 PKCE/S256 + client-auth → #917 resource/audience (API+MCP) → #924 scope cleanup → #1005 same-client introspection/revocation.
-- [ ] **KMS** #897 (P0) AWS launch contract + #910; #911/#912 (Vault/GCP) deferred. **PKE** #947/#948.
+- [ ] **KMS** #897 (P0) AWS launch contract + #910; #911 moved to Enterprise KMS #1; OpenBao is an active on-prem launch dependency, GCP is follow-on. **PKE** #947/#948.
 - [ ] **Privacy/DSAR** #900 / #969 / #892 / #961 (retention); **inbound connectors** #988 / #920 / #968; **realtime/Twilio** #952 / #981 / #986 / #951 / #953.
 
 ## Phase 3 — Universal Model Gateway / Bridge  (milestones #60 foundation, #61 expansion)
@@ -1382,3 +1382,5 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - 2026-09-07 — Server 2026.9.6 ARM64 publication, downstream CI, public GHCR and native mirror verification passed; #1132/#1133 closed. HotM live-auth setup handed to itops #662/#663. Cleanup authorized and exact versions mapped, but first GHCR DELETE returned 403; itops #550/#658 track credential capability. No deletion or completed cadence cycle is claimed.
 
 - 2026-09-07 — #1144 configurable OIDC CA trust is delivered in signed server 2026.9.7 (c3bfd40b275decd5a24c4e9a656d830a383b3de2), consuming fortemi-auth 2026.9.0; HotM 2026.9.3 is aligned. Main/tag/comprehensive/native and all three suite-platform gates passed; public API/bundle and native mirror/checksum/provenance-content verification passed. ITops #662/#663 received the deployable image and PEM mount/restart instructions. #1144 and HotM #304 retain actual token/tenant/realtime acceptance. Documentation-only follow-up corrects two CA guidance links to the registered authentication route; local strict site build, asset links and hosted documentation contract pass. Release tag/images are preserved; full-suite audit remains NO-GO.
+
+- 2026-09-08 — OpenBao dependency correction for ITops #662: implement the accepted provider-neutral launch contract with core kms-vault plus pinned Enterprise KMS packaging. AWS-only rebuild is insufficient. Verification and immutable delivery remain in progress; no hosted readiness claim.

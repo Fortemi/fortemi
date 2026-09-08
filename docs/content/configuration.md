@@ -243,13 +243,13 @@ Hosted multi-tenant mode is an internal, feature-gated deployment profile; the
 public Community Edition bundle is not a hosted-ready image. Startup fails
 closed unless all of the following classes are configured and healthy:
 
-- a binary built with `hosted-auth` and `kms-aws`;
+- a binary built with `hosted-auth` and the selected `kms-vault` or `kms-aws` backend;
 - `FORTEMI_MULTI_TENANT=true`, `REQUIRE_AUTH=true`, a hosted-safe
   `ISSUER_URL`, and the external OIDC settings below;
 - distinct `MIGRATION_DATABASE_URL` and `DATABASE_URL` credentials following
   `docs/deployment/hosted-postgresql-role.md`;
-- a durable PostgreSQL audit sink and an AWS KMS startup canary using
-  `FORTEMI_AWS_KMS_KEY_ID`;
+- a durable PostgreSQL audit sink and a successful selected-provider generate/decrypt
+  startup canary;
 - shared Redis admission, required attachment scanning, and the outbound
   inference destination policy.
 
@@ -262,7 +262,9 @@ closed unless all of the following classes are configured and healthy:
 | `FORTEMI_AUTH_HTTP_TIMEOUT_SECONDS` | `5` | OIDC/JWKS HTTP timeout, bounded to `1..30`. |
 | `FORTEMI_AUTH_CA_BUNDLE` | Unset | PEM file containing additional OIDC discovery/JWKS trust roots. Read once at verifier startup; explicit empty, unreadable, or invalid bundles fail startup. Default roots remain enabled. See [custom OIDC trust](#/security-authentication). |
 | `MIGRATION_DATABASE_URL` | None | Privileged migration connection; must differ from `DATABASE_URL`. |
-| `FORTEMI_AWS_KMS_KEY_ID` | None | Required KMS key identifier, injected by the hosted secret/configuration authority. |
+| `FORTEMI_KEY_PROVIDER` | `aws-kms` | Select `vault-transit` for OpenBao; explicit unsupported backends fail closed. |
+| `FORTEMI_VAULT_CA_BUNDLE` | Unset | Independent additive OpenBao trust bundle. See [OpenBao KMS](#/security-openbao-kms) for exact token-file, strategy and runtime policy configuration. |
+| `FORTEMI_AWS_KMS_KEY_ID` | None | Required only for the AWS backend, injected by the hosted secret/configuration authority. |
 
 The standard Dockerfiles include `hosted-auth` through the
 `FORTEMI_API_FEATURES` build argument; runtime hosted mode remains opt-in and

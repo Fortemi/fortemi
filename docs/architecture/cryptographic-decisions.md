@@ -39,6 +39,23 @@ Not implemented: Vault Transit/OpenBao, GCP KMS, and LocalStack/live-KMS policy,
 rollback, and recovery release evidence. Deterministic injectable-client receipts are CI evidence,
 not live infrastructure evidence. Hosted multi-tenant is therefore not launch-ready.
 
+## September 2026 OpenBao delivery decision
+
+The baseline `vault-transit` adapter follows the delivered `kms-aws` placement in
+`matric-crypto`, gated by `kms-vault`. This reconciles accepted ADR-093 with the
+proposed ADR-095 and the migrated Enterprise issue: public builds have no private
+Cargo dependencies and share one `KeyProvider` and envelope implementation.
+`Fortemi-Enterprise/kms#1` owns the pinned internal packaging, qualification matrix,
+and deployment handoff consuming that core source. It does not fork the trait or
+claim GCP implementation; GCP remains a follow-on backend.
+
+The on-prem implementation is under verification. Until the actual receipts and
+immutable provider/server artifact are linked, ITops #662 and server #1144 remain
+open. The AWS-only rebuild advice for the Integro Labs environment is superseded.
+
+See [OpenBao configuration and operations](../content/openbao-kms.md) for the exact
+supported strategies, independent CA setting, token-file lifecycle and policy.
+
 ## 1. Why provider-neutral, not AWS-first
 
 #897 originally proposed locking AWS KMS as the sole first launch backend. The Integro Labs network secrets/KMS infrastructure (reviewed in `roctinam/itops`) is **OpenBao** (HashiCorp Vault 1.17 fork) at `vault.integrolabs.net`, auto-unsealed via **tpm2-pkcs11 (vTPM)** with 5/3 recovery shares, plus an **OpenBao PKI / YubiHSM 2** chain (`itops/docs/security/pki-key-management-sop.md`, `itops/docs/applications/vault.md`, `itops ADR-006`). Identity is **Keycloak** OIDC.
