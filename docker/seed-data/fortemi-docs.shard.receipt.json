@@ -1,12 +1,12 @@
 {
   "artifact": "docker/seed-data/fortemi-docs.shard",
-  "byte_length": 2629420,
-  "generated_at": "2026-09-09T20:42:18.256095208Z",
+  "byte_length": 2630967,
+  "generated_at": "2026-09-09T21:39:27.683386447Z",
   "generator": "scripts/ci/rebuild-shard-in-ci.sh",
   "manifest_version": "1.2.0",
-  "server_commit": "886fc1913be4d5ffae1ae6f1a19148adbb46000b",
-  "server_image": "fortemi-release-api:2026.9.8",
-  "server_version": "2026.9.8",
-  "sha256": "dd58f409ff3fc91fe97392a8a9f6d3ff7838859245dc0ee4d6ce77fa06609a9e",
-  "source_commit": "886fc1913be4d5ffae1ae6f1a19148adbb46000b"
+  "server_commit": "52d7383a8215c31c1007a84203db8e872a5cb788",
+  "server_image": "fortemi-release-api:2026.9.9",
+  "server_version": "2026.9.9",
+  "sha256": "489ebc43f4e4b784d43c275b3603042ddeddadd1d814384c6115b36a642cae3b",
+  "source_commit": "52d7383a8215c31c1007a84203db8e872a5cb788"
 }
