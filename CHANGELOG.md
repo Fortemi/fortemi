@@ -7,6 +7,21 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.9.8] - 2026-09-09
+
+### Added
+
+- Implement the opt-in `kms-vault` OpenBao Transit provider with independent custom CA trust, protected rotating token files, context-bound encryption, and same-DEK rewrap. Internal hosted builds explicitly enable `hosted-auth,kms-vault`; standard public images retain their existing feature profile (fortemi-enterprise/kms#1).
+
+### Fixed
+
+- Isolate hosted note creation, object authorization and Server-Sent Events by the authenticated tenant. Prevent cross-tenant access and delivery while preserving same-tenant flows (#1144).
+- Correct published CA configuration links.
+
+### Verification
+
+- Disposable HTTPS OpenBao qualification covers both key strategies, token renewal/replacement/expiry, policy denial, context mismatch, key rotation and rewrap, TLS rejection, and outage recovery. The isolated Lane A deployment was separately qualified against its recorded exact source and internal image; this release does not qualify an arbitrary deployment or add KMS to standard public binaries.
+
 ## [2026.9.7] - 2026-09-07
 
 ### Added
