@@ -7,7 +7,19 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.9.9] - 2026-09-09
+
+Corrective release carrying the OpenBao provider and tenant-isolation fixes prepared in 2026.9.8.
+
+### Release recovery
+
+- Preserve the immutable v2026.9.8 tag and failed authority-gate evidence. That tag was signed with the commit key rather than the required release key; tag CI rejected it before server image, release entry or native publication. Builder prerequisites were published separately. This correction uses the canonical release signer and verifies the published release-key fingerprint before pushing.
+- Correct the release runbook to use `tools/release/cut-tag.sh` and require main/comprehensive validation before publishing a stable tag.
+- Standard public API images retain `hosted-auth`; OpenBao activation still requires the separately configured internal `hosted-auth,kms-vault` build and deployment qualification.
+
 ## [2026.9.8] - 2026-09-09
+
+**Rejected before server publication:** the tag used the commit-signing key and failed the release-authority gate. Superseded by 2026.9.9; the original tag is preserved.
 
 ### Added
 

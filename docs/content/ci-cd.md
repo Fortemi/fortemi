@@ -334,16 +334,14 @@ Runs full pipeline including:
 
 ## Release Process
 
-1. Update version in `Cargo.toml`
-2. Update `CHANGELOG.md` with release notes
-3. Commit: `git commit -m "chore: release v2026.2.0"`
-4. Tag: `git tag -a v2026.2.0 -m "v2026.2.0"`
-5. Push: `git push origin main --tags`
+1. Update the workspace and MCP package versions, lockfiles, changelog and release announcement. Regenerate contract metadata and the documentation seed from the matching API build.
+2. Commit with the commit-signing key and deliver to `main`; wait for that exact source's CI and comprehensive tests to pass.
+3. From a clean checkout of current `origin/main`, run `tools/release/cut-tag.sh YYYY.M.PATCH --dry-run`, then `tools/release/cut-tag.sh YYYY.M.PATCH -m "release message"`.
+4. The helper selects the OpenBao-custodied release key and runs `tools/ci/verify-signed-tag.sh`. The required release fingerprint is `9292EFCBB0EA41BECEEFDAFA9C1B8CE0E0E09C33`; a valid signature from the commit key does not satisfy this gate.
+5. Push only the verified tag: `git push origin refs/tags/vYYYY.M.PATCH`.
+6. Wait for the builder, tag validation, registry publication, comprehensive tests, native binary/mirror publication and suite-platform gates. Independently verify immutable image digests and native checksums/provenance. An existing tag or release entry alone does not establish completion.
 
-The CI pipeline will automatically:
-- Run all tests
-- Build and publish Docker images to both registries
-- Create releases on both Gitea and GitHub
+Preserve failed published tags. Correct the problem in a new patch release; never move an immutable release tag to replace rejected evidence. Version 2026.9.8 was rejected for using the commit key; 2026.9.9 is its corrective release.
 
 ## Local Development
 
