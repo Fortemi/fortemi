@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-09-05T00:55:37Z"
+  updated_at: "2026-09-10T07:28:00Z"
 records:
+  - entity: "urn:aiwg:artifact:tests/fixtures/shards/full-v1-reference-conformance.json"
+    record: "records/lane-b-424-reference-preflight.prov.yaml"
   - entity: "docker/seed-data/fortemi-docs.shard"
     record: "records/release-docs-shard-2026-9-2.prov.yaml"
   - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"

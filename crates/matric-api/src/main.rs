@@ -55915,6 +55915,53 @@ not-json
     }
 
     #[test]
+    fn full_v1_shared_reference_conformance() {
+        use sha2::Digest;
+
+        let archive = include_bytes!("../../../tests/fixtures/shards/full-v1-integrated-candidate.shard");
+        let corpus: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fixtures/shards/full-v1-reference-conformance.json"
+        )).unwrap();
+        assert_eq!(hex::encode(sha2::Sha256::digest(archive)), corpus["source"]["sha256"]);
+        let baseline = read_shard_archive(archive, ShardArchiveLimits::default()).unwrap();
+        for case in corpus["cases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let mut files = baseline.clone();
+            for change in case["changes"].as_array().unwrap() {
+                let component = change["component"].as_str().unwrap();
+                let jsonl = format!("{component}.jsonl");
+                let path = if files.contains_key(&jsonl) { jsonl } else { format!("{component}.json") };
+                let bytes = files.get(&path).expect("declared fixture component");
+                let mut rows: Vec<serde_json::Value> = if path.ends_with(".jsonl") {
+                    std::str::from_utf8(bytes).unwrap().lines().filter(|line| !line.is_empty())
+                        .map(|line| serde_json::from_str(line).unwrap()).collect()
+                } else {
+                    serde_json::from_slice(bytes).unwrap()
+                };
+                let index = if let Some(copy) = change.get("copy") {
+                    rows.push(rows[copy.as_u64().unwrap() as usize].clone());
+                    rows.len() - 1
+                } else {
+                    change["index"].as_u64().unwrap() as usize
+                };
+                rows[index].as_object_mut().unwrap().extend(change["fields"].as_object().unwrap().clone());
+                let encoded = if path.ends_with(".jsonl") {
+                    rows.iter().map(|row| serde_json::to_string(row).unwrap() + "\n").collect::<String>().into_bytes()
+                } else {
+                    serde_json::to_vec(&rows).unwrap()
+                };
+                for version in ["1.2.0", "2.0.0"] {
+                    validate_shard_component_schema_for_profile(version, "full-v1", component, &encoded)
+                        .unwrap_or_else(|error| panic!("{name} {version}: mutation must remain schema-valid: {error}"));
+                }
+                files.insert(path, encoded);
+            }
+            let result = validate_shard_relationships(&files);
+            assert_eq!(result.is_ok(), case["valid"].as_bool().unwrap(), "{name}: {result:?}");
+        }
+    }
+
+    #[test]
     fn full_v1_integrated_candidate_blob_digest_receipt() {
         assert_eq!(
             matric_db::compute_content_hash(b"Fortemi full-v1 attachment fixture\n"),

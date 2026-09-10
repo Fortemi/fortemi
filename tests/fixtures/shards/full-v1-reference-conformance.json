@@ -1,0 +1,1233 @@
+{
+  "format": "fortemi.full-v1.reference-conformance.v1",
+  "source": {
+    "path": "tests/fixtures/shards/full-v1-integrated-candidate.shard",
+    "sha256": "c2e06eaa9802efd25ed70f5fe7e339548bd0b561ae86fb1a0f2d2fdf45305659",
+    "schemaVersion": "1.2.0",
+    "profile": "full-v1"
+  },
+  "scope": "Schema-valid component mutations for relationship preflight only. Not native restore, signature, runtime, or release qualification.",
+  "cases": [
+    {
+      "name": "unchanged",
+      "valid": true,
+      "changes": []
+    },
+    {
+      "name": "collections-unknown-parent_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "collections",
+          "index": 0,
+          "fields": {
+            "parent_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "notes-unknown-collection_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "notes",
+          "index": 0,
+          "fields": {
+            "collection_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "templates-unknown-collection_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "templates",
+          "index": 0,
+          "fields": {
+            "collection_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "links-unknown-from_note_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "links",
+          "index": 0,
+          "fields": {
+            "from_note_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "links-unknown-to_note_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "links",
+          "index": 0,
+          "fields": {
+            "to_note_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "note_originals-unknown-note_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "note_originals",
+          "index": 0,
+          "fields": {
+            "note_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "note_original_history-unknown-note_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "note_original_history",
+          "index": 0,
+          "fields": {
+            "note_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "note_revisions-unknown-note_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "note_revisions",
+          "index": 0,
+          "fields": {
+            "note_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "note_revisions-unknown-parent_revision_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "note_revisions",
+          "index": 0,
+          "fields": {
+            "parent_revision_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "note_revised_current-unknown-note_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "note_revised_current",
+          "index": 0,
+          "fields": {
+            "note_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "note_revised_current-unknown-last_revision_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "note_revised_current",
+          "index": 0,
+          "fields": {
+            "last_revision_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "provenance_edges-unknown-revision_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "provenance_edges",
+          "index": 0,
+          "fields": {
+            "revision_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "provenance_edges-unknown-source_note_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "provenance_edges",
+          "index": 0,
+          "fields": {
+            "source_note_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "provenance_activities-unknown-note_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "provenance_activities",
+          "index": 0,
+          "fields": {
+            "note_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "provenance_activities-unknown-revision_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "provenance_activities",
+          "index": 0,
+          "fields": {
+            "revision_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "provenance_locations-unknown-named_location_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "provenance_locations",
+          "index": 0,
+          "fields": {
+            "named_location_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "provenance_records-unknown-note_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "provenance_records",
+          "index": 0,
+          "fields": {
+            "note_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "provenance_records-unknown-attachment_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "provenance_records",
+          "index": 0,
+          "fields": {
+            "attachment_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "provenance_records-unknown-location_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "provenance_records",
+          "index": 0,
+          "fields": {
+            "location_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "provenance_records-unknown-original_location_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "provenance_records",
+          "index": 0,
+          "fields": {
+            "original_location_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "provenance_records-unknown-device_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "provenance_records",
+          "index": 0,
+          "fields": {
+            "device_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "provenance_records-unknown-activity_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "provenance_records",
+          "index": 0,
+          "fields": {
+            "activity_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "embedding_sets-unknown-embedding_config_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "embedding_sets",
+          "index": 0,
+          "fields": {
+            "embedding_config_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "embedding_set_members-unknown-embedding_set_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "embedding_set_members",
+          "index": 0,
+          "fields": {
+            "embedding_set_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "embedding_set_members-unknown-note_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "embedding_set_members",
+          "index": 0,
+          "fields": {
+            "note_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "embeddings-unknown-note_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "embeddings",
+          "index": 0,
+          "fields": {
+            "note_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "embeddings-unknown-embedding_set_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "embeddings",
+          "index": 0,
+          "fields": {
+            "embedding_set_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "skos_concepts-unknown-primary_scheme_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "skos_concepts",
+          "index": 0,
+          "fields": {
+            "primary_scheme_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "skos_concepts-unknown-replaced_by_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "skos_concepts",
+          "index": 0,
+          "fields": {
+            "replaced_by_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "skos_labels-unknown-concept_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "skos_labels",
+          "index": 0,
+          "fields": {
+            "concept_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "skos_notes-unknown-concept_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "skos_notes",
+          "index": 0,
+          "fields": {
+            "concept_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "skos_relations-unknown-subject_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "skos_relations",
+          "index": 0,
+          "fields": {
+            "subject_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "skos_relations-unknown-object_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "skos_relations",
+          "index": 0,
+          "fields": {
+            "object_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "skos_mapping_relations-unknown-concept_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "skos_mapping_relations",
+          "index": 0,
+          "fields": {
+            "concept_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "skos_scheme_memberships-unknown-concept_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "skos_scheme_memberships",
+          "index": 0,
+          "fields": {
+            "concept_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "skos_scheme_memberships-unknown-scheme_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "skos_scheme_memberships",
+          "index": 0,
+          "fields": {
+            "scheme_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "note_skos_tags-unknown-note_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "note_skos_tags",
+          "index": 0,
+          "fields": {
+            "note_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "note_skos_tags-unknown-concept_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "note_skos_tags",
+          "index": 0,
+          "fields": {
+            "concept_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "skos_collections-unknown-scheme_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "skos_collections",
+          "index": 0,
+          "fields": {
+            "scheme_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "skos_collection_members-unknown-collection_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "skos_collection_members",
+          "index": 0,
+          "fields": {
+            "collection_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "skos_collection_members-unknown-concept_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "skos_collection_members",
+          "index": 0,
+          "fields": {
+            "concept_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "graph_edges-unknown-from_note_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "graph_edges",
+          "index": 0,
+          "fields": {
+            "from_note_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "graph_edges-unknown-to_note_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "graph_edges",
+          "index": 0,
+          "fields": {
+            "to_note_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "community_assignments-unknown-note_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "community_assignments",
+          "index": 0,
+          "fields": {
+            "note_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"
+          }
+        }
+      ]
+    },
+    {
+      "name": "graph_edges-unknown-source",
+      "valid": false,
+      "changes": [
+        {
+          "component": "graph_edges",
+          "index": 0,
+          "fields": {
+            "graph_source_id": "missing-source"
+          }
+        }
+      ]
+    },
+    {
+      "name": "communities-unknown-source",
+      "valid": false,
+      "changes": [
+        {
+          "component": "communities",
+          "index": 0,
+          "fields": {
+            "graph_source_id": "missing-source"
+          }
+        }
+      ]
+    },
+    {
+      "name": "assignment-unknown-community_set_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "community_assignments",
+          "index": 0,
+          "fields": {
+            "community_set_id": "missing-community"
+          }
+        }
+      ]
+    },
+    {
+      "name": "assignment-unknown-community_id",
+      "valid": false,
+      "changes": [
+        {
+          "component": "community_assignments",
+          "index": 0,
+          "fields": {
+            "community_id": "missing-community"
+          }
+        }
+      ]
+    },
+    {
+      "name": "collections-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "collections",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "notes-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "notes",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "templates-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "templates",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "links-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "links",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "note_originals-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "note_originals",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "note_original_history-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "note_original_history",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "note_revisions-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "note_revisions",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "note_revised_current-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "note_revised_current",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "provenance_edges-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "provenance_edges",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "provenance_activities-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "provenance_activities",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "named_locations-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "named_locations",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "provenance_locations-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "provenance_locations",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "provenance_devices-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "provenance_devices",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "provenance_records-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "provenance_records",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "embedding_configs-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "embedding_configs",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "embedding_sets-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "embedding_sets",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "embedding_set_members-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "embedding_set_members",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "embeddings-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "embeddings",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "skos_schemes-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "skos_schemes",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "skos_concepts-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "skos_concepts",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "skos_labels-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "skos_labels",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "skos_notes-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "skos_notes",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "skos_relations-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "skos_relations",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "skos_mapping_relations-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "skos_mapping_relations",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "skos_scheme_memberships-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "skos_scheme_memberships",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "note_skos_tags-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "note_skos_tags",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "skos_collections-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "skos_collections",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "skos_collection_members-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "skos_collection_members",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "graph_sources-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "graph_sources",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "graph_edges-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "graph_edges",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "communities-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "communities",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "community_assignments-duplicate",
+      "valid": false,
+      "changes": [
+        {
+          "component": "community_assignments",
+          "copy": 0,
+          "fields": {}
+        }
+      ]
+    },
+    {
+      "name": "collection-self-cycle",
+      "valid": false,
+      "changes": [
+        {
+          "component": "collections",
+          "index": 0,
+          "fields": {
+            "parent_id": "018f2d2d-bc00-7cc8-8ad2-f147d6a2e77b"
+          }
+        }
+      ]
+    },
+    {
+      "name": "revision-self-parent",
+      "valid": false,
+      "changes": [
+        {
+          "component": "note_revisions",
+          "index": 0,
+          "fields": {
+            "parent_revision_id": "018f4c11-9f14-7d33-8a21-1c80f648e002"
+          }
+        }
+      ]
+    },
+    {
+      "name": "history-current-version",
+      "valid": false,
+      "changes": [
+        {
+          "component": "note_original_history",
+          "index": 0,
+          "fields": {
+            "version_number": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "current-original-disagreement",
+      "valid": false,
+      "changes": [
+        {
+          "component": "note_originals",
+          "index": 0,
+          "fields": {
+            "content": "Invalid original summary"
+          }
+        }
+      ]
+    },
+    {
+      "name": "current-revised-disagreement",
+      "valid": false,
+      "changes": [
+        {
+          "component": "note_revised_current",
+          "index": 0,
+          "fields": {
+            "content": "Invalid revised summary"
+          }
+        }
+      ]
+    },
+    {
+      "name": "current-revision-content-disagreement",
+      "valid": false,
+      "changes": [
+        {
+          "component": "note_revised_current",
+          "index": 0,
+          "fields": {
+            "last_revision_id": "018f4c11-9f14-7d33-8a21-1c80f648e002"
+          }
+        }
+      ]
+    },
+    {
+      "name": "effective-vector-dimension",
+      "valid": false,
+      "changes": [
+        {
+          "component": "embedding_sets",
+          "index": 0,
+          "fields": {
+            "truncate_dim": 64
+          }
+        }
+      ]
+    },
+    {
+      "name": "graph-truncation-dimension",
+      "valid": false,
+      "changes": [
+        {
+          "component": "graph_sources",
+          "index": 0,
+          "fields": {
+            "truncate_dimension": 769
+          }
+        }
+      ]
+    },
+    {
+      "name": "uuid-case-normalized",
+      "valid": true,
+      "changes": [
+        {
+          "component": "links",
+          "index": 0,
+          "fields": {
+            "from_note_id": "018F2D2D-BC00-7CC8-8AD2-F147D6A2E77A"
+          }
+        }
+      ]
+    },
+    {
+      "name": "opaque-source-case-preserved",
+      "valid": false,
+      "changes": [
+        {
+          "component": "graph_edges",
+          "index": 0,
+          "fields": {
+            "graph_source_id": "GRAPH-SOURCE-PORTABLE"
+          }
+        }
+      ]
+    },
+    {
+      "name": "opaque-community-case-preserved",
+      "valid": false,
+      "changes": [
+        {
+          "component": "community_assignments",
+          "index": 0,
+          "fields": {
+            "community_id": "COMMUNITY-A"
+          }
+        }
+      ]
+    },
+    {
+      "name": "concept-self-replacement",
+      "valid": false,
+      "changes": [
+        {
+          "component": "skos_concepts",
+          "index": 0,
+          "fields": {
+            "replaced_by_id": "018f7d2d-bc00-7cc8-8ad2-f147d6a2e702"
+          }
+        }
+      ]
+    },
+    {
+      "name": "nanosecond-range-ordered",
+      "valid": true,
+      "changes": [
+        {
+          "component": "provenance_records",
+          "index": 0,
+          "fields": {
+            "capture_time": {
+              "empty": false,
+              "lower": "2026-07-18T13:00:00.000000001Z",
+              "lower_inclusive": false,
+              "lower_infinite": false,
+              "upper": "2026-07-18T13:00:00.000000002Z",
+              "upper_inclusive": false,
+              "upper_infinite": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "nanosecond-range-reversed",
+      "valid": false,
+      "changes": [
+        {
+          "component": "provenance_records",
+          "index": 0,
+          "fields": {
+            "capture_time": {
+              "empty": false,
+              "lower": "2026-07-18T13:00:00.000000002Z",
+              "lower_inclusive": false,
+              "lower_infinite": false,
+              "upper": "2026-07-18T13:00:00.000000001Z",
+              "upper_inclusive": false,
+              "upper_infinite": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "equal-range-inclusive",
+      "valid": true,
+      "changes": [
+        {
+          "component": "provenance_records",
+          "index": 0,
+          "fields": {
+            "capture_time": {
+              "empty": false,
+              "lower": "2026-07-18T13:00:00.000000001Z",
+              "lower_inclusive": true,
+              "lower_infinite": false,
+              "upper": "2026-07-18T13:00:00.000000001Z",
+              "upper_inclusive": true,
+              "upper_infinite": false
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "equal-range-exclusive",
+      "valid": false,
+      "changes": [
+        {
+          "component": "provenance_records",
+          "index": 0,
+          "fields": {
+            "capture_time": {
+              "empty": false,
+              "lower": "2026-07-18T13:00:00.000000001Z",
+              "lower_inclusive": false,
+              "lower_infinite": false,
+              "upper": "2026-07-18T13:00:00.000000001Z",
+              "upper_inclusive": false,
+              "upper_infinite": false
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
