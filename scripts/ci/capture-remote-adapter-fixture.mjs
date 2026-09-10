@@ -86,6 +86,23 @@ COMMIT;
   await request('star', 'PATCH', `/api/v1/notes/${second}`, { starred: true })
   await request('detail_starred', 'GET', `/api/v1/notes/${second}`)
   await request('unstar', 'PATCH', `/api/v1/notes/${second}`, { starred: false })
+  await request('search_limit', 'GET', '/api/v1/search?q=NEEDLE&mode=fts&limit=1')
+  await request('search_tags_no_match', 'GET', '/api/v1/search?q=NEEDLE&mode=fts&limit=10&tags=first%2Csecond')
+  for (const mode of ['semantic', 'hybrid']) {
+    const result = await request(`search_${mode}_degraded`, 'GET', `/api/v1/search?q=NEEDLE&mode=${mode}&limit=10`)
+    assert.equal(result.degraded, true, 'unavailable inference must be reported as degraded')
+    assert.equal(result.degradation.effective_mode, 'fts')
+  }
+  await request('update_content', 'PATCH', `/api/v1/notes/${second}`, { content: 'REMOTE CONTRACT UPDATED', revision_mode: 'none' })
+  await request('update_tags', 'PATCH', `/api/v1/notes/${second}`, { tags: ['lane-b-remote', 'updated'] })
+  await request('archive', 'PATCH', `/api/v1/notes/${second}`, { archived: true })
+  await request('unarchive', 'PATCH', `/api/v1/notes/${second}`, { archived: false })
+  await request('delete', 'DELETE', `/api/v1/notes/${second}`, undefined, 204)
+  await request('deleted_not_found', 'GET', `/api/v1/notes/${second}`, undefined, 404)
+  const restored = await request('restore', 'POST', `/api/v1/notes/${second}/restore?revision_mode=none`)
+  assert.equal(restored.restored, true)
+  assert.equal(restored.id, second)
+  await request('detail_restored', 'GET', `/api/v1/notes/${second}`)
 } finally {
   for (const [index, id] of owned.entries()) await request(`cleanup_delete_${index}`, 'DELETE', `/api/v1/notes/${id}`, undefined, 204)
 }

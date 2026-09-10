@@ -85,3 +85,66 @@ fn remote_adapter_capture_rejects_malformed_required_fields() {
     list["notes"] = serde_json::json!({});
     assert!(serde_json::from_value::<matric_core::ListNotesResponse>(list).is_err());
 }
+
+#[test]
+fn remote_operations_capture_preserves_search_degradation_and_mutation_contracts() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../contracts/openapi/fixtures/remote-operations.json"
+    ))
+    .unwrap();
+    for name in [
+        "search_empty",
+        "search_nonempty",
+        "search_tags",
+        "search_limit",
+        "search_tags_no_match",
+        "search_semantic_degraded",
+        "search_hybrid_degraded",
+    ] {
+        let search: super::SearchResponse = serde_json::from_value(body(&fixture, name)).unwrap();
+        assert_eq!(search.results.len(), search.total);
+        assert_eq!(search.degraded, name.ends_with("_degraded"));
+        if search.degraded {
+            assert_eq!(search.degradation.unwrap().effective_mode, "fts");
+        }
+    }
+    for name in ["create_first", "create_second"] {
+        let _: super::CreateNoteBody =
+            serde_json::from_value(fixture["cases"][name]["request"]["body"].clone()).unwrap();
+        let id: uuid::Uuid = serde_json::from_value(body(&fixture, name)["id"].clone()).unwrap();
+        assert!(!id.is_nil());
+        assert_eq!(fixture["cases"][name]["response"]["status"], 201);
+    }
+    for name in [
+        "update_content",
+        "update_tags",
+        "star",
+        "unstar",
+        "archive",
+        "unarchive",
+    ] {
+        let _: super::UpdateNoteBody =
+            serde_json::from_value(fixture["cases"][name]["request"]["body"].clone()).unwrap();
+        let _: matric_core::NoteFull = serde_json::from_value(body(&fixture, name)).unwrap();
+    }
+    assert_eq!(
+        body(&fixture, "update_content")["revised"]["content"],
+        "REMOTE CONTRACT UPDATED"
+    );
+    assert_eq!(body(&fixture, "archive")["note"]["archived"], true);
+    assert_eq!(body(&fixture, "unarchive")["note"]["archived"], false);
+    assert_eq!(fixture["cases"]["delete"]["response"]["status"], 204);
+    assert!(body(&fixture, "delete").is_null());
+    assert_eq!(
+        fixture["cases"]["deleted_not_found"]["response"]["status"],
+        404
+    );
+    assert_eq!(body(&fixture, "restore")["restored"], true);
+    let restored: matric_core::NoteFull =
+        serde_json::from_value(body(&fixture, "detail_restored")).unwrap();
+    assert_eq!(
+        serde_json::to_value(restored.note.id).unwrap(),
+        body(&fixture, "restore")["id"]
+    );
+    assert_eq!(fixture["cleanup"]["remainingVisibleNotes"], 0);
+}
