@@ -14,7 +14,7 @@
       "consumer_issue": "Fortemi/fortemi-react#424",
       "base_revision": "9588dea2d20fe16086da26f078723f74c7c51327",
       "artifacts": {
-        "crates/matric-api/src/main.rs": "sha256:74b0b1c06bb5a02f30e6d13b7ac86b3d6db5bc4e4066470b073494471fa0de18",
+        "crates/matric-api/src/main.rs": "sha256:d5f935ca19fc8c1429ac04da6d13c65511263ca6a1e670031634134723a8686a",
         "tests/fixtures/shards/full-v1-reference-conformance.json": "sha256:904ae4286fd5595473280d1e85727be38540763e5bf5b39ec5b886b21ef0d0fe",
         "tests/fixtures/shards/full-v1-reference-conformance.md": "sha256:7a1b29515065067a852badc2388b66a22186d3fdf9a3b95b62e98d54d2643292"
       }
