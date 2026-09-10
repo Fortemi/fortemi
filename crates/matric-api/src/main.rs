@@ -7,6 +7,8 @@ mod handlers;
 mod middleware;
 mod oauth_profile;
 mod query_types;
+#[cfg(test)]
+mod remote_adapter_fixture_tests;
 mod route_policy;
 mod shard_signature;
 mod trusted_proxy;

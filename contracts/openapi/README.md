@@ -21,3 +21,12 @@ Every documented operation includes the global middleware's `429`
 This gives consumers a schema-bearing response boundary for every operation
 without inventing success payload schemas for handlers that have not declared
 one. Existing typed success responses and body-free statuses remain unchanged.
+
+## Supplemental Runtime Captures
+
+[Remote adapter fixtures](fixtures/README.md) bind actual HTTP responses to the
+released producer image and source for React #417-421 (producer #1146).
+Producer-model tests validate the capture independently of consumer projections.
+This supplements handlers whose generated success schema is not yet typed; it
+does not replace OpenAPI authority, expand the contract, or qualify a released
+consumer. Historical #1060 artifacts and receipts remain unchanged.
