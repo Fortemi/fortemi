@@ -1,0 +1,65 @@
+{
+  "status": "source-conformance-passed-release-pending",
+  "issues": ["Fortemi/fortemi#1145", "Fortemi/fortemi-react#423"],
+  "profile": "1.2.0/core-v1",
+  "schemaChange": false,
+  "authority": {
+    "repository": "Fortemi/fortemi",
+    "baseCommit": "e91c595a896275f835cb7ed1aef173cb26056206",
+    "noteSchemaSha256": "64cdda2c0af1ae2e42cf5b1117f7d5aca94fb55482b7680caf5d5df6dacd040a"
+  },
+  "producer": {
+    "repository": "Fortemi/fortemi-react",
+    "baseCommit": "49e17570e21d1730c6a05b9a3822ed5c8cc2789a",
+    "branch": "fix/423-profiled-default-export",
+    "path": "standalone Settings export button through useExportShard",
+    "hookSha256": "79cc1d2dd8b451f5fd36ec4b6ea1ab76e0a3883bd705e08430dd1c38e2253e35",
+    "releasedPackageQualified": false
+  },
+  "fixture": {
+    "file": "react-default-core-v1-423.shard",
+    "sha256": "49b2cfd596cbaccf17ff5cee467de029769c7b8ec926f64c623944c0387345d1",
+    "bytes": 86294,
+    "notes": 9,
+    "tags": 18,
+    "browser": "Firefox on Linux, 1280x900",
+    "attachmentBytes": "excluded by core-v1"
+  },
+  "consumer": {
+    "repository": "Fortemi/fortemi",
+    "branch": "fix/lane-b-shard-restore-tags",
+    "noteRepositorySha256": "e6898ab5ba9567348eb2b4e55ab55a536008a99a95a4b1ad25ba4725a4569e55",
+    "httpBinarySha256": "289d6d952c6ac2efc465fcdf5b6534e661724d4183111fda7bd2ebd2dd4374b4",
+    "httpBuild": "cargo build --locked -p matric-api --bin matric-api; development profile, base 2026.9.9 plus restore correction",
+    "releasedServerQualified": false,
+    "released2026_9_9": "schema validation and dry-run pass; mutating import fails with 500 and zero notes committed",
+    "correctedHttp": {
+      "cleanDestination": true,
+      "dryRunZeroMutation": true,
+      "malformedInputZeroMutation": true,
+      "replaceImport": true,
+      "repeatSkip": true,
+      "reexportProfileValidation": true,
+      "sourceFieldsPreserved": true,
+      "reexportSha256": "aec3c61c83b84f3bc5a90be31438b8620464cc2c0ce93cbcea69bf917b66d77e"
+    }
+  },
+  "tests": {
+    "product": "apps/standalone/e2e/shard-export.test.ts",
+    "http": "apps/standalone/scripts/verify-default-export-server.mjs",
+    "rust": "cargo test --locked -p matric-api --bin matric-api pglite_core_v1 -- --nocapture",
+    "rustPassed": 3,
+    "shardRegression": "cargo test --locked -p matric-api --bin matric-api shard_ -- --nocapture",
+    "shardRegressionPassed": 100,
+    "liveTagRejectionRetained": true,
+    "restoreCasePreserved": true,
+    "restoreDoesNotDeriveHashtags": true
+  },
+  "claimBoundary": {
+    "suiteAudit": "NO-GO",
+    "fullV1NativeRestore": false,
+    "completeBackup": false,
+    "universalPortability": false,
+    "pending": ["delivered source CI", "released React package test", "released corrected Fortemi server test"]
+  }
+}

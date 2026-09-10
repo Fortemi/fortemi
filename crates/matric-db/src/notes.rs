@@ -564,14 +564,38 @@ impl PgNoteRepository {
         note_id: Uuid,
         req: CreateNoteRequest,
     ) -> Result<Uuid> {
-        let now = Utc::now();
-        let hash = Self::hash_content(&req.content);
-
         // Merge explicit tags with inline hashtags
         let all_tags = Self::merge_tags(req.tags.clone(), &req.content);
         for tag in &all_tags {
             crate::tags::validate_tag_name(tag).map_err(Error::InvalidInput)?;
         }
+        self.insert_with_tags_tx(tx, note_id, req, all_tags).await
+    }
+
+    /// Restore a note whose complete Knowledge Shard archive passed preflight.
+    /// Shard tag strings follow the wire profile, not the live tag-path grammar;
+    /// restoring must neither normalize them nor infer new tags from content.
+    pub async fn restore_shard_note_tx(
+        &self,
+        tx: &mut PgConnection,
+        note_id: Uuid,
+        req: CreateNoteRequest,
+    ) -> Result<Uuid> {
+        let mut tags = req.tags.clone().unwrap_or_default();
+        tags.sort();
+        tags.dedup();
+        self.insert_with_tags_tx(tx, note_id, req, tags).await
+    }
+
+    async fn insert_with_tags_tx(
+        &self,
+        tx: &mut PgConnection,
+        note_id: Uuid,
+        req: CreateNoteRequest,
+        all_tags: Vec<String>,
+    ) -> Result<Uuid> {
+        let now = Utc::now();
+        let hash = Self::hash_content(&req.content);
 
         // Insert note metadata. `title` is nullable — when the caller doesn't
         // supply one, the column stays NULL and gets populated later by the
@@ -641,7 +665,7 @@ impl PgNoteRepository {
         .await
         .map_err(Error::Database)?;
 
-        // Add tags (merged explicit + inline)
+        // The caller selects live-derived tags or the exact restored tag set.
         for tag in all_tags {
             // Determine source: 'user' if explicitly provided, 'inline' if extracted
             let source = if req.tags.as_ref().is_some_and(|t| t.contains(&tag)) {

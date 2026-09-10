@@ -4,6 +4,25 @@ This directory contains test fixtures for the shard migration system.
 
 ## Fixtures
 
+### react-default-core-v1-423.shard
+
+Actual Firefox desktop download from the standalone Settings export button and
+`useExportShard`, with the React #423 default-profile correction on base
+`49e17570e21d1730c6a05b9a3822ed5c8cc2789a`. The archive contains eight automatically
+seeded documentation notes and one product-created note, nine notes and eighteen
+tags total. SHA-256:
+`49b2cfd596cbaccf17ff5cee467de029769c7b8ec926f64c623944c0387345d1`.
+
+`pglite_core_v1_product_default_preserves_wire_tags` imports these exact bytes
+into a clean destination, repeats replace/skip, and checks note bodies, tags,
+metadata, and scalar fields on core-v1 re-export. It also verifies that live
+write validation stays intact. Fortemi #1145 repairs the native restore path for
+schema-valid tags such as `docs:api`; the published 2026.9.9 server fails this
+fixture during apply. The manifest's producer version is the worktree's base
+version, not evidence that the new hook is in the published React 2026.9.3
+package. Source/package/release qualification remains explicit in the Lane B
+receipt; this fixture does not replace historical matrices or remove `NO-GO`.
+
 ### v1.0.0-minimal.json
 
 Canonical minimal `core-v1` manifest for the current reader contract.

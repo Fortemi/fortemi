@@ -8,6 +8,23 @@
 
 ## Context
 
+### Validated Tag Restore Correction (#1145)
+
+Knowledge Shard note tags are governed by the selected wire schema. After full
+archive preflight, the native restore path preserves those declared strings and
+memberships; it does not apply the live authoring tag-path grammar, lowercase
+values, or derive inline hashtags. Ordinary note writes continue to enforce the
+live grammar and derive hashtags. `PgNoteRepository::restore_shard_note_tx`
+makes this distinction explicit and is used only after validated shard apply.
+
+The default product archive from Fortemi/fortemi-react#423 contains schema-valid
+seeded `docs:...` tags. Released Fortemi 2026.9.9 validates/dry-runs that archive
+but fails applying it through the live helper. The source correction has a
+producer-owned fixture and clean import/re-export regression. This is a runtime
+correction under unchanged schemas, not a live tag grammar or profile expansion.
+Its release evidence must supplement the historical matrix before claiming the
+new product path works with a released server. Suite `NO-GO` remains unchanged.
+
 Fortemi is both a Knowledge Shard producer and consumer. The format is also
 produced or consumed by sibling repositories, including `fortemi-react`,
 `aiwg`, and HotM. Independent implementations have drifted in component

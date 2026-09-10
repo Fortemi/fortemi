@@ -38237,7 +38237,7 @@ async fn apply_validated_shard_components(
                     title: note.title,
                 };
                 notes_repo
-                    .insert_with_id_tx(&mut tx, note_id, req)
+                    .restore_shard_note_tx(&mut tx, note_id, req)
                     .await
                     .map_err(|error| shard_operation_failed("insert imported note", error))?;
                 notes_repo
@@ -51024,6 +51024,152 @@ not-json
             .drop_archive_schema(&destination_name)
             .await
             .expect("drop AIWG rejection destination");
+    }
+
+    #[tokio::test]
+    async fn pglite_core_v1_product_default_preserves_wire_tags() {
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
+        let db = Database::connect(&database_url).await.unwrap();
+        let archive_name = format!("pglite-product-{}", Uuid::new_v4().simple());
+        let destination = db
+            .archives
+            .create_archive_schema(&archive_name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&destination.schema_name).unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let shard =
+            include_bytes!("../../../tests/fixtures/shards/react-default-core-v1-423.shard");
+        let source = read_shard_archive(shard, ShardArchiveLimits::default()).unwrap();
+        let expected_notes =
+            parse_shard_component_records("notes", &source["notes.jsonl"]).unwrap();
+        assert!(expected_notes
+            .iter()
+            .any(|note| note["original_content"] == "PRODUCT-EXPORT-CONTENT-423"));
+        assert!(expected_notes.iter().any(|note| note["tags"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|tag| tag.as_str().unwrap().contains(':'))));
+
+        // Ordinary writes still enforce the live tag contract before mutation.
+        let mut tx = ctx.begin_tx().await.unwrap();
+        let request = CreateNoteRequest {
+            content: "live note #derived".into(),
+            format: "markdown".into(),
+            source: "test".into(),
+            collection_id: None,
+            tags: Some(vec!["Docs:API".into()]),
+            metadata: None,
+            document_type_id: None,
+            title: None,
+        };
+        assert!(matric_db::PgNoteRepository::new(db.pool.clone())
+            .insert_with_id_tx(&mut tx, Uuid::now_v7(), request.clone())
+            .await
+            .is_err());
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM note")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+        let restored_id = Uuid::now_v7();
+        matric_db::PgNoteRepository::new(db.pool.clone())
+            .restore_shard_note_tx(&mut tx, restored_id, request)
+            .await
+            .unwrap();
+        let tags: Vec<String> = sqlx::query_scalar(
+            "SELECT tag_name FROM note_tag WHERE note_id = $1 ORDER BY tag_name",
+        )
+        .bind(restored_id)
+        .fetch_all(&mut *tx)
+        .await
+        .unwrap();
+        assert_eq!(tags, vec!["Docs:API"]);
+        tx.rollback().await.unwrap();
+
+        let mut opts = ShardImportOptions {
+            include: None,
+            dry_run: true,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        let dry = knowledge_shard_import_internal(&state, shard, &opts, &destination.schema_name)
+            .await
+            .unwrap();
+        assert_eq!(dry.imported.notes as usize, expected_notes.len());
+        let mut tx = ctx.begin_tx().await.unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM note")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+        tx.rollback().await.unwrap();
+
+        opts.dry_run = false;
+        for _ in 0..2 {
+            let applied =
+                knowledge_shard_import_internal(&state, shard, &opts, &destination.schema_name)
+                    .await
+                    .unwrap();
+            assert_eq!(applied.imported.notes as usize, expected_notes.len());
+        }
+        opts.on_conflict = ConflictStrategy::Skip;
+        let skipped =
+            knowledge_shard_import_internal(&state, shard, &opts, &destination.schema_name)
+                .await
+                .unwrap();
+        assert_eq!(skipped.skipped.notes as usize, expected_notes.len());
+        let export = knowledge_shard(
+            State(state),
+            Extension(ArchiveContext {
+                schema: destination.schema_name,
+                is_default: false,
+                name: Some(archive_name.clone()),
+            }),
+            Query(ShardExportQuery {
+                schema_version: Some("1.2.0".into()),
+                profile: Some("core-v1".into()),
+                include: None,
+                include_blobs: false,
+            }),
+        )
+        .await
+        .unwrap()
+        .into_response();
+        assert_eq!(export.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(export.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let files = read_shard_archive(&bytes, ShardArchiveLimits::default()).unwrap();
+        let actual_notes = parse_shard_component_records("notes", &files["notes.jsonl"]).unwrap();
+        assert_eq!(actual_notes.len(), expected_notes.len());
+        for expected in expected_notes {
+            let actual = actual_notes
+                .iter()
+                .find(|note| note["id"] == expected["id"])
+                .unwrap();
+            for field in [
+                "original_content",
+                "revised_content",
+                "tags",
+                "metadata",
+                "title",
+                "format",
+                "source",
+            ] {
+                assert_eq!(
+                    actual[field], expected[field],
+                    "field {field} changed during restore"
+                );
+            }
+        }
+        db.archives
+            .drop_archive_schema(&archive_name)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
