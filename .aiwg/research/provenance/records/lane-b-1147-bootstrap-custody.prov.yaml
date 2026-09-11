@@ -1,0 +1,92 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-10T21:33:48Z",
+    "description": "Unreleased explicit bootstrap set custody, native adoption and protected name/slug collisions"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+    "type": "code",
+    "created_at": "2026-09-10T21:33:48Z",
+    "checksum": "sha256:333eed51ad48d5846c54e5836aefc4fbe06e2aba3d329837947f9e15ddc0fd60",
+    "attributes": {
+      "producer_issue": "Fortemi/fortemi#1147",
+      "consumer_issue": "Fortemi/fortemi-react#424",
+      "base_revision": "c4ef37675f5637af76001570ef620e80ca1f9304",
+      "artifacts": {
+        "crates/matric-api/src/main.rs": "sha256:333eed51ad48d5846c54e5836aefc4fbe06e2aba3d329837947f9e15ddc0fd60",
+        "crates/matric-db/src/notes.rs": "sha256:66ad2e5cf2aeb76da69770797709ded0cb6a9d9aedec46af3dcc972f230b52cb",
+        "crates/matric-db/build.rs": "sha256:1385a3e637b290f4ad5cc91891a6ef24f95391dd514457cd67102f19da13158f",
+        "crates/matric-db/src/tenancy.rs": "sha256:646be73108892ac85b7d61badca81bc982aaa4d407f4fe8b1d7bf2fe764f79d5",
+        "crates/matric-db/src/tests/migration_repair_tests.rs": "sha256:ea12a8d0f4e684ce2b9aa1ee08773497234a903e5250dc203b7b52efefb49472",
+        "crates/matric-db/tests/tenant_isolation_matrix_test.rs": "sha256:8de8de05b728369db0f4aed319b990b3025ee0ece1ae7670444d57c339063485",
+        "migrations/20260910010000_archive_shard_config_declarations.sql": "sha256:48b84eeda8a585ca5d3d95198ab3364a94935fb086279f10d20953bf76bb1540",
+        "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md": "sha256:d80ee9521863210a50d628828dfbffd9193bbafe72d9ac52c460a1d1f18c0563",
+        "docs/architecture/backup-system-design.md": "sha256:60c30b0a44b2a9610f693694510fc566a95d0470cf95e79883009773422938b4",
+        "CHANGELOG.md": "sha256:894022ce0146631972c7076fa76e987c014719f62a10f43850a5931fe5259621",
+        "crates/matric-db/src/archives.rs": "sha256:f2df96d1da6cd73974668ce636621f5c4e2c71c4ee9050c30b94a89f6d722649",
+        "crates/matric-db/src/lib.rs": "sha256:9c22de7657ff13cf9d3e8aea11c357fe9821517f5510fccd6e25ed0d887d0c35",
+        "migrations/20260910020000_embedding_set_bootstrap_custody.sql": "sha256:24f583a5e0d13b2e7df60323bee7818fb8d90c34f0dc1cb7135fec4b44deabdb",
+        "migrations/20260910020100_restore_auto_membership_tombstone_guard.sql": "sha256:0a4c4274d046530d6758d855b6144a1ec4eaf9ecd27d54e8b08dd4b973fc1296"
+      },
+      "verification": {
+        "shard_tests": "107 passed, 0 failed, 56.54s",
+        "tenant_matrix": "21 passed, 0 failed, 2.60s",
+        "archive_schema": "17 passed, 0 failed, 14.17s",
+        "migration_tests": "7 passed, 0 failed, 3.05s",
+        "clippy": "API+DB all targets -D warnings passed, 29.31s",
+        "format_and_diff": "passed"
+      },
+      "limitations": [
+        "Suite NO-GO; unreleased local 2.0.0/full-v1 evidence only",
+        "Coordinated selected-ID name swaps and shared-config first-creation/native-writer/DDL concurrency pending",
+        "Explicit swap/wipe shared-config isolation and remaining history/provenance/SKOS/embedding omissions incomplete",
+        "New checks use internal import/export/helpers; authenticated public archive and published consumer/platform matrices pending",
+        "Fresh public seed custody does not prove a complete fresh-public-schema import/export matrix",
+        "Full original Lane B acceptance, shared fixtures/pins and cleanup/release sweep pending"
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:lane-b-1147-bootstrap-custody",
+    "type": "modification",
+    "started_at": "2026-09-10T21:13:00Z",
+    "ended_at": "2026-09-10T21:33:48Z",
+    "description": "Reproduce unrelated set visibility mutation and native-default deletion on collision; track only actual seed creation; adopt native writes/references; replace global cleanup; prove native/export preservation, post-restore CRUD, upgrade/fresh/repair/RLS and tombstone guards"
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+      "activity": "urn:aiwg:activity:lane-b-1147-bootstrap-custody",
+      "time": "2026-09-10T21:33:48Z"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:lane-b-1147-bootstrap-custody",
+      "agent": "urn:aiwg:agent:codex",
+      "role": "primary_implementer"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+        "source": "urn:gitea:issue:Fortemi/fortemi:1147",
+        "derivation_type": "implements",
+        "activity": "urn:aiwg:activity:lane-b-1147-bootstrap-custody"
+      },
+      {
+        "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+        "source": "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:ade3830c557ee5cafe5d5f3786318888a3a2faa81d716d6e5b7b31523959dcea",
+        "derivation_type": "extends",
+        "activity": "urn:aiwg:activity:lane-b-1147-bootstrap-custody"
+      }
+    ]
+  }
+}

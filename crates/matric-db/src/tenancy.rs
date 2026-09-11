@@ -27,7 +27,7 @@ pub const EXEMPT_PUBLIC_TABLES: &[&str] = &[
     "usage_sink",
 ];
 
-/// Complete ADR-090 inventory for the schema at migration 20260824010000.
+/// ADR-090 inventory, including subsequent tenant-scoped schema additions.
 pub const TENANT_SCOPED_TABLES: &[&str] = &[
     "activity_log",
     "api_key",
@@ -91,6 +91,9 @@ pub const TENANT_SCOPED_TABLES: &[&str] = &[
     "provenance_activity",
     "provenance_edge",
     "realtime_media_stream_attempt",
+    "shard_embedding_config_declaration",
+    "shard_embedding_set_bootstrap",
+    "shard_skos_scheme_bootstrap",
     "skos_audit_log",
     "skos_collection",
     "skos_collection_member",
@@ -101,6 +104,7 @@ pub const TENANT_SCOPED_TABLES: &[&str] = &[
     "skos_concept_note",
     "skos_concept_scheme",
     "skos_mapping_relation_edge",
+    "skos_relation_write_guard",
     "skos_semantic_relation_edge",
     "source_identity",
     "source_import_batch",

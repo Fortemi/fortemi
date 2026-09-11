@@ -1,0 +1,79 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-10T14:56:00Z",
+    "description": "Unreleased owner-aware skip and exact native-table preservation; replacement and release gates incomplete"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+    "type": "code",
+    "created_at": "2026-09-10T14:56:00Z",
+    "checksum": "sha256:3fb6e11a0680b52e29f42ad842dfc75d318b190086dc6db8ea1ea4ce18eacf49",
+    "attributes": {
+      "producer_issue": "Fortemi/fortemi#1147",
+      "consumer_issue": "Fortemi/fortemi-react#424",
+      "base_revision": "c4ef37675f5637af76001570ef620e80ca1f9304",
+      "artifacts": {
+        "crates/matric-api/src/main.rs": "sha256:3fb6e11a0680b52e29f42ad842dfc75d318b190086dc6db8ea1ea4ce18eacf49",
+        "crates/matric-db/src/notes.rs": "sha256:66ad2e5cf2aeb76da69770797709ded0cb6a9d9aedec46af3dcc972f230b52cb",
+        "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md": "sha256:8d17ed30549d547cc892be7aec3997a038ee50a498758d7d3121d021fe749ccf",
+        "docs/architecture/backup-system-design.md": "sha256:9e9afbc4bc26bba9bee5885e7a01e95d3f4aafcf468df68fdeea8c33aed6db58",
+        "CHANGELOG.md": "sha256:6ec82500ed200de41eed44bbc8f4b2a9a49e0968b880078a846e22e0e03d6ef8"
+      },
+      "verification": {
+        "shard_tests": "102 passed, 0 failed, 33.52s",
+        "http_repeat": "1 passed, 1.13s; identical regenerated fixture bytes",
+        "clippy": "API+DB all-targets -D warnings passed, 13.78s",
+        "format_and_diff": "passed"
+      },
+      "limitations": [
+        "Global replace-time embedding presence and shared registry ownership unresolved",
+        "Replacement history/provenance/SKOS/embedding omissions incomplete",
+        "Complete partial selection and installed/released/auth/platform qualification pending",
+        "Suite NO-GO"
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:lane-b-1147-skip-ownership",
+    "type": "modification",
+    "started_at": "2026-09-10T14:37:00Z",
+    "ended_at": "2026-09-10T14:56:00Z",
+    "description": "Reproduce skip presence mutation and new-child HTTP failure; filter children of selected skipped owners within the apply transaction; guard presence/count writes by actual applied roots; test whole native snapshots, independent new roots, partial/empty includes, counts and rollback"
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+      "activity": "urn:aiwg:activity:lane-b-1147-skip-ownership",
+      "time": "2026-09-10T14:56:00Z"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:lane-b-1147-skip-ownership",
+      "agent": "urn:aiwg:agent:codex",
+      "role": "primary_implementer"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+        "source": "urn:gitea:issue:Fortemi/fortemi:1147",
+        "derivation_type": "implements",
+        "activity": "urn:aiwg:activity:lane-b-1147-skip-ownership"
+      },
+      {
+        "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+        "source": "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:23f54f398b8ee6b842342bc5ff3c41c51c1bd185afc7e7617d40b73ca5c2bb04",
+        "derivation_type": "extends",
+        "activity": "urn:aiwg:activity:lane-b-1147-skip-ownership"
+      }
+    ]
+  }
+}

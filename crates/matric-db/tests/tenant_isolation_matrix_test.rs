@@ -702,6 +702,356 @@ async fn ti_16_tenant_qualified_constraints_prevent_cross_tenant_associations() 
 }
 
 #[tokio::test]
+async fn skos_relation_writer_guard_is_tenant_scoped_for_runtime_writes() {
+    skos_writer_guard_tenant_case(false).await;
+}
+
+#[tokio::test]
+async fn skos_concept_writer_guard_is_tenant_scoped_for_runtime_writes() {
+    skos_writer_guard_tenant_case(true).await;
+}
+
+async fn skos_writer_guard_tenant_case(concepts: bool) {
+    let Some(database) = setup().await else {
+        return;
+    };
+    let (tenant_a, tenant_b) = two_tenants(&database).await;
+    let statement = if concepts {
+        "UPDATE skos_concept SET status=status WHERE false"
+    } else {
+        "UPDATE skos_semantic_relation_edge SET is_validated=is_validated WHERE false"
+    };
+    let mut a = TenantScopedConn::begin(&database.runtime, tenant_a)
+        .await
+        .unwrap();
+    sqlx::query(statement).execute(a.executor()).await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, Uuid>("SELECT tenant_id FROM skos_relation_write_guard")
+            .fetch_one(a.executor())
+            .await
+            .unwrap(),
+        tenant_a
+    );
+    a.commit().await.unwrap();
+    let mut b = TenantScopedConn::begin(&database.runtime, tenant_b)
+        .await
+        .unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM skos_relation_write_guard")
+            .fetch_one(b.executor())
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        sqlx::query("DELETE FROM skos_relation_write_guard WHERE tenant_id=$1")
+            .bind(tenant_a)
+            .execute(b.executor())
+            .await
+            .unwrap()
+            .rows_affected(),
+        0
+    );
+    sqlx::query(statement).execute(b.executor()).await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, Uuid>("SELECT tenant_id FROM skos_relation_write_guard")
+            .fetch_one(b.executor())
+            .await
+            .unwrap(),
+        tenant_b
+    );
+    b.rollback().await.unwrap();
+    let mut b = TenantScopedConn::begin(&database.runtime, tenant_b)
+        .await
+        .unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM skos_relation_write_guard")
+            .fetch_one(b.executor())
+            .await
+            .unwrap(),
+        0
+    );
+    let error = sqlx::query("INSERT INTO skos_relation_write_guard(tenant_id) VALUES($1)")
+        .bind(tenant_a)
+        .execute(b.executor())
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.as_database_error().unwrap().code().as_deref(),
+        Some("42501")
+    );
+    b.rollback().await.unwrap();
+    let mut a = TenantScopedConn::begin(&database.runtime, tenant_a)
+        .await
+        .unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, Uuid>("SELECT tenant_id FROM skos_relation_write_guard")
+            .fetch_one(a.executor())
+            .await
+            .unwrap(),
+        tenant_a
+    );
+    a.rollback().await.unwrap();
+}
+
+#[tokio::test]
+async fn shard_skos_custody_enforces_tenant_visibility_and_native_adoption() {
+    let Some(database) = setup().await else {
+        return;
+    };
+    let (tenant_a, tenant_b) = two_tenants(&database).await;
+    let id = Uuid::new_v4();
+    let mut a = TenantScopedConn::begin(&database.runtime, tenant_a)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO skos_concept_scheme(id,notation,title) VALUES($1,$2,'Tenant custody')",
+    )
+    .bind(id)
+    .bind(format!("custody-{id}"))
+    .execute(a.executor())
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO shard_skos_scheme_bootstrap(scheme_id) VALUES($1)")
+        .bind(id)
+        .execute(a.executor())
+        .await
+        .unwrap();
+    a.commit().await.unwrap();
+    let mut b = TenantScopedConn::begin(&database.runtime, tenant_b)
+        .await
+        .unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM shard_skos_scheme_bootstrap WHERE scheme_id=$1"
+        )
+        .bind(id)
+        .fetch_one(b.executor())
+        .await
+        .unwrap(),
+        0
+    );
+    let error = sqlx::query("INSERT INTO shard_skos_scheme_bootstrap(scheme_id) VALUES($1)")
+        .bind(id)
+        .execute(b.executor())
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.as_database_error().unwrap().code().as_deref(),
+        Some("23503")
+    );
+    b.rollback().await.unwrap();
+    let mut a = TenantScopedConn::begin(&database.runtime, tenant_a)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE skos_concept_scheme SET description='Tenant native adoption' WHERE id=$1")
+        .bind(id)
+        .execute(a.executor())
+        .await
+        .unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM shard_skos_scheme_bootstrap WHERE scheme_id=$1"
+        )
+        .bind(id)
+        .fetch_one(a.executor())
+        .await
+        .unwrap(),
+        0
+    );
+    a.rollback().await.unwrap();
+    let mut a = TenantScopedConn::begin(&database.runtime, tenant_a)
+        .await
+        .unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM shard_skos_scheme_bootstrap WHERE scheme_id=$1"
+        )
+        .bind(id)
+        .fetch_one(a.executor())
+        .await
+        .unwrap(),
+        1
+    );
+    a.rollback().await.unwrap();
+}
+
+#[tokio::test]
+async fn shard_bootstrap_custody_enforces_tenant_visibility_and_native_adoption() {
+    let Some(database) = setup().await else {
+        return;
+    };
+    let (tenant_a, tenant_b) = two_tenants(&database).await;
+    let config_id = Uuid::new_v4();
+    let set_id = Uuid::new_v4();
+    let mut scope_a = TenantScopedConn::begin(&database.runtime, tenant_a)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO embedding_config (id,name,model,dimension) VALUES ($1,$2,'bootstrap-tenant',768)")
+        .bind(config_id).bind(format!("bootstrap-config-{config_id}"))
+        .execute(scope_a.executor()).await.unwrap();
+    sqlx::query(
+        "INSERT INTO embedding_set (id,name,slug,embedding_config_id) VALUES ($1,$2,$2,$3)",
+    )
+    .bind(set_id)
+    .bind(format!("bootstrap-set-{set_id}"))
+    .bind(config_id)
+    .execute(scope_a.executor())
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO shard_embedding_set_bootstrap (set_id) VALUES ($1)")
+        .bind(set_id)
+        .execute(scope_a.executor())
+        .await
+        .unwrap();
+    scope_a.commit().await.unwrap();
+    let mut scope_b = TenantScopedConn::begin(&database.runtime, tenant_b)
+        .await
+        .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM shard_embedding_set_bootstrap WHERE set_id=$1")
+            .bind(set_id)
+            .fetch_one(scope_b.executor())
+            .await
+            .unwrap();
+    assert_eq!(count, 0);
+    let result = sqlx::query("INSERT INTO shard_embedding_set_bootstrap (set_id) VALUES ($1)")
+        .bind(set_id)
+        .execute(scope_b.executor())
+        .await;
+    assert_eq!(
+        result
+            .unwrap_err()
+            .as_database_error()
+            .unwrap()
+            .code()
+            .as_deref(),
+        Some("23503")
+    );
+    scope_b.rollback().await.unwrap();
+    let mut scope_a = TenantScopedConn::begin(&database.runtime, tenant_a)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE embedding_set SET description='native tenant adoption' WHERE id=$1")
+        .bind(set_id)
+        .execute(scope_a.executor())
+        .await
+        .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM shard_embedding_set_bootstrap WHERE set_id=$1")
+            .bind(set_id)
+            .fetch_one(scope_a.executor())
+            .await
+            .unwrap();
+    assert_eq!(count, 0, "runtime native edits adopt their own set");
+    scope_a.rollback().await.unwrap();
+    let mut scope_a = TenantScopedConn::begin(&database.runtime, tenant_a)
+        .await
+        .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM shard_embedding_set_bootstrap WHERE set_id=$1")
+            .bind(set_id)
+            .fetch_one(scope_a.executor())
+            .await
+            .unwrap();
+    assert_eq!(count, 1, "rollback restores tenant custody");
+    scope_a.rollback().await.unwrap();
+}
+
+#[tokio::test]
+async fn shard_config_declarations_enforce_tenant_visibility_and_references() {
+    let Some(database) = setup().await else {
+        return;
+    };
+    let (tenant_a, tenant_b) = two_tenants(&database).await;
+    let config_id = Uuid::new_v4();
+    let mut scope_a = TenantScopedConn::begin(&database.runtime, tenant_a)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO embedding_config (id, name, model, dimension)
+        VALUES ($1, $2, 'tenant-declaration-test', 768)",
+    )
+    .bind(config_id)
+    .bind(format!("tenant-config-{config_id}"))
+    .execute(scope_a.executor())
+    .await
+    .unwrap();
+    let declared: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT config_id FROM shard_embedding_config_declaration WHERE config_id = $1",
+    )
+    .bind(config_id)
+    .fetch_all(scope_a.executor())
+    .await
+    .unwrap();
+    assert_eq!(
+        declared,
+        [config_id],
+        "native write declares the config for its tenant"
+    );
+    scope_a.commit().await.unwrap();
+
+    let mut scope_b = TenantScopedConn::begin(&database.runtime, tenant_b)
+        .await
+        .unwrap();
+    let hidden: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT config_id FROM shard_embedding_config_declaration WHERE config_id = $1",
+    )
+    .bind(config_id)
+    .fetch_all(scope_b.executor())
+    .await
+    .unwrap();
+    assert!(hidden.is_empty());
+    let rejected =
+        sqlx::query("INSERT INTO shard_embedding_config_declaration (config_id) VALUES ($1)")
+            .bind(config_id)
+            .execute(scope_b.executor())
+            .await
+            .unwrap_err();
+    assert_eq!(
+        rejected.as_database_error().unwrap().code().as_deref(),
+        Some("23503")
+    );
+    scope_b.rollback().await.unwrap();
+
+    let mut scope_a = TenantScopedConn::begin(&database.runtime, tenant_a)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM embedding_config WHERE id = $1")
+        .bind(config_id)
+        .execute(scope_a.executor())
+        .await
+        .unwrap();
+    let remaining: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM shard_embedding_config_declaration WHERE config_id = $1",
+    )
+    .bind(config_id)
+    .fetch_one(scope_a.executor())
+    .await
+    .unwrap();
+    assert_eq!(
+        remaining, 0,
+        "deletion cascades only the matching tenant identity"
+    );
+    scope_a.rollback().await.unwrap();
+    let mut scope_a = TenantScopedConn::begin(&database.runtime, tenant_a)
+        .await
+        .unwrap();
+    let restored: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM shard_embedding_config_declaration WHERE config_id = $1",
+    )
+    .bind(config_id)
+    .fetch_one(scope_a.executor())
+    .await
+    .unwrap();
+    assert_eq!(
+        restored, 1,
+        "rollback restores both registry and declaration"
+    );
+    scope_a.rollback().await.unwrap();
+}
+
+#[tokio::test]
 async fn tenant_qualified_constraints_preserve_referential_actions() {
     let Some(database) = setup().await else {
         return;

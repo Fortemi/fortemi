@@ -1,0 +1,154 @@
+{
+  "sourceReceipt": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/link-graph-retention-20260911-0430/installed-new.json",
+  "sourceReceiptSha256": "f90fe4ab69407718db94a492a150b4b537434238474f44f728ceabff1f415e77",
+  "profile": "2.0.0/full-v1",
+  "fixtures": [
+    {
+      "component": "skos_labels",
+      "state": "input",
+      "source": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/link-graph-retention-20260911-0430/installed-new.json.skos-retained-skos_labels-input.shard",
+      "target": "skos_labels-input.shard",
+      "sha256": "054da5528276806b9be69dcfff364a6969b72344045f05f9f6fcbeaca82a7a59"
+    },
+    {
+      "component": "skos_labels",
+      "state": "replacement",
+      "source": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/link-graph-retention-20260911-0430/installed-new.json.skos-retained-skos_labels-replacement.shard",
+      "target": "skos_labels-replacement.shard",
+      "sha256": "02c3151b239d0527fdceecf1515990cb2354a032e246d4b675fc4a4ab41816e0"
+    },
+    {
+      "component": "skos_labels",
+      "state": "omission",
+      "source": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/link-graph-retention-20260911-0430/installed-new.json.skos-retained-skos_labels-omission.shard",
+      "target": "skos_labels-omission.shard",
+      "sha256": "d12dd8001917d484e8a44219e3b92524df0b6898e793a7097fc362fe775ad65b"
+    },
+    {
+      "component": "skos_notes",
+      "state": "input",
+      "source": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/link-graph-retention-20260911-0430/installed-new.json.skos-retained-skos_notes-input.shard",
+      "target": "skos_notes-input.shard",
+      "sha256": "054da5528276806b9be69dcfff364a6969b72344045f05f9f6fcbeaca82a7a59"
+    },
+    {
+      "component": "skos_notes",
+      "state": "replacement",
+      "source": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/link-graph-retention-20260911-0430/installed-new.json.skos-retained-skos_notes-replacement.shard",
+      "target": "skos_notes-replacement.shard",
+      "sha256": "82eccea706175b8d3ffabaf2fe137af8199c5eb86a3c15814c2e7ebe91b0ad86"
+    },
+    {
+      "component": "skos_notes",
+      "state": "omission",
+      "source": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/link-graph-retention-20260911-0430/installed-new.json.skos-retained-skos_notes-omission.shard",
+      "target": "skos_notes-omission.shard",
+      "sha256": "6ecaa49f8c154fd85b9135b5d96123bf9c1ca252d2e3fb5a56f1c89d8517af86"
+    },
+    {
+      "component": "skos_relations",
+      "state": "input",
+      "source": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/link-graph-retention-20260911-0430/installed-new.json.skos-retained-skos_relations-input.shard",
+      "target": "skos_relations-input.shard",
+      "sha256": "054da5528276806b9be69dcfff364a6969b72344045f05f9f6fcbeaca82a7a59"
+    },
+    {
+      "component": "skos_relations",
+      "state": "replacement",
+      "source": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/link-graph-retention-20260911-0430/installed-new.json.skos-retained-skos_relations-replacement.shard",
+      "target": "skos_relations-replacement.shard",
+      "sha256": "27718f21a3b9007195f2b9108236b4715fec5853525c43408c1e426e87f42711"
+    },
+    {
+      "component": "skos_relations",
+      "state": "omission",
+      "source": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/link-graph-retention-20260911-0430/installed-new.json.skos-retained-skos_relations-omission.shard",
+      "target": "skos_relations-omission.shard",
+      "sha256": "5e8c8c476b043fbacb238eeba89d9878686d5cf2b25ca689b677f6c8f09c03f3"
+    },
+    {
+      "component": "skos_mapping_relations",
+      "state": "input",
+      "source": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/link-graph-retention-20260911-0430/installed-new.json.skos-retained-skos_mapping_relations-input.shard",
+      "target": "skos_mapping_relations-input.shard",
+      "sha256": "054da5528276806b9be69dcfff364a6969b72344045f05f9f6fcbeaca82a7a59"
+    },
+    {
+      "component": "skos_mapping_relations",
+      "state": "replacement",
+      "source": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/link-graph-retention-20260911-0430/installed-new.json.skos-retained-skos_mapping_relations-replacement.shard",
+      "target": "skos_mapping_relations-replacement.shard",
+      "sha256": "ed5cc29f92b4e01a9ab5e896aab7d6d81f2a63c637185f38c8909f97a9fbf95f"
+    },
+    {
+      "component": "skos_mapping_relations",
+      "state": "omission",
+      "source": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/link-graph-retention-20260911-0430/installed-new.json.skos-retained-skos_mapping_relations-omission.shard",
+      "target": "skos_mapping_relations-omission.shard",
+      "sha256": "502196dbfae996fca8a62b9830c3c4c286ed1f58fce06c800553c5845855096d"
+    },
+    {
+      "component": "skos_scheme_memberships",
+      "state": "input",
+      "source": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/link-graph-retention-20260911-0430/installed-new.json.skos-retained-skos_scheme_memberships-input.shard",
+      "target": "skos_scheme_memberships-input.shard",
+      "sha256": "054da5528276806b9be69dcfff364a6969b72344045f05f9f6fcbeaca82a7a59"
+    },
+    {
+      "component": "skos_scheme_memberships",
+      "state": "replacement",
+      "source": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/link-graph-retention-20260911-0430/installed-new.json.skos-retained-skos_scheme_memberships-replacement.shard",
+      "target": "skos_scheme_memberships-replacement.shard",
+      "sha256": "bca2c0357608ea83069be8d8016977f593b9d418fd76cfabdc0cc771150f98d7"
+    },
+    {
+      "component": "skos_scheme_memberships",
+      "state": "omission",
+      "source": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/link-graph-retention-20260911-0430/installed-new.json.skos-retained-skos_scheme_memberships-omission.shard",
+      "target": "skos_scheme_memberships-omission.shard",
+      "sha256": "36cc1e7149069cd02316bf62643c2413eba0fe7493619feb2ea4594d165b1399"
+    },
+    {
+      "component": "note_skos_tags",
+      "state": "input",
+      "source": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/link-graph-retention-20260911-0430/installed-new.json.skos-retained-note_skos_tags-input.shard",
+      "target": "note_skos_tags-input.shard",
+      "sha256": "054da5528276806b9be69dcfff364a6969b72344045f05f9f6fcbeaca82a7a59"
+    },
+    {
+      "component": "note_skos_tags",
+      "state": "replacement",
+      "source": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/link-graph-retention-20260911-0430/installed-new.json.skos-retained-note_skos_tags-replacement.shard",
+      "target": "note_skos_tags-replacement.shard",
+      "sha256": "d78c3a39e6bf3daa01d25ab06357408e694139634e3c1a08106f54d272653fe6"
+    },
+    {
+      "component": "note_skos_tags",
+      "state": "omission",
+      "source": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/link-graph-retention-20260911-0430/installed-new.json.skos-retained-note_skos_tags-omission.shard",
+      "target": "note_skos_tags-omission.shard",
+      "sha256": "a9af700fe611ad0610591c245676247ebfa80c393cc14d85a39d98415f2666d5"
+    },
+    {
+      "component": "skos_collection_members",
+      "state": "input",
+      "source": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/link-graph-retention-20260911-0430/installed-new.json.skos-retained-skos_collection_members-input.shard",
+      "target": "skos_collection_members-input.shard",
+      "sha256": "054da5528276806b9be69dcfff364a6969b72344045f05f9f6fcbeaca82a7a59"
+    },
+    {
+      "component": "skos_collection_members",
+      "state": "replacement",
+      "source": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/link-graph-retention-20260911-0430/installed-new.json.skos-retained-skos_collection_members-replacement.shard",
+      "target": "skos_collection_members-replacement.shard",
+      "sha256": "0c775e67efd2e251ba526c6ed9e4e02d9b99062e38df6df5d7336a9e2a7a50e4"
+    },
+    {
+      "component": "skos_collection_members",
+      "state": "omission",
+      "source": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/link-graph-retention-20260911-0430/installed-new.json.skos-retained-skos_collection_members-omission.shard",
+      "target": "skos_collection_members-omission.shard",
+      "sha256": "b1f9404f5e68583d09c0aba74019ef13217192a4e49d5a00103758ca280fb9b4"
+    }
+  ]
+}

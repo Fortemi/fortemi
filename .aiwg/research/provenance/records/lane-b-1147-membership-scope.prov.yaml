@@ -1,0 +1,102 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-10T23:45:17.911Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+    "type": "code",
+    "created_at": "2026-09-10T23:45:17.911Z",
+    "checksum": "sha256:b01b7a4ae026940662ddf051cc4e2874ac892e9209a13ece996c376870fc2d35",
+    "attributes": {
+      "status": "draft",
+      "artifacts": {
+        "crates/matric-api/src/main.rs": "b01b7a4ae026940662ddf051cc4e2874ac892e9209a13ece996c376870fc2d35",
+        "crates/matric-db/src/notes.rs": "66ad2e5cf2aeb76da69770797709ded0cb6a9d9aedec46af3dcc972f230b52cb",
+        "crates/matric-db/build.rs": "1385a3e637b290f4ad5cc91891a6ef24f95391dd514457cd67102f19da13158f",
+        "crates/matric-db/src/tenancy.rs": "646be73108892ac85b7d61badca81bc982aaa4d407f4fe8b1d7bf2fe764f79d5",
+        "crates/matric-db/src/tests/migration_repair_tests.rs": "ea12a8d0f4e684ce2b9aa1ee08773497234a903e5250dc203b7b52efefb49472",
+        "crates/matric-db/tests/tenant_isolation_matrix_test.rs": "8de8de05b728369db0f4aed319b990b3025ee0ece1ae7670444d57c339063485",
+        "migrations/20260910010000_archive_shard_config_declarations.sql": "48b84eeda8a585ca5d3d95198ab3364a94935fb086279f10d20953bf76bb1540",
+        "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md": "2c657aa1685bf10ac80029b5873121f92439c6e19b8f96f48b8a04ba721cc599",
+        "docs/architecture/backup-system-design.md": "16f1cc739c224f53b03a16866239bfed89dbd39a5b8fbaab21224bca89ff6e87",
+        "CHANGELOG.md": "60dbcefc3c0bea128b618182906992a141e4af859b36fa59d696f511b6e4d5b5",
+        "crates/matric-db/src/archives.rs": "f2df96d1da6cd73974668ce636621f5c4e2c71c4ee9050c30b94a89f6d722649",
+        "crates/matric-db/src/lib.rs": "9c22de7657ff13cf9d3e8aea11c357fe9821517f5510fccd6e25ed0d887d0c35",
+        "migrations/20260910020000_embedding_set_bootstrap_custody.sql": "24f583a5e0d13b2e7df60323bee7818fb8d90c34f0dc1cb7135fec4b44deabdb",
+        "migrations/20260910020100_restore_auto_membership_tombstone_guard.sql": "0a4c4274d046530d6758d855b6144a1ec4eaf9ecd27d54e8b08dd4b973fc1296",
+        "migrations/20260910030000_restore_original_history_trigger_guard.sql": "fa59dc53c469cec9bdba260001cafd0d2a3f585c34cce6cfb6d227358bdd1d56",
+        "migrations/20260910030100_restore_native_timestamp_guards.sql": "34bd6ad111d6a312c6f15ede9f7ddd160d310f6c12dac67e533273024a9e5fb5",
+        "tests/fixtures/shards/external/react-native-membership-2026-09-10/README.md": "f60559168c63b6c057980d7d1e7f4c7e875014f9babf1f2c744df044e087e58a",
+        "tests/fixtures/shards/external/react-native-membership-2026-09-10/capture.json": "b141fc240c24cdadbd7cf2f32df2ae7c41042b5c3b4aa86f345ba70939ad3f5d",
+        "tests/fixtures/shards/external/react-native-membership-2026-09-10/expected.shard": "83558f786f61b56a9f1fcac6b1a0e43485e4b5a2ffe86704fc57635eac4e79fd",
+        "tests/fixtures/shards/external/react-native-membership-2026-09-10/input.shard": "e9bbe0494db20d63533246de43305dd327ba55b9fa298f2531f1bd4b0cf89257",
+        "tests/fixtures/shards/external/react-native-membership-2026-09-10/replacement.shard": "2e6600fe991661e35e19af6b200c3f24be249377f1c2f390b74c77ed23f4e1e7"
+      },
+      "issues": [
+        "Fortemi/fortemi#1147",
+        "Fortemi/fortemi-react#424"
+      ],
+      "base_revision": "c4ef37675f5637af76001570ef620e80ca1f9304",
+      "suite_audit": "NO-GO",
+      "verification": {
+        "installed": 42,
+        "installedBeforePassed": 40,
+        "installedBeforeFailed": 2,
+        "portable": 1790,
+        "focusedReact": 111,
+        "shard": 112,
+        "sharedFixture": 1
+      },
+      "limitations": [
+        "Unreleased dirty package inherits 2026.9.3 metadata; not published 2026.9.3.",
+        "Fixed shared fixture is adapted synthetic producer data, not a new live server capture.",
+        "PostgreSQL shared fixture checks membership exports and full-native rollback, not all-component cross-runtime parity.",
+        "Full Core/browser suites were not rerun at this checkpoint; earlier results remain bound to their source.",
+        "Publication, consumer pins, concurrency/auth/public/workers/released/platform matrices and remaining Lane B work are open."
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:modification:lane-b-server-membership-scope:001",
+    "type": "modification",
+    "started_at": "2026-09-10T23:12:00Z",
+    "ended_at": "2026-09-10T23:45:17.911Z",
+    "description": "Correct both unreleased single-endpoint membership omission interpretations; preserve retained composite identity."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+      "activity": "urn:aiwg:activity:modification:lane-b-server-membership-scope:001",
+      "time": "2026-09-10T23:45:17.911Z"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:modification:lane-b-server-membership-scope:001",
+      "agent": "urn:aiwg:agent:codex",
+      "role": "primary_implementer"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+        "source": "urn:gitea:issue:Fortemi/fortemi:1147",
+        "derivation_type": "implements",
+        "activity": "urn:aiwg:activity:modification:lane-b-server-membership-scope:001"
+      },
+      {
+        "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+        "source": "urn:gitea:issue:Fortemi/fortemi-react:424",
+        "derivation_type": "implements",
+        "activity": "urn:aiwg:activity:modification:lane-b-server-membership-scope:001"
+      }
+    ]
+  }
+}

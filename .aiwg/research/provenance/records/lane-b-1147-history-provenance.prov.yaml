@@ -1,0 +1,95 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-10T22:33:01Z",
+    "description": "Unreleased history/provenance identity-preserving scoped restore and native trigger guards"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+    "type": "code",
+    "created_at": "2026-09-10T22:33:01Z",
+    "checksum": "sha256:8d936f287727aafe8d6ddaf31dbf477ede31926f1a452ac301f14ad663412854",
+    "attributes": {
+      "producer_issue": "Fortemi/fortemi#1147",
+      "consumer_issue": "Fortemi/fortemi-react#424",
+      "base_revision": "c4ef37675f5637af76001570ef620e80ca1f9304",
+      "artifacts": {
+        "crates/matric-api/src/main.rs": "sha256:8d936f287727aafe8d6ddaf31dbf477ede31926f1a452ac301f14ad663412854",
+        "crates/matric-db/src/notes.rs": "sha256:66ad2e5cf2aeb76da69770797709ded0cb6a9d9aedec46af3dcc972f230b52cb",
+        "crates/matric-db/build.rs": "sha256:1385a3e637b290f4ad5cc91891a6ef24f95391dd514457cd67102f19da13158f",
+        "crates/matric-db/src/tenancy.rs": "sha256:646be73108892ac85b7d61badca81bc982aaa4d407f4fe8b1d7bf2fe764f79d5",
+        "crates/matric-db/src/tests/migration_repair_tests.rs": "sha256:ea12a8d0f4e684ce2b9aa1ee08773497234a903e5250dc203b7b52efefb49472",
+        "crates/matric-db/tests/tenant_isolation_matrix_test.rs": "sha256:8de8de05b728369db0f4aed319b990b3025ee0ece1ae7670444d57c339063485",
+        "migrations/20260910010000_archive_shard_config_declarations.sql": "sha256:48b84eeda8a585ca5d3d95198ab3364a94935fb086279f10d20953bf76bb1540",
+        "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md": "sha256:cc92695feba056041b9061f644fe185c1bb37d19975dc4a1393b911c1b71ba70",
+        "docs/architecture/backup-system-design.md": "sha256:700ac05f0f325d9918ad972f34cec33ca6fd48847b769f8a6fe409a7b2d8f694",
+        "CHANGELOG.md": "sha256:2f1cfddf68d4d126a907078eab8629104ea400cbb6fc4a016de8bfa7e5ca96af",
+        "crates/matric-db/src/archives.rs": "sha256:f2df96d1da6cd73974668ce636621f5c4e2c71c4ee9050c30b94a89f6d722649",
+        "crates/matric-db/src/lib.rs": "sha256:9c22de7657ff13cf9d3e8aea11c357fe9821517f5510fccd6e25ed0d887d0c35",
+        "migrations/20260910020000_embedding_set_bootstrap_custody.sql": "sha256:24f583a5e0d13b2e7df60323bee7818fb8d90c34f0dc1cb7135fec4b44deabdb",
+        "migrations/20260910020100_restore_auto_membership_tombstone_guard.sql": "sha256:0a4c4274d046530d6758d855b6144a1ec4eaf9ecd27d54e8b08dd4b973fc1296",
+        "migrations/20260910030000_restore_original_history_trigger_guard.sql": "sha256:fa59dc53c469cec9bdba260001cafd0d2a3f585c34cce6cfb6d227358bdd1d56",
+        "migrations/20260910030100_restore_native_timestamp_guards.sql": "sha256:34bd6ad111d6a312c6f15ede9f7ddd160d310f6c12dac67e533273024a9e5fb5"
+      },
+      "verification": {
+        "shard_tests": "111 passed, 0 failed, 69.57s",
+        "fresh_history": "1 passed, 0 failed, 0.89s",
+        "fresh_provenance": "1 passed, 0 failed, 1.07s",
+        "migrations": "7 passed, 0 failed, 2.88s; migrations feature enabled",
+        "archive_schema": "17 passed, 0 failed, 7.93s; clean database",
+        "tenant_matrix": "21 passed, 0 failed, 1.69s; required live database",
+        "clippy": "API+DB all targets -D warnings passed, 19.98s",
+        "format_and_diff": "passed"
+      },
+      "limitations": [
+        "Suite NO-GO; unreleased local 2.0.0/full-v1 evidence only",
+        "New retained-reference rejection guards run during apply; complete dry-run conflict-preview equivalence remains unqualified",
+        "History/provenance alternate-key swaps, remaining SKOS/embedding omissions and consumer alignment incomplete",
+        "Shared-config first-creation/native-writer/DDL concurrency and fresh-public import/export pending",
+        "Authenticated/public production routing, actual background-worker execution, shared published fixtures/pins, installed/released/platform matrices and full Lane B acceptance/cleanup/release sweep pending"
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:lane-b-1147-history-provenance",
+    "type": "modification",
+    "started_at": "2026-09-10T22:03:00Z",
+    "ended_at": "2026-09-10T22:33:01Z",
+    "description": "Reproduce retained-history/provenance reference loss; restore identities in place, reconcile selected-owner omissions after reparenting, reject retained live references with rollback, preserve native edit behavior using forward trigger migrations"
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+      "activity": "urn:aiwg:activity:lane-b-1147-history-provenance",
+      "time": "2026-09-10T22:33:01Z"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:lane-b-1147-history-provenance",
+      "agent": "urn:aiwg:agent:codex",
+      "role": "primary_implementer"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+        "source": "urn:gitea:issue:Fortemi/fortemi:1147",
+        "derivation_type": "implements",
+        "activity": "urn:aiwg:activity:lane-b-1147-history-provenance"
+      },
+      {
+        "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+        "source": "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:7915126fda86433979b031d40064e440cdf43a65c4173823eaaa78c8f90359bc",
+        "derivation_type": "extends",
+        "activity": "urn:aiwg:activity:lane-b-1147-history-provenance"
+      }
+    ]
+  }
+}

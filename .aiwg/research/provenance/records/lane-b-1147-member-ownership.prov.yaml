@@ -1,0 +1,85 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-10T21:10:41Z",
+    "description": "Unreleased selected-set membership reconciliation with exact native preservation and omission rollback"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+    "type": "code",
+    "created_at": "2026-09-10T21:10:41Z",
+    "checksum": "sha256:ade3830c557ee5cafe5d5f3786318888a3a2faa81d716d6e5b7b31523959dcea",
+    "attributes": {
+      "producer_issue": "Fortemi/fortemi#1147",
+      "consumer_issue": "Fortemi/fortemi-react#424",
+      "base_revision": "c4ef37675f5637af76001570ef620e80ca1f9304",
+      "artifacts": {
+        "crates/matric-api/src/main.rs": "sha256:ade3830c557ee5cafe5d5f3786318888a3a2faa81d716d6e5b7b31523959dcea",
+        "crates/matric-db/src/notes.rs": "sha256:66ad2e5cf2aeb76da69770797709ded0cb6a9d9aedec46af3dcc972f230b52cb",
+        "crates/matric-db/build.rs": "sha256:1385a3e637b290f4ad5cc91891a6ef24f95391dd514457cd67102f19da13158f",
+        "crates/matric-db/src/tenancy.rs": "sha256:72fdf61a002fae47a5d8ff8bf3dd30ac1df15b1866210ab16d22ba66b4cb0a5b",
+        "crates/matric-db/src/tests/migration_repair_tests.rs": "sha256:367e2b44e131636b49e88e81d85625ca401de3253287fd151132cafa0f3a800d",
+        "crates/matric-db/tests/tenant_isolation_matrix_test.rs": "sha256:359a160c92bc3b5af03e5d07a2b3c9688c66d96f7bae39030ac55505e86921bb",
+        "migrations/20260910010000_archive_shard_config_declarations.sql": "sha256:48b84eeda8a585ca5d3d95198ab3364a94935fb086279f10d20953bf76bb1540",
+        "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md": "sha256:8cae571f55a119618e7f5a3250beb620e793701042b9f266569cb82a1ba34de3",
+        "docs/architecture/backup-system-design.md": "sha256:02e807fe2f0e742bb191c472c8424dd845cd9dad504d93eb290709fb03ca48de",
+        "CHANGELOG.md": "sha256:f529baa183e4a941f9994dfa40ae2425b981e6a2d42b0df07716103780a8f5bd"
+      },
+      "verification": {
+        "shard_tests": "105 passed, 0 failed, 46.22s",
+        "focused": "1 passed, 0 failed, 1.36s",
+        "clippy": "API+DB all targets -D warnings passed, 20.99s",
+        "format_and_diff": "passed"
+      },
+      "limitations": [
+        "Suite NO-GO; unreleased local 2.0.0/full-v1 evidence only",
+        "Set presence still resets globally; native member preservation does not prove unrelated set/member export visibility",
+        "Set bootstrap/name/slug collision, swap/wipe, concurrency, history/provenance/SKOS replacement incomplete",
+        "New regression is internal import/helper, not authenticated HTTP or published consumer qualification",
+        "Full original Lane B acceptance, published fixtures/pins/platforms and cleanup/release sweep pending"
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:lane-b-1147-member-ownership",
+    "type": "modification",
+    "started_at": "2026-09-10T21:02:00Z",
+    "ended_at": "2026-09-10T21:10:41Z",
+    "description": "Reproduce unrelated native membership presence mutation; replace global member reset with selected-set coordinate omission cleanup; verify repeat import, note retention, empty and partial selections, dry-run and whole-database late failure rollback"
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+      "activity": "urn:aiwg:activity:lane-b-1147-member-ownership",
+      "time": "2026-09-10T21:10:41Z"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:lane-b-1147-member-ownership",
+      "agent": "urn:aiwg:agent:codex",
+      "role": "primary_implementer"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+        "source": "urn:gitea:issue:Fortemi/fortemi:1147",
+        "derivation_type": "implements",
+        "activity": "urn:aiwg:activity:lane-b-1147-member-ownership"
+      },
+      {
+        "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+        "source": "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:b0f91d404f3f0930bdf8b23263ef3199598364770d8a93e0c1e9c0bb90e82ffb",
+        "derivation_type": "extends",
+        "activity": "urn:aiwg:activity:lane-b-1147-member-ownership"
+      }
+    ]
+  }
+}

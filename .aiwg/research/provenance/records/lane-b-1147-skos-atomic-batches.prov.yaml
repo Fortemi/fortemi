@@ -1,0 +1,171 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-11T07:58:41.994Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+    "type": "code",
+    "created_at": "2026-09-11T07:58:41.994Z",
+    "checksum": "sha256:ea5d62cca34e0ec92dfde45012d66e7e88900a6495b0115fb791d5c324893642",
+    "attributes": {
+      "status": "draft-with-passing-scoped-evidence",
+      "artifacts": {
+        "crates/matric-api/src/main.rs": "ea5d62cca34e0ec92dfde45012d66e7e88900a6495b0115fb791d5c324893642",
+        "crates/matric-db/src/notes.rs": "1d03253ef9ecab06e9ce20e280cabf84ca271d3ed392656a26501d17c7a09ad6",
+        "crates/matric-db/build.rs": "1385a3e637b290f4ad5cc91891a6ef24f95391dd514457cd67102f19da13158f",
+        "crates/matric-db/src/tenancy.rs": "db6ce8501bb3478284e3dcc2272c090ed585b5630d0d90cfe92bd3f3043ca62a",
+        "crates/matric-db/src/tests/migration_repair_tests.rs": "53da9c93c422304a01cb3c1f76490d73cb3f0e05a940e8467da0cb843b053b23",
+        "crates/matric-db/tests/tenant_isolation_matrix_test.rs": "8338ef6775e3f9dd3e6392cec6ba4c9398685c6d6fd0c2f79667ece5825a9ea6",
+        "migrations/20260910010000_archive_shard_config_declarations.sql": "48b84eeda8a585ca5d3d95198ab3364a94935fb086279f10d20953bf76bb1540",
+        "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md": "f5c89704502b20839f0f162ad073314eac704cb882eabf1cb16a51b56a8a4d7c",
+        "docs/architecture/backup-system-design.md": "47f34a15444dbd51d5fd3acd8f8b408601df1560c19d15df1b6e9bfb1335f0ce",
+        "CHANGELOG.md": "c3404991d011ba2f1aebd143730cf9785a4782a48c6b228eec334570c33dc6ee",
+        "crates/matric-db/src/archives.rs": "9cab1c4cf7ac357219557995c1e8e4671536d55d2e89f701cb83f4d989d982a9",
+        "crates/matric-db/src/lib.rs": "967d06a0a7b554504d6d122c09cb512689d30671a3a46e6ca828e6b7483ddbfa",
+        "migrations/20260910020000_embedding_set_bootstrap_custody.sql": "24f583a5e0d13b2e7df60323bee7818fb8d90c34f0dc1cb7135fec4b44deabdb",
+        "migrations/20260910020100_restore_auto_membership_tombstone_guard.sql": "0a4c4274d046530d6758d855b6144a1ec4eaf9ecd27d54e8b08dd4b973fc1296",
+        "migrations/20260910030000_restore_original_history_trigger_guard.sql": "fa59dc53c469cec9bdba260001cafd0d2a3f585c34cce6cfb6d227358bdd1d56",
+        "migrations/20260910030100_restore_native_timestamp_guards.sql": "34bd6ad111d6a312c6f15ede9f7ddd160d310f6c12dac67e533273024a9e5fb5",
+        "tests/fixtures/shards/external/react-native-membership-2026-09-10/README.md": "f60559168c63b6c057980d7d1e7f4c7e875014f9babf1f2c744df044e087e58a",
+        "tests/fixtures/shards/external/react-native-membership-2026-09-10/capture.json": "b141fc240c24cdadbd7cf2f32df2ae7c41042b5c3b4aa86f345ba70939ad3f5d",
+        "tests/fixtures/shards/external/react-native-membership-2026-09-10/expected.shard": "83558f786f61b56a9f1fcac6b1a0e43485e4b5a2ffe86704fc57635eac4e79fd",
+        "tests/fixtures/shards/external/react-native-membership-2026-09-10/input.shard": "e9bbe0494db20d63533246de43305dd327ba55b9fa298f2531f1bd4b0cf89257",
+        "tests/fixtures/shards/external/react-native-membership-2026-09-10/replacement.shard": "2e6600fe991661e35e19af6b200c3f24be249377f1c2f390b74c77ed23f4e1e7",
+        "tests/fixtures/shards/external/react-native-vectors-2026-09-11/README.md": "049ad3e93d7f1db56286bc949d4fe65d9c8a240a80a05088300eae8f4a1a6f39",
+        "tests/fixtures/shards/external/react-native-vectors-2026-09-11/capture.json": "4a8210b64cb8d20d2953aa7650a3a36e7eb8e5ad3fec5fa7150935ff921a592c",
+        "tests/fixtures/shards/external/react-native-vectors-2026-09-11/input.shard": "c45bd9dd3b46aee3be875e6e3789da66949df657dd06e8d1b1d65cea78c56916",
+        "tests/fixtures/shards/external/react-native-vectors-2026-09-11/replacement.shard": "2245ce48329b8b49fa9b04a5672fe7e16342da9db6d1bc80411efa6170314e6d",
+        "migrations/20260911010000_embedding_reparent_statistics.sql": "e423c06efe1330fe0361704c79bdff8cb046650260ae8416e4781d4a9e244d2c",
+        "tests/fixtures/shards/external/react-native-vector-owners-2026-09-11/README.md": "0be14964136f12d8834037f4de16436fcae79d03feec797f44ab4586aa8b257c",
+        "tests/fixtures/shards/external/react-native-vector-owners-2026-09-11/capture.json": "7f51c5860b7ae5c289975c74b9a01a527f5a932f2115c4702e23c63de90276b4",
+        "tests/fixtures/shards/external/react-native-vector-owners-2026-09-11/input.shard": "8df6043bc5edafae276fb8ea5b3ce90da582b3a0e38452afc03230f26a33a068",
+        "tests/fixtures/shards/external/react-native-vector-owners-2026-09-11/note.shard": "f6b84cb2b8daf1d06cdff6f6bd6a606a6373554d909a252ea1abb5bd94edf586",
+        "tests/fixtures/shards/external/react-native-vector-owners-2026-09-11/null-note.shard": "c46a7af995694ad073ed64ef899c892d1d1bddf45ccca22b8eb4b203589960a8",
+        "tests/fixtures/shards/external/react-native-vector-owners-2026-09-11/null-set.shard": "f11a8db257cb6f5d53da55e824a65d6a6e21920e0d12ef293c56ab7972fe3f78",
+        "tests/fixtures/shards/external/react-native-vector-owners-2026-09-11/set.shard": "e5d5cb4ee1b4ec5fb662a241fc2e1a9d167a66568ad179924ee35ed160cf9180",
+        "tests/fixtures/shards/external/react-native-vector-owners-2026-09-11/unchanged.shard": "8df6043bc5edafae276fb8ea5b3ce90da582b3a0e38452afc03230f26a33a068",
+        "tests/fixtures/shards/external/react-native-relationships-2026-09-11/assignment-input.shard": "ebec2e621e3368d7b66ece3efca91c7c8cf14df3df0d343f9e81c46ec0c87319",
+        "tests/fixtures/shards/external/react-native-relationships-2026-09-11/assignment-movement-input.shard": "2aa9dfb44b89c54c27dcb60edf1f4172c4f1a22a5bfdcf26553ef33cf3f167d9",
+        "tests/fixtures/shards/external/react-native-relationships-2026-09-11/assignment-movement-omission.shard": "2077bbf6bf65cb11c8660c76497ad69aa8e4d0a2703c4a7e0f3750d2ff32a8a0",
+        "tests/fixtures/shards/external/react-native-relationships-2026-09-11/assignment-movement-replacement.shard": "054da5528276806b9be69dcfff364a6969b72344045f05f9f6fcbeaca82a7a59",
+        "tests/fixtures/shards/external/react-native-relationships-2026-09-11/assignment-omission.shard": "911d315baeed45d74b991af2fd92d500948b9b6e93c7d09fdcc4691e0c8ed298",
+        "tests/fixtures/shards/external/react-native-relationships-2026-09-11/assignment-replacement.shard": "90f3d9847e2a5879181aa4d6e094fd0a75f81bfbcb618d0fd6cafe74e9b64894",
+        "tests/fixtures/shards/external/react-native-relationships-2026-09-11/capture.json": "5fcda0fa68217b53c08cec2d591b175d9e21bea98e02539cba2e8f72e6b87cc7",
+        "tests/fixtures/shards/external/react-native-relationships-2026-09-11/graph-edge-input.shard": "ebec2e621e3368d7b66ece3efca91c7c8cf14df3df0d343f9e81c46ec0c87319",
+        "tests/fixtures/shards/external/react-native-relationships-2026-09-11/graph-edge-omission.shard": "8d9822673d3770afa4e00b0e6ad3474b0927e19815cf1401c63eee4672f20805",
+        "tests/fixtures/shards/external/react-native-relationships-2026-09-11/graph-edge-replacement.shard": "96f8b33cd92a58769a3b061694440f1a285229df92ad1b6299aeb569bce3f5e2",
+        "tests/fixtures/shards/external/react-native-relationships-2026-09-11/note-link-input.shard": "ebec2e621e3368d7b66ece3efca91c7c8cf14df3df0d343f9e81c46ec0c87319",
+        "tests/fixtures/shards/external/react-native-relationships-2026-09-11/note-link-omission.shard": "1193554937d61056a1072b99bde88eb731fdd9f7f653b99f3f8e7c5a94fb01a2",
+        "tests/fixtures/shards/external/react-native-relationships-2026-09-11/note-link-replacement.shard": "894a581265f27d71a0e78fb232622b63ac4c60f0f17095763d8e606a3e5319d3",
+        "tests/fixtures/shards/external/react-native-relationships-2026-09-11/url-link-input.shard": "ebec2e621e3368d7b66ece3efca91c7c8cf14df3df0d343f9e81c46ec0c87319",
+        "tests/fixtures/shards/external/react-native-relationships-2026-09-11/url-link-omission.shard": "1193554937d61056a1072b99bde88eb731fdd9f7f653b99f3f8e7c5a94fb01a2",
+        "tests/fixtures/shards/external/react-native-relationships-2026-09-11/url-link-replacement.shard": "894a581265f27d71a0e78fb232622b63ac4c60f0f17095763d8e606a3e5319d3",
+        "tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/capture.json": "a8d706c94f448265d431b01ec32705e209dcf5491d4a391cfba7b2fb683e4ec6",
+        "tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/note_skos_tags-input.shard": "054da5528276806b9be69dcfff364a6969b72344045f05f9f6fcbeaca82a7a59",
+        "tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/note_skos_tags-omission.shard": "a9af700fe611ad0610591c245676247ebfa80c393cc14d85a39d98415f2666d5",
+        "tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/note_skos_tags-replacement.shard": "d78c3a39e6bf3daa01d25ab06357408e694139634e3c1a08106f54d272653fe6",
+        "tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_collection_members-input.shard": "054da5528276806b9be69dcfff364a6969b72344045f05f9f6fcbeaca82a7a59",
+        "tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_collection_members-omission.shard": "b1f9404f5e68583d09c0aba74019ef13217192a4e49d5a00103758ca280fb9b4",
+        "tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_collection_members-replacement.shard": "0c775e67efd2e251ba526c6ed9e4e02d9b99062e38df6df5d7336a9e2a7a50e4",
+        "tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_labels-input.shard": "054da5528276806b9be69dcfff364a6969b72344045f05f9f6fcbeaca82a7a59",
+        "tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_labels-omission.shard": "d12dd8001917d484e8a44219e3b92524df0b6898e793a7097fc362fe775ad65b",
+        "tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_labels-replacement.shard": "02c3151b239d0527fdceecf1515990cb2354a032e246d4b675fc4a4ab41816e0",
+        "tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_mapping_relations-input.shard": "054da5528276806b9be69dcfff364a6969b72344045f05f9f6fcbeaca82a7a59",
+        "tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_mapping_relations-omission.shard": "502196dbfae996fca8a62b9830c3c4c286ed1f58fce06c800553c5845855096d",
+        "tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_mapping_relations-replacement.shard": "ed5cc29f92b4e01a9ab5e896aab7d6d81f2a63c637185f38c8909f97a9fbf95f",
+        "tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_notes-input.shard": "054da5528276806b9be69dcfff364a6969b72344045f05f9f6fcbeaca82a7a59",
+        "tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_notes-omission.shard": "6ecaa49f8c154fd85b9135b5d96123bf9c1ca252d2e3fb5a56f1c89d8517af86",
+        "tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_notes-replacement.shard": "82eccea706175b8d3ffabaf2fe137af8199c5eb86a3c15814c2e7ebe91b0ad86",
+        "tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_relations-input.shard": "054da5528276806b9be69dcfff364a6969b72344045f05f9f6fcbeaca82a7a59",
+        "tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_relations-omission.shard": "5e8c8c476b043fbacb238eeba89d9878686d5cf2b25ca689b677f6c8f09c03f3",
+        "tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_relations-replacement.shard": "27718f21a3b9007195f2b9108236b4715fec5853525c43408c1e426e87f42711",
+        "tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_scheme_memberships-input.shard": "054da5528276806b9be69dcfff364a6969b72344045f05f9f6fcbeaca82a7a59",
+        "tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_scheme_memberships-omission.shard": "36cc1e7149069cd02316bf62643c2413eba0fe7493619feb2ea4594d165b1399",
+        "tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_scheme_memberships-replacement.shard": "bca2c0357608ea83069be8d8016977f593b9d418fd76cfabdc0cc771150f98d7",
+        "migrations/20260911020000_skos_scheme_bootstrap_custody.sql": "040601e475edf7f2ba163f5c0eeb20b271cfb29026ba0d9d8e84afa3b0f93d5f",
+        "migrations/20260911020100_restore_skos_collection_timestamp_guard.sql": "62e36f6b58a04ca1cfe85de4005645c46bb1cd40a4788f1ef301e08d289de361",
+        "migrations/20260911020200_restore_skos_relation_authoring_guards.sql": "983dd2f83f74778de5576f646fba8d21d78796f457ebe35cb31628e4a8077cd9",
+        "migrations/20260911020300_restore_skos_note_lifecycle_guard.sql": "4e3d5fcd23d5e19c50f9a60f1c8453d98bf7e2b814965898aa7f9bbb17e6ead6",
+        "migrations/20260911020400_skos_retained_relation_limits.sql": "7357e3d33df56fc2d5295928b53e73b5ce1c662826f65eb7dbf434735f4cf37c",
+        "migrations/20260911020500_skos_prospective_hierarchy.sql": "fa68857b86fc655cf1721f5c6be7fae9ec8e5c0323e78878fee49036387d7711",
+        "migrations/20260911020600_skos_atomic_relation_batches.sql": "de5369b1b72afe09585e2de26cf4c41333e662c6584274e00d6a3785fe16605c"
+      },
+      "verification": {
+        "serverShardPassed": 144,
+        "serverShardFailed": 0,
+        "migrationPassed": 16,
+        "cleanArchivePassed": 17,
+        "requiredLiveTenantPassed": 22,
+        "newBaselineFailed": 2,
+        "batchReparentCasesPassed": 2,
+        "producerExports": 20,
+        "producerConsumerPassed": 20,
+        "producerConsumerFailed": 0,
+        "cleanConsumerDestinations": 40,
+        "consumerMatrixGreen": true,
+        "clippyApi": "PASS",
+        "clippyDb": "PASS",
+        "format": "PASS",
+        "consumerSourceUnchanged": true
+      },
+      "limitations": [
+        "Suite NO-GO; exact 2.0.0/full-v1 candidate evidence only; full original Lane B remains open.",
+        "Forward migration206 retains immediate guards for ordinary writes and installs unconditional deferred final-state constraints for public and registered archives; restore may pass invalid intermediate graphs but cannot commit invalid final state.",
+        "Existing broader/narrower function definitions and OIDs remain unchanged. Final-state validation reads current retained rows from TG_TABLE_SCHEMA, not stale queued events or caller search_path. Deleted queued rows are ignored.",
+        "Both valid final batch cases previously previewed successfully but failed actual apply. Initial capacity error-wording harness failure and corrected actual 0PASS/2FAIL baseline are preserved.",
+        "Batch cycle and full-capacity moves retain IDs and protected references in both wire orders, repeat without drift, preserve unselected snapshots and reach deferred-commit rollback. Preview writes are detected.",
+        "Migration tests cover public/old-archive idempotence, unconditional deferral, unchanged native guards, repeated/deleted queued rows, caller-context changes and invalid cycle/broader/narrower commit rejection with rollback.",
+        "Consumer comparison retains exact component contents, manifest key presence and mandatory bytes. Only two scenario names were added to the cycle16 verifier.",
+        "Initial consumer capture command used a directory as executable and failed before launching the verifier. Original invocation receipt is preserved; corrected capture is the executed matrix.",
+        "Portable1845/installed108 are cycle8 evidence, not reruns. Consumer source and package unchanged.",
+        "General alternate-key permutations, narrower-only/inverse consistency, partial child/status changes, concurrent writers and large-graph performance remain unqualified. This does not claim transaction isolation against racing writers.",
+        "Shared fixture publication/pins, authenticated/worker/platform/released qualification, exact-head CI and repository delivery remain.",
+        "New helpers and both clean databases removed with zero clients. Historical evidence, both owned containers and unmerged work retained.",
+        "No signing, commit, push or release. Lane closeout cleanup and release sweep remain required."
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:modification:lane-b-1147-skos-atomic-batches:001",
+    "type": "modification",
+    "started_at": "2026-09-11T07:47:50.071Z",
+    "ended_at": "2026-09-11T07:58:41.994Z",
+    "description": "Apply valid retained SKOS relation batches atomically with deferred final-state enforcement while preserving ordinary native immediate validation."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "name": "Codex",
+    "type": "ai_assistant"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+      "activity": "urn:aiwg:activity:modification:lane-b-1147-skos-atomic-batches:001",
+      "time": "2026-09-11T07:58:41.994Z"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:modification:lane-b-1147-skos-atomic-batches:001",
+      "agent": "urn:aiwg:agent:codex",
+      "role": "primary_implementer"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+        "source": "urn:gitea:issue:Fortemi/fortemi:1147",
+        "derivation_type": "implements",
+        "activity": "urn:aiwg:activity:modification:lane-b-1147-skos-atomic-batches:001"
+      },
+      {
+        "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+        "source": "urn:gitea:issue:Fortemi/fortemi-react:424",
+        "derivation_type": "implements",
+        "activity": "urn:aiwg:activity:modification:lane-b-1147-skos-atomic-batches:001"
+      }
+    ]
+  }
+}

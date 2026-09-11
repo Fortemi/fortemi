@@ -1,0 +1,23 @@
+{
+  "kind": "synthetic-adapted-fixed-vector-regression-not-release-qualification",
+  "createdAt": "2026-09-11T01:42:55.485Z",
+  "historicalFixture": "054da5528276806b9be69dcfff364a6969b72344045f05f9f6fcbeaca82a7a59",
+  "verifier": "f5009199e5ad5b1d3c8001fd3816918a8fa05a25c8d1053dface2170f5180b86",
+  "producerCandidate": "e77b996a616f3cd316187834f6e22cc9b0af33f6957eef7b98d2958e9a02b4c0",
+  "previousCandidate": "7f88c9ea564942315712b12c0bbc553a33e308e897d9d1725169b6396417ba4a",
+  "fixtures": {
+    "input": {
+      "path": "input.shard",
+      "sha256": "c45bd9dd3b46aee3be875e6e3789da66949df657dd06e8d1b1d65cea78c56916"
+    },
+    "replacement": {
+      "path": "replacement.shard",
+      "sha256": "2245ce48329b8b49fa9b04a5672fe7e16342da9db6d1bc80411efa6170314e6d"
+    }
+  },
+  "scope": "2.0.0/full-v1 vector identity and coordinate exchange; not full released interoperability",
+  "issues": [
+    "Fortemi/fortemi#1147",
+    "Fortemi/fortemi-react#424"
+  ]
+}

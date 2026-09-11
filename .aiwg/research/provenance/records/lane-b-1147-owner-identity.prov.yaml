@@ -1,0 +1,67 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-10T14:35:00Z",
+    "description": "Unreleased selected-owner graph and retained-note identity correction; not complete cross-family or release qualification"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+    "type": "code",
+    "created_at": "2026-09-10T14:35:00Z",
+    "checksum": "sha256:23f54f398b8ee6b842342bc5ff3c41c51c1bd185afc7e7617d40b73ca5c2bb04",
+    "attributes": {
+      "producer_issue": "Fortemi/fortemi#1147",
+      "consumer_issue": "Fortemi/fortemi-react#424",
+      "base_revision": "c4ef37675f5637af76001570ef620e80ca1f9304",
+      "artifacts": {
+        "crates/matric-api/src/main.rs": "sha256:23f54f398b8ee6b842342bc5ff3c41c51c1bd185afc7e7617d40b73ca5c2bb04",
+        "crates/matric-db/src/notes.rs": "sha256:66ad2e5cf2aeb76da69770797709ded0cb6a9d9aedec46af3dcc972f230b52cb",
+        "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md": "sha256:91eb713bbc1452ed9cff7c7f7a63dc65c9070da961e11c1a344a5e32ab47a226",
+        "docs/architecture/backup-system-design.md": "sha256:6a0846304f28be7798fb62d9e4a146a6a040fe330ff5d36c3bd58b9919f11817",
+        "CHANGELOG.md": "sha256:3b11e884dc5fedaa4767d76ec99b576844309c19636727f5c5cb932b6cfd1988"
+      }
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:lane-b-1147-owner-identity",
+    "type": "modification",
+    "started_at": "2026-09-10T14:04:00Z",
+    "ended_at": "2026-09-10T14:35:00Z",
+    "description": "Reproduce global graph deletion and HTTP note cascades, preserve retained note/attachment identities, reconcile selected graph children and note tags/attachments/outgoing links; verify 102 shard tests and API/DB all-target Clippy; retain incomplete shared ownership/release gates"
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+      "activity": "urn:aiwg:activity:lane-b-1147-owner-identity",
+      "time": "2026-09-10T14:35:00Z"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:lane-b-1147-owner-identity",
+      "agent": "urn:aiwg:agent:codex",
+      "role": "primary_implementer"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+        "source": "urn:gitea:issue:Fortemi/fortemi:1147",
+        "derivation_type": "implements",
+        "activity": "urn:aiwg:activity:lane-b-1147-owner-identity"
+      },
+      {
+        "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+        "source": "urn:gitea:issue:Fortemi/fortemi-react:424",
+        "derivation_type": "tests",
+        "activity": "urn:aiwg:activity:lane-b-1147-owner-identity"
+      }
+    ]
+  }
+}

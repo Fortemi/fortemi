@@ -1,0 +1,26 @@
+{
+  "recordedAt": "2026-09-11T04:46:56.676Z",
+  "source": "Lane B cycle8 clean-installed consumer retention fixtures",
+  "sourceReceiptSha256": "f90fe4ab69407718db94a492a150b4b537434238474f44f728ceabff1f415e77",
+  "packageSha256": "170632fb0df7a578a7bf19105461b82d153910b6cfa77fabf6969aea779da33d",
+  "verifierSha256": "afd96feb65014d40d95e54fa1d568b699b355c9323148459dedb0e9a73ae7c3c",
+  "files": {
+    "note-link-input.shard": "ebec2e621e3368d7b66ece3efca91c7c8cf14df3df0d343f9e81c46ec0c87319",
+    "note-link-replacement.shard": "894a581265f27d71a0e78fb232622b63ac4c60f0f17095763d8e606a3e5319d3",
+    "note-link-omission.shard": "1193554937d61056a1072b99bde88eb731fdd9f7f653b99f3f8e7c5a94fb01a2",
+    "url-link-input.shard": "ebec2e621e3368d7b66ece3efca91c7c8cf14df3df0d343f9e81c46ec0c87319",
+    "url-link-replacement.shard": "894a581265f27d71a0e78fb232622b63ac4c60f0f17095763d8e606a3e5319d3",
+    "url-link-omission.shard": "1193554937d61056a1072b99bde88eb731fdd9f7f653b99f3f8e7c5a94fb01a2",
+    "graph-edge-input.shard": "ebec2e621e3368d7b66ece3efca91c7c8cf14df3df0d343f9e81c46ec0c87319",
+    "graph-edge-replacement.shard": "96f8b33cd92a58769a3b061694440f1a285229df92ad1b6299aeb569bce3f5e2",
+    "graph-edge-omission.shard": "8d9822673d3770afa4e00b0e6ad3474b0927e19815cf1401c63eee4672f20805",
+    "assignment-input.shard": "ebec2e621e3368d7b66ece3efca91c7c8cf14df3df0d343f9e81c46ec0c87319",
+    "assignment-replacement.shard": "90f3d9847e2a5879181aa4d6e094fd0a75f81bfbcb618d0fd6cafe74e9b64894",
+    "assignment-omission.shard": "911d315baeed45d74b991af2fd92d500948b9b6e93c7d09fdcc4691e0c8ed298",
+    "assignment-movement-input.shard": "2aa9dfb44b89c54c27dcb60edf1f4172c4f1a22a5bfdcf26553ef33cf3f167d9",
+    "assignment-movement-replacement.shard": "054da5528276806b9be69dcfff364a6969b72344045f05f9f6fcbeaca82a7a59",
+    "assignment-movement-omission.shard": "2077bbf6bf65cb11c8660c76497ad69aa8e4d0a2703c4a7e0f3750d2ff32a8a0"
+  },
+  "profile": "2.0.0/full-v1",
+  "released": false
+}

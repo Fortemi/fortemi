@@ -587,6 +587,81 @@ impl PgNoteRepository {
         self.insert_with_tags_tx(tx, note_id, req, tags).await
     }
 
+    /// Replace the selected shard projection without deleting the retained note
+    /// identity or its independently owned incoming references and permissions.
+    /// Schema-2 callers restore content separately from declared rich history.
+    pub async fn replace_shard_note_tx(
+        &self,
+        tx: &mut PgConnection,
+        note_id: Uuid,
+        req: CreateNoteRequest,
+        preserve_history: bool,
+    ) -> Result<Uuid> {
+        sqlx::query(
+            "UPDATE note SET collection_id = $2, format = $3, source = $4,
+                 metadata = $5, title = $6 WHERE id = $1",
+        )
+        .bind(note_id)
+        .bind(req.collection_id)
+        .bind(&req.format)
+        .bind(&req.source)
+        .bind(req.metadata.as_ref().unwrap_or(&serde_json::json!({})))
+        .bind(req.title.as_deref())
+        .execute(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+
+        if !preserve_history {
+            sqlx::query(
+                "INSERT INTO note_original (id, note_id, content, hash)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (note_id) DO UPDATE SET content = EXCLUDED.content, hash = EXCLUDED.hash",
+            )
+            .bind(new_v7())
+            .bind(note_id)
+            .bind(&req.content)
+            .bind(Self::hash_content(&req.content))
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+            sqlx::query(
+            "INSERT INTO note_revised_current (note_id, content, last_revision_id)
+             VALUES ($1, $2, NULL)
+             ON CONFLICT (note_id) DO UPDATE SET content = EXCLUDED.content, last_revision_id = NULL",
+        )
+        .bind(note_id)
+        .bind(&req.content)
+        .execute(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+        }
+
+        let mut tags = req.tags.unwrap_or_default();
+        tags.sort();
+        tags.dedup();
+        sqlx::query("DELETE FROM note_tag WHERE note_id = $1")
+            .bind(note_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+        for tag in tags {
+            sqlx::query(
+                "INSERT INTO tag (name, created_at_utc) VALUES ($1, NOW()) ON CONFLICT DO NOTHING",
+            )
+            .bind(&tag)
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+            sqlx::query("INSERT INTO note_tag (note_id, tag_name, source) VALUES ($1, $2, 'user')")
+                .bind(note_id)
+                .bind(tag)
+                .execute(&mut *tx)
+                .await
+                .map_err(Error::Database)?;
+        }
+        Ok(note_id)
+    }
+
     async fn insert_with_tags_tx(
         &self,
         tx: &mut PgConnection,

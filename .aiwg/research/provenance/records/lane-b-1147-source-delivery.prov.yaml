@@ -1,0 +1,70 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-11T09:43:29.227Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md",
+    "type": "document",
+    "created_at": "2026-09-11T09:43:29.227Z",
+    "checksum": "sha256:6e9ee60e47f828f4982f256c2f4b352af47b5ca66a39b873fc8ee6a466b1fb84",
+    "attributes": {
+      "status": "draft",
+      "artifacts": {
+        "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md": "6e9ee60e47f828f4982f256c2f4b352af47b5ca66a39b873fc8ee6a466b1fb84",
+        ".aiwg/planning/roadmap.md": "fb726d6481322dae52edda50ceeef7827ffd66af5195cce93d34496fded42869"
+      },
+      "parentReceiptSha256": "a5c6fb7b48c8e5636b04dad6216fb4f2d10078788bbe73289d14538852162d6b",
+      "verification": {
+        "parentSourceAndEvidence": "PASS",
+        "runtimeSourceUnchanged": true,
+        "server": 150,
+        "migrations": 18,
+        "archive": 17,
+        "liveTenant": 24,
+        "producerExports": 28,
+        "cleanConsumers": 56
+      },
+      "limitations": [
+        "Historical cycle20 tests on unchanged runtime sources, not fresh CI",
+        "Unreleased source candidate; suite NO-GO; full original Lane B remains open"
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:modification:lane-b-1147-source-delivery:001",
+    "type": "modification",
+    "started_at": "2026-09-11T09:42:33Z",
+    "ended_at": "2026-09-11T09:43:29.227Z",
+    "description": "Record source delivery of the tested Lane B producer corrections and coordinated React candidate without widening compatibility claims."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "name": "Codex",
+    "type": "ai_assistant"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md",
+      "activity": "urn:aiwg:activity:modification:lane-b-1147-source-delivery:001",
+      "time": "2026-09-11T09:43:29.227Z"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:modification:lane-b-1147-source-delivery:001",
+      "agent": "urn:aiwg:agent:codex",
+      "role": "primary_implementer"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md",
+        "source": "urn:gitea:issue:Fortemi/fortemi:1147",
+        "derivation_type": "implements",
+        "activity": "urn:aiwg:activity:modification:lane-b-1147-source-delivery:001"
+      }
+    ]
+  }
+}

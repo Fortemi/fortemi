@@ -609,6 +609,16 @@ impl PgArchiveRepository {
         .await
         .map_err(Error::Database)?;
 
+        sqlx::query(&format!(
+            "INSERT INTO {}.shard_embedding_set_bootstrap (tenant_id, set_id)
+             SELECT tenant_id, id FROM {}.embedding_set WHERE id = $1",
+            schema_name, schema_name
+        ))
+        .bind(default_set_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+
         // Step 11: Seed the default SKOS concept scheme.
         // Required for ConceptTaggingHandler in the NLP pipeline (get_default_scheme_id_tx).
         // Uses ON CONFLICT DO NOTHING because archive cloning copies data from the source
@@ -616,12 +626,14 @@ impl PgArchiveRepository {
         let default_scheme_id = new_v7();
         sqlx::query(&format!(
             r#"
-            INSERT INTO {}.skos_concept_scheme (id, notation, uri, title, description, is_system)
+            WITH seeded AS (INSERT INTO {}.skos_concept_scheme (id, notation, uri, title, description, is_system)
             VALUES ($1, 'default', 'https://matric.io/schemes/default', 'Default Tags',
                     'Default concept scheme for general-purpose tagging', TRUE)
-            ON CONFLICT (uri) DO NOTHING
+            ON CONFLICT DO NOTHING RETURNING tenant_id, id)
+            INSERT INTO {}.shard_skos_scheme_bootstrap (tenant_id, scheme_id)
+            SELECT tenant_id, id FROM seeded
             "#,
-            schema_name
+            schema_name, schema_name
         ))
         .bind(default_scheme_id)
         .execute(&mut *tx)
@@ -1043,6 +1055,16 @@ impl PgArchiveRepository {
             .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
+
+            sqlx::query(&format!(
+                "INSERT INTO {}.shard_embedding_set_bootstrap (tenant_id, set_id)
+                 SELECT tenant_id, id FROM {}.embedding_set WHERE id = $1",
+                schema_name, schema_name
+            ))
+            .bind(default_set_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
         }
 
         // Seed default SKOS concept scheme if it doesn't exist (for archives created before this fix)
@@ -1058,11 +1080,14 @@ impl PgArchiveRepository {
             let default_scheme_id = new_v7();
             sqlx::query(&format!(
                 r#"
-                INSERT INTO {}.skos_concept_scheme (id, notation, uri, title, description, is_system)
+                WITH seeded AS (INSERT INTO {}.skos_concept_scheme (id, notation, uri, title, description, is_system)
                 VALUES ($1, 'default', 'https://matric.io/schemes/default', 'Default Tags',
                         'Default concept scheme for general-purpose tagging', TRUE)
+                ON CONFLICT DO NOTHING RETURNING tenant_id, id)
+                INSERT INTO {}.shard_skos_scheme_bootstrap (tenant_id, scheme_id)
+                SELECT tenant_id, id FROM seeded
                 "#,
-                schema_name
+                schema_name, schema_name
             ))
             .bind(default_scheme_id)
             .execute(&mut *tx)
@@ -1503,8 +1528,15 @@ impl ArchiveRepository for PgArchiveRepository {
                 }
 
                 let col_list = columns.join(", ");
+                // Concept copy can already have created this tenant-only runtime
+                // coordination row. Do not suppress conflicts in data tables.
+                let conflict = if table == "skos_relation_write_guard" {
+                    " ON CONFLICT (tenant_id) DO NOTHING"
+                } else {
+                    ""
+                };
                 sqlx::query(&format!(
-                    "INSERT INTO {}.{} ({}) SELECT {} FROM {}.{}",
+                    "INSERT INTO {}.{} ({}) SELECT {} FROM {}.{}{conflict}",
                     new_archive.schema_name, table, col_list, col_list, source.schema_name, table
                 ))
                 .execute(&mut *tx)

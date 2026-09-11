@@ -1,0 +1,89 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-10T22:01:43Z",
+    "description": "Unreleased selected embedding-set name/slug batch replacement preserves identities and references"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+    "type": "code",
+    "created_at": "2026-09-10T22:01:43Z",
+    "checksum": "sha256:7915126fda86433979b031d40064e440cdf43a65c4173823eaaa78c8f90359bc",
+    "attributes": {
+      "producer_issue": "Fortemi/fortemi#1147",
+      "consumer_issue": "Fortemi/fortemi-react#424",
+      "base_revision": "c4ef37675f5637af76001570ef620e80ca1f9304",
+      "artifacts": {
+        "crates/matric-api/src/main.rs": "sha256:7915126fda86433979b031d40064e440cdf43a65c4173823eaaa78c8f90359bc",
+        "crates/matric-db/src/notes.rs": "sha256:66ad2e5cf2aeb76da69770797709ded0cb6a9d9aedec46af3dcc972f230b52cb",
+        "crates/matric-db/build.rs": "sha256:1385a3e637b290f4ad5cc91891a6ef24f95391dd514457cd67102f19da13158f",
+        "crates/matric-db/src/tenancy.rs": "sha256:646be73108892ac85b7d61badca81bc982aaa4d407f4fe8b1d7bf2fe764f79d5",
+        "crates/matric-db/src/tests/migration_repair_tests.rs": "sha256:ea12a8d0f4e684ce2b9aa1ee08773497234a903e5250dc203b7b52efefb49472",
+        "crates/matric-db/tests/tenant_isolation_matrix_test.rs": "sha256:8de8de05b728369db0f4aed319b990b3025ee0ece1ae7670444d57c339063485",
+        "migrations/20260910010000_archive_shard_config_declarations.sql": "sha256:48b84eeda8a585ca5d3d95198ab3364a94935fb086279f10d20953bf76bb1540",
+        "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md": "sha256:348fc3c306eb02aaee31569579fda215a706af45b9e63787c79a7a6a915736ce",
+        "docs/architecture/backup-system-design.md": "sha256:bf36a57e70c3f0123781a6ce05845bff17ab62ecbab8043ae96cc05144cd969e",
+        "CHANGELOG.md": "sha256:6a8745ee6e8c076773c85eaf87994df4ca169b36bea364be2b0fe89db9cdfe78",
+        "crates/matric-db/src/archives.rs": "sha256:f2df96d1da6cd73974668ce636621f5c4e2c71c4ee9050c30b94a89f6d722649",
+        "crates/matric-db/src/lib.rs": "sha256:9c22de7657ff13cf9d3e8aea11c357fe9821517f5510fccd6e25ed0d887d0c35",
+        "migrations/20260910020000_embedding_set_bootstrap_custody.sql": "sha256:24f583a5e0d13b2e7df60323bee7818fb8d90c34f0dc1cb7135fec4b44deabdb",
+        "migrations/20260910020100_restore_auto_membership_tombstone_guard.sql": "sha256:0a4c4274d046530d6758d855b6144a1ec4eaf9ecd27d54e8b08dd4b973fc1296"
+      },
+      "verification": {
+        "shard_tests": "109 passed, 0 failed, 45.18s",
+        "focused_http_test": "1 passed, 0 failed, 1.39s",
+        "clippy": "API+DB all targets -D warnings passed, 14.90s",
+        "format_and_diff": "passed"
+      },
+      "limitations": [
+        "Suite NO-GO; unreleased local 2.0.0/full-v1 evidence only",
+        "Local HTTP router injects archive context; authenticated/public production routing and actual background-worker execution remain unqualified",
+        "Shared-config first-creation/native-writer/DDL concurrency and fresh-public import/export pending",
+        "Remaining history/provenance/SKOS/embedding omission semantics and shared published fixture/pin matrices incomplete",
+        "Installed/released consumer/platform qualification and all original Lane B acceptance and cleanup/release sweep pending"
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:lane-b-1147-selected-renames",
+    "type": "modification",
+    "started_at": "2026-09-10T21:53:00Z",
+    "ended_at": "2026-09-10T22:01:43Z",
+    "description": "Reproduce rejected selected-ID name/slug cycles; lock and validate batch before transactional key staging; preserve retained identities/references, reject unselected live collisions, verify HTTP partial/skip/repeat/duplicate rejection and late rollback"
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+      "activity": "urn:aiwg:activity:lane-b-1147-selected-renames",
+      "time": "2026-09-10T22:01:43Z"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:lane-b-1147-selected-renames",
+      "agent": "urn:aiwg:agent:codex",
+      "role": "primary_implementer"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+        "source": "urn:gitea:issue:Fortemi/fortemi:1147",
+        "derivation_type": "implements",
+        "activity": "urn:aiwg:activity:lane-b-1147-selected-renames"
+      },
+      {
+        "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+        "source": "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:0926739fc73e93a84912ad4eb3776eba22dbc57c31278a59715441f307a44dcf",
+        "derivation_type": "extends",
+        "activity": "urn:aiwg:activity:lane-b-1147-selected-renames"
+      }
+    ]
+  }
+}

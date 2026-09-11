@@ -30100,7 +30100,12 @@ async fn knowledge_shard(
                 SELECT id, uri, notation, title, description, creator, publisher,
                        rights, version, is_active, is_system, created_at, updated_at,
                        issued_at, modified_at, embedding, embedding_model, embedded_at
-                FROM skos_concept_scheme
+                FROM skos_concept_scheme s
+                WHERE NOT EXISTS (SELECT 1 FROM shard_skos_scheme_bootstrap b
+                    WHERE b.tenant_id = s.tenant_id AND b.scheme_id = s.id)
+                   OR EXISTS (SELECT 1 FROM skos_concept c WHERE c.primary_scheme_id = s.id)
+                   OR EXISTS (SELECT 1 FROM skos_concept_in_scheme m WHERE m.scheme_id = s.id)
+                   OR EXISTS (SELECT 1 FROM skos_collection c WHERE c.scheme_id = s.id)
                 ORDER BY notation, id
                 LIMIT $1
                 "#,
@@ -30885,7 +30890,11 @@ async fn knowledge_shard(
                 FROM embedding_config ec
                 WHERE (
                     $1
-                    OR ec.shard_export_present
+                    OR EXISTS (
+                        SELECT 1 FROM shard_embedding_config_declaration declaration
+                        WHERE declaration.config_id = ec.id
+                          AND declaration.tenant_id = ec.tenant_id
+                    )
                     OR EXISTS (
                         SELECT 1
                         FROM embedding_set es
@@ -35514,6 +35523,7 @@ async fn stage_streamed_shard_sidecars(
     Ok(staged_blobs)
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn apply_shard_attachment_projections(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     note_id: Uuid,
@@ -35521,6 +35531,7 @@ async fn apply_shard_attachment_projections(
     staged_blobs: &std::collections::HashMap<String, StagedShardBlob>,
     used_staged_blobs: &mut std::collections::HashSet<String>,
     scan_mode: AttachmentScanMode,
+    replace: bool,
 ) -> Result<(Vec<(Uuid, Uuid)>, usize), ApiError> {
     let mut pending_scans = Vec::new();
     let mut bypassed = 0usize;
@@ -35629,7 +35640,7 @@ async fn apply_shard_attachment_projections(
             AttachmentScanStatus::Bypassed
         };
         let scan_decided = scan_status == AttachmentScanStatus::Bypassed;
-        sqlx::query(
+        let result = sqlx::query(
             "INSERT INTO attachment
              (id, note_id, blob_id, filename, original_filename, display_order,
               status, extracted_text, extracted_metadata, virus_scan_status,
@@ -35645,7 +35656,19 @@ async fn apply_shard_attachment_projections(
                      ELSE NULL
                  END,
                  CASE WHEN $10 THEN $12 ELSE NULL END
-             )",
+             )
+             ON CONFLICT (id) DO UPDATE SET
+                 note_id = EXCLUDED.note_id, blob_id = EXCLUDED.blob_id,
+                 filename = EXCLUDED.filename, original_filename = EXCLUDED.original_filename,
+                 display_order = EXCLUDED.display_order, status = EXCLUDED.status,
+                 extracted_text = EXCLUDED.extracted_text,
+                 extracted_metadata = EXCLUDED.extracted_metadata,
+                 virus_scan_status = EXCLUDED.virus_scan_status,
+                 virus_scan_at = EXCLUDED.virus_scan_at,
+                 virus_scan_backend = EXCLUDED.virus_scan_backend,
+                 virus_scan_reason_code = EXCLUDED.virus_scan_reason_code,
+                 virus_scan_blob_hash = EXCLUDED.virus_scan_blob_hash
+             WHERE $13",
         )
         .bind(attachment.id)
         .bind(note_id)
@@ -35659,9 +35682,15 @@ async fn apply_shard_attachment_projections(
         .bind(scan_decided)
         .bind(reference_only)
         .bind(&attachment.checksum)
+        .bind(replace)
         .execute(&mut **tx)
         .await
         .map_err(|error| shard_operation_failed("insert reference attachment", error))?;
+        if result.rows_affected() == 0 {
+            return Err(shard_validation_failed(
+                "Knowledge shard attachment identity conflicts with an existing attachment.",
+            ));
+        }
         if scan_status == AttachmentScanStatus::Pending {
             pending_scans.push((note_id, attachment.id));
         } else if scan_status == AttachmentScanStatus::Bypassed {
@@ -35681,7 +35710,10 @@ async fn apply_shard_note_history_components_tx(
 ) -> Result<(), ApiError> {
     let should_import = |component: &str| selected_components.contains(component);
     let replace = matches!(opts.on_conflict, ConflictStrategy::Replace);
-
+    sqlx::query("SELECT set_config('app.shard_import', 'on', true)")
+        .execute(&mut **tx)
+        .await
+        .map_err(|error| shard_operation_failed("set history restore context", error))?;
     if should_import("note_originals") {
         if let Some(data) = files.get("note_originals.jsonl") {
             let originals = shard_jsonl_records::<ShardNoteOriginalRecord>(
@@ -35692,19 +35724,6 @@ async fn apply_shard_note_history_components_tx(
             if opts.dry_run {
                 imported.note_originals += originals.len();
             } else {
-                if replace {
-                    let note_ids = originals
-                        .iter()
-                        .map(|original| original.note_id)
-                        .collect::<Vec<_>>();
-                    sqlx::query("DELETE FROM note_original WHERE note_id = ANY($1)")
-                        .bind(&note_ids)
-                        .execute(&mut **tx)
-                        .await
-                        .map_err(|error| {
-                            shard_operation_failed("replace imported note originals", error)
-                        })?;
-                }
                 for original in originals {
                     let conflict = if replace {
                         "ON CONFLICT (note_id) DO UPDATE SET
@@ -35755,21 +35774,6 @@ async fn apply_shard_note_history_components_tx(
             if opts.dry_run {
                 imported.note_original_history += history.len();
             } else {
-                if replace {
-                    let mut note_ids = history
-                        .iter()
-                        .map(|record| record.note_id)
-                        .collect::<Vec<_>>();
-                    note_ids.sort_unstable();
-                    note_ids.dedup();
-                    sqlx::query("DELETE FROM note_original_history WHERE note_id = ANY($1)")
-                        .bind(&note_ids)
-                        .execute(&mut **tx)
-                        .await
-                        .map_err(|error| {
-                            shard_operation_failed("replace imported note original history", error)
-                        })?;
-                }
                 for record in history {
                     let conflict = if replace {
                         "ON CONFLICT (id) DO UPDATE SET
@@ -35822,32 +35826,6 @@ async fn apply_shard_note_history_components_tx(
             if opts.dry_run {
                 imported.note_revisions += revisions.len();
             } else {
-                if replace {
-                    let mut note_ids = revisions
-                        .iter()
-                        .map(|revision| revision.note_id)
-                        .collect::<Vec<_>>();
-                    note_ids.sort_unstable();
-                    note_ids.dedup();
-                    sqlx::query(
-                        "UPDATE note_revised_current
-                         SET last_revision_id = NULL
-                         WHERE note_id = ANY($1)",
-                    )
-                    .bind(&note_ids)
-                    .execute(&mut **tx)
-                    .await
-                    .map_err(|error| {
-                        shard_operation_failed("clear replaced current revision references", error)
-                    })?;
-                    sqlx::query("DELETE FROM note_revision WHERE note_id = ANY($1)")
-                        .bind(&note_ids)
-                        .execute(&mut **tx)
-                        .await
-                        .map_err(|error| {
-                            shard_operation_failed("replace imported note revisions", error)
-                        })?;
-                }
                 for revision in revisions {
                     let conflict = if replace {
                         "ON CONFLICT (id) DO UPDATE SET
@@ -35953,6 +35931,53 @@ async fn apply_shard_note_history_components_tx(
     Ok(())
 }
 
+async fn remove_omitted_shard_revisions_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    note_ids: &[Uuid],
+    retained_ids: &[Uuid],
+) -> Result<(), ApiError> {
+    let omitted = sqlx::query_scalar::<_, Uuid>(
+        "SELECT id FROM note_revision WHERE note_id = ANY($1::uuid[])
+         AND NOT (id = ANY($2::uuid[])) ORDER BY id FOR UPDATE",
+    )
+    .bind(note_ids)
+    .bind(retained_ids)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| shard_operation_failed("lock omitted note revisions", error))?;
+    let referenced: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM provenance_activity
+            WHERE revision_id = ANY($1::uuid[]))
+         OR EXISTS (SELECT 1 FROM note_revised_current
+            WHERE last_revision_id = ANY($1::uuid[]) AND NOT (note_id = ANY($2::uuid[])))",
+    )
+    .bind(&omitted)
+    .bind(note_ids)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|error| shard_operation_failed("check omitted revision references", error))?;
+    if referenced {
+        return Err(shard_validation_failed(
+            "Knowledge shard omitted revisions are referenced by retained live records.",
+        ));
+    }
+    sqlx::query(
+        "UPDATE note_revised_current SET last_revision_id = NULL
+        WHERE note_id = ANY($1::uuid[]) AND last_revision_id = ANY($2::uuid[])",
+    )
+    .bind(note_ids)
+    .bind(&omitted)
+    .execute(&mut **tx)
+    .await
+    .map_err(|error| shard_operation_failed("clear omitted current revision references", error))?;
+    sqlx::query("DELETE FROM note_revision WHERE id = ANY($1::uuid[])")
+        .bind(&omitted)
+        .execute(&mut **tx)
+        .await
+        .map_err(|error| shard_operation_failed("remove omitted note revisions", error))?;
+    Ok(())
+}
+
 async fn apply_shard_revision_provenance_components_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     files: &std::collections::HashMap<String, Vec<u8>>,
@@ -35974,14 +35999,6 @@ async fn apply_shard_revision_provenance_components_tx(
             if opts.dry_run {
                 imported.provenance_edges += edges.len();
             } else {
-                if replace {
-                    sqlx::query("DELETE FROM provenance_edge")
-                        .execute(&mut **tx)
-                        .await
-                        .map_err(|error| {
-                            shard_operation_failed("replace imported provenance edges", error)
-                        })?;
-                }
                 for edge in edges {
                     let conflict = if replace {
                         "ON CONFLICT (id) DO UPDATE SET
@@ -36030,14 +36047,6 @@ async fn apply_shard_revision_provenance_components_tx(
             if opts.dry_run {
                 imported.provenance_activities += activities.len();
             } else {
-                if replace {
-                    sqlx::query("DELETE FROM provenance_activity")
-                        .execute(&mut **tx)
-                        .await
-                        .map_err(|error| {
-                            shard_operation_failed("replace imported provenance activities", error)
-                        })?;
-                }
                 for activity in activities {
                     let conflict = if replace {
                         "ON CONFLICT (id) DO UPDATE SET
@@ -36084,6 +36093,211 @@ async fn apply_shard_revision_provenance_components_tx(
     Ok(())
 }
 
+fn selected_shard_note_owner_ids(
+    files: &std::collections::HashMap<String, Vec<u8>>,
+    selected_components: &std::collections::HashSet<String>,
+) -> Result<(Vec<Uuid>, Vec<Uuid>), ApiError> {
+    let mut notes = Vec::new();
+    let mut attachments = Vec::new();
+    if selected_components.contains("notes") {
+        if let Some(data) = files.get("notes.jsonl") {
+            for note in
+                shard_jsonl_records::<ShardNoteRecord>(data, "Knowledge shard notes are invalid.")?
+            {
+                let note = note?;
+                notes.push(note.id);
+                attachments.extend(note.attachments.into_iter().map(|a| a.attachment.id));
+            }
+        }
+    }
+    Ok((notes, attachments))
+}
+
+async fn preview_shard_history_reference_conflicts_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    files: &std::collections::HashMap<String, Vec<u8>>,
+    selected_components: &std::collections::HashSet<String>,
+) -> Result<(), ApiError> {
+    let selected = |component: &str| {
+        selected_components.contains(component)
+            && shard_component_filename(component).is_some_and(|name| files.contains_key(name))
+    };
+    if !selected("note_revisions") && !selected("provenance_activities") {
+        return Ok(());
+    }
+    let (notes, attachments) = selected_shard_note_owner_ids(files, selected_components)?;
+    if notes.is_empty() {
+        return Ok(());
+    }
+    // Project only identities/references. Preview must not execute restore writes
+    // or triggers, even inside a transaction that would later be rolled back.
+    let references = |component: &str, fields: &[&str]| -> Result<serde_json::Value, ApiError> {
+        if !selected(component) {
+            return Ok(serde_json::json!([]));
+        }
+        let name = shard_component_filename(component).expect("selected component has filename");
+        let records = parse_shard_component_records(component, &files[name]).map_err(|_| {
+            shard_validation_failed("Knowledge shard reference preview is invalid.")
+        })?;
+        Ok(serde_json::Value::Array(
+            records
+                .into_iter()
+                .map(|record| {
+                    serde_json::Value::Object(
+                        fields
+                            .iter()
+                            .map(|field| ((*field).to_owned(), record[*field].clone()))
+                            .collect(),
+                    )
+                })
+                .collect(),
+        ))
+    };
+    let (activity_conflict, revision_conflict): (bool, bool) = sqlx::query_as(
+        "WITH incoming_revisions AS (
+            SELECT * FROM jsonb_to_recordset($3) AS r(id uuid)
+         ), incoming_activities AS (
+            SELECT * FROM jsonb_to_recordset($4) AS a(id uuid, revision_id uuid)
+         ), incoming_records AS (
+            SELECT * FROM jsonb_to_recordset($5) AS p(id uuid, activity_id uuid)
+         ), incoming_currents AS (
+            SELECT * FROM jsonb_to_recordset($6) AS c(note_id uuid, last_revision_id uuid)
+         ), omitted_revisions AS (
+            SELECT id FROM note_revision WHERE $7 AND note_id = ANY($1::uuid[])
+            AND id NOT IN (SELECT id FROM incoming_revisions)
+         ), omitted_activities AS (
+            SELECT id FROM provenance_activity WHERE $8 AND note_id = ANY($1::uuid[])
+            AND id NOT IN (SELECT id FROM incoming_activities)
+         ), effective_records AS (
+            SELECT p.activity_id FROM provenance p
+            WHERE p.id NOT IN (SELECT id FROM incoming_records)
+            AND NOT ($9 AND (COALESCE(p.note_id = ANY($1::uuid[]), FALSE)
+                         OR COALESCE(p.attachment_id = ANY($2::uuid[]), FALSE)))
+            AND NOT EXISTS (SELECT 1 FROM attachment a WHERE a.id = p.attachment_id
+                AND a.note_id = ANY($1::uuid[]) AND NOT (a.id = ANY($2::uuid[])))
+            UNION ALL SELECT activity_id FROM incoming_records
+         ), effective_activities AS (
+            SELECT revision_id FROM provenance_activity
+            WHERE id NOT IN (SELECT id FROM incoming_activities)
+            AND id NOT IN (SELECT id FROM omitted_activities)
+            UNION ALL SELECT revision_id FROM incoming_activities
+         ), effective_currents AS (
+            SELECT note_id, last_revision_id FROM note_revised_current
+            WHERE note_id NOT IN (SELECT note_id FROM incoming_currents)
+            UNION ALL SELECT note_id, last_revision_id FROM incoming_currents
+         )
+         SELECT EXISTS (SELECT 1 FROM effective_records
+            WHERE activity_id IN (SELECT id FROM omitted_activities)),
+            EXISTS (SELECT 1 FROM effective_activities
+                WHERE revision_id IN (SELECT id FROM omitted_revisions))
+            OR EXISTS (SELECT 1 FROM effective_currents
+                WHERE last_revision_id IN (SELECT id FROM omitted_revisions)
+                AND NOT (note_id = ANY($1::uuid[])))",
+    )
+    .bind(&notes)
+    .bind(&attachments)
+    .bind(references("note_revisions", &["id"])?)
+    .bind(references("provenance_activities", &["id", "revision_id"])?)
+    .bind(references("provenance_records", &["id", "activity_id"])?)
+    .bind(references(
+        "note_revised_current",
+        &["note_id", "last_revision_id"],
+    )?)
+    .bind(selected("note_revisions"))
+    .bind(selected("provenance_activities"))
+    .bind(selected("provenance_records"))
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|error| shard_operation_failed("preview retained history references", error))?;
+    if activity_conflict {
+        return Err(shard_validation_failed(
+            "Knowledge shard omitted activities are referenced by retained provenance records.",
+        ));
+    }
+    if revision_conflict {
+        return Err(shard_validation_failed(
+            "Knowledge shard omitted revisions are referenced by retained live records.",
+        ));
+    }
+    Ok(())
+}
+
+async fn reconcile_shard_provenance_omissions_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    files: &std::collections::HashMap<String, Vec<u8>>,
+    selected_components: &std::collections::HashSet<String>,
+    note_ids: &[Uuid],
+) -> Result<(), ApiError> {
+    if selected_components.contains("provenance_edges")
+        && selected_components.contains("note_revisions")
+    {
+        if let (Some(edges), Some(revisions)) = (
+            files.get("provenance_edges.jsonl"),
+            files.get("note_revisions.jsonl"),
+        ) {
+            let retained = shard_jsonl_records::<ShardProvenanceEdgeRecord>(
+                edges,
+                "Knowledge shard provenance edges are invalid.",
+            )?
+            .map(|row| row.map(|row| row.id))
+            .collect::<Result<Vec<_>, _>>()?;
+            let owners = shard_jsonl_records::<ShardNoteRevisionRecord>(
+                revisions,
+                "Knowledge shard note revisions are invalid.",
+            )?
+            .map(|row| row.map(|row| row.id))
+            .collect::<Result<Vec<_>, _>>()?;
+            sqlx::query(
+                "DELETE FROM provenance_edge WHERE revision_id = ANY($1::uuid[])
+                AND NOT (id = ANY($2::uuid[]))",
+            )
+            .bind(owners)
+            .bind(retained)
+            .execute(&mut **tx)
+            .await
+            .map_err(|error| {
+                shard_operation_failed("reconcile selected revision provenance edges", error)
+            })?;
+        }
+    }
+    if selected_components.contains("provenance_activities") {
+        if let Some(data) = files.get("provenance_activities.jsonl") {
+            let retained = shard_jsonl_records::<ShardProvenanceActivityRecord>(
+                data,
+                "Knowledge shard provenance activities are invalid.",
+            )?
+            .map(|row| row.map(|row| row.id))
+            .collect::<Result<Vec<_>, _>>()?;
+            let omitted = sqlx::query_scalar::<_,Uuid>("SELECT id FROM provenance_activity
+                WHERE note_id = ANY($1::uuid[]) AND NOT (id = ANY($2::uuid[])) ORDER BY id FOR UPDATE")
+                .bind(note_ids).bind(retained).fetch_all(&mut **tx).await
+                .map_err(|error| shard_operation_failed("lock omitted provenance activities",error))?;
+            let referenced: bool = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM provenance
+                WHERE activity_id = ANY($1::uuid[]))",
+            )
+            .bind(&omitted)
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(|error| {
+                shard_operation_failed("check omitted provenance activity references", error)
+            })?;
+            if referenced {
+                return Err(shard_validation_failed(
+                    "Knowledge shard omitted activities are referenced by retained provenance records."));
+            }
+            sqlx::query("DELETE FROM provenance_activity WHERE id = ANY($1::uuid[])")
+                .bind(omitted)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| {
+                    shard_operation_failed("reconcile selected provenance activities", error)
+                })?;
+        }
+    }
+    Ok(())
+}
+
 async fn apply_shard_unified_provenance_components_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     files: &std::collections::HashMap<String, Vec<u8>>,
@@ -36110,12 +36324,19 @@ async fn apply_shard_unified_provenance_components_tx(
 
     let replace = matches!(opts.on_conflict, ConflictStrategy::Replace);
     if replace {
-        sqlx::query("DELETE FROM provenance")
-            .execute(&mut **tx)
-            .await
-            .map_err(|error| {
-                shard_operation_failed("replace imported unified provenance", error)
-            })?;
+        let (notes, attachments) = selected_shard_note_owner_ids(files, selected_components)?;
+        let retained = records.iter().map(|record| record.id).collect::<Vec<_>>();
+        sqlx::query(
+            "DELETE FROM provenance
+            WHERE (note_id = ANY($1::uuid[]) OR attachment_id = ANY($2::uuid[]))
+              AND NOT (id = ANY($3::uuid[]))",
+        )
+        .bind(notes)
+        .bind(attachments)
+        .bind(retained)
+        .execute(&mut **tx)
+        .await
+        .map_err(|error| shard_operation_failed("reconcile selected unified provenance", error))?;
     }
 
     for record in records {
@@ -36252,33 +36473,10 @@ async fn apply_shard_spatial_provenance_components_tx(
 ) -> Result<(), ApiError> {
     let should_import = |component: &str| selected_components.contains(component);
     let replace = matches!(opts.on_conflict, ConflictStrategy::Replace);
-
-    if replace && !opts.dry_run {
-        for (component, statement, context) in [
-            (
-                "provenance_locations",
-                "DELETE FROM prov_location",
-                "replace imported provenance locations",
-            ),
-            (
-                "named_locations",
-                "DELETE FROM named_location",
-                "replace imported named locations",
-            ),
-            (
-                "provenance_devices",
-                "DELETE FROM prov_agent_device",
-                "replace imported provenance devices",
-            ),
-        ] {
-            if should_import(component) {
-                sqlx::query(statement)
-                    .execute(&mut **tx)
-                    .await
-                    .map_err(|error| shard_operation_failed(context, error))?;
-            }
-        }
-    }
+    sqlx::query("SELECT set_config('app.shard_import', 'on', true)")
+        .execute(&mut **tx)
+        .await
+        .map_err(|error| shard_operation_failed("set spatial restore context", error))?;
 
     if should_import("named_locations") {
         if let Some(data) = files.get("named_locations.jsonl") {
@@ -36501,77 +36699,401 @@ async fn apply_shard_spatial_provenance_components_tx(
     Ok(())
 }
 
+async fn validate_shard_skos_relation_constraints_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    files: &std::collections::HashMap<String, Vec<u8>>,
+    selected_components: &std::collections::HashSet<String>,
+    opts: &ShardImportOptions,
+    wipe: bool,
+) -> Result<(), ApiError> {
+    let relations_selected = selected_components.contains("skos_relations");
+    if !relations_selected && !selected_components.contains("skos_concepts") {
+        return Ok(());
+    }
+    let records = |component: &str| -> Result<serde_json::Value, ApiError> {
+        if !selected_components.contains(component) {
+            return Ok(serde_json::json!([]));
+        }
+        let Some(data) = files.get(shard_component_filename(component).unwrap()) else {
+            return Ok(serde_json::json!([]));
+        };
+        parse_shard_component_records(component, data)
+            .map(serde_json::Value::Array)
+            .map_err(|_| shard_validation_failed("Knowledge shard SKOS records are invalid."))
+    };
+    // Project the selected plan without writes, including retained/unselected
+    // edges, selected-owner omissions and the effective approved-child statuses.
+    let (invalid_cardinality, invalid_hierarchy): (bool, bool) = sqlx::query_as(
+        "WITH RECURSIVE declared_relations AS (
+            SELECT * FROM jsonb_to_recordset($1)
+              AS r(id uuid, subject_id uuid, object_id uuid, relation_type text)
+         ), declared_concepts AS (
+            SELECT * FROM jsonb_to_recordset($2) AS c(id uuid, status text)
+         ), incoming_relations AS (
+            SELECT r.* FROM declared_relations r WHERE $3 OR $4 OR NOT EXISTS (
+                SELECT 1 FROM skos_semantic_relation_edge e WHERE e.id=r.id OR
+                  (e.subject_id=r.subject_id AND e.object_id=r.object_id AND e.relation_type::text=r.relation_type))
+         ), incoming_concepts AS (
+            SELECT c.* FROM declared_concepts c WHERE $3 OR $4 OR NOT EXISTS (
+                SELECT 1 FROM skos_concept old WHERE old.id=c.id)
+         ), effective_concepts AS (
+            SELECT id,status::text FROM skos_concept WHERE NOT $4
+                AND id NOT IN (SELECT id FROM incoming_concepts)
+            UNION ALL SELECT id,status FROM incoming_concepts
+         ), effective_relations AS (
+            SELECT id,subject_id,object_id,relation_type::text FROM skos_semantic_relation_edge
+            WHERE NOT $4 AND id NOT IN (SELECT id FROM incoming_relations)
+                AND NOT ($3 AND $5 AND subject_id IN (SELECT id FROM incoming_concepts))
+            UNION ALL SELECT id,subject_id,object_id,relation_type FROM incoming_relations
+         ), affected_subjects AS (
+            SELECT subject_id FROM incoming_relations
+            UNION SELECT e.subject_id FROM skos_semantic_relation_edge e WHERE NOT $4
+                AND (e.id IN (SELECT id FROM incoming_relations)
+                     OR e.object_id IN (SELECT id FROM incoming_concepts))
+         ), hierarchy_edges AS (
+            SELECT DISTINCT subject_id,object_id FROM effective_relations WHERE relation_type='broader'
+         ), changed_hierarchy_subjects AS (
+            SELECT subject_id FROM incoming_relations WHERE relation_type='broader'
+            UNION SELECT subject_id FROM skos_semantic_relation_edge WHERE NOT $4
+                AND relation_type='broader' AND id IN (SELECT id FROM incoming_relations)
+         ), hierarchy_affected(node) AS (
+            SELECT subject_id FROM changed_hierarchy_subjects
+            UNION SELECT e.subject_id FROM hierarchy_edges e
+                JOIN hierarchy_affected a ON e.object_id=a.node
+         ), hierarchy_walk(node,depth) AS (
+            SELECT node,0 FROM hierarchy_affected
+            UNION SELECT e.object_id,w.depth+1 FROM hierarchy_edges e
+                JOIN hierarchy_walk w ON e.subject_id=w.node WHERE w.depth<6
+         )
+         SELECT EXISTS (SELECT 1 FROM effective_relations r
+            LEFT JOIN effective_concepts c ON c.id=r.object_id
+            WHERE r.subject_id IN (SELECT subject_id FROM affected_subjects)
+            GROUP BY r.subject_id
+            HAVING count(*) FILTER (WHERE r.relation_type='broader') > 3
+                OR count(*) FILTER (WHERE r.relation_type='narrower' AND c.status='approved') > 200),
+            EXISTS (SELECT 1 FROM hierarchy_walk WHERE depth=6)",
+    )
+    .bind(records("skos_relations")?)
+    .bind(records("skos_concepts")?)
+    .bind(matches!(opts.on_conflict, ConflictStrategy::Replace))
+    .bind(wipe)
+    .bind(relations_selected)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|error| shard_operation_failed("validate SKOS relation constraints", error))?;
+    if invalid_cardinality {
+        return Err(shard_validation_failed(
+            "Knowledge shard SKOS relation cardinality exceeds native limits.",
+        ));
+    }
+    if invalid_hierarchy {
+        return Err(shard_validation_failed(
+            "Knowledge shard SKOS hierarchy exceeds maximum depth 5 or contains a cycle.",
+        ));
+    }
+    Ok(())
+}
+
+async fn remove_omitted_shard_skos_children_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    files: &std::collections::HashMap<String, Vec<u8>>,
+    selected_components: &std::collections::HashSet<String>,
+) -> Result<(), ApiError> {
+    let uuid_field = |row: &serde_json::Value, field: &str| {
+        serde_json::from_value::<Uuid>(row[field].clone())
+            .map_err(|_| shard_validation_failed("Knowledge shard SKOS identity is invalid."))
+    };
+    let owners = |component: &str| -> Result<Vec<Uuid>, ApiError> {
+        if !selected_components.contains(component) {
+            return Ok(Vec::new());
+        }
+        let Some(data) = files.get(shard_component_filename(component).unwrap()) else {
+            return Ok(Vec::new());
+        };
+        parse_shard_component_records(component, data)
+            .map_err(|_| shard_validation_failed("Knowledge shard SKOS owners are invalid."))?
+            .iter()
+            .map(|row| uuid_field(row, "id"))
+            .collect()
+    };
+    let concepts = owners("skos_concepts")?;
+    let notes = owners("notes")?;
+    let collections = owners("skos_collections")?;
+    // Roots are independent. Only selected owners authorize child omission;
+    // incoming primary keys survive even when their owner changes.
+    for (component, table, owner, owner_ids, keys) in [
+        (
+            "skos_labels",
+            "skos_concept_label",
+            "concept_id",
+            &concepts,
+            &["id"][..],
+        ),
+        (
+            "skos_notes",
+            "skos_concept_note",
+            "concept_id",
+            &concepts,
+            &["id"][..],
+        ),
+        (
+            "skos_relations",
+            "skos_semantic_relation_edge",
+            "subject_id",
+            &concepts,
+            &["id"][..],
+        ),
+        (
+            "skos_mapping_relations",
+            "skos_mapping_relation_edge",
+            "concept_id",
+            &concepts,
+            &["id"][..],
+        ),
+        (
+            "skos_scheme_memberships",
+            "skos_concept_in_scheme",
+            "concept_id",
+            &concepts,
+            &["concept_id", "scheme_id"][..],
+        ),
+        (
+            "note_skos_tags",
+            "note_skos_concept",
+            "note_id",
+            &notes,
+            &["note_id", "concept_id"][..],
+        ),
+        (
+            "skos_collection_members",
+            "skos_collection_member",
+            "collection_id",
+            &collections,
+            &["collection_id", "concept_id"][..],
+        ),
+    ] {
+        if !selected_components.contains(component) || owner_ids.is_empty() {
+            continue;
+        }
+        let Some(data) = files.get(shard_component_filename(component).unwrap()) else {
+            continue;
+        };
+        let rows = parse_shard_component_records(component, data)
+            .map_err(|_| shard_validation_failed("Knowledge shard SKOS children are invalid."))?;
+        let first = rows
+            .iter()
+            .map(|row| uuid_field(row, keys[0]))
+            .collect::<Result<Vec<_>, _>>()?;
+        let statement = if keys.len() == 1 {
+            format!(
+                "DELETE FROM {table} WHERE {owner} = ANY($1::uuid[])
+                AND NOT ({} = ANY($2::uuid[]))",
+                keys[0]
+            )
+        } else {
+            format!(
+                "DELETE FROM {table} current WHERE {owner} = ANY($1::uuid[])
+                AND NOT EXISTS (SELECT 1 FROM UNNEST($2::uuid[], $3::uuid[]) incoming(a,b)
+                    WHERE current.{} = incoming.a AND current.{} = incoming.b)",
+                keys[0], keys[1]
+            )
+        };
+        let mut query = sqlx::query(&statement).bind(owner_ids).bind(first);
+        if keys.len() == 2 {
+            let second = rows
+                .iter()
+                .map(|row| uuid_field(row, keys[1]))
+                .collect::<Result<Vec<_>, _>>()?;
+            query = query.bind(second);
+        }
+        query
+            .execute(&mut **tx)
+            .await
+            .map_err(|error| shard_operation_failed("remove omitted SKOS children", error))?;
+    }
+    Ok(())
+}
+
+async fn prepare_shard_skos_scheme_replacement_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    schemes: &[ShardSkosSchemeRecord],
+    dry_run: bool,
+) -> Result<(), ApiError> {
+    let selected = schemes
+        .iter()
+        .map(|scheme| (scheme.id, scheme))
+        .collect::<std::collections::HashMap<_, _>>();
+    let ids = schemes.iter().map(|scheme| scheme.id).collect::<Vec<_>>();
+    let notations = schemes
+        .iter()
+        .map(|scheme| scheme.notation.as_str())
+        .collect::<Vec<_>>();
+    let uris = schemes
+        .iter()
+        .filter_map(|scheme| scheme.uri.as_deref())
+        .collect::<Vec<_>>();
+    let locking = if dry_run { "" } else { " FOR UPDATE" };
+    let existing = sqlx::query_as::<_, (Uuid, String, Option<String>)>(&format!(
+        "SELECT id, notation, uri FROM skos_concept_scheme
+         WHERE id = ANY($1::uuid[]) OR notation = ANY($2::text[]) OR uri = ANY($3::text[])
+         ORDER BY id{locking}"
+    ))
+    .bind(&ids)
+    .bind(notations)
+    .bind(uris)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| shard_operation_failed("lock SKOS scheme conflicts", error))?;
+    let mut disposable = Vec::new();
+    for (id, _, _) in &existing {
+        if selected.contains_key(id) {
+            continue;
+        }
+        let bootstrap: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM shard_skos_scheme_bootstrap WHERE scheme_id=$1)
+              AND NOT EXISTS (SELECT 1 FROM skos_concept WHERE primary_scheme_id=$1)
+              AND NOT EXISTS (SELECT 1 FROM skos_concept_in_scheme WHERE scheme_id=$1)
+              AND NOT EXISTS (SELECT 1 FROM skos_collection WHERE scheme_id=$1)",
+        )
+        .bind(id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(|error| shard_operation_failed("check SKOS scheme creation custody", error))?;
+        if !bootstrap {
+            return Err(shard_validation_failed(
+                "Knowledge shard SKOS scheme conflicts with an existing live identity.",
+            ));
+        }
+        disposable.push(*id);
+    }
+    if dry_run {
+        return Ok(());
+    }
+    sqlx::query("DELETE FROM skos_concept_scheme WHERE id = ANY($1::uuid[])")
+        .bind(disposable)
+        .execute(&mut **tx)
+        .await
+        .map_err(|error| {
+            shard_operation_failed("replace conflicting SKOS bootstrap scheme", error)
+        })?;
+    // Selected live roots may exchange unique coordinates, never identities.
+    for (id, notation, uri) in existing {
+        if let Some(incoming) = selected.get(&id) {
+            if incoming.notation != notation || incoming.uri != uri {
+                sqlx::query("UPDATE skos_concept_scheme SET notation=$2, uri=NULL WHERE id=$1")
+                    .bind(id)
+                    .bind(format!("shard-restore-{}", Uuid::new_v4().simple()))
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|error| {
+                        shard_operation_failed("stage selected SKOS scheme keys", error)
+                    })?;
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn prepare_shard_skos_concept_replacement_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    concepts: &[ShardSkosConceptRecord],
+    dry_run: bool,
+) -> Result<(), ApiError> {
+    if concepts.is_empty() {
+        return Ok(());
+    }
+    let selected = concepts
+        .iter()
+        .map(|concept| (concept.id, concept))
+        .collect::<std::collections::HashMap<_, _>>();
+    let ids = concepts
+        .iter()
+        .map(|concept| concept.id)
+        .collect::<Vec<_>>();
+    let uris = concepts
+        .iter()
+        .filter_map(|concept| concept.uri.as_deref())
+        .collect::<Vec<_>>();
+    let schemes = concepts
+        .iter()
+        .map(|concept| concept.primary_scheme_id)
+        .collect::<Vec<_>>();
+    let notations = concepts
+        .iter()
+        .map(|concept| concept.notation.as_deref())
+        .collect::<Vec<_>>();
+    if !dry_run {
+        // Acquire the shared statement guard before taking concept row locks.
+        // This zero-row write does not change a declared record or fire row events.
+        sqlx::query("UPDATE skos_concept SET uri=uri WHERE false")
+            .execute(&mut **tx)
+            .await
+            .map_err(|error| {
+                shard_operation_failed("coordinate SKOS concept replacement", error)
+            })?;
+    }
+    let locking = if dry_run { "" } else { " FOR UPDATE" };
+    let existing = sqlx::query_as::<_, (Uuid, Uuid, Option<String>, Option<String>)>(&format!(
+        "SELECT id,primary_scheme_id,uri,notation FROM skos_concept
+         WHERE id=ANY($1::uuid[]) OR uri=ANY($2::text[])
+            OR (primary_scheme_id,notation) IN (SELECT * FROM unnest($3::uuid[],$4::text[]))
+         ORDER BY id{locking}"
+    ))
+    .bind(ids)
+    .bind(uris)
+    .bind(schemes)
+    .bind(notations)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| shard_operation_failed("check SKOS concept conflicts", error))?;
+    if existing
+        .iter()
+        .any(|(id, _, _, _)| !selected.contains_key(id))
+    {
+        return Err(shard_validation_failed(
+            "Knowledge shard SKOS concept conflicts with an existing live identity.",
+        ));
+    }
+    if dry_run {
+        return Ok(());
+    }
+    for (id, scheme, uri, notation) in existing {
+        let incoming = selected[&id];
+        let changed_uri = incoming.uri != uri;
+        let changed_notation =
+            incoming.primary_scheme_id != scheme || incoming.notation != notation;
+        if changed_uri || changed_notation {
+            // Nullable coordinates can be vacated without placeholder identities.
+            sqlx::query(
+                "UPDATE skos_concept SET uri=CASE WHEN $2 THEN NULL ELSE uri END,
+                notation=CASE WHEN $3 THEN NULL ELSE notation END WHERE id=$1",
+            )
+            .bind(id)
+            .bind(changed_uri)
+            .bind(changed_notation)
+            .execute(&mut **tx)
+            .await
+            .map_err(|error| shard_operation_failed("stage selected SKOS concept keys", error))?;
+        }
+    }
+    Ok(())
+}
+
 async fn apply_shard_skos_components_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     files: &std::collections::HashMap<String, Vec<u8>>,
     selected_components: &std::collections::HashSet<String>,
     opts: &ShardImportOptions,
+    wipe_before_apply: bool,
     imported: &mut ShardImportCounts,
     skipped: &mut ShardImportCounts,
 ) -> Result<(), ApiError> {
     let should_import = |component: &str| selected_components.contains(component);
     let replace = matches!(opts.on_conflict, ConflictStrategy::Replace);
+    let mut restored_concepts = std::collections::HashSet::new();
 
     if replace && !opts.dry_run {
-        for (component, statement, context) in [
-            (
-                "skos_collection_members",
-                "DELETE FROM skos_collection_member",
-                "replace imported SKOS collection members",
-            ),
-            (
-                "note_skos_tags",
-                "DELETE FROM note_skos_concept",
-                "replace imported note SKOS tags",
-            ),
-            (
-                "skos_scheme_memberships",
-                "DELETE FROM skos_concept_in_scheme",
-                "replace imported SKOS scheme memberships",
-            ),
-            (
-                "skos_mapping_relations",
-                "DELETE FROM skos_mapping_relation_edge",
-                "replace imported SKOS mapping relations",
-            ),
-            (
-                "skos_relations",
-                "DELETE FROM skos_semantic_relation_edge",
-                "replace imported SKOS relations",
-            ),
-            (
-                "skos_labels",
-                "DELETE FROM skos_concept_label",
-                "replace imported SKOS labels",
-            ),
-            (
-                "skos_notes",
-                "DELETE FROM skos_concept_note",
-                "replace imported SKOS notes",
-            ),
-            (
-                "skos_collections",
-                "DELETE FROM skos_collection",
-                "replace imported SKOS collections",
-            ),
-            (
-                "skos_concepts",
-                "DELETE FROM skos_concept",
-                "replace imported SKOS concepts",
-            ),
-            (
-                "skos_schemes",
-                "DELETE FROM skos_concept_scheme",
-                "replace imported SKOS schemes",
-            ),
-        ] {
-            if should_import(component) {
-                sqlx::query(statement)
-                    .execute(&mut **tx)
-                    .await
-                    .map_err(|error| shard_operation_failed(context, error))?;
-            }
-        }
+        remove_omitted_shard_skos_children_tx(tx, files, selected_components).await?;
     }
 
     if should_import("skos_schemes") {
@@ -36580,6 +37102,9 @@ async fn apply_shard_skos_components_tx(
                 serde_json::from_slice::<Vec<ShardSkosSchemeRecord>>(data).map_err(|_| {
                     shard_validation_failed("Knowledge shard SKOS schemes are invalid.")
                 })?;
+            if replace {
+                prepare_shard_skos_scheme_replacement_tx(tx, &schemes, opts.dry_run).await?;
+            }
             for scheme in schemes {
                 if opts.dry_run {
                     imported.skos_schemes += 1;
@@ -36655,6 +37180,9 @@ async fn apply_shard_skos_components_tx(
                 serde_json::from_slice::<Vec<ShardSkosConceptRecord>>(data).map_err(|_| {
                     shard_validation_failed("Knowledge shard SKOS concepts are invalid.")
                 })?;
+            if replace && !(wipe_before_apply && opts.dry_run) {
+                prepare_shard_skos_concept_replacement_tx(tx, &concepts, opts.dry_run).await?;
+            }
             if opts.dry_run {
                 imported.skos_concepts += concepts.len();
             } else {
@@ -36747,6 +37275,7 @@ async fn apply_shard_skos_components_tx(
                         skipped.skos_concepts += 1;
                     } else {
                         imported.skos_concepts += 1;
+                        restored_concepts.insert(concept.id);
                     }
                 }
                 for concept in &concepts {
@@ -36876,8 +37405,8 @@ async fn apply_shard_skos_components_tx(
                 "Knowledge shard SKOS relations are invalid.",
             )?
             .collect::<Result<Vec<_>, _>>()?;
-            // Seed inferred reciprocal rows before explicit source rows so the
-            // database trigger cannot replace portable relation identities.
+            // Preserve stable inferred-first order. Restore guards prevent native
+            // authoring triggers from synthesizing undeclared reciprocal rows.
             relations.sort_by_key(|relation| !relation.is_inferred);
             for relation in relations {
                 if opts.dry_run {
@@ -37181,7 +37710,8 @@ async fn apply_shard_skos_components_tx(
     }
 
     // Relationship and note-tag triggers update denormalized counters.
-    // Restore the source concept snapshot after dependent rows are complete.
+    // Restore only applied concepts after dependent rows are complete; skipped
+    // conflicts retain their destination status and denormalized snapshot.
     if should_import("skos_concepts") && !opts.dry_run {
         if let Some(data) = files.get("skos_concepts.json") {
             let concepts =
@@ -37189,6 +37719,9 @@ async fn apply_shard_skos_components_tx(
                     shard_validation_failed("Knowledge shard SKOS concepts are invalid.")
                 })?;
             for concept in concepts {
+                if !restored_concepts.contains(&concept.id) {
+                    continue;
+                }
                 sqlx::query(
                     "UPDATE skos_concept
                      SET note_count = $2,
@@ -37249,6 +37782,29 @@ async fn apply_shard_skos_components_tx(
     Ok(())
 }
 
+async fn guard_shard_community_omission_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    set_id: &str,
+    child_ids: &[String],
+) -> Result<(), ApiError> {
+    let referenced = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS (
+        SELECT 1 FROM community_assignment WHERE community_set_id = $1
+          AND NOT (community_id = ANY($2::text[])))",
+    )
+    .bind(set_id)
+    .bind(child_ids)
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|error| shard_operation_failed("check retained community assignments", error))?;
+    if referenced {
+        return Err(shard_validation_failed(
+            "Omitted communities are referenced by retained assignments.",
+        ));
+    }
+    Ok(())
+}
+
 async fn apply_shard_graph_components_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     files: &std::collections::HashMap<String, Vec<u8>>,
@@ -37259,21 +37815,103 @@ async fn apply_shard_graph_components_tx(
 ) -> Result<(), ApiError> {
     let should_import = |component: &str| selected_components.contains(component);
     let replace = matches!(opts.on_conflict, ConflictStrategy::Replace);
-    let complete_family = [
-        "graph_sources",
-        "graph_edges",
-        "communities",
-        "community_assignments",
-    ]
-    .into_iter()
-    .all(should_import);
-
-    if replace && complete_family && !opts.dry_run {
-        sqlx::query("DELETE FROM graph_source")
+    // Sources and sets are independent identities, not a whole-destination
+    // snapshot. Replace only children of owners declared by this selection.
+    if replace && should_import("communities") && !should_import("community_assignments") {
+        if let Some(data) = files.get("communities.json") {
+            let sets =
+                serde_json::from_slice::<Vec<ShardCommunitySetRecord>>(data).map_err(|_| {
+                    shard_validation_failed("Knowledge shard community sets are invalid.")
+                })?;
+            for set in sets {
+                let child_ids = set
+                    .communities
+                    .into_iter()
+                    .map(|child| child.id)
+                    .collect::<Vec<_>>();
+                guard_shard_community_omission_tx(tx, &set.id, &child_ids).await?;
+            }
+        }
+    }
+    if replace && !opts.dry_run && should_import("graph_sources") && should_import("graph_edges") {
+        if let Some(data) = files.get("graph_sources.json") {
+            let sources: Vec<ShardGraphSourceRecord> =
+                serde_json::from_slice(data).map_err(|_| {
+                    shard_validation_failed("Knowledge shard graph sources are invalid.")
+                })?;
+            let ids: Vec<_> = sources.into_iter().map(|source| source.id).collect();
+            let mut edge_sources = Vec::new();
+            let mut edge_from = Vec::new();
+            let mut edge_to = Vec::new();
+            let mut edge_kinds = Vec::new();
+            if let Some(data) = files.get("graph_edges.jsonl") {
+                for edge in shard_jsonl_records::<ShardGraphEdgeRecord>(
+                    data,
+                    "Knowledge shard graph edges are invalid.",
+                )? {
+                    let edge = edge?;
+                    edge_sources.push(edge.graph_source_id);
+                    edge_from.push(edge.from_note_id);
+                    edge_to.push(edge.to_note_id);
+                    edge_kinds.push(edge.kind);
+                }
+            }
+            sqlx::query(
+                "DELETE FROM graph_edge_artifact existing
+                WHERE existing.graph_source_id = ANY($1::text[]) AND NOT EXISTS (
+                    SELECT 1 FROM UNNEST($2::text[], $3::uuid[], $4::uuid[], $5::text[])
+                        incoming(source_id, from_id, to_id, kind)
+                    WHERE incoming.source_id = existing.graph_source_id
+                      AND incoming.from_id = existing.from_note_id
+                      AND incoming.to_id = existing.to_note_id AND incoming.kind = existing.kind)",
+            )
+            .bind(ids)
+            .bind(edge_sources)
+            .bind(edge_from)
+            .bind(edge_to)
+            .bind(edge_kinds)
             .execute(&mut **tx)
             .await
-            .map_err(|error| shard_operation_failed("replace imported graph artifacts", error))?;
+            .map_err(|error| shard_operation_failed("replace selected graph edges", error))?;
+        }
     }
+    if replace
+        && !opts.dry_run
+        && should_import("communities")
+        && should_import("community_assignments")
+    {
+        if let Some(data) = files.get("communities.json") {
+            let set_ids = serde_json::from_slice::<Vec<ShardCommunitySetRecord>>(data)
+                .map_err(|_| {
+                    shard_validation_failed("Knowledge shard community sets are invalid.")
+                })?
+                .into_iter()
+                .map(|set| set.id)
+                .collect::<Vec<_>>();
+            let mut assignment_sets = Vec::new();
+            let mut assignment_notes = Vec::new();
+            if let Some(data) = files.get("community_assignments.jsonl") {
+                for assignment in shard_jsonl_records::<ShardCommunityAssignmentRecord>(
+                    data,
+                    "Knowledge shard community assignments are invalid.",
+                )? {
+                    let assignment = assignment?;
+                    assignment_sets.push(assignment.community_set_id);
+                    assignment_notes.push(assignment.note_id);
+                }
+            }
+            sqlx::query("DELETE FROM community_assignment existing
+                WHERE existing.community_set_id = ANY($1::text[]) AND NOT EXISTS (
+                    SELECT 1 FROM UNNEST($2::text[], $3::uuid[]) incoming(set_id, note_id)
+                    WHERE incoming.set_id = existing.community_set_id AND incoming.note_id = existing.note_id)")
+                .bind(set_ids).bind(assignment_sets).bind(assignment_notes)
+                .execute(&mut **tx).await
+                .map_err(|error| shard_operation_failed("replace selected community assignments", error))?;
+        }
+    }
+    let mut skipped_source_ids = std::collections::HashSet::new();
+    let mut skipped_set_ids = std::collections::HashSet::new();
+    let mut replaced_community_children = Vec::new();
 
     if should_import("graph_sources") {
         if let Some(data) = files.get("graph_sources.json") {
@@ -37316,7 +37954,7 @@ async fn apply_shard_graph_components_tx(
                      )
                      {conflict}"
                 ))
-                .bind(source.id)
+                .bind(&source.id)
                 .bind(source.name)
                 .bind(source.kind)
                 .bind(source.source_table)
@@ -37336,6 +37974,9 @@ async fn apply_shard_graph_components_tx(
                 .map_err(|error| shard_operation_failed("apply graph source import", error))?;
                 if result.rows_affected() == 0 {
                     skipped.graph_sources += 1;
+                    if matches!(opts.on_conflict, ConflictStrategy::Skip) {
+                        skipped_source_ids.insert(source.id);
+                    }
                 } else {
                     imported.graph_sources += 1;
                 }
@@ -37351,6 +37992,10 @@ async fn apply_shard_graph_components_tx(
             )?;
             for edge in edges {
                 let edge = edge?;
+                if skipped_source_ids.contains(&edge.graph_source_id) {
+                    skipped.graph_edges += 1;
+                    continue;
+                }
                 if opts.dry_run {
                     imported.graph_edges += 1;
                     continue;
@@ -37441,8 +38086,22 @@ async fn apply_shard_graph_components_tx(
                 .map_err(|error| shard_operation_failed("apply community set import", error))?;
                 if result.rows_affected() == 0 {
                     skipped.community_sets += 1;
+                    if matches!(opts.on_conflict, ConflictStrategy::Skip) {
+                        skipped_set_ids.insert(set.id);
+                        skipped.communities += set.communities.len();
+                        continue;
+                    }
                 } else {
                     imported.community_sets += 1;
+                }
+
+                if replace {
+                    let ids: Vec<_> = set
+                        .communities
+                        .iter()
+                        .map(|community| community.id.clone())
+                        .collect();
+                    replaced_community_children.push((set.id.clone(), ids));
                 }
 
                 for community in set.communities {
@@ -37495,6 +38154,10 @@ async fn apply_shard_graph_components_tx(
             )?;
             for assignment in assignments {
                 let assignment = assignment?;
+                if skipped_set_ids.contains(&assignment.community_set_id) {
+                    skipped.community_assignments += 1;
+                    continue;
+                }
                 if opts.dry_run {
                     imported.community_assignments += 1;
                     continue;
@@ -37537,6 +38200,171 @@ async fn apply_shard_graph_components_tx(
         }
     }
 
+    // Retained assignments may move away from omitted children. Reconcile only
+    // after their updates, and never cascade through assignments left in place.
+    for (set_id, child_ids) in replaced_community_children {
+        guard_shard_community_omission_tx(tx, &set_id, &child_ids).await?;
+        sqlx::query(
+            "DELETE FROM community WHERE community_set_id = $1 AND NOT (id = ANY($2::text[]))",
+        )
+        .bind(set_id)
+        .bind(child_ids)
+        .execute(&mut **tx)
+        .await
+        .map_err(|error| shard_operation_failed("replace selected communities", error))?;
+    }
+
+    Ok(())
+}
+
+async fn guard_shard_shared_config_replacement(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    config: &ShardEmbeddingConfigRecord,
+) -> Result<(), ApiError> {
+    let incoming = serde_json::to_value(config)
+        .map_err(|error| shard_operation_failed("serialize shared config comparison", error))?;
+    // Compare PostgreSQL values, so equivalent timestamp offsets and JSON key
+    // order do not turn identical shared identity reuse into a conflict. The
+    // row lock also serializes competing config writes and new FK references.
+    let changes = sqlx::query_scalar::<_, bool>(
+        "SELECT to_jsonb(c) IS DISTINCT FROM to_jsonb(jsonb_populate_record(c, $2::jsonb))
+         FROM embedding_config c WHERE id = $1 FOR UPDATE",
+    )
+    .bind(config.id)
+    .bind(incoming)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|error| shard_operation_failed("compare existing shared config", error))?;
+    if changes != Some(true) {
+        return Ok(());
+    }
+    let schemas = sqlx::query_scalar::<_, String>(
+        "SELECT schema_name FROM (
+            SELECT 'public'::text AS schema_name
+            UNION SELECT schema_name FROM public.archive_registry
+            WHERE tenant_id = current_setting('app.current_tenant')::uuid
+         ) s WHERE schema_name <> current_schema() ORDER BY schema_name",
+    )
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| shard_operation_failed("read shared config owners", error))?;
+    for schema in schemas {
+        matric_db::validate_schema_name(&schema)
+            .map_err(|error| shard_operation_failed("validate config owner schema", error))?;
+        let used = sqlx::query_scalar::<_, bool>(&format!(
+            "SELECT EXISTS (SELECT 1 FROM \"{schema}\".shard_embedding_config_declaration
+                WHERE config_id = $1 AND tenant_id = current_setting('app.current_tenant')::uuid)
+             OR EXISTS (SELECT 1 FROM \"{schema}\".embedding_set
+                WHERE embedding_config_id = $1 AND tenant_id = current_setting('app.current_tenant')::uuid)",
+        ))
+        .bind(config.id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(|error| shard_operation_failed("check shared config references", error))?;
+        if used {
+            return Err(shard_validation_failed(
+                "Knowledge shard configuration conflicts with another archive's live state.",
+            ));
+        }
+    }
+    Ok(())
+}
+
+async fn adopt_shard_embedding_set_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    set_id: Uuid,
+) -> Result<(), ApiError> {
+    sqlx::query("SELECT id FROM embedding_set WHERE id = $1 FOR UPDATE")
+        .bind(set_id)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|error| shard_operation_failed("lock declared embedding set", error))?;
+    sqlx::query(
+        "WITH adopted AS (
+        DELETE FROM shard_embedding_set_bootstrap WHERE set_id = $1 RETURNING tenant_id, set_id
+        ) UPDATE embedding_set s SET shard_export_present = TRUE FROM adopted a
+          WHERE s.tenant_id = a.tenant_id AND s.id = a.set_id",
+    )
+    .bind(set_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(|error| shard_operation_failed("adopt declared embedding set", error))?;
+    Ok(())
+}
+
+async fn prepare_shard_embedding_set_replacement_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    sets: &[ShardEmbeddingSetRecord],
+    dry_run: bool,
+) -> Result<(), ApiError> {
+    let selected = sets
+        .iter()
+        .map(|set| (set.id, set))
+        .collect::<std::collections::HashMap<_, _>>();
+    let ids = sets.iter().map(|set| set.id).collect::<Vec<_>>();
+    let names = sets.iter().map(|set| set.name.as_str()).collect::<Vec<_>>();
+    let slugs = sets.iter().map(|set| set.slug.as_str()).collect::<Vec<_>>();
+    // Lock the complete batch before checking custody or freeing unique keys.
+    // Selected identities can exchange keys; unselected live identities cannot.
+    let existing = sqlx::query_as::<_, (Uuid, String, String)>(
+        "SELECT id, name, slug FROM embedding_set
+         WHERE id = ANY($1::uuid[]) OR name = ANY($2::text[]) OR slug = ANY($3::text[])
+         ORDER BY id FOR UPDATE",
+    )
+    .bind(&ids)
+    .bind(&names)
+    .bind(&slugs)
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|error| shard_operation_failed("lock embedding set name conflicts", error))?;
+    let mut conflicts = Vec::new();
+    for (id, _, _) in &existing {
+        if selected.contains_key(id) {
+            continue;
+        }
+        let disposable: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM shard_embedding_set_bootstrap WHERE set_id = $1)
+             AND NOT EXISTS(SELECT 1 FROM embedding WHERE embedding_set_id = $1)
+             AND NOT EXISTS(SELECT 1 FROM embedding_coarse WHERE embedding_set_id = $1)
+             AND NOT EXISTS(SELECT 1 FROM attachment_embedding WHERE embedding_set_id = $1)",
+        )
+        .bind(id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(|error| shard_operation_failed("check embedding set creation custody", error))?;
+        if !disposable {
+            return Err(shard_validation_failed(
+                "Knowledge shard embedding set conflicts with an existing live identity.",
+            ));
+        }
+        conflicts.push(*id);
+    }
+    if dry_run {
+        return Ok(());
+    }
+    sqlx::query("DELETE FROM embedding_set WHERE id = ANY($1::uuid[])")
+        .bind(conflicts)
+        .execute(&mut **tx)
+        .await
+        .map_err(|error| shard_operation_failed("replace conflicting embedding set", error))?;
+    for (id, name, slug) in existing {
+        if let Some(set) = selected.get(&id) {
+            if name == set.name && slug == set.slug {
+                continue;
+            }
+            // Immediate unique constraints require a temporary key for cycles.
+            // Any collision or later apply failure aborts the same transaction.
+            let temporary = format!("shard-restore-{}", Uuid::new_v4().simple());
+            sqlx::query("UPDATE embedding_set SET name = $2, slug = $2 WHERE id = $1")
+                .bind(id)
+                .bind(temporary)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| {
+                    shard_operation_failed("stage selected embedding set names", error)
+                })?;
+        }
+    }
     Ok(())
 }
 
@@ -37551,13 +38379,23 @@ async fn apply_shard_embedding_components_tx(
     let should_import = |component: &str| selected_components.contains(component);
     let replace = matches!(opts.on_conflict, ConflictStrategy::Replace);
 
+    let mut adopted_sets = std::collections::HashSet::new();
+    sqlx::query("SELECT set_config('app.shard_import', 'on', true)")
+        .execute(&mut **tx)
+        .await
+        .map_err(|error| shard_operation_failed("set embedding restore context", error))?;
+
     if should_import("embedding_configs") {
         if let Some(data) = files.get("embedding_configs.json") {
-            for config in
-                serde_json::from_slice::<Vec<ShardEmbeddingConfigRecord>>(data).map_err(|_| {
+            let mut configs = serde_json::from_slice::<Vec<ShardEmbeddingConfigRecord>>(data)
+                .map_err(|_| {
                     shard_validation_failed("Knowledge shard embedding configs are invalid.")
-                })?
-            {
+                })?;
+            configs.sort_by_key(|config| config.id);
+            for config in configs {
+                if replace {
+                    guard_shard_shared_config_replacement(tx, &config).await?;
+                }
                 if opts.dry_run {
                     imported.embedding_configs += 1;
                     continue;
@@ -37604,8 +38442,7 @@ async fn apply_shard_embedding_components_tx(
                              is_available = EXCLUDED.is_available,
                              document_composition = EXCLUDED.document_composition,
                              created_at = EXCLUDED.created_at,
-                             updated_at = EXCLUDED.updated_at,
-                             shard_export_present = TRUE",
+                             updated_at = EXCLUDED.updated_at",
                     )
                 } else {
                     sqlx::query(
@@ -37656,6 +38493,19 @@ async fn apply_shard_embedding_components_tx(
                 .execute(&mut **tx)
                 .await
                 .map_err(|error| shard_operation_failed("apply embedding config import", error))?;
+                // A shared live identity may already exist even when this
+                // archive has never declared it (including skip/merge imports).
+                sqlx::query(
+                    "INSERT INTO shard_embedding_config_declaration (tenant_id, config_id)
+                     SELECT tenant_id, id FROM embedding_config WHERE id = $1
+                     ON CONFLICT (tenant_id, config_id) DO NOTHING",
+                )
+                .bind(config.id)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| {
+                    shard_operation_failed("declare imported embedding config", error)
+                })?;
                 if result.rows_affected() == 0 {
                     skipped.embedding_configs += 1;
                 } else {
@@ -37667,29 +38517,18 @@ async fn apply_shard_embedding_components_tx(
 
     if should_import("embedding_sets") {
         if let Some(data) = files.get("embedding_sets.json") {
-            for set in
+            let mut sets =
                 serde_json::from_slice::<Vec<ShardEmbeddingSetRecord>>(data).map_err(|_| {
                     shard_validation_failed("Knowledge shard embedding sets are invalid.")
-                })?
-            {
+                })?;
+            sets.sort_by_key(|set| set.id);
+            if replace {
+                prepare_shard_embedding_set_replacement_tx(tx, &sets, opts.dry_run).await?;
+            }
+            for set in sets {
                 if opts.dry_run {
                     imported.embedding_sets += 1;
                     continue;
-                }
-                if replace {
-                    sqlx::query(
-                        "DELETE FROM embedding_set
-                         WHERE id <> $1
-                           AND (name = $2 OR slug = $3)",
-                    )
-                    .bind(set.id)
-                    .bind(&set.name)
-                    .bind(&set.slug)
-                    .execute(&mut **tx)
-                    .await
-                    .map_err(|error| {
-                        shard_operation_failed("replace conflicting embedding set", error)
-                    })?;
                 }
                 let result = if replace {
                     sqlx::query(
@@ -37796,6 +38635,9 @@ async fn apply_shard_embedding_components_tx(
                 if result.rows_affected() == 0 {
                     skipped.embedding_sets += 1;
                 } else {
+                    if adopted_sets.insert(set.id) {
+                        adopt_shard_embedding_set_tx(tx, set.id).await?;
+                    }
                     imported.embedding_sets += 1;
                 }
             }
@@ -37804,11 +38646,53 @@ async fn apply_shard_embedding_components_tx(
 
     if should_import("embedding_set_members") {
         if let Some(data) = files.get("embedding_set_members.jsonl") {
-            let members = shard_jsonl_records::<ShardEmbeddingSetMemberRecord>(
+            // A shared set may be only a dependency of a scoped note export.
+            // Omission requires both endpoints selected; retain incoming coordinates.
+            if replace && !opts.dry_run && should_import("embedding_sets") {
+                if let Some(set_data) = files.get("embedding_sets.json") {
+                    let (note_ids, _) = selected_shard_note_owner_ids(files, selected_components)?;
+                    let set_ids = serde_json::from_slice::<Vec<ShardEmbeddingSetRecord>>(set_data)
+                        .map_err(|_| {
+                            shard_validation_failed("Knowledge shard embedding sets are invalid.")
+                        })?
+                        .into_iter()
+                        .map(|set| set.id)
+                        .collect::<Vec<_>>();
+                    let mut member_sets = Vec::new();
+                    let mut member_notes = Vec::new();
+                    for member in shard_jsonl_records::<ShardEmbeddingSetMemberRecord>(
+                        data,
+                        "Knowledge shard embedding set members are invalid.",
+                    )? {
+                        let member = member?;
+                        member_sets.push(member.embedding_set_id);
+                        member_notes.push(member.note_id);
+                    }
+                    sqlx::query(
+                        "DELETE FROM embedding_set_member existing
+                         WHERE existing.embedding_set_id = ANY($1::uuid[])
+                           AND existing.note_id = ANY($4::uuid[])
+                           AND NOT EXISTS (
+                             SELECT 1 FROM UNNEST($2::uuid[], $3::uuid[]) incoming(set_id, note_id)
+                             WHERE incoming.set_id = existing.embedding_set_id
+                               AND incoming.note_id = existing.note_id
+                           )",
+                    )
+                    .bind(set_ids)
+                    .bind(member_sets)
+                    .bind(member_notes)
+                    .bind(note_ids)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|error| {
+                        shard_operation_failed("reconcile selected embedding set members", error)
+                    })?;
+                }
+            }
+            for member in shard_jsonl_records::<ShardEmbeddingSetMemberRecord>(
                 data,
                 "Knowledge shard embedding set members are invalid.",
-            )?;
-            for member in members {
+            )? {
                 let member = member?;
                 if opts.dry_run {
                     imported.embedding_set_members += 1;
@@ -37848,6 +38732,9 @@ async fn apply_shard_embedding_components_tx(
                 if result.rows_affected() == 0 {
                     skipped.embedding_set_members += 1;
                 } else {
+                    if adopted_sets.insert(member.embedding_set_id) {
+                        adopt_shard_embedding_set_tx(tx, member.embedding_set_id).await?;
+                    }
                     imported.embedding_set_members += 1;
                 }
             }
@@ -37858,47 +38745,162 @@ async fn apply_shard_embedding_components_tx(
         if let Some(data) = files.get("embeddings.jsonl") {
             let embeddings = parse_shard_component_records("embeddings", data)
                 .map_err(|_| shard_validation_failed("Knowledge shard embeddings are invalid."))?;
-            for embedding_value in embeddings {
-                let contract_fingerprint_present = embedding_value
-                    .as_object()
-                    .is_some_and(|record| record.contains_key("contract_fingerprint"));
-                let mut embedding = serde_json::from_value::<ShardEmbeddingRecord>(embedding_value)
-                    .map_err(|_| {
-                        shard_validation_failed("Knowledge shard embeddings are invalid.")
+            let embeddings = embeddings
+                .into_iter()
+                .map(|value| {
+                    let present = value
+                        .as_object()
+                        .is_some_and(|record| record.contains_key("contract_fingerprint"));
+                    let mut embedding = serde_json::from_value::<ShardEmbeddingRecord>(value)
+                        .map_err(|_| {
+                            shard_validation_failed("Knowledge shard embeddings are invalid.")
+                        })?;
+                    embedding.contract_fingerprint_present = present;
+                    Ok(embedding)
+                })
+                .collect::<Result<Vec<_>, ApiError>>()?;
+            if replace {
+                let (note_ids, _) = selected_shard_note_owner_ids(files, selected_components)?;
+                let set_ids = if should_import("embedding_sets") {
+                    files
+                        .get("embedding_sets.json")
+                        .map(|data| {
+                            serde_json::from_slice::<Vec<ShardEmbeddingSetRecord>>(data)
+                                .map(|sets| sets.into_iter().map(|set| set.id).collect::<Vec<_>>())
+                        })
+                        .transpose()
+                        .map_err(|_| {
+                            shard_validation_failed("Knowledge shard embedding sets are invalid.")
+                        })?
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                };
+                let retained = embeddings.iter().map(|row| row.id).collect::<Vec<_>>();
+                let incoming_notes = embeddings.iter().map(|row| row.note_id).collect::<Vec<_>>();
+                let incoming_sets = embeddings
+                    .iter()
+                    .map(|row| row.embedding_set_id)
+                    .collect::<Vec<_>>();
+                let incoming_chunks = embeddings
+                    .iter()
+                    .map(|row| row.chunk_index)
+                    .collect::<Vec<_>>();
+                if !opts.dry_run {
+                    sqlx::query_scalar::<_, Uuid>("SELECT existing.id FROM embedding existing
+                        WHERE existing.id = ANY($1::uuid[]) OR EXISTS (
+                            SELECT 1 FROM unnest($2::uuid[], $3::uuid[], $4::integer[])
+                                incoming(note_id, embedding_set_id, chunk_index)
+                            WHERE (existing.note_id, existing.embedding_set_id, existing.chunk_index)
+                                = (incoming.note_id, incoming.embedding_set_id, incoming.chunk_index))
+                        ORDER BY existing.id FOR UPDATE")
+                        .bind(&retained).bind(&incoming_notes).bind(&incoming_sets).bind(&incoming_chunks)
+                        .fetch_all(&mut **tx).await.map_err(|error| {
+                            shard_operation_failed("lock selected embedding coordinates", error)
+                        })?;
+                }
+                // Existing selected IDs may vacate their keys; selected-owner omissions
+                // may remove other occupants. Neither applies to unselected live rows.
+                let collision = sqlx::query_scalar::<_, bool>(
+                    "SELECT EXISTS (
+                    SELECT 1 FROM embedding existing
+                    JOIN unnest($1::uuid[], $2::uuid[], $3::integer[])
+                        incoming(note_id, embedding_set_id, chunk_index)
+                      ON (existing.note_id, existing.embedding_set_id, existing.chunk_index)
+                        = (incoming.note_id, incoming.embedding_set_id, incoming.chunk_index)
+                    WHERE NOT (existing.id = ANY($4::uuid[]))
+                      AND NOT (existing.note_id = ANY($5::uuid[])
+                        AND existing.embedding_set_id = ANY($6::uuid[])))",
+                )
+                .bind(&incoming_notes)
+                .bind(&incoming_sets)
+                .bind(&incoming_chunks)
+                .bind(&retained)
+                .bind(&note_ids)
+                .bind(&set_ids)
+                .fetch_one(&mut **tx)
+                .await
+                .map_err(|error| {
+                    shard_operation_failed("preview selected embedding coordinates", error)
+                })?;
+                if collision {
+                    return Err(shard_validation_failed("Knowledge shard embedding coordinates conflict with unselected live state."));
+                }
+                if !opts.dry_run {
+                    // Tokens belong to their note; a moved vector cannot retain a
+                    // chunk association to tokens owned by a different note.
+                    sqlx::query(
+                        "UPDATE note_token_embeddings token SET chunk_id = NULL
+                        FROM unnest($1::uuid[], $2::uuid[]) incoming(id, note_id)
+                        WHERE token.chunk_id = incoming.id
+                          AND token.note_id IS DISTINCT FROM incoming.note_id",
+                    )
+                    .bind(&retained)
+                    .bind(&incoming_notes)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|error| {
+                        shard_operation_failed("detach reparented vector token references", error)
                     })?;
-                embedding.contract_fingerprint_present = contract_fingerprint_present;
+                    // Null endpoints and excluded sets/notes are independent of this omission scope.
+                    sqlx::query(
+                        "DELETE FROM embedding WHERE note_id = ANY($1::uuid[])
+                    AND embedding_set_id = ANY($2::uuid[]) AND NOT (id = ANY($3::uuid[]))",
+                    )
+                    .bind(note_ids)
+                    .bind(set_ids)
+                    .bind(&retained)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|error| {
+                        shard_operation_failed("reconcile selected embedding omissions", error)
+                    })?;
+                    // Vacate changed incoming coordinates without deleting identities or references.
+                    // Null set coordinates preserve the immediate uniqueness constraint during swaps.
+                    sqlx::query("UPDATE embedding existing SET embedding_set_id = NULL
+                    FROM unnest($1::uuid[], $2::uuid[], $3::uuid[], $4::integer[])
+                      AS incoming(id, note_id, embedding_set_id, chunk_index)
+                    WHERE existing.id = incoming.id AND existing.embedding_set_id IS NOT NULL
+                      AND (existing.note_id, existing.embedding_set_id, existing.chunk_index)
+                        IS DISTINCT FROM (incoming.note_id, incoming.embedding_set_id, incoming.chunk_index)")
+                    .bind(&retained)
+                    .bind(embeddings.iter().map(|row| row.note_id).collect::<Vec<_>>())
+                    .bind(embeddings.iter().map(|row| row.embedding_set_id).collect::<Vec<_>>())
+                    .bind(embeddings.iter().map(|row| row.chunk_index).collect::<Vec<_>>())
+                    .execute(&mut **tx).await.map_err(|error| {
+                        shard_operation_failed("stage selected embedding coordinates", error)
+                    })?;
+                }
+            }
+            for embedding in embeddings {
                 if opts.dry_run {
                     imported.embeddings += 1;
                     continue;
                 }
-                if replace {
-                    sqlx::query(
-                        "DELETE FROM embedding
-                         WHERE id = $1
-                            OR (
-                                $2::uuid IS NOT NULL
-                                AND $3::uuid IS NOT NULL
-                                AND note_id = $2
-                                AND embedding_set_id = $3
-                                AND chunk_index = $4
-                            )",
-                    )
-                    .bind(embedding.id)
-                    .bind(embedding.note_id)
-                    .bind(embedding.embedding_set_id)
-                    .bind(embedding.chunk_index)
-                    .execute(&mut **tx)
-                    .await
-                    .map_err(|error| shard_operation_failed("replace imported embedding", error))?;
-                }
                 let vector = embedding.vector.map(pgvector::Vector::from);
-                let result = sqlx::query(
-                    "INSERT INTO embedding
+                let result = if replace {
+                    sqlx::query(
+                        "INSERT INTO embedding
+                         (id, note_id, embedding_set_id, chunk_index, text, vector, model,
+                          contract_fingerprint, shard_contract_fingerprint_present, created_at)
+                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                         ON CONFLICT (id) DO UPDATE SET
+                            note_id = EXCLUDED.note_id, embedding_set_id = EXCLUDED.embedding_set_id,
+                            chunk_index = EXCLUDED.chunk_index, text = EXCLUDED.text,
+                            vector = EXCLUDED.vector, model = EXCLUDED.model,
+                            contract_fingerprint = EXCLUDED.contract_fingerprint,
+                            shard_contract_fingerprint_present = EXCLUDED.shard_contract_fingerprint_present,
+                            created_at = EXCLUDED.created_at",
+                    )
+                } else {
+                    sqlx::query(
+                        "INSERT INTO embedding
                      (id, note_id, embedding_set_id, chunk_index, text, vector, model,
                       contract_fingerprint, shard_contract_fingerprint_present, created_at)
                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                      ON CONFLICT DO NOTHING",
-                )
+                    )
+                }
                 .bind(embedding.id)
                 .bind(embedding.note_id)
                 .bind(embedding.embedding_set_id)
@@ -37915,6 +38917,11 @@ async fn apply_shard_embedding_components_tx(
                 if result.rows_affected() == 0 {
                     skipped.embeddings += 1;
                 } else {
+                    if let Some(set_id) = embedding.embedding_set_id {
+                        if adopted_sets.insert(set_id) {
+                            adopt_shard_embedding_set_tx(tx, set_id).await?;
+                        }
+                    }
                     imported.embeddings += 1;
                 }
             }
@@ -37970,9 +38977,201 @@ struct ValidatedShardApplyPolicy {
     sidecar_journal_id: Option<Uuid>,
 }
 
+async fn select_shard_owner_children_for_skip_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    files: &mut std::collections::HashMap<String, Vec<u8>>,
+    selected_components: &std::collections::HashSet<String>,
+    skipped: &mut ShardImportCounts,
+) -> Result<(), ApiError> {
+    let record_uuid = |record: &serde_json::Value, field: &str| {
+        record
+            .get(field)
+            .and_then(serde_json::Value::as_str)
+            .and_then(|value| Uuid::parse_str(value).ok())
+    };
+    let mut owners = std::collections::HashMap::new();
+    for (component, table) in [
+        ("notes", "note"),
+        ("note_revisions", "note_revision"),
+        ("skos_concepts", "skos_concept"),
+        ("skos_collections", "skos_collection"),
+    ] {
+        let mut existing = std::collections::HashSet::<Uuid>::new();
+        if selected_components.contains(component) {
+            if let Some(data) = files.get(shard_component_filename(component).unwrap()) {
+                let records = parse_shard_component_records(component, data).map_err(|_| {
+                    shard_validation_failed("Knowledge shard owner records are invalid.")
+                })?;
+                let ids = records
+                    .iter()
+                    .map(|row| {
+                        record_uuid(row, "id").ok_or_else(|| {
+                            shard_validation_failed("Knowledge shard owner identity is invalid.")
+                        })
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                existing.extend(
+                    sqlx::query_scalar::<_, Uuid>(&format!(
+                        "SELECT id FROM {table} WHERE id = ANY($1::uuid[])"
+                    ))
+                    .bind(&ids)
+                    .fetch_all(&mut **tx)
+                    .await
+                    .map_err(|error| {
+                        shard_operation_failed("select skipped shard owners", error)
+                    })?,
+                );
+            }
+        }
+        owners.insert(component, existing);
+    }
+    let notes = &owners["notes"];
+    let concepts = &owners["skos_concepts"];
+    let collections = &owners["skos_collections"];
+    let mut revisions = owners["note_revisions"].clone();
+    if selected_components.contains("note_revisions") {
+        if let Some(data) = files.get("note_revisions.jsonl") {
+            for record in parse_shard_component_records("note_revisions", data)
+                .map_err(|_| shard_validation_failed("Knowledge shard revisions are invalid."))?
+            {
+                if record_uuid(&record, "note_id").is_some_and(|id| notes.contains(&id)) {
+                    if let Some(id) = record_uuid(&record, "id") {
+                        revisions.insert(id);
+                    }
+                }
+            }
+        }
+    }
+    let mut attachments = std::collections::HashSet::new();
+    if let Some(data) = files.get("notes.jsonl") {
+        for note in
+            shard_jsonl_records::<ShardNoteRecord>(data, "Knowledge shard notes are invalid.")?
+        {
+            let note = note?;
+            if notes.contains(&note.id) {
+                attachments.extend(note.attachments.into_iter().map(|a| a.attachment.id));
+            }
+        }
+    }
+
+    // These fields are ownership, not arbitrary reference endpoints. Independent
+    // roots may still reference skipped notes, concepts, collections or sets.
+    for (component, fields, count) in [
+        (
+            "note_originals",
+            vec![("note_id", notes)],
+            &mut skipped.note_originals,
+        ),
+        (
+            "note_original_history",
+            vec![("note_id", notes)],
+            &mut skipped.note_original_history,
+        ),
+        (
+            "note_revisions",
+            vec![("note_id", notes)],
+            &mut skipped.note_revisions,
+        ),
+        (
+            "note_revised_current",
+            vec![("note_id", notes)],
+            &mut skipped.note_revised_current,
+        ),
+        ("links", vec![("from_note_id", notes)], &mut skipped.links),
+        (
+            "embeddings",
+            vec![("note_id", notes)],
+            &mut skipped.embeddings,
+        ),
+        (
+            "embedding_set_members",
+            vec![("note_id", notes)],
+            &mut skipped.embedding_set_members,
+        ),
+        (
+            "note_skos_tags",
+            vec![("note_id", notes)],
+            &mut skipped.note_skos_tags,
+        ),
+        (
+            "provenance_activities",
+            vec![("note_id", notes)],
+            &mut skipped.provenance_activities,
+        ),
+        (
+            "provenance_edges",
+            vec![("revision_id", &revisions)],
+            &mut skipped.provenance_edges,
+        ),
+        (
+            "provenance_records",
+            vec![("note_id", notes), ("attachment_id", &attachments)],
+            &mut skipped.provenance_records,
+        ),
+        (
+            "skos_labels",
+            vec![("concept_id", concepts)],
+            &mut skipped.skos_labels,
+        ),
+        (
+            "skos_notes",
+            vec![("concept_id", concepts)],
+            &mut skipped.skos_notes,
+        ),
+        (
+            "skos_relations",
+            vec![("subject_id", concepts)],
+            &mut skipped.skos_relations,
+        ),
+        (
+            "skos_mapping_relations",
+            vec![("concept_id", concepts)],
+            &mut skipped.skos_mapping_relations,
+        ),
+        (
+            "skos_scheme_memberships",
+            vec![("concept_id", concepts)],
+            &mut skipped.skos_scheme_memberships,
+        ),
+        (
+            "skos_collection_members",
+            vec![("collection_id", collections)],
+            &mut skipped.skos_collection_members,
+        ),
+    ] {
+        if !selected_components.contains(component) {
+            continue;
+        }
+        let filename = shard_component_filename(component).unwrap();
+        if let Some(data) = files.get(filename) {
+            let mut records = parse_shard_component_records(component, data).map_err(|_| {
+                shard_validation_failed("Knowledge shard child records are invalid.")
+            })?;
+            let before = records.len();
+            records.retain(|row| {
+                !fields
+                    .iter()
+                    .any(|(field, ids)| record_uuid(row, field).is_some_and(|id| ids.contains(&id)))
+            });
+            if records.len() != before {
+                *count += before - records.len();
+                let mut selected = Vec::new();
+                for record in records {
+                    serde_json::to_writer(&mut selected, &record).map_err(|error| {
+                        shard_operation_failed("encode selected shard child", error)
+                    })?;
+                    selected.push(b'\n');
+                }
+                files.insert(filename.to_string(), selected);
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn apply_validated_shard_components(
     state: &AppState,
-    files: &std::collections::HashMap<String, Vec<u8>>,
+    mut files: std::collections::HashMap<String, Vec<u8>>,
     selected_components: &std::collections::HashSet<String>,
     opts: &ShardImportOptions,
     schema: &str,
@@ -38000,7 +39199,15 @@ async fn apply_validated_shard_components(
     let mut bypassed_attachments = 0usize;
     let mut reference_blob_cleanup_candidates = Vec::new();
     let mut used_staged_blobs = std::collections::HashSet::new();
+    let mut applied_note_ids = Vec::new();
+    let mut created_note_ids = Vec::new();
+    let mut applied_collection_ids = std::collections::HashSet::new();
     let should_import = |component: &str| selected_components.contains(component);
+
+    sqlx::query("SELECT set_config('app.shard_import', 'on', true)")
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| shard_operation_failed("set validated restore context", error))?;
 
     if policy.wipe_before_apply && !opts.dry_run {
         for (component, statement, context) in [
@@ -38076,8 +39283,8 @@ async fn apply_validated_shard_components(
             ),
             (
                 "embedding_configs",
-                "DELETE FROM embedding_config",
-                "wipe embedding configs before knowledge shard import",
+                "DELETE FROM shard_embedding_config_declaration",
+                "wipe archive-local embedding config declarations before knowledge shard import",
             ),
         ] {
             if should_import(component) {
@@ -38115,6 +39322,69 @@ async fn apply_validated_shard_components(
                 .await
                 .map_err(|error| shard_operation_failed(context, error))?;
         }
+    }
+
+    // Select after any explicit wipe, within the same transaction. The archive
+    // was fully validated earlier; only the apply plan loses skipped children.
+    if matches!(opts.on_conflict, ConflictStrategy::Skip) {
+        select_shard_owner_children_for_skip_tx(
+            &mut tx,
+            &mut files,
+            selected_components,
+            &mut skipped,
+        )
+        .await?;
+    }
+    let files = &files;
+
+    validate_shard_skos_relation_constraints_tx(
+        &mut tx,
+        files,
+        selected_components,
+        opts,
+        policy.wipe_before_apply,
+    )
+    .await?;
+
+    if policy.preserve_schema_2_component_presence
+        && matches!(opts.on_conflict, ConflictStrategy::Replace)
+        && !policy.wipe_before_apply
+        && should_import("notes")
+    {
+        if let Some(data) = files.get("notes.jsonl") {
+            let notes = parse_shard_component_records("notes", data)
+                .map_err(|_| shard_validation_failed("Knowledge shard notes are invalid."))?;
+            let conflict: bool = sqlx::query_scalar(
+                "WITH incoming AS (SELECT * FROM jsonb_to_recordset($1)
+                    AS n(id uuid, original_content text, revised_content text))
+                 SELECT EXISTS (SELECT 1 FROM incoming n
+                    JOIN note_original o ON o.note_id = n.id
+                    WHERE NOT $2 AND o.shard_export_present
+                      AND o.content IS DISTINCT FROM n.original_content)
+                 OR EXISTS (SELECT 1 FROM incoming n
+                    JOIN note_revised_current c ON c.note_id = n.id
+                    WHERE NOT $3 AND c.shard_export_present
+                      AND c.content IS DISTINCT FROM n.revised_content)",
+            )
+            .bind(serde_json::json!(notes))
+            .bind(should_import("note_originals"))
+            .bind(should_import("note_revised_current"))
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|error| shard_operation_failed("check retained note projections", error))?;
+            if conflict {
+                return Err(shard_validation_failed(
+                    "Knowledge shard note content conflicts with an unselected rich snapshot; select the corresponding note_originals or note_revised_current component.",
+                ));
+            }
+        }
+    }
+
+    if opts.dry_run
+        && matches!(opts.on_conflict, ConflictStrategy::Replace)
+        && !policy.wipe_before_apply
+    {
+        preview_shard_history_reference_conflicts_tx(&mut tx, files, selected_components).await?;
     }
 
     // Collections must exist before notes and templates can retain their
@@ -38168,6 +39438,7 @@ async fn apply_validated_shard_components(
                     skipped.collections += 1;
                 } else {
                     imported.collections += 1;
+                    applied_collection_ids.insert(collection.id);
                 }
             }
         }
@@ -38178,6 +39449,15 @@ async fn apply_validated_shard_components(
             let notes = parse_shard_component_records("notes", notes_data)
                 .map_err(|_| shard_validation_failed("Knowledge shard notes are invalid."))?;
             let notes_repo = matric_db::PgNoteRepository::new(state.db.pool.clone());
+            // Retained attachment IDs may move between selected note owners.
+            let retained_attachment_ids = notes
+                .iter()
+                .map(|value| serde_json::from_value::<ShardNoteRecord>(value.clone()))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|_| shard_validation_failed("Knowledge shard notes are invalid."))?
+                .into_iter()
+                .flat_map(|note| note.attachments.into_iter().map(|a| a.attachment.id))
+                .collect::<Vec<_>>();
             for note_value in notes {
                 let deleted_at_present = note_value
                     .as_object()
@@ -38211,12 +39491,17 @@ async fn apply_validated_shard_components(
                                 shard_operation_failed("list replaced note reference blobs", error)
                             })?;
                             reference_blob_cleanup_candidates.extend(replaced_reference_blobs);
-                            notes_repo
-                                .hard_delete_tx(&mut tx, note.id)
-                                .await
-                                .map_err(|error| {
-                                    shard_operation_failed("replace imported note", error)
-                                })?;
+                            sqlx::query(
+                                "DELETE FROM attachment WHERE note_id = $1
+                                 AND NOT (id = ANY($2::uuid[]))",
+                            )
+                            .bind(note.id)
+                            .bind(&retained_attachment_ids)
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(|error| {
+                                shard_operation_failed("reconcile imported note attachments", error)
+                            })?;
                         }
                         ConflictStrategy::Replace => {}
                     }
@@ -38228,6 +39513,7 @@ async fn apply_validated_shard_components(
                 }
 
                 let note_id = note.id;
+                let original_content = note.original_content.clone();
                 let req = CreateNoteRequest {
                     content: note.original_content,
                     format: note.format,
@@ -38238,10 +39524,24 @@ async fn apply_validated_shard_components(
                     document_type_id: None,
                     title: note.title,
                 };
-                notes_repo
-                    .restore_shard_note_tx(&mut tx, note_id, req)
-                    .await
-                    .map_err(|error| shard_operation_failed("insert imported note", error))?;
+                if exists {
+                    notes_repo
+                        .replace_shard_note_tx(
+                            &mut tx,
+                            note_id,
+                            req,
+                            policy.preserve_schema_2_component_presence,
+                        )
+                        .await
+                } else {
+                    notes_repo
+                        .restore_shard_note_tx(&mut tx, note_id, req)
+                        .await
+                }
+                .map_err(|error| shard_operation_failed("restore imported note", error))?;
+                if !exists {
+                    created_note_ids.push(note_id);
+                }
                 notes_repo
                     .update_status_tx(
                         &mut tx,
@@ -38256,7 +39556,31 @@ async fn apply_validated_shard_components(
                     .map_err(|error| {
                         shard_operation_failed("restore imported note status", error)
                     })?;
-                if policy.preserve_empty_revisions || !note.revised_content.is_empty() {
+                if policy.preserve_schema_2_component_presence {
+                    // Flat projections share required native rows with rich snapshots.
+                    // Preserve unchanged metadata/pointers and never author revision history.
+                    sqlx::query(
+                        "UPDATE note_original SET content = $2, hash = $3
+                        WHERE note_id = $1 AND content IS DISTINCT FROM $2",
+                    )
+                    .bind(note_id)
+                    .bind(&original_content)
+                    .bind(matric_db::compute_content_hash(original_content.as_bytes()))
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|error| {
+                        shard_operation_failed("restore original projection", error)
+                    })?;
+                    sqlx::query(
+                        "UPDATE note_revised_current SET content = $2, last_revision_id = NULL
+                        WHERE note_id = $1 AND content IS DISTINCT FROM $2",
+                    )
+                    .bind(note_id)
+                    .bind(&note.revised_content)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|error| shard_operation_failed("restore revised projection", error))?;
+                } else if policy.preserve_empty_revisions || !note.revised_content.is_empty() {
                     notes_repo
                         .update_revised_tx(
                             &mut tx,
@@ -38292,6 +39616,7 @@ async fn apply_validated_shard_components(
                     staged_blobs,
                     &mut used_staged_blobs,
                     state.attachment_scan_mode,
+                    matches!(opts.on_conflict, ConflictStrategy::Replace),
                 )
                 .await?;
                 pending_attachment_scans.extend(pending_scans);
@@ -38300,6 +39625,7 @@ async fn apply_validated_shard_components(
                     queued_note_ids.push(note_id);
                 }
                 imported.notes += 1;
+                applied_note_ids.push(note_id);
             }
         }
     }
@@ -38308,6 +39634,9 @@ async fn apply_validated_shard_components(
         if should_import("collections") {
             if let Some(data) = files.get("collections.json") {
                 for collection in ordered_shard_collections(data).map_err(ApiError::BadRequest)? {
+                    if !applied_collection_ids.contains(&collection.id) {
+                        continue;
+                    }
                     sqlx::query(
                         "UPDATE collection
                          SET shard_note_count = $2
@@ -38326,31 +39655,24 @@ async fn apply_validated_shard_components(
                 }
             }
         }
-        if let Some(notes_data) = files.get("notes.jsonl") {
-            let note_ids = parse_shard_component_records("notes", notes_data)
-                .map_err(|_| shard_validation_failed("Knowledge shard notes are invalid."))?
-                .into_iter()
-                .map(|note| {
-                    note.get("id")
-                        .and_then(serde_json::Value::as_str)
-                        .and_then(|id| Uuid::parse_str(id).ok())
-                        .ok_or_else(|| shard_validation_failed("Knowledge shard note is invalid."))
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            for (statement, context) in [
+        if !applied_note_ids.is_empty() {
+            for (component, statement, context) in [
                 (
+                    "note_originals",
                     "UPDATE note_original
                      SET shard_export_present = FALSE
                      WHERE note_id = ANY($1)",
                     "mark live-required note originals absent from schema-2 component state",
                 ),
                 (
+                    "note_revised_current",
                     "UPDATE note_revised_current
                      SET shard_export_present = FALSE
                      WHERE note_id = ANY($1)",
                     "mark live-required current revisions absent from schema-2 component state",
                 ),
                 (
+                    "note_revisions",
                     "UPDATE note_revision
                      SET shard_export_present = FALSE
                      WHERE note_id = ANY($1)",
@@ -38358,11 +39680,42 @@ async fn apply_validated_shard_components(
                 ),
             ] {
                 sqlx::query(statement)
-                    .bind(&note_ids)
+                    .bind(
+                        if component != "note_revisions" && should_import(component) {
+                            &applied_note_ids
+                        } else {
+                            &created_note_ids
+                        },
+                    )
                     .execute(&mut *tx)
                     .await
                     .map_err(|error| shard_operation_failed(context, error))?;
             }
+        }
+    }
+
+    if matches!(opts.on_conflict, ConflictStrategy::Replace)
+        && !opts.dry_run
+        && should_import("note_original_history")
+    {
+        if let Some(data) = files.get("note_original_history.jsonl") {
+            let retained = shard_jsonl_records::<ShardNoteOriginalHistoryRecord>(
+                data,
+                "Knowledge shard note original history is invalid.",
+            )?
+            .map(|record| record.map(|record| record.id))
+            .collect::<Result<Vec<_>, _>>()?;
+            sqlx::query(
+                "DELETE FROM note_original_history WHERE note_id = ANY($1::uuid[])
+                AND NOT (id = ANY($2::uuid[]))",
+            )
+            .bind(&applied_note_ids)
+            .bind(retained)
+            .execute(&mut *tx)
+            .await
+            .map_err(|error| {
+                shard_operation_failed("reconcile selected original history", error)
+            })?;
         }
     }
 
@@ -38406,11 +39759,38 @@ async fn apply_validated_shard_components(
     )
     .await?;
 
+    if matches!(opts.on_conflict, ConflictStrategy::Replace) && !opts.dry_run {
+        reconcile_shard_provenance_omissions_tx(
+            &mut tx,
+            files,
+            selected_components,
+            &applied_note_ids,
+        )
+        .await?;
+    }
+
+    if matches!(opts.on_conflict, ConflictStrategy::Replace)
+        && !opts.dry_run
+        && should_import("note_revisions")
+    {
+        if let Some(data) = files.get("note_revisions.jsonl") {
+            let retained = shard_jsonl_records::<ShardNoteRevisionRecord>(
+                data,
+                "Knowledge shard note revisions are invalid.",
+            )?
+            .map(|record| record.map(|record| record.id))
+            .collect::<Result<Vec<_>, _>>()?;
+            // Retained activities and current pointers have moved before deletion.
+            remove_omitted_shard_revisions_tx(&mut tx, &applied_note_ids, &retained).await?;
+        }
+    }
+
     apply_shard_skos_components_tx(
         &mut tx,
         files,
         selected_components,
         opts,
+        policy.wipe_before_apply,
         &mut imported,
         &mut skipped,
     )
@@ -38426,31 +39806,35 @@ async fn apply_validated_shard_components(
     )
     .await?;
 
-    if policy.preserve_schema_2_component_presence && !opts.dry_run {
-        for (component, statement, context) in [
-            (
-                "embedding_set_members",
-                "UPDATE embedding_set_member SET shard_export_present = FALSE",
-                "mark live embedding set members absent from schema-2 component state",
-            ),
-            (
-                "embedding_sets",
-                "UPDATE embedding_set SET shard_export_present = FALSE",
+    if policy.preserve_schema_2_component_presence
+        && !opts.dry_run
+        && matches!(opts.on_conflict, ConflictStrategy::Replace)
+        && should_import("embedding_sets")
+    {
+        sqlx::query(
+            "SELECT s.id FROM embedding_set s
+            JOIN shard_embedding_set_bootstrap b ON b.set_id = s.id AND b.tenant_id = s.tenant_id
+            ORDER BY s.id FOR UPDATE OF s",
+        )
+        .fetch_all(&mut *tx)
+        .await
+        .map_err(|error| shard_operation_failed("lock bootstrap embedding sets", error))?;
+        sqlx::query(
+            "UPDATE embedding_set s SET shard_export_present = FALSE
+            WHERE EXISTS (SELECT 1 FROM shard_embedding_set_bootstrap b
+                WHERE b.set_id = s.id AND b.tenant_id = s.tenant_id)
+              AND NOT EXISTS (SELECT 1 FROM embedding WHERE embedding_set_id = s.id)
+              AND NOT EXISTS (SELECT 1 FROM embedding_coarse WHERE embedding_set_id = s.id)
+              AND NOT EXISTS (SELECT 1 FROM attachment_embedding WHERE embedding_set_id = s.id)",
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(|error| {
+            shard_operation_failed(
                 "mark live embedding sets absent from schema-2 component state",
-            ),
-            (
-                "embedding_configs",
-                "UPDATE embedding_config SET shard_export_present = FALSE",
-                "mark live embedding configs absent from schema-2 component state",
-            ),
-        ] {
-            if should_import(component) {
-                sqlx::query(statement)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(|error| shard_operation_failed(context, error))?;
-            }
-        }
+                error,
+            )
+        })?;
     }
 
     apply_shard_embedding_components_tx(
@@ -38560,9 +39944,36 @@ async fn apply_validated_shard_components(
     if should_import("links") {
         if let Some(data) = files.get("links.jsonl") {
             let links =
-                shard_jsonl_records::<ShardLinkRecord>(data, "Knowledge shard links are invalid.")?;
+                shard_jsonl_records::<ShardLinkRecord>(data, "Knowledge shard links are invalid.")?
+                    .collect::<Result<Vec<_>, _>>()?;
+            if matches!(opts.on_conflict, ConflictStrategy::Replace)
+                && !opts.dry_run
+                && should_import("notes")
+            {
+                if let Some(data) = files.get("notes.jsonl") {
+                    let note_ids = shard_jsonl_records::<ShardNoteRecord>(
+                        data,
+                        "Knowledge shard notes are invalid.",
+                    )?
+                    .map(|note| note.map(|note| note.id))
+                    .collect::<Result<Vec<_>, _>>()?;
+                    let retained_ids = links.iter().map(|link| link.id).collect::<Vec<_>>();
+                    // Outgoing links belong to selected source notes. Incoming
+                    // links and retained IDs (including reparenting) survive.
+                    sqlx::query(
+                        "DELETE FROM link WHERE from_note_id = ANY($1::uuid[])
+                         AND NOT (id = ANY($2::uuid[]))",
+                    )
+                    .bind(&note_ids)
+                    .bind(&retained_ids)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|error| {
+                        shard_operation_failed("reconcile imported outgoing links", error)
+                    })?;
+                }
+            }
             for link in links {
-                let link = link?;
                 if !opts.dry_run {
                     let conflict = if matches!(opts.on_conflict, ConflictStrategy::Replace) {
                         "ON CONFLICT (id) DO UPDATE SET
@@ -38958,7 +40369,7 @@ where
         .map(ShardImportJournalLease::operation_id);
     let apply_result = apply_validated_shard_components(
         state,
-        &files,
+        files,
         &selected_components,
         opts,
         schema,
@@ -57968,6 +59379,13 @@ not-json
             )
             .await
             .expect("apply complete note revision boundary");
+            remove_omitted_shard_revisions_tx(
+                &mut tx,
+                &[note_id],
+                &[first_revision_id, current_revision_id],
+            )
+            .await
+            .expect("reconcile explicit fixture note owner after history apply");
             tx.commit().await.expect("commit note revision boundary");
             assert_eq!(imported.note_originals, 1, "pass {expected_pass}");
             assert_eq!(imported.note_original_history, 2, "pass {expected_pass}");
@@ -58245,6 +59663,13 @@ not-json
             )
             .await
             .expect("seed exact provenance revision boundary");
+            remove_omitted_shard_revisions_tx(
+                &mut tx,
+                &[note_id],
+                &revision_notes.keys().copied().collect::<Vec<_>>(),
+            )
+            .await
+            .unwrap();
             tx.commit().await.expect("commit provenance revision seed");
         }
 
@@ -59488,6 +60913,78 @@ not-json
             assert_eq!(skipped.embedding_sets, 0, "pass {expected_pass}");
             assert_eq!(skipped.embedding_set_members, 0, "pass {expected_pass}");
             assert_eq!(skipped.embeddings, 0, "pass {expected_pass}");
+            if expected_pass == 0 {
+                let mut tx = ctx.begin_tx().await.unwrap();
+                sqlx::raw_sql("CREATE TABLE protected_vector_reference (id UUID REFERENCES embedding(id) ON DELETE RESTRICT);
+                    INSERT INTO protected_vector_reference SELECT id FROM embedding;
+                    INSERT INTO note_token_embeddings (note_id, chunk_id, token_position, token_text)
+                    SELECT note_id, id, 0, 'retained-vector-token' FROM embedding;")
+                    .execute(&mut *tx).await.unwrap();
+                tx.commit().await.unwrap();
+            }
+        }
+
+        let swap_ctx = db.for_schema(&success.schema_name).unwrap();
+        let second_id = Uuid::new_v4();
+        let mut tx = swap_ctx.begin_tx().await.unwrap();
+        sqlx::query(
+            "INSERT INTO embedding SELECT (jsonb_populate_record(NULL::embedding,
+            to_jsonb(e) || jsonb_build_object('id', $1::uuid, 'chunk_index', 1))).*
+            FROM embedding e WHERE id = $2",
+        )
+        .bind(second_id)
+        .bind(embedding_id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO protected_vector_reference VALUES ($1)")
+            .bind(second_id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        let mut swapped = files.clone();
+        let mut first: serde_json::Value =
+            serde_json::from_slice(&files["embeddings.jsonl"]).unwrap();
+        let mut second = first.clone();
+        first["chunk_index"] = serde_json::json!(1);
+        second["id"] = serde_json::json!(second_id);
+        second["chunk_index"] = serde_json::json!(0);
+        swapped.insert(
+            "embeddings.jsonl".into(),
+            format!("{}\n{}\n", first, second).into_bytes(),
+        );
+        for _ in 0..2 {
+            let mut tx = swap_ctx.begin_tx().await.unwrap();
+            apply_shard_embedding_components_tx(
+                &mut tx,
+                &swapped,
+                &selected_components,
+                &opts,
+                &mut ShardImportCounts::default(),
+                &mut ShardImportCounts::default(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(
+                sqlx::query_scalar::<_, i32>("SELECT chunk_index FROM embedding WHERE id=$1")
+                    .bind(embedding_id)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .unwrap(),
+                1
+            );
+            assert_eq!(
+                sqlx::query_scalar::<_, i64>(
+                    "SELECT count(*) FROM note_token_embeddings WHERE chunk_id=$1"
+                )
+                .bind(embedding_id)
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap(),
+                1
+            );
+            tx.commit().await.unwrap();
         }
 
         let skip_opts = ShardImportOptions {
@@ -60574,9 +62071,14 @@ not-json
             skip_embedding_regen: true,
         };
         let success_ctx = db.for_schema(&success.schema_name).unwrap();
+        let bootstrap_scheme = shard_skos_snapshot(&success_ctx).await["schemes"][0].clone();
         let mut expected = None;
         for pass in 0..2 {
             let mut tx = success_ctx.begin_tx().await.expect("begin SKOS apply");
+            sqlx::query("SET LOCAL app.shard_import = 'on'")
+                .execute(&mut *tx)
+                .await
+                .unwrap();
             let mut imported = ShardImportCounts::default();
             let mut skipped = ShardImportCounts::default();
             apply_shard_skos_components_tx(
@@ -60584,6 +62086,7 @@ not-json
                 &files,
                 &components,
                 &opts,
+                false,
                 &mut imported,
                 &mut skipped,
             )
@@ -60605,11 +62108,13 @@ not-json
             assert_eq!(skipped.skos_relations, 0, "pass {pass}");
 
             let snapshot = shard_skos_snapshot(&success_ctx).await;
-            assert_eq!(snapshot["schemes"].as_array().unwrap().len(), 1);
+            assert_eq!(snapshot["schemes"].as_array().unwrap().len(), 2);
+            assert_eq!(snapshot["schemes"][0], bootstrap_scheme,
+                "native scaffolding survives unrelated import unchanged, but is not exported until adopted");
             assert_eq!(snapshot["concepts"].as_array().unwrap().len(), 2);
             assert_eq!(snapshot["relations"].as_array().unwrap().len(), 2);
             assert_eq!(snapshot["collection_members"].as_array().unwrap().len(), 2);
-            assert_eq!(snapshot["schemes"][0]["version"], serde_json::Value::Null);
+            assert_eq!(snapshot["schemes"][1]["version"], serde_json::Value::Null);
             assert_eq!(
                 snapshot["concepts"][0]["replaced_by_id"],
                 serde_json::json!("018f5d2d-bc00-7cc8-8ad2-f147d6a2e703")
@@ -60639,6 +62144,10 @@ not-json
             .begin_tx()
             .await
             .expect("begin failed SKOS apply");
+        sqlx::query("SET LOCAL app.shard_import = 'on'")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
         sqlx::query(
             "CREATE FUNCTION reject_shard_skos_collection_member()
              RETURNS trigger LANGUAGE plpgsql AS $$
@@ -60665,6 +62174,7 @@ not-json
             &files,
             &components,
             &opts,
+            false,
             &mut imported,
             &mut skipped,
         )
@@ -61044,6 +62554,6138 @@ not-json
                 .await
                 .expect("drop isolated graph test schema");
         }
+    }
+
+    fn shard_graph_fixture_for_owner(
+        source_id: &str,
+        set_id: &str,
+    ) -> std::collections::HashMap<String, Vec<u8>> {
+        let (mut files, _) = valid_shard_graph_relationship_fixture();
+        for (file, bytes) in &mut files {
+            let array = file.ends_with(".json");
+            let mut rows: Vec<serde_json::Value> = if array {
+                serde_json::from_slice(bytes).unwrap()
+            } else {
+                String::from_utf8(bytes.clone())
+                    .unwrap()
+                    .lines()
+                    .map(|line| serde_json::from_str(line).unwrap())
+                    .collect()
+            };
+            for row in &mut rows {
+                match file.as_str() {
+                    "graph_sources.json" => row["id"] = source_id.into(),
+                    "communities.json" => {
+                        row["id"] = set_id.into();
+                        row["graph_source_id"] = source_id.into();
+                    }
+                    "graph_edges.jsonl" => row["graph_source_id"] = source_id.into(),
+                    "community_assignments.jsonl" => row["community_set_id"] = set_id.into(),
+                    _ => unreachable!(),
+                }
+            }
+            *bytes = if array {
+                serde_json::to_vec(&rows).unwrap()
+            } else {
+                rows.iter()
+                    .map(|row| serde_json::to_string(row).unwrap())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+                    .into_bytes()
+            };
+        }
+        files
+    }
+
+    #[tokio::test]
+    async fn shard_graph_replace_preserves_unrelated_roots_and_reconciles_owned_children() {
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
+        let db = Database::connect(&database_url).await.unwrap();
+        db.migrate()
+            .await
+            .expect("migrate disposable integration database");
+        let archive_name = format!("sh-graph-owner-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&archive_name, Some("Graph owner regression"))
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let (_, note_ids) = valid_shard_graph_relationship_fixture();
+        let components = [
+            "graph_sources",
+            "graph_edges",
+            "communities",
+            "community_assignments",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect::<std::collections::HashSet<_>>();
+        let mut opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Skip,
+            skip_embedding_regen: true,
+        };
+        let mut tx = ctx.begin_tx().await.unwrap();
+        for note_id in &note_ids {
+            matric_db::PgNoteRepository::new(db.pool.clone())
+                .insert_with_id_tx(
+                    &mut tx,
+                    *note_id,
+                    CreateNoteRequest {
+                        content: "Graph owner fixture".into(),
+                        format: "markdown".into(),
+                        source: "knowledge-shard-test".into(),
+                        collection_id: None,
+                        tags: Some(Vec::new()),
+                        metadata: Some(serde_json::json!({})),
+                        document_type_id: None,
+                        title: None,
+                    },
+                )
+                .await
+                .unwrap();
+        }
+        for (source, set) in [
+            ("source-a", "set-a"),
+            ("source-b", "set-b"),
+            ("source-a", "independent-set"),
+        ] {
+            let files = shard_graph_fixture_for_owner(source, set);
+            validate_shard_graph_relationships(&files, &note_ids).unwrap();
+            apply_shard_graph_components_tx(
+                &mut tx,
+                &files,
+                &components,
+                &opts,
+                &mut ShardImportCounts::default(),
+                &mut ShardImportCounts::default(),
+            )
+            .await
+            .unwrap();
+        }
+        tx.commit().await.unwrap();
+        let before = shard_graph_snapshot(&ctx).await;
+        assert_eq!(before["sources"].as_array().unwrap().len(), 2);
+        assert_eq!(before["sets"].as_array().unwrap().len(), 3);
+        let unrelated = |snapshot: &serde_json::Value| {
+            let mut value = snapshot.clone();
+            for family in ["sources", "edges", "sets", "communities", "assignments"] {
+                value[family]
+                    .as_array_mut()
+                    .unwrap()
+                    .retain(|row| match family {
+                        "sources" => row["id"] == "source-b",
+                        "edges" => row["graph_source_id"] == "source-b",
+                        "sets" => row["id"] != "set-a",
+                        _ => row["community_set_id"] != "set-a",
+                    });
+            }
+            value
+        };
+        let mut replacement = shard_graph_fixture_for_owner("source-a", "set-a");
+        replacement.insert("graph_edges.jsonl".into(), Vec::new());
+        let mut sets: Vec<serde_json::Value> =
+            serde_json::from_slice(&replacement["communities.json"]).unwrap();
+        sets[0]["communities"].as_array_mut().unwrap().truncate(1);
+        replacement.insert(
+            "communities.json".into(),
+            serde_json::to_vec(&sets).unwrap(),
+        );
+        let assignments =
+            String::from_utf8(replacement["community_assignments.jsonl"].clone()).unwrap();
+        replacement.insert(
+            "community_assignments.jsonl".into(),
+            assignments.lines().next().unwrap().as_bytes().to_vec(),
+        );
+        validate_shard_graph_relationships(&replacement, &note_ids).unwrap();
+        opts.on_conflict = ConflictStrategy::Replace;
+        opts.dry_run = true;
+        let mut tx = ctx.begin_tx().await.unwrap();
+        apply_shard_graph_components_tx(
+            &mut tx,
+            &replacement,
+            &components,
+            &opts,
+            &mut ShardImportCounts::default(),
+            &mut ShardImportCounts::default(),
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        assert_eq!(
+            shard_graph_snapshot(&ctx).await,
+            before,
+            "dry-run must not write"
+        );
+        opts.dry_run = false;
+        for pass in 0..2 {
+            let mut tx = ctx.begin_tx().await.unwrap();
+            apply_shard_graph_components_tx(
+                &mut tx,
+                &replacement,
+                &components,
+                &opts,
+                &mut ShardImportCounts::default(),
+                &mut ShardImportCounts::default(),
+            )
+            .await
+            .unwrap();
+            tx.commit().await.unwrap();
+            let after = shard_graph_snapshot(&ctx).await;
+            assert_eq!(
+                unrelated(&after),
+                unrelated(&before),
+                "unrelated graph state, pass {pass}"
+            );
+            assert_eq!(after["edges"].as_array().unwrap().len(), 1);
+            assert_eq!(after["communities"].as_array().unwrap().len(), 5);
+            assert_eq!(after["assignments"].as_array().unwrap().len(), 5);
+        }
+
+        // Skip follows the existing source/set owner, including absent children.
+        let baseline = shard_graph_snapshot(&ctx).await;
+        let skipped_input = shard_graph_fixture_for_owner("source-a", "set-a");
+        opts.on_conflict = ConflictStrategy::Skip;
+        let mut tx = ctx.begin_tx().await.unwrap();
+        let mut skipped = ShardImportCounts::default();
+        apply_shard_graph_components_tx(
+            &mut tx,
+            &skipped_input,
+            &components,
+            &opts,
+            &mut ShardImportCounts::default(),
+            &mut skipped,
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        assert_eq!(skipped.graph_edges, 1);
+        assert_eq!(skipped.communities, 2);
+        assert_eq!(skipped.community_assignments, 2);
+        assert_eq!(
+            shard_graph_snapshot(&ctx).await,
+            baseline,
+            "skip must not add omitted owned children"
+        );
+
+        opts.on_conflict = ConflictStrategy::Replace;
+        let moved = shard_graph_fixture_for_owner("source-c", "set-a");
+        validate_shard_graph_relationships(&moved, &note_ids).unwrap();
+        for _ in 0..2 {
+            let mut tx = ctx.begin_tx().await.unwrap();
+            apply_shard_graph_components_tx(
+                &mut tx,
+                &moved,
+                &components,
+                &opts,
+                &mut ShardImportCounts::default(),
+                &mut ShardImportCounts::default(),
+            )
+            .await
+            .unwrap();
+            tx.commit().await.unwrap();
+            let snapshot = shard_graph_snapshot(&ctx).await;
+            assert_eq!(unrelated(&snapshot), unrelated(&before));
+            assert_eq!(snapshot["sources"].as_array().unwrap().len(), 3);
+            assert_eq!(
+                snapshot["sets"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|row| row["id"] == "set-a")
+                    .unwrap()["graph_source_id"],
+                "source-c"
+            );
+        }
+        let baseline = shard_graph_snapshot(&ctx).await;
+        let empty = std::collections::HashMap::from([
+            ("graph_sources.json".into(), b"[]".to_vec()),
+            ("graph_edges.jsonl".into(), Vec::new()),
+            ("communities.json".into(), b"[]".to_vec()),
+            ("community_assignments.jsonl".into(), Vec::new()),
+        ]);
+        validate_shard_graph_relationships(&empty, &note_ids).unwrap();
+        let mut tx = ctx.begin_tx().await.unwrap();
+        apply_shard_graph_components_tx(
+            &mut tx,
+            &empty,
+            &components,
+            &opts,
+            &mut ShardImportCounts::default(),
+            &mut ShardImportCounts::default(),
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        assert_eq!(
+            shard_graph_snapshot(&ctx).await,
+            baseline,
+            "empty family must not wipe independent roots"
+        );
+
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::raw_sql("CREATE FUNCTION reject_graph_owner_assignment() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN RAISE EXCEPTION 'injected graph owner failure'; END; $$;
+            CREATE TRIGGER reject_graph_owner_assignment BEFORE INSERT OR UPDATE ON community_assignment
+            FOR EACH ROW EXECUTE FUNCTION reject_graph_owner_assignment();")
+            .execute(&mut *tx).await.unwrap();
+        let error = apply_shard_graph_components_tx(
+            &mut tx,
+            &replacement,
+            &components,
+            &opts,
+            &mut ShardImportCounts::default(),
+            &mut ShardImportCounts::default(),
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(error, ApiError::OperationFailed { .. }));
+        tx.rollback().await.unwrap();
+        assert_eq!(
+            shard_graph_snapshot(&ctx).await,
+            baseline,
+            "late-failure rollback must preserve every graph row"
+        );
+        db.archives
+            .drop_archive_schema(&archive_name)
+            .await
+            .unwrap();
+    }
+
+    async fn shard_native_database_snapshot(ctx: &matric_db::SchemaContext) -> serde_json::Value {
+        let mut tx = ctx.begin_tx().await.unwrap();
+        let tables = sqlx::query_scalar::<_, String>(
+            "SELECT quote_ident(tablename) FROM pg_tables
+             WHERE schemaname = current_schema()
+             UNION SELECT 'public.' || quote_ident(tablename) FROM pg_tables
+             WHERE schemaname = 'public' AND tablename IN ('embedding_config', 'job_queue')
+             ORDER BY 1",
+        )
+        .fetch_all(&mut *tx)
+        .await
+        .unwrap();
+        let mut snapshot = serde_json::Map::new();
+        for table in tables {
+            let rows = sqlx::query_scalar::<_, serde_json::Value>(&format!(
+                "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text), '[]'::jsonb)
+                 FROM {table} t"
+            ))
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+            snapshot.insert(table, rows);
+        }
+        tx.rollback().await.unwrap();
+        serde_json::Value::Object(snapshot)
+    }
+
+    async fn shard_export_embedding_state(state: &AppState, schema: &str) -> serde_json::Value {
+        let response = knowledge_shard(
+            State(state.clone()),
+            Extension(ArchiveContext {
+                schema: schema.to_string(),
+                is_default: false,
+                name: None,
+            }),
+            Query(ShardExportQuery {
+                schema_version: Some(SHARD_SCHEMA_2_VERSION.to_string()),
+                profile: Some("full-v1".to_string()),
+                include: None,
+                include_blobs: true,
+            }),
+        )
+        .await
+        .expect("export complete native full-v1 state")
+        .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let files = read_shard_archive(&bytes, ShardArchiveLimits::default()).unwrap();
+        let mut result = serde_json::Map::new();
+        for component in [
+            "embedding_sets",
+            "embedding_set_members",
+            "embedding_configs",
+            "embeddings",
+        ] {
+            let filename = shard_component_filename(component).unwrap();
+            result.insert(
+                component.to_string(),
+                serde_json::json!(
+                    parse_shard_component_records(component, &files[filename]).unwrap()
+                ),
+            );
+        }
+        serde_json::Value::Object(result)
+    }
+
+    #[tokio::test]
+    async fn shard_config_replace_rejects_shared_value_changes_not_identical_reuse() {
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
+        let db = Database::connect(&database_url).await.unwrap();
+        db.migrate().await.unwrap();
+        let owner_name = format!("sh-cfg-owner-{}", Uuid::new_v4().simple());
+        let other_name = format!("sh-cfg-other-{}", Uuid::new_v4().simple());
+        let owner = db
+            .archives
+            .create_archive_schema(&owner_name, None)
+            .await
+            .unwrap();
+        let other = db
+            .archives
+            .create_archive_schema(&other_name, None)
+            .await
+            .unwrap();
+        let owner_ctx = db.for_schema(&owner.schema_name).unwrap();
+        let other_ctx = db.for_schema(&other.schema_name).unwrap();
+        let (mut files, _, _, _, _) = valid_shard_embedding_relationship_fixture();
+        let mut config: serde_json::Value =
+            serde_json::from_slice(&files["embedding_configs.json"]).unwrap();
+        let id = Uuid::new_v4();
+        config[0]["id"] = serde_json::json!(id);
+        config[0]["name"] = serde_json::json!(format!("owned-config-{id}"));
+        files.insert(
+            "embedding_configs.json".into(),
+            serde_json::to_vec(&config).unwrap(),
+        );
+        let selected = ["embedding_configs".to_string()].into_iter().collect();
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        for description in ["first native configuration", "exclusive replacement"] {
+            config[0]["description"] = serde_json::json!(description);
+            files.insert(
+                "embedding_configs.json".into(),
+                serde_json::to_vec(&config).unwrap(),
+            );
+            let mut tx = owner_ctx.begin_tx().await.unwrap();
+            apply_shard_embedding_components_tx(
+                &mut tx,
+                &files,
+                &selected,
+                &opts,
+                &mut ShardImportCounts::default(),
+                &mut ShardImportCounts::default(),
+            )
+            .await
+            .unwrap();
+            tx.commit().await.unwrap();
+        }
+        // Identical reuse must be accepted and declare the independent root.
+        let mut tx = other_ctx.begin_tx().await.unwrap();
+        apply_shard_embedding_components_tx(
+            &mut tx,
+            &files,
+            &selected,
+            &opts,
+            &mut ShardImportCounts::default(),
+            &mut ShardImportCounts::default(),
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        let before_owner = shard_native_database_snapshot(&owner_ctx).await;
+        let before_other = shard_native_database_snapshot(&other_ctx).await;
+        config[0]["description"] = serde_json::json!("must not overwrite another archive");
+        files.insert(
+            "embedding_configs.json".into(),
+            serde_json::to_vec(&config).unwrap(),
+        );
+        let mut tx = owner_ctx.begin_tx().await.unwrap();
+        let result = apply_shard_embedding_components_tx(
+            &mut tx,
+            &files,
+            &selected,
+            &opts,
+            &mut ShardImportCounts::default(),
+            &mut ShardImportCounts::default(),
+        )
+        .await;
+        assert!(
+            result.is_err(),
+            "conflicting replacement must not mutate another archive's configuration"
+        );
+        tx.rollback().await.unwrap();
+        assert_eq!(
+            shard_native_database_snapshot(&owner_ctx).await,
+            before_owner
+        );
+        assert_eq!(
+            shard_native_database_snapshot(&other_ctx).await,
+            before_other
+        );
+        // A live set reference protects its config even without a declaration.
+        let mut tx = other_ctx.begin_tx().await.unwrap();
+        sqlx::query("UPDATE embedding_set SET embedding_config_id = $1 WHERE slug = 'default'")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM shard_embedding_config_declaration WHERE config_id = $1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        for dry_run in [true, false] {
+            let before = shard_native_database_snapshot(&other_ctx).await;
+            let mut tx = owner_ctx.begin_tx().await.unwrap();
+            let options = ShardImportOptions {
+                dry_run,
+                include: None,
+                on_conflict: ConflictStrategy::Replace,
+                skip_embedding_regen: true,
+            };
+            assert!(apply_shard_embedding_components_tx(
+                &mut tx,
+                &files,
+                &selected,
+                &options,
+                &mut ShardImportCounts::default(),
+                &mut ShardImportCounts::default()
+            )
+            .await
+            .is_err());
+            tx.rollback().await.unwrap();
+            assert_eq!(shard_native_database_snapshot(&other_ctx).await, before);
+        }
+        db.archives.drop_archive_schema(&other_name).await.unwrap();
+        // Once the independent owner is gone, a valid sole-owner update works.
+        let mut tx = owner_ctx.begin_tx().await.unwrap();
+        apply_shard_embedding_components_tx(
+            &mut tx,
+            &files,
+            &selected,
+            &opts,
+            &mut ShardImportCounts::default(),
+            &mut ShardImportCounts::default(),
+        )
+        .await
+        .unwrap();
+        let description: Option<String> =
+            sqlx::query_scalar("SELECT description FROM embedding_config WHERE id = $1")
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+        assert_eq!(
+            description.as_deref(),
+            Some("must not overwrite another archive")
+        );
+        tx.rollback().await.unwrap();
+        db.archives.drop_archive_schema(&owner_name).await.unwrap();
+        sqlx::query("DELETE FROM embedding_config WHERE id = $1")
+            .bind(id)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn shard_replace_preserves_other_archive_config_roots() {
+        async fn exported_configs(state: &AppState, schema: &str) -> Vec<serde_json::Value> {
+            let response = knowledge_shard(
+                State(state.clone()),
+                Extension(ArchiveContext {
+                    schema: schema.to_string(),
+                    is_default: false,
+                    name: None,
+                }),
+                Query(ShardExportQuery {
+                    schema_version: Some(SHARD_SCHEMA_2_VERSION.to_string()),
+                    profile: Some("full-v1".to_string()),
+                    include: None,
+                    include_blobs: true,
+                }),
+            )
+            .await
+            .expect("export sibling archive")
+            .into_response();
+            assert_eq!(response.status(), StatusCode::OK);
+            let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let files = read_shard_archive(&bytes, ShardArchiveLimits::default()).unwrap();
+            parse_shard_component_records("embedding_configs", &files["embedding_configs.json"])
+                .unwrap()
+        }
+
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let destination_name = format!("sh-cfg-dst-{}", Uuid::new_v4().simple());
+        let sibling_name = format!("sh-cfg-ref-{}", Uuid::new_v4().simple());
+        let destination = db
+            .archives
+            .create_archive_schema(&destination_name, None)
+            .await
+            .unwrap();
+        let sibling = db
+            .archives
+            .create_archive_schema(&sibling_name, None)
+            .await
+            .unwrap();
+        let input = include_bytes!(
+            "../../../tests/fixtures/shards/external/react-2026.7.13/react-full-v1.shard"
+        );
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        knowledge_shard_import_internal(&state, input, &opts, &destination.schema_name)
+            .await
+            .unwrap();
+        let config_id = Uuid::new_v4();
+        let ctx = db.for_schema(&sibling.schema_name).unwrap();
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::query(
+            "INSERT INTO embedding_config (id, name, model, dimension, shard_export_present)
+            VALUES ($1, $2, 'unrelated-native-model', 768, TRUE)",
+        )
+        .bind(config_id)
+        .bind(format!("sibling-config-{config_id}"))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        let before: serde_json::Value =
+            sqlx::query_scalar("SELECT to_jsonb(c) FROM embedding_config c WHERE id = $1")
+                .bind(config_id)
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+        tx.commit().await.unwrap();
+        let before_export = exported_configs(&state, &sibling.schema_name).await;
+        assert!(
+            before_export
+                .iter()
+                .any(|row| row["id"] == config_id.to_string()),
+            "positive control: sibling's unreferenced native config is exportable"
+        );
+
+        for pass in 0..2 {
+            knowledge_shard_import_internal(&state, input, &opts, &destination.schema_name)
+                .await
+                .unwrap();
+            let mut tx = ctx.begin_tx().await.unwrap();
+            let after: serde_json::Value =
+                sqlx::query_scalar("SELECT to_jsonb(c) FROM embedding_config c WHERE id = $1")
+                    .bind(config_id)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .unwrap();
+            tx.rollback().await.unwrap();
+            assert_eq!(
+                after, before,
+                "replace pass {pass} must preserve the other archive's complete native config row"
+            );
+            assert_eq!(
+                exported_configs(&state, &sibling.schema_name).await,
+                before_export,
+                "replace pass {pass} must preserve sibling config export, not only native rows"
+            );
+        }
+        db.archives
+            .drop_archive_schema(&destination_name)
+            .await
+            .unwrap();
+        db.archives
+            .drop_archive_schema(&sibling_name)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM public.embedding_config WHERE id = $1")
+            .bind(config_id)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn shard_wipe_preserves_sibling_archives_and_shared_config_values() {
+        use sha2::Digest;
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must select a disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let target_name = format!("sh-wipe-target-{}", Uuid::new_v4().simple());
+        let sibling_name = format!("sh-wipe-sibling-{}", Uuid::new_v4().simple());
+        let target = db
+            .archives
+            .create_archive_schema(&target_name, None)
+            .await
+            .unwrap();
+        let sibling = db
+            .archives
+            .create_archive_schema(&sibling_name, None)
+            .await
+            .unwrap();
+        let target_ctx = db.for_schema(&target.schema_name).unwrap();
+        let sibling_ctx = db.for_schema(&sibling.schema_name).unwrap();
+        let input = include_bytes!(
+            "../../../tests/fixtures/shards/external/react-2026.7.13/react-full-v1.shard"
+        );
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        let config_ids = [Uuid::new_v4(), Uuid::new_v4()];
+        for (schema, config_id) in [
+            (&target.schema_name, config_ids[0]),
+            (&sibling.schema_name, config_ids[1]),
+        ] {
+            knowledge_shard_import_internal(&state, input, &opts, schema)
+                .await
+                .unwrap();
+            let ctx = db.for_schema(schema).unwrap();
+            let mut tx = ctx.begin_tx().await.unwrap();
+            sqlx::query(
+                "INSERT INTO embedding_config (id,name,model,dimension)
+                VALUES ($1,$2,'native-wipe-config',768)",
+            )
+            .bind(config_id)
+            .bind(format!("wipe-config-{config_id}"))
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+            tx.commit().await.unwrap();
+        }
+        let template_id = Uuid::new_v4();
+        let mut tx = target_ctx.begin_tx().await.unwrap();
+        let added = sqlx::query(
+            "INSERT INTO note_template SELECT
+            (jsonb_populate_record(NULL::note_template, to_jsonb(t) ||
+            jsonb_build_object('id',$1::uuid,'name','Target-only wipe sentinel'))).*
+            FROM note_template t ORDER BY id LIMIT 1",
+        )
+        .bind(template_id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        assert_eq!(added.rows_affected(), 1);
+        tx.commit().await.unwrap();
+        let target_before = shard_native_database_snapshot(&target_ctx).await;
+        let sibling_before = shard_native_database_snapshot(&sibling_ctx).await;
+        let sibling_export = shard_export_embedding_state(&state, &sibling.schema_name).await;
+        let dry_run = ShardImportOptions {
+            include: None,
+            dry_run: true,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        knowledge_shard_import_internal_with_wipe(
+            &state,
+            input,
+            &dry_run,
+            &target.schema_name,
+            true,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            shard_native_database_snapshot(&target_ctx).await,
+            target_before
+        );
+        assert_eq!(
+            shard_native_database_snapshot(&sibling_ctx).await,
+            sibling_before
+        );
+
+        for pass in 0..2 {
+            knowledge_shard_import_internal_with_wipe(
+                &state,
+                input,
+                &opts,
+                &target.schema_name,
+                true,
+            )
+            .await
+            .expect("full-v1 wipe must not delete the shared configuration registry");
+            let after = shard_native_database_snapshot(&target_ctx).await;
+            assert!(
+                !after["shard_embedding_config_declaration"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|row| row["config_id"] == config_ids[0].to_string()),
+                "pass {pass}: target-only root declaration must be cleared"
+            );
+            assert!(
+                !after["note_template"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|row| row["id"] == template_id.to_string()),
+                "pass {pass}: explicit wipe must remove target-only native records"
+            );
+            let target_export = shard_export_embedding_state(&state, &target.schema_name).await;
+            assert_eq!(
+                target_export["embedding_configs"].as_array().unwrap().len(),
+                1
+            );
+            assert!(
+                !target_export["embedding_configs"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|row| row["id"] == config_ids[0].to_string()),
+                "removed local declaration must not remain an exported target root"
+            );
+            assert_eq!(
+                shard_native_database_snapshot(&sibling_ctx).await,
+                sibling_before,
+                "pass {pass}: sibling native rows/shared config/job rows must remain unchanged"
+            );
+            assert_eq!(
+                shard_export_embedding_state(&state, &sibling.schema_name).await,
+                sibling_export
+            );
+        }
+
+        let baseline = shard_native_database_snapshot(&target_ctx).await;
+        let mut conflicting = read_shard_archive(input, ShardArchiveLimits::default()).unwrap();
+        let mut configs: Vec<serde_json::Value> =
+            serde_json::from_slice(&conflicting["embedding_configs.json"]).unwrap();
+        configs[0]["description"] =
+            serde_json::json!("Must not overwrite sibling configuration during wipe");
+        let data = serde_json::to_vec(&configs).unwrap();
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&conflicting["manifest.json"]).unwrap();
+        manifest["checksums"]["embedding_configs.json"] =
+            serde_json::json!(hex::encode(sha2::Sha256::digest(&data)));
+        conflicting.insert("embedding_configs.json".into(), data);
+        conflicting.insert(
+            "manifest.json".into(),
+            serde_json::to_vec(&manifest).unwrap(),
+        );
+        let mut entries = conflicting
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice(), tar::EntryType::Regular))
+            .collect::<Vec<_>>();
+        entries.sort_by_key(|entry| entry.0);
+        let conflicting = test_shard_archive(&entries);
+        if let Ok(directory) = std::env::var("FORTEMI_SHARD_WIPE_FIXTURE_OUTPUT") {
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(
+                std::path::Path::new(&directory).join("wipe-shared-config-conflict.shard"),
+                &conflicting,
+            )
+            .unwrap();
+        }
+        for options in [&opts, &dry_run] {
+            let error = knowledge_shard_import_internal_with_wipe(
+                &state,
+                &conflicting,
+                options,
+                &target.schema_name,
+                true,
+            )
+            .await
+            .expect_err("changed shared values must be rejected during wipe");
+            match error {
+                ApiError::BadRequest(message) => {
+                    assert_eq!(message,
+                    "Knowledge shard configuration conflicts with another archive's live state.")
+                }
+                other => panic!("expected shared-value guard, got {other:?}"),
+            }
+            assert_eq!(shard_native_database_snapshot(&target_ctx).await, baseline);
+            assert_eq!(
+                shard_native_database_snapshot(&sibling_ctx).await,
+                sibling_before
+            );
+        }
+        let mut tx = target_ctx.begin_tx().await.unwrap();
+        sqlx::raw_sql(
+            "CREATE FUNCTION reject_wipe_template() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN RAISE EXCEPTION 'injected late wipe failure'; END; $$;
+            CREATE TRIGGER reject_wipe_template BEFORE INSERT ON note_template
+            FOR EACH ROW EXECUTE FUNCTION reject_wipe_template();",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        let error = knowledge_shard_import_internal_with_wipe(
+            &state,
+            input,
+            &opts,
+            &target.schema_name,
+            true,
+        )
+        .await
+        .expect_err("late template failure must reject the wipe");
+        match error {
+            ApiError::OperationFailed { detail, .. } => {
+                assert!(detail.starts_with("apply template import;"))
+            }
+            other => panic!("expected late template failure, got {other:?}"),
+        }
+        assert_eq!(
+            shard_native_database_snapshot(&target_ctx).await,
+            baseline,
+            "late failure must roll back wipe, declarations, and native import"
+        );
+        assert_eq!(
+            shard_native_database_snapshot(&sibling_ctx).await,
+            sibling_before
+        );
+        let mut tx = target_ctx.begin_tx().await.unwrap();
+        sqlx::raw_sql(
+            "DROP TRIGGER reject_wipe_template ON note_template;
+            DROP FUNCTION reject_wipe_template();",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        let production_opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: false,
+        };
+        let source = std::fs::File::open(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/fixtures/shards/external/react-2026.7.13/react-full-v1.shard"
+        ))
+        .unwrap();
+        assert_eq!(source.metadata().unwrap().len(), input.len() as u64);
+        knowledge_shard_import_internal_from_reader_with_wipe(
+            &state,
+            source,
+            input.len(),
+            &production_opts,
+            None,
+            &target.schema_name,
+            true,
+        )
+        .await
+        .expect("on-disk swap with production regeneration option must succeed");
+        let mut after = shard_native_database_snapshot(&sibling_ctx).await;
+        let old_jobs = sibling_before["public.job_queue"].as_array().unwrap();
+        let new_jobs = after["public.job_queue"].as_array().unwrap();
+        for old in old_jobs {
+            assert!(
+                new_jobs.contains(old),
+                "swap must preserve every pre-existing job row"
+            );
+        }
+        let added_jobs = new_jobs
+            .iter()
+            .filter(|row| !old_jobs.contains(row))
+            .collect::<Vec<_>>();
+        assert!(
+            !added_jobs.is_empty(),
+            "production option must enqueue regeneration"
+        );
+        for job in added_jobs {
+            assert_eq!(
+                job["payload"]["schema"], target.schema_name,
+                "regeneration work must target only the swapped archive"
+            );
+        }
+        after["public.job_queue"] = sibling_before["public.job_queue"].clone();
+        assert_eq!(
+            after, sibling_before,
+            "production swap preserves sibling native/shared state"
+        );
+        assert_eq!(
+            shard_export_embedding_state(&state, &sibling.schema_name).await,
+            sibling_export
+        );
+        sqlx::query("DELETE FROM public.job_queue WHERE payload->>'schema'=$1")
+            .bind(&target.schema_name)
+            .execute(&db.pool)
+            .await
+            .unwrap();
+        db.archives.drop_archive_schema(&target_name).await.unwrap();
+        db.archives
+            .drop_archive_schema(&sibling_name)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM public.embedding_config WHERE id=ANY($1::uuid[])")
+            .bind(config_ids.to_vec())
+            .execute(&db.pool)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn shard_replace_reconciles_vector_scope_and_rejects_unselected_coordinates() {
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let name = format!("sh-vector-owner-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let input = include_bytes!(
+            "../../../tests/fixtures/shards/external/react-2026.7.13/react-full-v1.shard"
+        );
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        knowledge_shard_import_internal(&state, input, &opts, &archive.schema_name)
+            .await
+            .unwrap();
+        let files = read_shard_archive(input, ShardArchiveLimits::default()).unwrap();
+        let vectors =
+            parse_shard_component_records("embeddings", &files["embeddings.jsonl"]).unwrap();
+        let vector = vectors
+            .iter()
+            .find(|row| !row["note_id"].is_null() && !row["embedding_set_id"].is_null())
+            .unwrap();
+        let vector_id: Uuid = serde_json::from_value(vector["id"].clone()).unwrap();
+        let note_id: Uuid = serde_json::from_value(vector["note_id"].clone()).unwrap();
+        let set_id: Uuid = serde_json::from_value(vector["embedding_set_id"].clone()).unwrap();
+        let outside_set = Uuid::new_v4();
+        let outside_note = Uuid::new_v4();
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::query(
+            "INSERT INTO embedding_set SELECT (jsonb_populate_record(NULL::embedding_set,
+            to_jsonb(s) || jsonb_build_object('id', $1::uuid, 'name', 'Outside vector set',
+            'slug', 'outside-vector-set', 'mode', 'manual', 'is_system', false))).*
+            FROM embedding_set s WHERE id = $2",
+        )
+        .bind(outside_set)
+        .bind(set_id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO note (id, format, source, created_at_utc, updated_at_utc)
+            VALUES ($1, 'markdown', 'vector-scope-test', NOW(), NOW())",
+        )
+        .bind(outside_note)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        let mut outside_ids = Vec::new();
+        for (note, set) in [
+            (Some(note_id), Some(outside_set)),
+            (Some(outside_note), Some(set_id)),
+            (Some(note_id), None),
+            (None, Some(set_id)),
+            (None, None),
+        ] {
+            let id = Uuid::new_v4();
+            outside_ids.push(id);
+            sqlx::query(
+                "INSERT INTO embedding SELECT (jsonb_populate_record(NULL::embedding,
+                to_jsonb(e) || jsonb_build_object('id', $1::uuid, 'note_id', $2::uuid,
+                'embedding_set_id', $3::uuid))).* FROM embedding e WHERE id = $4",
+            )
+            .bind(id)
+            .bind(note)
+            .bind(set)
+            .bind(vector_id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        }
+        sqlx::raw_sql("CREATE TABLE protected_vector_reference (id UUID REFERENCES embedding(id) ON DELETE RESTRICT);
+            INSERT INTO protected_vector_reference SELECT id FROM embedding;")
+            .execute(&mut *tx).await.unwrap();
+        // Native seed writes change selected-set statistics. Establish the declared
+        // set snapshot before testing that vector scope modes are exact no-ops.
+        apply_shard_embedding_components_tx(
+            &mut tx,
+            &files,
+            &["embedding_sets".to_string()].into_iter().collect(),
+            &opts,
+            &mut ShardImportCounts::default(),
+            &mut ShardImportCounts::default(),
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        let before = shard_native_database_snapshot(&ctx).await;
+        let mut empty = files.clone();
+        empty.insert("embeddings.jsonl".into(), Vec::new());
+        let selected: std::collections::HashSet<String> = ["notes", "embedding_sets", "embeddings"]
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        for mode in [
+            "vectors-only",
+            "no-notes",
+            "no-sets",
+            "empty-notes",
+            "empty-sets",
+            "no-selection",
+            "dry-run",
+            "skip",
+        ] {
+            let mut selected_files = empty.clone();
+            let mut components = selected.clone();
+            let mut options = ShardImportOptions {
+                include: None,
+                dry_run: false,
+                on_conflict: ConflictStrategy::Replace,
+                skip_embedding_regen: true,
+            };
+            match mode {
+                "vectors-only" => {
+                    components = ["embeddings".to_string()].into_iter().collect();
+                }
+                "no-notes" => {
+                    components.remove("notes");
+                }
+                "no-sets" => {
+                    components.remove("embedding_sets");
+                }
+                "empty-notes" => {
+                    selected_files.insert("notes.jsonl".into(), Vec::new());
+                }
+                "empty-sets" => {
+                    selected_files.insert("embedding_sets.json".into(), b"[]".to_vec());
+                }
+                "no-selection" => components.clear(),
+                "dry-run" => options.dry_run = true,
+                "skip" => options.on_conflict = ConflictStrategy::Skip,
+                _ => unreachable!(),
+            }
+            let mut tx = ctx.begin_tx().await.unwrap();
+            apply_shard_embedding_components_tx(
+                &mut tx,
+                &selected_files,
+                &components,
+                &options,
+                &mut ShardImportCounts::default(),
+                &mut ShardImportCounts::default(),
+            )
+            .await
+            .unwrap();
+            tx.commit().await.unwrap();
+            assert_eq!(
+                shard_native_database_snapshot(&ctx).await,
+                before,
+                "{mode} must not change native state"
+            );
+        }
+        let mut tx = ctx.begin_tx().await.unwrap();
+        assert!(apply_shard_embedding_components_tx(
+            &mut tx,
+            &empty,
+            &selected,
+            &opts,
+            &mut ShardImportCounts::default(),
+            &mut ShardImportCounts::default()
+        )
+        .await
+        .is_err());
+        tx.rollback().await.unwrap();
+        assert_eq!(
+            shard_native_database_snapshot(&ctx).await,
+            before,
+            "referenced omission rolls back all native state"
+        );
+
+        // No selected owner scope: a different identity cannot claim an existing coordinate.
+        let mut collision = files.clone();
+        let mut conflicting = vector.clone();
+        conflicting["id"] = serde_json::json!(Uuid::new_v4());
+        collision.insert(
+            "embeddings.jsonl".into(),
+            serde_json::to_vec(&conflicting).unwrap(),
+        );
+        let preview_opts = ShardImportOptions {
+            include: Some("embeddings".to_string()),
+            dry_run: true,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        let mut preview = ctx.begin_tx().await.unwrap();
+        sqlx::query("SET TRANSACTION READ ONLY")
+            .execute(&mut *preview)
+            .await
+            .unwrap();
+        let preview_result = apply_shard_embedding_components_tx(
+            &mut preview,
+            &collision,
+            &["embeddings".to_string()].into_iter().collect(),
+            &preview_opts,
+            &mut ShardImportCounts::default(),
+            &mut ShardImportCounts::default(),
+        )
+        .await;
+        preview.rollback().await.unwrap();
+        let preview_message = match preview_result {
+            Err(ApiError::BadRequest(message)) => message,
+            other => panic!("read-only preview must reject an unselected alternate-coordinate occupant: {other:?}"),
+        };
+        let mut tx = ctx.begin_tx().await.unwrap();
+        let error = apply_shard_embedding_components_tx(
+            &mut tx,
+            &collision,
+            &["embeddings".to_string()].into_iter().collect(),
+            &opts,
+            &mut ShardImportCounts::default(),
+            &mut ShardImportCounts::default(),
+        )
+        .await
+        .unwrap_err();
+        match error {
+            ApiError::BadRequest(message) => assert_eq!(message, preview_message),
+            other => panic!("preview and actual collision errors must agree: {other:?}"),
+        }
+        tx.rollback().await.unwrap();
+        assert_eq!(
+            shard_native_database_snapshot(&ctx).await,
+            before,
+            "alternate collision cannot delete its occupant"
+        );
+
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::query("DELETE FROM protected_vector_reference WHERE NOT (id = ANY($1::uuid[]))")
+            .bind(&outside_ids)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        let baseline = shard_native_database_snapshot(&ctx).await;
+        let expected: Vec<_> = baseline["embedding"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| {
+                outside_ids.iter().any(|id| row["id"] == id.to_string())
+                    || row["note_id"].is_null()
+                    || row["embedding_set_id"].is_null()
+            })
+            .cloned()
+            .collect();
+        for _ in 0..2 {
+            let mut tx = ctx.begin_tx().await.unwrap();
+            apply_shard_embedding_components_tx(
+                &mut tx,
+                &empty,
+                &selected,
+                &opts,
+                &mut ShardImportCounts::default(),
+                &mut ShardImportCounts::default(),
+            )
+            .await
+            .unwrap();
+            tx.commit().await.unwrap();
+            assert_eq!(
+                shard_native_database_snapshot(&ctx).await["embedding"],
+                serde_json::json!(expected)
+            );
+        }
+        db.archives.drop_archive_schema(&name).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn shard_replace_reconciles_members_by_selected_note_and_set_scope() {
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let name = format!("sh-member-owner-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let input = include_bytes!(
+            "../../../tests/fixtures/shards/external/react-2026.7.13/react-full-v1.shard"
+        );
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        knowledge_shard_import_internal(&state, input, &opts, &archive.schema_name)
+            .await
+            .unwrap();
+        let files = read_shard_archive(input, ShardArchiveLimits::default()).unwrap();
+        let sets: Vec<ShardEmbeddingSetRecord> =
+            serde_json::from_slice(&files["embedding_sets.json"]).unwrap();
+        let selected_set = sets[0].id;
+        let unrelated_set = Uuid::new_v4();
+        let unrelated_note = Uuid::new_v4();
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::query(
+            "INSERT INTO embedding_set SELECT (jsonb_populate_record(NULL::embedding_set,
+            to_jsonb(s) || jsonb_build_object('id', $1::uuid, 'name', 'Unrelated member owner',
+            'slug', 'unrelated-member-owner', 'mode', 'manual', 'is_system', false))).*
+            FROM embedding_set s WHERE id = $2",
+        )
+        .bind(unrelated_set)
+        .bind(selected_set)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO note (id, format, source, created_at_utc, updated_at_utc)
+             VALUES ($1, 'markdown', 'member-owner-test', NOW(), NOW())",
+        )
+        .bind(unrelated_note)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO embedding_set_member
+            (embedding_set_id, note_id, membership_type)
+            SELECT $1, note_id, 'manual' FROM embedding_set_member WHERE embedding_set_id = $2
+            ON CONFLICT DO NOTHING",
+        )
+        .bind(unrelated_set)
+        .bind(selected_set)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO embedding_set_member
+            (embedding_set_id, note_id, membership_type) VALUES ($1, $2, 'manual')
+            ON CONFLICT DO NOTHING",
+        )
+        .bind(selected_set)
+        .bind(unrelated_note)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::raw_sql(
+            "CREATE TABLE protected_member_reference (
+                embedding_set_id UUID, note_id UUID,
+                FOREIGN KEY (embedding_set_id, note_id)
+                REFERENCES embedding_set_member(embedding_set_id, note_id) ON DELETE RESTRICT);
+             INSERT INTO protected_member_reference
+                SELECT embedding_set_id, note_id FROM embedding_set_member;",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        let before = shard_native_database_snapshot(&ctx).await;
+        let unrelated_members = |snapshot: &serde_json::Value| {
+            snapshot["embedding_set_member"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|row| row["embedding_set_id"] == unrelated_set.to_string())
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        assert!(!unrelated_members(&before).is_empty());
+        assert!(before["embedding_set_member"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["embedding_set_id"] == selected_set.to_string()
+                && row["note_id"] == unrelated_note.to_string()));
+        let export_before = shard_export_embedding_state(&state, &archive.schema_name).await;
+        let unrelated_export = |snapshot: &serde_json::Value| {
+            serde_json::json!({
+                "sets": snapshot["embedding_sets"].as_array().unwrap().iter()
+                    .filter(|row| row["id"] == unrelated_set.to_string()).collect::<Vec<_>>(),
+                "members": snapshot["embedding_set_members"].as_array().unwrap().iter()
+                    .filter(|row| row["embedding_set_id"] == unrelated_set.to_string()).collect::<Vec<_>>()
+            })
+        };
+        assert_eq!(
+            unrelated_export(&export_before)["sets"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        let dry_run = ShardImportOptions {
+            include: None,
+            dry_run: true,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        knowledge_shard_import_internal(&state, input, &dry_run, &archive.schema_name)
+            .await
+            .unwrap();
+        assert_eq!(
+            shard_native_database_snapshot(&ctx).await,
+            before,
+            "dry-run must preserve the entire native database"
+        );
+        for pass in 0..2 {
+            knowledge_shard_import_internal(&state, input, &opts, &archive.schema_name)
+                .await
+                .unwrap();
+            let after = shard_native_database_snapshot(&ctx).await;
+            let unrelated_set_row = |snapshot: &serde_json::Value| {
+                snapshot["embedding_set"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|row| row["id"] == unrelated_set.to_string())
+                    .unwrap()
+                    .clone()
+            };
+            assert_eq!(
+                unrelated_set_row(&after),
+                unrelated_set_row(&before),
+                "pass {pass}: unrelated set native state must remain unchanged"
+            );
+            assert_eq!(
+                unrelated_members(&after),
+                unrelated_members(&before),
+                "pass {pass}: an imported note does not own another set's memberships"
+            );
+            assert_eq!(
+                unrelated_export(&shard_export_embedding_state(&state, &archive.schema_name).await),
+                unrelated_export(&export_before),
+                "unrelated exported sets and members must survive"
+            );
+            assert!(
+                after["embedding_set_member"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|row| row["embedding_set_id"] == selected_set.to_string()
+                        && row["note_id"] == unrelated_note.to_string()),
+                "pass {pass}: a selected set does not own an excluded note's membership"
+            );
+            assert!(
+                after["note"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|row| row["id"] == unrelated_note.to_string()),
+                "membership omission must not delete the note"
+            );
+        }
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::query(
+            "DELETE FROM protected_member_reference WHERE note_id != $1 AND embedding_set_id != $2",
+        )
+        .bind(unrelated_note)
+        .bind(unrelated_set)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        let baseline = shard_native_database_snapshot(&ctx).await;
+        let mut empty_members = files.clone();
+        empty_members.insert("embedding_set_members.jsonl".into(), Vec::new());
+        let selected: std::collections::HashSet<String> = [
+            "notes".to_string(),
+            "embedding_sets".to_string(),
+            "embedding_set_members".to_string(),
+        ]
+        .into_iter()
+        .collect();
+        for mode in [
+            "members-only",
+            "no-owners",
+            "no-notes",
+            "empty-notes",
+            "no-selection",
+        ] {
+            let mut selected_files = empty_members.clone();
+            let selected_components = match mode {
+                "members-only" => ["embedding_set_members".to_string()].into_iter().collect(),
+                "no-owners" => {
+                    selected_files.insert("embedding_sets.json".into(), b"[]".to_vec());
+                    selected.clone()
+                }
+                "no-notes" => selected
+                    .iter()
+                    .filter(|component| component.as_str() != "notes")
+                    .cloned()
+                    .collect(),
+                "empty-notes" => {
+                    selected_files.insert("notes.jsonl".into(), Vec::new());
+                    selected.clone()
+                }
+                _ => std::collections::HashSet::new(),
+            };
+            let mut tx = ctx.begin_tx().await.unwrap();
+            apply_shard_embedding_components_tx(
+                &mut tx,
+                &selected_files,
+                &selected_components,
+                &opts,
+                &mut ShardImportCounts::default(),
+                &mut ShardImportCounts::default(),
+            )
+            .await
+            .unwrap();
+            tx.commit().await.unwrap();
+            assert_eq!(
+                shard_native_database_snapshot(&ctx).await,
+                baseline,
+                "{mode} does not authorize omitted membership removal"
+            );
+        }
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::raw_sql(
+            "CREATE FUNCTION reject_member_omission() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN RAISE EXCEPTION 'injected member omission failure'; END; $$;
+            CREATE TRIGGER reject_member_omission AFTER DELETE ON embedding_set_member
+            FOR EACH ROW EXECUTE FUNCTION reject_member_omission();",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        assert!(apply_shard_embedding_components_tx(
+            &mut tx,
+            &empty_members,
+            &selected,
+            &opts,
+            &mut ShardImportCounts::default(),
+            &mut ShardImportCounts::default()
+        )
+        .await
+        .is_err());
+        tx.rollback().await.unwrap();
+        assert_eq!(
+            shard_native_database_snapshot(&ctx).await,
+            baseline,
+            "late omission failure must restore every native row"
+        );
+        for _ in 0..2 {
+            let mut tx = ctx.begin_tx().await.unwrap();
+            apply_shard_embedding_components_tx(
+                &mut tx,
+                &empty_members,
+                &selected,
+                &opts,
+                &mut ShardImportCounts::default(),
+                &mut ShardImportCounts::default(),
+            )
+            .await
+            .unwrap();
+            tx.commit().await.unwrap();
+            let after = shard_native_database_snapshot(&ctx).await;
+            assert_eq!(unrelated_members(&after), unrelated_members(&baseline));
+            assert!(
+                !after["embedding_set_member"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|row| row["embedding_set_id"] == selected_set.to_string()
+                        && row["note_id"] != unrelated_note.to_string()),
+                "empty selected member family must remove only memberships with both endpoints selected"
+            );
+            assert!(after["embedding_set_member"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|row| row["embedding_set_id"] == selected_set.to_string()
+                    && row["note_id"] == unrelated_note.to_string()));
+        }
+        db.archives.drop_archive_schema(&name).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn shard_react_membership_scope_fixture_preserves_both_excluded_endpoints() {
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must select a disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let name = format!("sh-member-shared-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let input = include_bytes!("../../../tests/fixtures/shards/external/react-native-membership-2026-09-10/input.shard");
+        let replacement = include_bytes!("../../../tests/fixtures/shards/external/react-native-membership-2026-09-10/replacement.shard");
+        let expected = include_bytes!("../../../tests/fixtures/shards/external/react-native-membership-2026-09-10/expected.shard");
+        let expected_files = read_shard_archive(expected, ShardArchiveLimits::default()).unwrap();
+        let mut expected_members = parse_shard_component_records(
+            "embedding_set_members",
+            &expected_files["embedding_set_members.jsonl"],
+        )
+        .unwrap();
+        expected_members.sort_by_key(|row| row.to_string());
+        assert_eq!(expected_members.len(), 2);
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        knowledge_shard_import_internal(&state, input, &opts, &archive.schema_name)
+            .await
+            .unwrap();
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::raw_sql("CREATE TABLE protected_member_reference (
+            embedding_set_id UUID, note_id UUID,
+            FOREIGN KEY (embedding_set_id, note_id) REFERENCES embedding_set_member(embedding_set_id, note_id) ON DELETE RESTRICT);
+            INSERT INTO protected_member_reference SELECT embedding_set_id, note_id FROM embedding_set_member;")
+            .execute(&mut *tx).await.unwrap();
+        tx.commit().await.unwrap();
+        let before = shard_native_database_snapshot(&ctx).await;
+        knowledge_shard_import_internal(&state, input, &opts, &archive.schema_name)
+            .await
+            .unwrap();
+        let after_repeat = shard_native_database_snapshot(&ctx).await;
+        assert_eq!(
+            after_repeat["embedding_set_member"],
+            before["embedding_set_member"]
+        );
+        // Successful imports append audit/scan state; failed imports must change nothing.
+        let before = after_repeat;
+        assert!(
+            knowledge_shard_import_internal(&state, replacement, &opts, &archive.schema_name)
+                .await
+                .is_err()
+        );
+        assert_eq!(shard_native_database_snapshot(&ctx).await, before);
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::query(
+            "DELETE FROM protected_member_reference
+            WHERE note_id != '018f7c00-0000-7000-8000-000000000041'::uuid
+              AND embedding_set_id != '018f7c00-0000-7000-8000-000000000042'::uuid",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        for _ in 0..2 {
+            knowledge_shard_import_internal(&state, replacement, &opts, &archive.schema_name)
+                .await
+                .unwrap();
+            let exported = shard_export_embedding_state(&state, &archive.schema_name).await;
+            let mut members = exported["embedding_set_members"]
+                .as_array()
+                .unwrap()
+                .clone();
+            members.sort_by_key(|row| row.to_string());
+            assert_eq!(members, expected_members);
+        }
+        let clean_name = format!("sh-member-clean-{}", Uuid::new_v4().simple());
+        let clean = db
+            .archives
+            .create_archive_schema(&clean_name, None)
+            .await
+            .unwrap();
+        knowledge_shard_import_internal(&state, expected, &opts, &clean.schema_name)
+            .await
+            .unwrap();
+        let exported = shard_export_embedding_state(&state, &clean.schema_name).await;
+        let mut members = exported["embedding_set_members"]
+            .as_array()
+            .unwrap()
+            .clone();
+        members.sort_by_key(|row| row.to_string());
+        assert_eq!(members, expected_members);
+        db.archives.drop_archive_schema(&clean_name).await.unwrap();
+        db.archives.drop_archive_schema(&name).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn shard_react_vector_fixture_preserves_identity_through_coordinate_swaps() {
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must select a disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let name = format!("sh-vector-shared-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let input = include_bytes!(
+            "../../../tests/fixtures/shards/external/react-native-vectors-2026-09-11/input.shard"
+        );
+        let replacement = include_bytes!("../../../tests/fixtures/shards/external/react-native-vectors-2026-09-11/replacement.shard");
+        let files = read_shard_archive(replacement, ShardArchiveLimits::default()).unwrap();
+        let sorted_vectors = |state: &serde_json::Value| {
+            let mut rows = state["embeddings"].as_array().unwrap().clone();
+            rows.sort_by_key(|row| row["id"].to_string());
+            rows
+        };
+        let expected = sorted_vectors(&serde_json::json!({"embeddings":
+            parse_shard_component_records("embeddings", &files["embeddings.jsonl"]).unwrap()}));
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        knowledge_shard_import_internal(&state, input, &opts, &archive.schema_name)
+            .await
+            .unwrap();
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::raw_sql("CREATE TABLE protected_vector_reference (id UUID REFERENCES embedding(id) ON DELETE RESTRICT);
+            INSERT INTO protected_vector_reference SELECT id FROM embedding;
+            INSERT INTO note_token_embeddings (note_id, chunk_id, token_position, token_text)
+              SELECT note_id, id, 0, 'shared-vector-token' FROM embedding WHERE note_id IS NOT NULL;
+            CREATE FUNCTION reject_vector_apply() RETURNS trigger LANGUAGE plpgsql AS $$
+              BEGIN IF NEW.embedding_set_id IS NOT NULL THEN RAISE EXCEPTION 'injected vector apply rollback';
+              END IF; RETURN NEW; END; $$;
+            CREATE TRIGGER reject_vector_apply AFTER UPDATE ON embedding
+              FOR EACH ROW EXECUTE FUNCTION reject_vector_apply();")
+            .execute(&mut *tx).await.unwrap();
+        tx.commit().await.unwrap();
+        let before = shard_native_database_snapshot(&ctx).await;
+        assert!(
+            knowledge_shard_import_internal(&state, replacement, &opts, &archive.schema_name)
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            shard_native_database_snapshot(&ctx).await,
+            before,
+            "post-staging failure rolls back the whole native database"
+        );
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::raw_sql(
+            "DROP TRIGGER reject_vector_apply ON embedding; DROP FUNCTION reject_vector_apply();",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        let mut preview = ctx.begin_tx().await.unwrap();
+        sqlx::query("SET TRANSACTION READ ONLY")
+            .execute(&mut *preview)
+            .await
+            .unwrap();
+        let preview_options = ShardImportOptions {
+            include: Some("embeddings".into()),
+            dry_run: true,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        let mut counts = ShardImportCounts::default();
+        apply_shard_embedding_components_tx(
+            &mut preview,
+            &files,
+            &["embeddings".to_string()].into_iter().collect(),
+            &preview_options,
+            &mut counts,
+            &mut ShardImportCounts::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(counts.embeddings, expected.len());
+        preview.rollback().await.unwrap();
+        assert_eq!(
+            shard_native_database_snapshot(&ctx).await,
+            before,
+            "read-only swap preview must not stage coordinates"
+        );
+        for _ in 0..2 {
+            knowledge_shard_import_internal(&state, replacement, &opts, &archive.schema_name)
+                .await
+                .unwrap();
+            assert_eq!(
+                sorted_vectors(&shard_export_embedding_state(&state, &archive.schema_name).await),
+                expected
+            );
+            let after = shard_native_database_snapshot(&ctx).await;
+            assert_eq!(
+                after["protected_vector_reference"],
+                before["protected_vector_reference"]
+            );
+            assert_eq!(
+                after["note_token_embeddings"],
+                before["note_token_embeddings"]
+            );
+        }
+        let clean_name = format!("sh-vector-clean-{}", Uuid::new_v4().simple());
+        let clean = db
+            .archives
+            .create_archive_schema(&clean_name, None)
+            .await
+            .unwrap();
+        knowledge_shard_import_internal(&state, replacement, &opts, &clean.schema_name)
+            .await
+            .unwrap();
+        assert_eq!(
+            sorted_vectors(&shard_export_embedding_state(&state, &clean.schema_name).await),
+            expected
+        );
+        db.archives.drop_archive_schema(&clean_name).await.unwrap();
+        db.archives.drop_archive_schema(&name).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn shard_vector_reparent_refreshes_old_and_new_set_statistics() {
+        use sha2::Digest;
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must select a disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let name = format!("sh-vector-reparent-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let input = include_bytes!(
+            "../../../tests/fixtures/shards/external/react-native-vectors-2026-09-11/input.shard"
+        );
+        let options = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        knowledge_shard_import_internal(&state, input, &options, &archive.schema_name)
+            .await
+            .unwrap();
+        let files = read_shard_archive(input, ShardArchiveLimits::default()).unwrap();
+        let vectors =
+            parse_shard_component_records("embeddings", &files["embeddings.jsonl"]).unwrap();
+        let vector = vectors
+            .iter()
+            .find(|row| !row["note_id"].is_null() && !row["embedding_set_id"].is_null())
+            .unwrap();
+        let vector_id: Uuid = serde_json::from_value(vector["id"].clone()).unwrap();
+        let old_set: Uuid = serde_json::from_value(vector["embedding_set_id"].clone()).unwrap();
+        let new_set = Uuid::new_v4();
+        let mut sets: Vec<serde_json::Value> =
+            serde_json::from_slice(&files["embedding_sets.json"]).unwrap();
+        let mut added = sets
+            .iter()
+            .find(|row| row["id"] == old_set.to_string())
+            .unwrap()
+            .clone();
+        added["id"] = serde_json::json!(new_set);
+        added["name"] = serde_json::json!("Vector reparent destination");
+        added["slug"] = serde_json::json!("vector-reparent-destination");
+        sets.push(added);
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::query(
+            "INSERT INTO embedding_set SELECT (jsonb_populate_record(NULL::embedding_set,
+            to_jsonb(s) || jsonb_build_object('id', $1::uuid, 'name', 'Vector reparent destination',
+            'slug', 'vector-reparent-destination', 'embedding_count', 0, 'document_count', 0))).*
+            FROM embedding_set s WHERE id=$2",
+        )
+        .bind(new_set)
+        .bind(old_set)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query("SELECT update_embedding_set_stats($1)")
+            .bind(old_set)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::raw_sql("CREATE TABLE protected_vector_reference (id UUID REFERENCES embedding(id) ON DELETE RESTRICT);
+            INSERT INTO protected_vector_reference SELECT id FROM embedding;
+            INSERT INTO note_token_embeddings (note_id, chunk_id, token_position, token_text)
+              SELECT note_id, id, 0, 'reparent-vector-token' FROM embedding WHERE note_id IS NOT NULL;")
+            .execute(&mut *tx).await.unwrap();
+        tx.commit().await.unwrap();
+        let before = shard_native_database_snapshot(&ctx).await;
+        for destination in [Some(new_set), None, Some(old_set)] {
+            let mut changed = files.clone();
+            let mut rows = vectors.clone();
+            rows.iter_mut()
+                .find(|row| row["id"] == vector_id.to_string())
+                .unwrap()["embedding_set_id"] = serde_json::json!(destination);
+            let mut manifest: serde_json::Value =
+                serde_json::from_slice(&changed["manifest.json"]).unwrap();
+            for (component, data, count) in [
+                (
+                    "embeddings",
+                    rows.iter()
+                        .map(|row| format!("{row}\n"))
+                        .collect::<String>()
+                        .into_bytes(),
+                    rows.len(),
+                ),
+                (
+                    "embedding_sets",
+                    serde_json::to_vec(&sets).unwrap(),
+                    sets.len(),
+                ),
+            ] {
+                let filename = shard_component_filename(component).unwrap();
+                manifest["counts"][component] = serde_json::json!(count);
+                manifest["checksums"][filename] =
+                    serde_json::json!(hex::encode(sha2::Sha256::digest(&data)));
+                changed.insert(filename.to_string(), data);
+            }
+            changed.insert(
+                "manifest.json".into(),
+                serde_json::to_vec(&manifest).unwrap(),
+            );
+            let mut entries = changed
+                .iter()
+                .map(|(name, data)| (name.as_str(), data.as_slice(), tar::EntryType::Regular))
+                .collect::<Vec<_>>();
+            entries.sort_by_key(|row| row.0);
+            let replacement = test_shard_archive(&entries);
+            let mut options = ShardImportOptions {
+                include: Some("embeddings".into()),
+                dry_run: true,
+                on_conflict: ConflictStrategy::Replace,
+                skip_embedding_regen: true,
+            };
+            let baseline = shard_native_database_snapshot(&ctx).await;
+            knowledge_shard_import_internal(&state, &replacement, &options, &archive.schema_name)
+                .await
+                .unwrap();
+            assert_eq!(
+                shard_native_database_snapshot(&ctx).await,
+                baseline,
+                "reparent preview must be an exact native no-op"
+            );
+            options.dry_run = false;
+            let mut tx = ctx.begin_tx().await.unwrap();
+            sqlx::raw_sql(
+                "CREATE FUNCTION reject_reparent_probe() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN RAISE EXCEPTION 'injected reparent rollback'; END; $$;
+                CREATE TRIGGER reject_reparent_probe AFTER UPDATE ON embedding
+                FOR EACH ROW EXECUTE FUNCTION reject_reparent_probe();",
+            )
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+            tx.commit().await.unwrap();
+            assert!(knowledge_shard_import_internal(
+                &state,
+                &replacement,
+                &options,
+                &archive.schema_name
+            )
+            .await
+            .is_err());
+            assert_eq!(
+                shard_native_database_snapshot(&ctx).await,
+                baseline,
+                "reparent failure restores all native state including old/new statistics"
+            );
+            let mut tx = ctx.begin_tx().await.unwrap();
+            sqlx::raw_sql("DROP TRIGGER reject_reparent_probe ON embedding; DROP FUNCTION reject_reparent_probe();")
+                .execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            for _ in 0..2 {
+                knowledge_shard_import_internal(
+                    &state,
+                    &replacement,
+                    &options,
+                    &archive.schema_name,
+                )
+                .await
+                .unwrap();
+                let after = shard_native_database_snapshot(&ctx).await;
+                assert_eq!(
+                    after["protected_vector_reference"],
+                    before["protected_vector_reference"]
+                );
+                assert_eq!(
+                    after["note_token_embeddings"],
+                    before["note_token_embeddings"]
+                );
+                let mut tx = ctx.begin_tx().await.unwrap();
+                let mismatch = sqlx::query_scalar::<_, i64>(
+                    "SELECT count(*) FROM embedding_set s
+                    WHERE s.id = ANY($1::uuid[]) AND s.embedding_count IS DISTINCT FROM
+                        (SELECT count(*) FROM embedding e WHERE e.embedding_set_id = s.id)",
+                )
+                .bind([old_set, new_set].as_slice())
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+                assert_eq!(
+                    mismatch, 0,
+                    "both old and new set statistics must reflect retained-vector reparenting"
+                );
+                assert_eq!(
+                    sqlx::query_scalar::<_, Option<Uuid>>(
+                        "SELECT embedding_set_id FROM embedding WHERE id=$1"
+                    )
+                    .bind(vector_id)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .unwrap(),
+                    destination
+                );
+                tx.rollback().await.unwrap();
+            }
+        }
+        db.archives.drop_archive_schema(&name).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn shard_vector_note_reparent_preserves_tokens_without_cross_note_chunk_references() {
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must select a disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let name = format!("sh-vector-note-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let input = include_bytes!(
+            "../../../tests/fixtures/shards/external/react-native-vector-owners-2026-09-11/input.shard"
+        );
+        let mut opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        knowledge_shard_import_internal(&state, input, &opts, &archive.schema_name)
+            .await
+            .unwrap();
+        let files = read_shard_archive(input, ShardArchiveLimits::default()).unwrap();
+        let vectors =
+            parse_shard_component_records("embeddings", &files["embeddings.jsonl"]).unwrap();
+        let vector = vectors
+            .iter()
+            .find(|row| !row["note_id"].is_null())
+            .unwrap();
+        let vector_id: Uuid = serde_json::from_value(vector["id"].clone()).unwrap();
+        let old_note: Uuid = serde_json::from_value(vector["note_id"].clone()).unwrap();
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::query(
+            "INSERT INTO note_token_embeddings (note_id, chunk_id, token_position, token_text)
+            SELECT note_id, id, 0, 'retained native token' FROM embedding WHERE id=$1",
+        )
+        .bind(vector_id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::raw_sql("CREATE TABLE protected_token_reference (id UUID REFERENCES note_token_embeddings(id) ON DELETE RESTRICT);
+            INSERT INTO protected_token_reference SELECT id FROM note_token_embeddings;")
+            .execute(&mut *tx).await.unwrap();
+        tx.commit().await.unwrap();
+        let before = shard_native_database_snapshot(&ctx).await;
+        for replacement in [
+            include_bytes!("../../../tests/fixtures/shards/external/react-native-vector-owners-2026-09-11/note.shard").as_slice(),
+            include_bytes!("../../../tests/fixtures/shards/external/react-native-vector-owners-2026-09-11/null-note.shard").as_slice(),
+            include_bytes!("../../../tests/fixtures/shards/external/react-native-vector-owners-2026-09-11/set.shard").as_slice(),
+            include_bytes!("../../../tests/fixtures/shards/external/react-native-vector-owners-2026-09-11/null-set.shard").as_slice(),
+            include_bytes!("../../../tests/fixtures/shards/external/react-native-vector-owners-2026-09-11/unchanged.shard").as_slice(),
+        ] {
+            let replacement_files = read_shard_archive(replacement, ShardArchiveLimits::default()).unwrap();
+            let replacement_vectors = parse_shard_component_records("embeddings", &replacement_files["embeddings.jsonl"]).unwrap();
+            let destination: Option<Uuid> = serde_json::from_value(replacement_vectors[0]["note_id"].clone()).unwrap();
+            opts.include = None;
+            opts.dry_run = false;
+            knowledge_shard_import_internal(&state, input, &opts, &archive.schema_name)
+                .await
+                .unwrap();
+            let mut tx = ctx.begin_tx().await.unwrap();
+            sqlx::query("UPDATE note_token_embeddings SET chunk_id=$1 WHERE token_text='retained native token'")
+                .bind(vector_id).execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            opts.include = Some("embeddings".into());
+            opts.dry_run = true;
+            let baseline = shard_native_database_snapshot(&ctx).await;
+            knowledge_shard_import_internal(&state, replacement, &opts, &archive.schema_name)
+                .await
+                .unwrap();
+            assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+            opts.dry_run = false;
+            let mut tx = ctx.begin_tx().await.unwrap();
+            sqlx::raw_sql("CREATE FUNCTION reject_note_reparent_probe() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN RAISE EXCEPTION 'injected post-token rollback'; END; $$;
+                CREATE TRIGGER reject_note_reparent_probe AFTER UPDATE ON embedding
+                FOR EACH ROW EXECUTE FUNCTION reject_note_reparent_probe();")
+                .execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            assert!(knowledge_shard_import_internal(
+                &state,
+                replacement,
+                &opts,
+                &archive.schema_name
+            )
+            .await
+            .is_err());
+            assert_eq!(
+                shard_native_database_snapshot(&ctx).await,
+                baseline,
+                "failed vector apply must restore token pointers and all native state"
+            );
+            let mut tx = ctx.begin_tx().await.unwrap();
+            sqlx::raw_sql("DROP TRIGGER reject_note_reparent_probe ON embedding; DROP FUNCTION reject_note_reparent_probe();")
+                .execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            for _ in 0..2 {
+                knowledge_shard_import_internal(&state, replacement, &opts, &archive.schema_name)
+                    .await
+                    .unwrap();
+                let after = shard_native_database_snapshot(&ctx).await;
+                assert_eq!(
+                    after["protected_token_reference"],
+                    before["protected_token_reference"]
+                );
+                let expected_chunk = if destination == Some(old_note) {
+                    Some(vector_id)
+                } else {
+                    None
+                };
+                let mut expected_tokens = before["note_token_embeddings"].clone();
+                for token in expected_tokens.as_array_mut().unwrap() {
+                    token["chunk_id"] = serde_json::json!(expected_chunk);
+                }
+                assert_eq!(after["note_token_embeddings"], expected_tokens,
+                    "preserve token identity, owner, payload and timestamps; only invalid optional pointers detach");
+                assert_eq!(shard_export_embedding_state(&state, &archive.schema_name).await["embeddings"],
+                    serde_json::json!(replacement_vectors), "export reflects the actual retained vector owner");
+                let mut tx = ctx.begin_tx().await.unwrap();
+                let mismatches = sqlx::query_scalar::<_, i64>(
+                    "SELECT count(*) FROM note_token_embeddings t
+                    JOIN embedding e ON e.id=t.chunk_id WHERE t.note_id IS DISTINCT FROM e.note_id",
+                )
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+                assert_eq!(
+                    mismatches, 0,
+                    "retained token chunk references must not resolve to a different note"
+                );
+                let token_note = sqlx::query_scalar::<_, Uuid>("SELECT note_id FROM note_token_embeddings WHERE token_text='retained native token'")
+                    .fetch_one(&mut *tx).await.unwrap();
+                assert_eq!(
+                    token_note, old_note,
+                    "vector replacement must not reassign an independent note's tokens"
+                );
+                tx.rollback().await.unwrap();
+            }
+            let clean_name = format!("sh-vector-note-clean-{}", Uuid::new_v4().simple());
+            let clean = db.archives.create_archive_schema(&clean_name, None).await.unwrap();
+            opts.include = None;
+            knowledge_shard_import_internal(&state, replacement, &opts, &clean.schema_name).await.unwrap();
+            assert_eq!(shard_export_embedding_state(&state, &clean.schema_name).await["embeddings"],
+                serde_json::json!(replacement_vectors), "shared owner fixture restores into a clean destination");
+            db.archives.drop_archive_schema(&clean_name).await.unwrap();
+        }
+        db.archives.drop_archive_schema(&name).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn shard_skos_replace_preserves_independent_owners() {
+        use futures::FutureExt;
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL").expect("disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let name = format!("sh-skos-owner-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let result = std::panic::AssertUnwindSafe(async {
+            let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/fixtures/shards/external/react-native-skos-retained-2026-09-11");
+            let input = std::fs::read(directory.join("skos_labels-input.shard")).unwrap();
+            let mut opts = ShardImportOptions { include: None, dry_run: false,
+                on_conflict: ConflictStrategy::Replace, skip_embedding_regen: true };
+            knowledge_shard_import_internal(&state, &input, &opts, &archive.schema_name).await.unwrap();
+            let files = read_shard_archive(&input, ShardArchiveLimits::default()).unwrap();
+            let concepts = parse_shard_component_records("skos_concepts", &files["skos_concepts.json"]).unwrap();
+            let selected_concept: Uuid = serde_json::from_value(concepts[0]["id"].clone()).unwrap();
+            let selected_scheme: Uuid = serde_json::from_value(concepts[0]["primary_scheme_id"].clone()).unwrap();
+            let independent = Uuid::new_v4();
+            let mut tx = ctx.begin_tx().await.unwrap();
+            matric_db::PgNoteRepository::new(db.pool.clone()).insert_with_id_tx(&mut tx, independent,
+                CreateNoteRequest { content: "Independent SKOS owner".into(), format: "markdown".into(),
+                    source: "test".into(), collection_id: None, tags: Some(Vec::new()),
+                    metadata: Some(serde_json::json!({})), document_type_id: None, title: None }).await.unwrap();
+            for statement in [
+                "INSERT INTO skos_concept_scheme(id,notation,uri,title) VALUES($1,'independent','https://example.test/independent','Independent')",
+                "INSERT INTO skos_concept(id,primary_scheme_id,notation) VALUES($1,$1,'independent')",
+                "INSERT INTO skos_concept_label(id,concept_id,label_type,value,language) VALUES($1,$1,'pref_label','Independent','en')",
+                "INSERT INTO skos_concept_note(id,concept_id,note_type,value) VALUES($1,$1,'definition','Independent')",
+                "INSERT INTO skos_mapping_relation_edge(id,concept_id,target_uri,relation_type) VALUES($1,$1,'https://external.test/independent','exact_match')",
+            ] { sqlx::query(statement).bind(independent).execute(&mut *tx).await.unwrap(); }
+            for statement in [
+                "INSERT INTO skos_semantic_relation_edge(id,subject_id,object_id,relation_type,is_inferred) VALUES($1,$1,$2,'related',true)",
+                "INSERT INTO note_skos_concept(note_id,concept_id) VALUES($1,$2)",
+            ] { sqlx::query(statement).bind(independent).bind(selected_concept).execute(&mut *tx).await.unwrap(); }
+            for statement in [
+                "INSERT INTO skos_concept_in_scheme(concept_id,scheme_id) VALUES($1,$2)",
+                "INSERT INTO skos_collection(id,pref_label,scheme_id) VALUES($1,'Independent',$2)",
+            ] { sqlx::query(statement).bind(independent).bind(selected_scheme).execute(&mut *tx).await.unwrap(); }
+            sqlx::query("INSERT INTO skos_collection_member(collection_id,concept_id,position) VALUES($1,$2,1)")
+                .bind(independent).bind(selected_concept).execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            let owned = |snapshot: serde_json::Value| {
+                let mut result = serde_json::Map::new();
+                for (table, key) in [
+                    ("skos_concept_scheme", "id"), ("skos_concept", "id"),
+                    ("skos_concept_label", "concept_id"), ("skos_concept_note", "concept_id"),
+                    ("skos_mapping_relation_edge", "concept_id"), ("skos_semantic_relation_edge", "subject_id"),
+                    ("skos_concept_in_scheme", "concept_id"), ("note_skos_concept", "note_id"),
+                    ("skos_collection", "id"), ("skos_collection_member", "collection_id"),
+                ] {
+                    let rows: Vec<_> = snapshot[table].as_array().unwrap().iter()
+                        .filter(|row| row[key] == serde_json::json!(independent)).cloned().collect();
+                    result.insert(table.to_string(), serde_json::json!(rows));
+                }
+                serde_json::Value::Object(result)
+            };
+            let before = owned(shard_native_database_snapshot(&ctx).await);
+            assert!(before.as_object().unwrap().values().all(|v| v.as_array().unwrap().len() == 1));
+            for selection in [Some("skos_schemes"), Some("skos_concepts"), Some("skos_collections"), None] {
+                opts.include = selection.map(str::to_string);
+                opts.dry_run = true;
+                let baseline = shard_native_database_snapshot(&ctx).await;
+                knowledge_shard_import_internal(&state, &input, &opts, &archive.schema_name).await.unwrap();
+                assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+                opts.dry_run = false;
+                knowledge_shard_import_internal(&state, &input, &opts, &archive.schema_name).await
+                    .expect("ordinary root replacement must preserve independent owners and their incoming references");
+                assert_eq!(owned(shard_native_database_snapshot(&ctx).await), before, "selection {selection:?}");
+            }
+            for component in ["skos_labels", "skos_notes", "skos_relations", "skos_mapping_relations",
+                "skos_scheme_memberships", "note_skos_tags", "skos_collection_members"] {
+                let omission = std::fs::read(directory.join(format!("{component}-omission.shard"))).unwrap();
+                for strategy in [ConflictStrategy::Skip, ConflictStrategy::Merge, ConflictStrategy::Replace] {
+                    opts.on_conflict = strategy;
+                    for _ in 0..2 {
+                        knowledge_shard_import_internal(&state, &omission, &opts, &archive.schema_name).await.unwrap();
+                        assert_eq!(owned(shard_native_database_snapshot(&ctx).await), before,
+                            "unselected {component} owners and reference endpoints survive {strategy:?}");
+                    }
+                }
+                knowledge_shard_import_internal(&state, &input, &opts, &archive.schema_name).await.unwrap();
+            }
+        }).catch_unwind().await;
+        db.archives.drop_archive_schema(&name).await.unwrap();
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    async fn shard_skos_concept_coordinate_case(scheme_swap: bool) {
+        use futures::FutureExt;
+        use sha2::Digest;
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL").expect("disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let name = format!("sh-skos-coordinate-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let result=std::panic::AssertUnwindSafe(async {
+            let seed=include_bytes!("../../../tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_relations-input.shard");
+            let mut opts=ShardImportOptions {include:None,dry_run:false,
+                on_conflict:ConflictStrategy::Replace,skip_embedding_regen:true};
+            knowledge_shard_import_internal(&state,seed,&opts,&archive.schema_name).await.unwrap();
+            let seed_files=read_shard_archive(seed,ShardArchiveLimits::default()).unwrap();
+            let seed_rows=parse_shard_component_records("skos_concepts",&seed_files["skos_concepts.json"]).unwrap();
+            let ids:Vec<Uuid>=seed_rows.iter().map(|row|serde_json::from_value(row["id"].clone()).unwrap()).collect();
+            assert_eq!(ids.len(),2);
+            let second_scheme=Uuid::new_v4();
+            let mut tx=ctx.begin_tx().await.unwrap();
+            if scheme_swap {
+                sqlx::query("INSERT INTO skos_concept_scheme(id,notation,title) VALUES($1,'coordinate-target','Coordinate target')")
+                    .bind(second_scheme).execute(&mut *tx).await.unwrap();
+                sqlx::query("UPDATE skos_concept SET primary_scheme_id=$2,notation=$3 WHERE id=$1")
+                    .bind(ids[1]).bind(second_scheme).bind(seed_rows[0]["notation"].as_str().unwrap())
+                    .execute(&mut *tx).await.unwrap();
+            }
+            sqlx::raw_sql("CREATE TABLE protected_coordinate_reference(id UUID REFERENCES skos_concept(id) ON DELETE RESTRICT)")
+                .execute(&mut *tx).await.unwrap();
+            sqlx::query("INSERT INTO protected_coordinate_reference SELECT unnest($1::uuid[])")
+                .bind(&ids).execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            let input=shard_export_native_full_v1(&state,&archive.schema_name).await;
+            let baseline=shard_native_database_snapshot(&ctx).await;
+            let original=read_shard_archive(&input,ShardArchiveLimits::default()).unwrap();
+            let concepts=parse_shard_component_records("skos_concepts",&original["skos_concepts.json"]).unwrap();
+            let rebind=|rows:&[serde_json::Value]| {
+                let mut files=original.clone();
+                let bytes=serde_json::to_vec(rows).unwrap();
+                let mut manifest:serde_json::Value=serde_json::from_slice(&files["manifest.json"]).unwrap();
+                manifest["checksums"]["skos_concepts.json"]=serde_json::json!(hex::encode(sha2::Sha256::digest(&bytes)));
+                files.insert("skos_concepts.json".into(),bytes);
+                files.insert("manifest.json".into(),serde_json::to_vec(&manifest).unwrap());
+                validate_shard_relationships(&files).unwrap();
+                let entries:Vec<_>=files.iter().map(|(name,bytes)|(name.as_str(),bytes.as_slice(),tar::EntryType::Regular)).collect();
+                test_shard_archive(&entries)
+            };
+            let field=if scheme_swap {"primary_scheme_id"} else {"uri"};
+            let mut planned=concepts.clone();
+            planned[0][field]=concepts[1][field].clone();
+            planned[1][field]=concepts[0][field].clone();
+            let replacement=rebind(&planned);
+            let label=if scheme_swap {"skos-concept-scheme-swap"} else {"skos-concept-uri-swap"};
+            let save=|suffix:&str,bytes:&[u8]| {
+                if let Ok(output)=std::env::var("FORTEMI_SHARD_RELATIONSHIP_FIXTURE_OUTPUT") {
+                    use std::io::Write;
+                    std::fs::create_dir_all(&output).unwrap();
+                    std::fs::OpenOptions::new().write(true).create_new(true)
+                        .open(std::path::Path::new(&output).join(format!("{label}-{suffix}.shard")))
+                        .unwrap().write_all(bytes).unwrap();
+                }
+            };
+            save("input",&input); save("planned",&replacement);
+            let mut expected=baseline.clone();
+            for row in &planned {
+                expected["skos_concept"].as_array_mut().unwrap().iter_mut()
+                    .find(|old|old["id"]==row["id"]).unwrap()[field]=row[field].clone();
+            }
+            let concept_set=|snapshot:&serde_json::Value| {
+                let mut rows=snapshot["skos_concept"].as_array().unwrap().clone();
+                rows.sort_by_key(|row|row["id"].as_str().unwrap().to_string()); rows
+            };
+            opts.include=Some("skos_concepts".into());
+            for strategy in [ConflictStrategy::Skip,ConflictStrategy::Merge] {
+                opts.on_conflict=strategy;
+                for dry_run in [true,false] {
+                    opts.dry_run=dry_run;
+                    knowledge_shard_import_internal(&state,&replacement,&opts,&archive.schema_name).await.unwrap();
+                    assert_eq!(shard_native_database_snapshot(&ctx).await,baseline);
+                }
+            }
+            opts.on_conflict=ConflictStrategy::Replace;
+            let mut tx=ctx.begin_tx().await.unwrap();
+            sqlx::raw_sql("CREATE SEQUENCE coordinate_rollback_reached;
+                CREATE FUNCTION reject_coordinate_batch() RETURNS trigger LANGUAGE plpgsql AS $$
+                  BEGIN PERFORM nextval('coordinate_rollback_reached'); RAISE EXCEPTION 'injected coordinate rollback'; END; $$;
+                CREATE CONSTRAINT TRIGGER zzzz_reject_coordinate_batch AFTER UPDATE ON skos_concept
+                  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_coordinate_batch();")
+                .execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            opts.dry_run=true;
+            knowledge_shard_import_internal(&state,&replacement,&opts,&archive.schema_name).await.unwrap();
+            assert_eq!(shard_native_database_snapshot(&ctx).await,baseline);
+            let mut tx=ctx.begin_tx().await.unwrap();
+            assert!(!sqlx::query_scalar::<_,bool>("SELECT is_called FROM coordinate_rollback_reached").fetch_one(&mut *tx).await.unwrap());
+            tx.rollback().await.unwrap();
+            opts.dry_run=false;
+            assert!(knowledge_shard_import_internal(&state,&replacement,&opts,&archive.schema_name).await.is_err());
+            assert_eq!(shard_native_database_snapshot(&ctx).await,baseline);
+            let mut tx=ctx.begin_tx().await.unwrap();
+            assert!(sqlx::query_scalar::<_,bool>("SELECT is_called FROM coordinate_rollback_reached").fetch_one(&mut *tx).await.unwrap());
+            sqlx::raw_sql("DROP TRIGGER zzzz_reject_coordinate_batch ON skos_concept;
+                DROP FUNCTION reject_coordinate_batch(); DROP SEQUENCE coordinate_rollback_reached;")
+                .execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            opts.dry_run=false;
+            for _ in 0..2 {
+                let applied=knowledge_shard_import_internal(&state,&replacement,&opts,&archive.schema_name).await;
+                if applied.is_err() {assert_eq!(shard_native_database_snapshot(&ctx).await,baseline);}
+                applied.expect("valid retained concept coordinate swap must apply after successful preview");
+                let after=shard_native_database_snapshot(&ctx).await;
+                assert_eq!(concept_set(&after),concept_set(&expected));
+                for (table,rows) in baseline.as_object().unwrap() {
+                    if table!="skos_concept" {assert_eq!(&after[table],rows,"{table}");}
+                }
+            }
+            knowledge_shard_import_internal(&state,&input,&opts,&archive.schema_name).await.unwrap();
+            assert_eq!(shard_native_database_snapshot(&ctx).await,baseline);
+            planned.reverse();
+            let reversed=rebind(&planned); save("reversed",&reversed);
+            knowledge_shard_import_internal(&state,&reversed,&opts,&archive.schema_name).await.unwrap();
+            let after=shard_native_database_snapshot(&ctx).await;
+            assert_eq!(concept_set(&after),concept_set(&expected));
+            for (table,rows) in baseline.as_object().unwrap() {
+                if table!="skos_concept" {assert_eq!(&after[table],rows,"{table}");}
+            }
+            save("replacement",&shard_export_native_full_v1(&state,&archive.schema_name).await);
+            let outside=Uuid::new_v4();
+            let outside_scheme:Uuid=serde_json::from_value(concepts[0]["primary_scheme_id"].clone()).unwrap();
+            let mut tx=ctx.begin_tx().await.unwrap();
+            sqlx::query("INSERT INTO skos_concept(id,primary_scheme_id,notation,uri)
+                VALUES($1,$2,'outside-coordinate','https://example.test/coordinate-outside')")
+                .bind(outside).bind(outside_scheme).execute(&mut *tx).await.unwrap();
+            sqlx::query("INSERT INTO protected_coordinate_reference VALUES($1)").bind(outside).execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            let with_outside=shard_native_database_snapshot(&ctx).await;
+            let mut collision=concepts.clone();
+            if scheme_swap {
+                collision[0]["notation"]=serde_json::json!("outside-coordinate");
+            } else {
+                collision[0]["uri"]=serde_json::json!("https://example.test/coordinate-outside");
+            }
+            let collision=rebind(&collision); save("outside-collision",&collision);
+            for dry_run in [true,false] {
+                opts.dry_run=dry_run;
+                let error=knowledge_shard_import_internal(&state,&collision,&opts,&archive.schema_name).await
+                    .expect_err("selected coordinates cannot overwrite an unselected live identity");
+                assert!(matches!(error,ApiError::BadRequest(message) if message.contains("existing live identity")));
+                assert_eq!(shard_native_database_snapshot(&ctx).await,with_outside);
+            }
+            // Explicit whole-archive wipe has separate authority to remove the
+            // independent owner. Remove only this test's protected reference table.
+            let mut tx=ctx.begin_tx().await.unwrap();
+            sqlx::query("DROP TABLE protected_coordinate_reference").execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            let wipe_before=shard_native_database_snapshot(&ctx).await;
+            opts.include=None;
+            opts.dry_run=true;
+            knowledge_shard_import_internal_with_wipe(&state,&collision,&opts,&archive.schema_name,true).await
+                .expect("explicit wipe preview must not reject a coordinate owner that apply removes");
+            assert_eq!(shard_native_database_snapshot(&ctx).await,wipe_before);
+            opts.dry_run=false;
+            for _ in 0..2 {
+                knowledge_shard_import_internal_with_wipe(&state,&collision,&opts,&archive.schema_name,true).await.unwrap();
+                let mut tx=ctx.begin_tx().await.unwrap();
+                assert!(!sqlx::query_scalar::<_,bool>("SELECT EXISTS(SELECT 1 FROM skos_concept WHERE id=$1)")
+                    .bind(outside).fetch_one(&mut *tx).await.unwrap());
+                tx.rollback().await.unwrap();
+            }
+            save("wipe-replacement",&shard_export_native_full_v1(&state,&archive.schema_name).await);
+        }).catch_unwind().await;
+        db.archives.drop_archive_schema(&name).await.unwrap();
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    #[tokio::test]
+    async fn shard_skos_concept_coordinate_uri_swap_preserves_references() {
+        shard_skos_concept_coordinate_case(false).await;
+    }
+
+    #[tokio::test]
+    async fn shard_skos_concept_coordinate_scheme_swap_preserves_references() {
+        shard_skos_concept_coordinate_case(true).await;
+    }
+
+    async fn shard_skos_partial_status_case(native: bool) {
+        use futures::FutureExt;
+        use sha2::Digest;
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL").expect("disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let name = format!("sh-skos-status-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let result = std::panic::AssertUnwindSafe(async {
+            let seed = include_bytes!("../../../tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_relations-input.shard");
+            let mut opts = ShardImportOptions { include:None,dry_run:false,
+                on_conflict:ConflictStrategy::Replace,skip_embedding_regen:true };
+            knowledge_shard_import_internal(&state,seed,&opts,&archive.schema_name).await.unwrap();
+            let files = read_shard_archive(seed,ShardArchiveLimits::default()).unwrap();
+            let relations = parse_shard_component_records("skos_relations",&files["skos_relations.jsonl"]).unwrap();
+            let subject:Uuid = serde_json::from_value(relations[0]["subject_id"].clone()).unwrap();
+            let mut children = Vec::new();
+            let mut tx = ctx.begin_tx().await.unwrap();
+            sqlx::raw_sql("CREATE TABLE protected_status_reference(id UUID REFERENCES skos_concept(id) ON DELETE RESTRICT);
+                CREATE TABLE protected_status_edge(id UUID REFERENCES skos_semantic_relation_edge(id) ON DELETE RESTRICT)")
+                .execute(&mut *tx).await.unwrap();
+            for i in 0..201 {
+                let id = Uuid::new_v4(); children.push(id);
+                sqlx::query("INSERT INTO skos_concept(id,primary_scheme_id,notation,status)
+                    SELECT $1,primary_scheme_id,$2,$3::tag_status FROM skos_concept WHERE id=$4")
+                    .bind(id).bind(format!("status-{i}"))
+                    .bind(if i==200 {"candidate"} else {"approved"}).bind(subject)
+                    .execute(&mut *tx).await.unwrap();
+                let edge = Uuid::new_v4();
+                sqlx::query("INSERT INTO skos_semantic_relation_edge(id,subject_id,object_id,relation_type,is_inferred)
+                    VALUES($1,$2,$3,'narrower',true)")
+                    .bind(edge).bind(subject).bind(id).execute(&mut *tx).await.unwrap();
+                sqlx::query("INSERT INTO protected_status_reference VALUES($1)")
+                    .bind(id).execute(&mut *tx).await.unwrap();
+                sqlx::query("INSERT INTO protected_status_edge VALUES($1)")
+                    .bind(edge).execute(&mut *tx).await.unwrap();
+            }
+            tx.commit().await.unwrap();
+            let input = shard_export_native_full_v1(&state,&archive.schema_name).await;
+            let baseline = shard_native_database_snapshot(&ctx).await;
+            let original = read_shard_archive(&input,ShardArchiveLimits::default()).unwrap();
+            let concepts = parse_shard_component_records("skos_concepts",&original["skos_concepts.json"]).unwrap();
+            let rebind = |rows:&[serde_json::Value]| {
+                let mut files = original.clone();
+                let bytes = serde_json::to_vec(rows).unwrap();
+                let mut manifest:serde_json::Value = serde_json::from_slice(&files["manifest.json"]).unwrap();
+                manifest["checksums"]["skos_concepts.json"] = serde_json::json!(hex::encode(sha2::Sha256::digest(&bytes)));
+                files.insert("skos_concepts.json".into(),bytes);
+                files.insert("manifest.json".into(),serde_json::to_vec(&manifest).unwrap());
+                validate_shard_relationships(&files).unwrap();
+                let entries:Vec<_> = files.iter().map(|(name,bytes)|(name.as_str(),bytes.as_slice(),tar::EntryType::Regular)).collect();
+                test_shard_archive(&entries)
+            };
+            let mut promoted = concepts.clone();
+            promoted.iter_mut().find(|r|r["id"]==serde_json::json!(children[200])).unwrap()["status"] = serde_json::json!("approved");
+            let invalid = rebind(&promoted);
+            let label = if native {"skos-status-native"} else {"skos-status-import"};
+            let save = |suffix:&str,bytes:&[u8]| {
+                if let Ok(output)=std::env::var("FORTEMI_SHARD_RELATIONSHIP_FIXTURE_OUTPUT") {
+                    use std::io::Write;
+                    std::fs::create_dir_all(&output).unwrap();
+                    std::fs::OpenOptions::new().write(true).create_new(true)
+                        .open(std::path::Path::new(&output).join(format!("{label}-{suffix}.shard")))
+                        .unwrap().write_all(bytes).unwrap();
+                }
+            };
+            save("input",&input); save("invalid",&invalid);
+            opts.include = Some("skos_concepts".into());
+            if native {
+                for restore in [false,true] {
+                    let mut tx = ctx.begin_tx().await.unwrap();
+                    if restore { sqlx::query("SET LOCAL app.shard_import='on'").execute(&mut *tx).await.unwrap(); }
+                    sqlx::query("UPDATE skos_concept SET status='approved' WHERE id=$1")
+                        .bind(children[200]).execute(&mut *tx).await.unwrap();
+                    let committed = tx.commit().await;
+                    if committed.is_ok() { save("invalid-result",&shard_export_native_full_v1(&state,&archive.schema_name).await); }
+                    let error = committed.expect_err("native concept promotion must not commit201 approved children");
+                    assert!(error.to_string().contains("Breadth limit"),"{error}");
+                    assert_eq!(shard_native_database_snapshot(&ctx).await,baseline);
+                }
+                for make_room in [false,true] {
+                    let mut tx=ctx.begin_tx().await.unwrap();
+                    if make_room {
+                        sqlx::query("UPDATE skos_concept SET status='candidate' WHERE id=$1")
+                            .bind(children[0]).execute(&mut *tx).await.unwrap();
+                    }
+                    for count in 1..=3 {
+                        let note=Uuid::new_v4();
+                        matric_db::PgNoteRepository::new(db.pool.clone()).insert_with_id_tx(&mut tx,note,
+                            CreateNoteRequest {content:"Native literary warrant".into(),format:"markdown".into(),
+                                source:"test".into(),collection_id:None,tags:Some(Vec::new()),
+                                metadata:Some(serde_json::json!({})),document_type_id:None,title:None}).await.unwrap();
+                        sqlx::query("INSERT INTO note_skos_concept(note_id,concept_id) VALUES($1,$2)")
+                            .bind(note).bind(children[200]).execute(&mut *tx).await.unwrap();
+                        let actual:(i32,String,bool)=sqlx::query_as(
+                            "SELECT note_count,status::text,promoted_at IS NOT NULL FROM skos_concept WHERE id=$1")
+                            .bind(children[200]).fetch_one(&mut *tx).await.unwrap();
+                        assert_eq!(actual,(count,if count==3 {"approved"} else {"candidate"}.into(),count==3));
+                    }
+                    if make_room {
+                        sqlx::query("SET CONSTRAINTS ALL IMMEDIATE").execute(&mut *tx).await
+                            .expect("native tagging promotion with final200 children must validate");
+                        tx.rollback().await.unwrap();
+                    } else {
+                        let error=tx.commit().await.expect_err("trigger-driven promotion must not commit201 approved children");
+                        assert!(error.to_string().contains("Breadth limit"),"{error}");
+                    }
+                    assert_eq!(shard_native_database_snapshot(&ctx).await,baseline,
+                        "rejected promotion rolls back notes, assignments, lifecycle and all unselected state");
+                }
+            } else {
+                for dry_run in [false,true] {
+                    opts.dry_run = dry_run;
+                    let result = knowledge_shard_import_internal(&state,&invalid,&opts,&archive.schema_name).await;
+                    if !dry_run && result.is_ok() { save("invalid-result",&shard_export_native_full_v1(&state,&archive.schema_name).await); }
+                    let error = result.expect_err("concept-only promotion must reject in apply and preview");
+                    assert!(matches!(error,ApiError::BadRequest(message) if message.contains("cardinality")));
+                    assert_eq!(shard_native_database_snapshot(&ctx).await,baseline);
+                }
+            }
+            for strategy in [ConflictStrategy::Skip,ConflictStrategy::Merge] {
+                opts.on_conflict = strategy;
+                for dry_run in [true,false] {
+                    opts.dry_run = dry_run;
+                    knowledge_shard_import_internal(&state,&invalid,&opts,&archive.schema_name).await.unwrap();
+                    assert_eq!(shard_native_database_snapshot(&ctx).await,baseline);
+                }
+            }
+            opts.on_conflict = ConflictStrategy::Replace;
+            let mut swapped = promoted;
+            swapped.iter_mut().find(|r|r["id"]==serde_json::json!(children[0])).unwrap()["status"] = serde_json::json!("candidate");
+            swapped.sort_by_key(|r| if r["id"]==serde_json::json!(children[200]) {0} else {1});
+            let valid = rebind(&swapped); save("swap",&valid);
+            let mut expected = baseline.clone();
+            for (id,status) in [(children[200],"approved"),(children[0],"candidate")] {
+                expected["skos_concept"].as_array_mut().unwrap().iter_mut()
+                    .find(|r|r["id"]==serde_json::json!(id)).unwrap()["status"] = serde_json::json!(status);
+            }
+            let concept_set = |snapshot:&serde_json::Value| {
+                let mut rows=snapshot["skos_concept"].as_array().unwrap().clone();
+                rows.sort_by_key(|r|r["id"].as_str().unwrap().to_string()); rows
+            };
+            let mut tx=ctx.begin_tx().await.unwrap();
+            sqlx::raw_sql("CREATE SEQUENCE status_rollback_reached;
+                CREATE FUNCTION reject_status_batch() RETURNS trigger LANGUAGE plpgsql AS $$
+                  BEGIN PERFORM nextval('status_rollback_reached'); RAISE EXCEPTION 'injected status rollback'; END; $$;
+                CREATE CONSTRAINT TRIGGER zzzz_reject_status_batch AFTER UPDATE ON skos_concept
+                  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_status_batch();")
+                .execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            opts.dry_run=true;
+            knowledge_shard_import_internal(&state,&valid,&opts,&archive.schema_name).await.unwrap();
+            assert_eq!(shard_native_database_snapshot(&ctx).await,baseline);
+            let mut tx=ctx.begin_tx().await.unwrap();
+            assert!(!sqlx::query_scalar::<_,bool>("SELECT is_called FROM status_rollback_reached").fetch_one(&mut *tx).await.unwrap());
+            tx.rollback().await.unwrap();
+            opts.dry_run=false;
+            assert!(knowledge_shard_import_internal(&state,&valid,&opts,&archive.schema_name).await.is_err());
+            assert_eq!(shard_native_database_snapshot(&ctx).await,baseline);
+            let mut tx=ctx.begin_tx().await.unwrap();
+            assert!(sqlx::query_scalar::<_,bool>("SELECT is_called FROM status_rollback_reached").fetch_one(&mut *tx).await.unwrap());
+            sqlx::raw_sql("DROP TRIGGER zzzz_reject_status_batch ON skos_concept;
+                DROP FUNCTION reject_status_batch(); DROP SEQUENCE status_rollback_reached;")
+                .execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            opts.dry_run=false;
+            for _ in 0..2 {
+                knowledge_shard_import_internal(&state,&valid,&opts,&archive.schema_name).await.unwrap();
+                let after=shard_native_database_snapshot(&ctx).await;
+                assert_eq!(concept_set(&after),concept_set(&expected));
+                for (table,rows) in baseline.as_object().unwrap() {
+                    if table!="skos_concept" {assert_eq!(&after[table],rows,"{table}");}
+                }
+            }
+            knowledge_shard_import_internal(&state,&input,&opts,&archive.schema_name).await.unwrap();
+            assert_eq!(shard_native_database_snapshot(&ctx).await,baseline);
+            swapped.reverse();
+            let reversed=rebind(&swapped); save("reversed",&reversed);
+            knowledge_shard_import_internal(&state,&reversed,&opts,&archive.schema_name).await.unwrap();
+            let after=shard_native_database_snapshot(&ctx).await;
+            assert_eq!(concept_set(&after),concept_set(&expected));
+            for (table,rows) in baseline.as_object().unwrap() {
+                if table!="skos_concept" {assert_eq!(&after[table],rows,"{table}");}
+            }
+            save("replacement",&shard_export_native_full_v1(&state,&archive.schema_name).await);
+        }).catch_unwind().await;
+        db.archives.drop_archive_schema(&name).await.unwrap();
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    #[tokio::test]
+    async fn shard_skos_partial_status_import_preserves_unselected_relations() {
+        shard_skos_partial_status_case(false).await;
+    }
+
+    #[tokio::test]
+    async fn shard_skos_partial_status_native_preserves_unselected_relations() {
+        shard_skos_partial_status_case(true).await;
+    }
+
+    async fn shard_skos_concurrent_import_case(cycle: bool) {
+        use futures::FutureExt;
+        use sha2::Digest;
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL").expect("disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let name = format!("sh-skos-race-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let result = std::panic::AssertUnwindSafe(async {
+            let seed = include_bytes!("../../../tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_relations-input.shard");
+            let mut opts = ShardImportOptions { include: None, dry_run: false,
+                on_conflict: ConflictStrategy::Replace, skip_embedding_regen: true };
+            knowledge_shard_import_internal(&state, seed, &opts, &archive.schema_name).await.unwrap();
+            let files = read_shard_archive(seed, ShardArchiveLimits::default()).unwrap();
+            let concepts = parse_shard_component_records("skos_concepts", &files["skos_concepts.json"]).unwrap();
+            let scheme: Uuid = serde_json::from_value(concepts[0]["primary_scheme_id"].clone()).unwrap();
+            let nodes = (0..5).map(|_| Uuid::new_v4()).collect::<Vec<_>>();
+            let mut tx = ctx.begin_tx().await.unwrap();
+            for (i, node) in nodes.iter().enumerate() {
+                sqlx::query("INSERT INTO skos_concept(id,primary_scheme_id,notation,status) VALUES($1,$2,$3,'approved')")
+                    .bind(node).bind(scheme).bind(format!("race-{i}")).execute(&mut *tx).await.unwrap();
+            }
+            sqlx::raw_sql("CREATE TABLE protected_race_reference(id UUID REFERENCES skos_semantic_relation_edge(id) ON DELETE RESTRICT)")
+                .execute(&mut *tx).await.unwrap();
+            let initial = if cycle { [(nodes[0],nodes[1]),(nodes[2],nodes[3])] }
+                else { [(nodes[0],nodes[1]),(nodes[0],nodes[2])] };
+            for (subject, object) in initial {
+                let id = Uuid::new_v4();
+                sqlx::query("INSERT INTO skos_semantic_relation_edge(id,subject_id,object_id,relation_type,is_inferred)
+                    VALUES($1,$2,$3,'broader',true)")
+                    .bind(id).bind(subject).bind(object).execute(&mut *tx).await.unwrap();
+                sqlx::query("INSERT INTO protected_race_reference VALUES($1)")
+                    .bind(id).execute(&mut *tx).await.unwrap();
+            }
+            tx.commit().await.unwrap();
+            let input = shard_export_native_full_v1(&state, &archive.schema_name).await;
+            let baseline = shard_native_database_snapshot(&ctx).await;
+            let files = read_shard_archive(&input, ShardArchiveLimits::default()).unwrap();
+            let rows = parse_shard_component_records("skos_relations", &files["skos_relations.jsonl"]).unwrap();
+            let prototype = rows.iter().find(|r| r["subject_id"] == serde_json::json!(nodes[0])).unwrap();
+            let incoming = if cycle { [(nodes[1],nodes[2]),(nodes[3],nodes[0])] }
+                else { [(nodes[0],nodes[3]),(nodes[0],nodes[4])] };
+            let label = if cycle { "skos-concurrent-cycle" } else { "skos-concurrent-capacity" };
+            let save = |suffix: &str, bytes: &[u8]| {
+                if let Ok(output) = std::env::var("FORTEMI_SHARD_RELATIONSHIP_FIXTURE_OUTPUT") {
+                    use std::io::Write;
+                    std::fs::create_dir_all(&output).unwrap();
+                    std::fs::OpenOptions::new().write(true).create_new(true)
+                        .open(std::path::Path::new(&output).join(format!("{label}-{suffix}")))
+                        .unwrap().write_all(bytes).unwrap();
+                }
+            };
+            save("input.shard", &input);
+            let mut planned = Vec::new();
+            for (i,(subject,object)) in incoming.into_iter().enumerate() {
+                let mut files = files.clone();
+                let mut edge = prototype.clone();
+                edge["id"] = serde_json::json!(Uuid::new_v4());
+                edge["subject_id"] = serde_json::json!(subject);
+                edge["object_id"] = serde_json::json!(object);
+                let bytes = serde_json::to_vec(&edge).unwrap();
+                let mut manifest: serde_json::Value = serde_json::from_slice(&files["manifest.json"]).unwrap();
+                manifest["counts"]["skos_relations"] = serde_json::json!(1);
+                manifest["checksums"]["skos_relations.jsonl"] = serde_json::json!(hex::encode(sha2::Sha256::digest(&bytes)));
+                files.insert("skos_relations.jsonl".into(), bytes);
+                files.insert("manifest.json".into(), serde_json::to_vec(&manifest).unwrap());
+                validate_shard_relationships(&files).unwrap();
+                let entries: Vec<_> = files.iter().map(|(name,bytes)| (name.as_str(),bytes.as_slice(),tar::EntryType::Regular)).collect();
+                let bytes = test_shard_archive(&entries);
+                save(&format!("writer-{i}.shard"), &bytes);
+                planned.push(bytes);
+            }
+            opts.include = Some("skos_relations".into());
+            opts.dry_run = true;
+            for bytes in &planned {
+                knowledge_shard_import_internal(&state, bytes, &opts, &archive.schema_name).await.unwrap();
+                assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+            }
+            opts.dry_run = false;
+            let gate = (Uuid::new_v4().as_u128() & i64::MAX as u128) as i64;
+            let mut controller = db.pool.begin().await.unwrap();
+            sqlx::query("SELECT pg_advisory_xact_lock($1)").bind(gate).execute(&mut *controller).await.unwrap();
+            let mut tx = ctx.begin_tx().await.unwrap();
+            // Alphabetically after the production deferred validator: both old
+            // writers validate invisible competing changes, then wait to commit.
+            sqlx::raw_sql(&format!("CREATE FUNCTION wait_race_commit() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN PERFORM pg_advisory_xact_lock_shared({gate}::bigint); RETURN NULL; END; $$;
+                CREATE CONSTRAINT TRIGGER zzzz_wait_race_commit AFTER INSERT ON skos_semantic_relation_edge
+                DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION wait_race_commit();"))
+                .execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            let mut workers = Vec::new();
+            for bytes in &planned {
+                let bytes = bytes.clone();
+                let state = state.clone();
+                let schema = archive.schema_name.clone();
+                workers.push(tokio::spawn(async move {
+                    let opts = ShardImportOptions { include: Some("skos_relations".into()), dry_run: false,
+                        on_conflict: ConflictStrategy::Replace, skip_embedding_regen: true };
+                    knowledge_shard_import_internal(&state, &bytes, &opts, &schema).await
+                }));
+            }
+            let mut observed = None;
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+            while tokio::time::Instant::now() < deadline {
+                let waiters: Vec<i32> = sqlx::query_scalar("SELECT pid FROM pg_locks WHERE locktype='advisory'
+                    AND classid::bigint=$1 AND objid::bigint=$2 AND objsubid=1 AND NOT granted")
+                    .bind(gate >> 32).bind(gate & 0xffff_ffff).fetch_all(&mut *controller).await.unwrap();
+                let serialized: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+                    WHERE NOT pid=ANY($1::int[]) AND pg_blocking_pids(pid) && $1::int[])")
+                    .bind(&waiters).fetch_one(&mut *controller).await.unwrap();
+                if waiters.len()==2 || (waiters.len()==1 && serialized) {
+                    observed = Some((waiters.len(),serialized));
+                    break;
+                }
+                if workers.iter().all(|w| w.is_finished()) { break; }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            controller.rollback().await.unwrap();
+            let mut results = Vec::new();
+            for mut worker in workers {
+                match tokio::time::timeout(std::time::Duration::from_secs(10), &mut worker).await {
+                    Ok(result) => results.push(result.unwrap()),
+                    Err(_) => { worker.abort(); let _ = worker.await; panic!("concurrent import did not finish after gate release"); }
+                }
+            }
+            let success_count = results.iter().filter(|result| result.is_ok()).count();
+            let after = shard_native_database_snapshot(&ctx).await;
+            let count = after["skos_semantic_relation_edge"].as_array().unwrap().iter()
+                .filter(|row| row["subject_id"]==serde_json::json!(nodes[0]) && row["relation_type"]=="broader").count();
+            save("observation.json", &serde_json::to_vec_pretty(&serde_json::json!({
+                "gate_observed":observed,"successful_imports":success_count,"subject_parent_count":count,
+                "results":results.iter().map(|result|format!("{result:?}")).collect::<Vec<_>>()
+            })).unwrap());
+            save("replacement.shard", &shard_export_native_full_v1(&state, &archive.schema_name).await);
+            assert_eq!(observed, Some((1,true)), "second writer must wait for the first transaction");
+            assert_eq!(success_count, 1, "competing individually valid imports must not both commit an invalid final graph");
+            assert_eq!(count, if cycle { 1 } else { 3 });
+            let after_rows = after["skos_semantic_relation_edge"].as_array().unwrap();
+            let old_rows = baseline["skos_semantic_relation_edge"].as_array().unwrap();
+            assert_eq!(after_rows.len(),old_rows.len()+1);
+            assert!(old_rows.iter().all(|row|after_rows.contains(row)));
+            for (table, rows) in baseline.as_object().unwrap() {
+                if table != "skos_semantic_relation_edge" { assert_eq!(&after[table], rows, "{table}"); }
+            }
+            let winner = results.iter().position(|result|result.is_ok()).unwrap();
+            for _ in 0..2 {
+                knowledge_shard_import_internal(&state,&planned[winner],&opts,&archive.schema_name).await.unwrap();
+                assert_eq!(shard_native_database_snapshot(&ctx).await,after);
+            }
+            opts.dry_run = true;
+            assert!(knowledge_shard_import_internal(&state,&planned[1-winner],&opts,&archive.schema_name).await.is_err());
+            assert_eq!(shard_native_database_snapshot(&ctx).await,after);
+        }).catch_unwind().await;
+        db.archives.drop_archive_schema(&name).await.unwrap();
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    #[tokio::test]
+    async fn shard_skos_concurrent_capacity_cannot_commit_write_skew() {
+        shard_skos_concurrent_import_case(false).await;
+    }
+
+    #[tokio::test]
+    async fn shard_skos_concurrent_cycle_cannot_commit_write_skew() {
+        shard_skos_concurrent_import_case(true).await;
+    }
+
+    async fn shard_skos_batch_reparent_case(capacity: bool) {
+        use futures::FutureExt;
+        use sha2::Digest;
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL").expect("disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let name = format!("sh-skos-batch-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let result = std::panic::AssertUnwindSafe(async {
+            let seed = include_bytes!("../../../tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_relations-input.shard");
+            let mut opts = ShardImportOptions { include: None, dry_run: false,
+                on_conflict: ConflictStrategy::Replace, skip_embedding_regen: true };
+            knowledge_shard_import_internal(&state, seed, &opts, &archive.schema_name).await.unwrap();
+            let files = read_shard_archive(seed, ShardArchiveLimits::default()).unwrap();
+            let concepts = parse_shard_component_records("skos_concepts", &files["skos_concepts.json"]).unwrap();
+            let scheme: Uuid = serde_json::from_value(concepts[0]["primary_scheme_id"].clone()).unwrap();
+            let nodes = (0..6).map(|_| Uuid::new_v4()).collect::<Vec<_>>();
+            let edges = [Uuid::new_v4(), Uuid::new_v4()];
+            let mut tx = ctx.begin_tx().await.unwrap();
+            sqlx::raw_sql("CREATE TABLE protected_batch_reference(id UUID REFERENCES skos_semantic_relation_edge(id) ON DELETE RESTRICT)")
+                .execute(&mut *tx).await.unwrap();
+            for (i, node) in nodes.iter().enumerate() {
+                sqlx::query("INSERT INTO skos_concept(id,primary_scheme_id,notation,status) VALUES($1,$2,$3,'approved')")
+                    .bind(node).bind(scheme).bind(format!("batch-{i}")).execute(&mut *tx).await.unwrap();
+            }
+            let mut initial = vec![(edges[0], nodes[0], nodes[3]),
+                (edges[1], nodes[1], if capacity { nodes[3] } else { nodes[0] })];
+            if capacity {
+                for subject in &nodes[..2] {
+                    for object in &nodes[4..] { initial.push((Uuid::new_v4(), *subject, *object)); }
+                }
+            }
+            for (id, subject, object) in initial {
+                sqlx::query("INSERT INTO skos_semantic_relation_edge(id,subject_id,object_id,relation_type,is_inferred)
+                    VALUES($1,$2,$3,'broader',true)")
+                    .bind(id).bind(subject).bind(object).execute(&mut *tx).await.unwrap();
+                sqlx::query("INSERT INTO protected_batch_reference VALUES($1)")
+                    .bind(id).execute(&mut *tx).await.unwrap();
+            }
+            tx.commit().await.unwrap();
+            let input = shard_export_native_full_v1(&state, &archive.schema_name).await;
+            let baseline = shard_native_database_snapshot(&ctx).await;
+            let mut files = read_shard_archive(&input, ShardArchiveLimits::default()).unwrap();
+            let mut rows = parse_shard_component_records("skos_relations", &files["skos_relations.jsonl"]).unwrap();
+            // Both final graphs are valid. At capacity neither retained update can
+            // run first; topological ordering alone cannot make the batch apply.
+            let changes = if capacity {
+                [(edges[0], nodes[1], nodes[2]), (edges[1], nodes[0], nodes[2])]
+            } else {
+                [(edges[0], nodes[0], nodes[1]), (edges[1], nodes[2], nodes[3])]
+            };
+            let mut expected = baseline.clone();
+            for (id, subject, object) in changes {
+                for records in [&mut rows, expected["skos_semantic_relation_edge"].as_array_mut().unwrap()] {
+                    let row = records.iter_mut().find(|r| r["id"] == serde_json::json!(id)).unwrap();
+                    row["subject_id"] = serde_json::json!(subject);
+                    row["object_id"] = serde_json::json!(object);
+                }
+            }
+            rows.sort_by_key(|r| if r["id"] == serde_json::json!(edges[0]) { 0 }
+                else if r["id"] == serde_json::json!(edges[1]) { 1 } else { 2 });
+            let bytes = rows.iter().map(|row| serde_json::to_string(row).unwrap()).collect::<Vec<_>>().join("\n").into_bytes();
+            let mut manifest: serde_json::Value = serde_json::from_slice(&files["manifest.json"]).unwrap();
+            manifest["checksums"]["skos_relations.jsonl"] = serde_json::json!(hex::encode(sha2::Sha256::digest(&bytes)));
+            files.insert("skos_relations.jsonl".into(), bytes);
+            files.insert("manifest.json".into(), serde_json::to_vec(&manifest).unwrap());
+            validate_shard_relationships(&files).unwrap();
+            let entries: Vec<_> = files.iter().map(|(name, bytes)|
+                (name.as_str(), bytes.as_slice(), tar::EntryType::Regular)).collect();
+            let planned = test_shard_archive(&entries);
+            let label = if capacity { "skos-batch-capacity" } else { "skos-batch-cycle" };
+            let save = |suffix: &str, bytes: &[u8]| {
+                if let Ok(output) = std::env::var("FORTEMI_SHARD_RELATIONSHIP_FIXTURE_OUTPUT") {
+                    use std::io::Write;
+                    std::fs::create_dir_all(&output).unwrap();
+                    std::fs::OpenOptions::new().write(true).create_new(true)
+                        .open(std::path::Path::new(&output).join(format!("{label}-{suffix}.shard")))
+                        .unwrap().write_all(bytes).unwrap();
+                }
+            };
+            save("input", &input);
+            save("planned", &planned);
+            opts.include = Some("skos_relations".into());
+            opts.dry_run = true;
+            knowledge_shard_import_internal(&state, &planned, &opts, &archive.schema_name).await.unwrap();
+            assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+            let mut tx = ctx.begin_tx().await.unwrap();
+            let error = sqlx::query("UPDATE skos_semantic_relation_edge SET subject_id=$2, object_id=$3 WHERE id=$1")
+                .bind(changes[0].0).bind(changes[0].1).bind(changes[0].2).execute(&mut *tx).await.unwrap_err();
+            assert!(error.to_string().contains(if capacity { "already has 3 broader concepts" } else { "SKOS hierarchy" }), "{error}");
+            tx.rollback().await.unwrap();
+            assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+            let relation_set = |snapshot: &serde_json::Value| {
+                let mut rows = snapshot["skos_semantic_relation_edge"].as_array().unwrap().clone();
+                rows.sort_by_key(|row| row["id"].as_str().unwrap().to_string());
+                rows
+            };
+            let mut tx = ctx.begin_tx().await.unwrap();
+            sqlx::raw_sql("CREATE SEQUENCE batch_rollback_reached;
+                CREATE FUNCTION reject_batch() RETURNS trigger LANGUAGE plpgsql AS $$
+                  BEGIN PERFORM nextval('batch_rollback_reached'); RAISE EXCEPTION 'injected batch rollback'; END; $$;
+                CREATE CONSTRAINT TRIGGER reject_batch AFTER UPDATE ON skos_semantic_relation_edge
+                  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_batch();")
+                .execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            opts.dry_run = true;
+            knowledge_shard_import_internal(&state, &planned, &opts, &archive.schema_name).await.unwrap();
+            assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+            let mut tx = ctx.begin_tx().await.unwrap();
+            assert!(!sqlx::query_scalar::<_, bool>("SELECT is_called FROM batch_rollback_reached")
+                .fetch_one(&mut *tx).await.unwrap());
+            tx.rollback().await.unwrap();
+            opts.dry_run = false;
+            assert!(knowledge_shard_import_internal(&state, &planned, &opts, &archive.schema_name).await.is_err());
+            assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+            let mut tx = ctx.begin_tx().await.unwrap();
+            assert!(sqlx::query_scalar::<_, bool>("SELECT is_called FROM batch_rollback_reached")
+                .fetch_one(&mut *tx).await.unwrap());
+            sqlx::raw_sql("DROP TRIGGER reject_batch ON skos_semantic_relation_edge;
+                DROP FUNCTION reject_batch(); DROP SEQUENCE batch_rollback_reached;")
+                .execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            opts.dry_run = false;
+            for _ in 0..2 {
+                let applied = knowledge_shard_import_internal(&state, &planned, &opts, &archive.schema_name).await;
+                if applied.is_err() { assert_eq!(shard_native_database_snapshot(&ctx).await, baseline); }
+                applied.expect("valid final batch must apply without intermediate cycle or capacity rejection");
+                let after = shard_native_database_snapshot(&ctx).await;
+                assert_eq!(relation_set(&after), relation_set(&expected));
+                for (table, rows) in baseline.as_object().unwrap() {
+                    if table != "skos_semantic_relation_edge" { assert_eq!(&after[table], rows, "{table}"); }
+                }
+            }
+            // Repeat from the old graph with reversed wire order, not only replay
+            // over an already-converged destination.
+            knowledge_shard_import_internal(&state, &input, &opts, &archive.schema_name).await.unwrap();
+            assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+            rows.reverse();
+            let bytes = rows.iter().map(|row| serde_json::to_string(row).unwrap()).collect::<Vec<_>>().join("\n").into_bytes();
+            manifest["checksums"]["skos_relations.jsonl"] = serde_json::json!(hex::encode(sha2::Sha256::digest(&bytes)));
+            files.insert("skos_relations.jsonl".into(), bytes);
+            files.insert("manifest.json".into(), serde_json::to_vec(&manifest).unwrap());
+            let entries: Vec<_> = files.iter().map(|(name, bytes)|
+                (name.as_str(), bytes.as_slice(), tar::EntryType::Regular)).collect();
+            let reversed = test_shard_archive(&entries);
+            save("reversed", &reversed);
+            knowledge_shard_import_internal(&state, &reversed, &opts, &archive.schema_name).await.unwrap();
+            let after = shard_native_database_snapshot(&ctx).await;
+            assert_eq!(relation_set(&after), relation_set(&expected));
+            for (table, rows) in baseline.as_object().unwrap() {
+                if table != "skos_semantic_relation_edge" { assert_eq!(&after[table], rows, "{table}"); }
+            }
+            save("replacement", &shard_export_native_full_v1(&state, &archive.schema_name).await);
+        }).catch_unwind().await;
+        db.archives.drop_archive_schema(&name).await.unwrap();
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    #[tokio::test]
+    async fn shard_skos_batch_reparent_cycle_preserves_identity() {
+        shard_skos_batch_reparent_case(false).await;
+    }
+
+    #[tokio::test]
+    async fn shard_skos_batch_reparent_capacity_preserves_identity() {
+        shard_skos_batch_reparent_case(true).await;
+    }
+
+    async fn shard_skos_prospective_hierarchy_case(cycle: bool) {
+        use futures::FutureExt;
+        use sha2::Digest;
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL").expect("disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let name = format!("sh-skos-hierarchy-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let result = std::panic::AssertUnwindSafe(async {
+            let seed = include_bytes!("../../../tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_relations-input.shard");
+            let mut opts = ShardImportOptions { include: None, dry_run: false,
+                on_conflict: ConflictStrategy::Replace, skip_embedding_regen: true };
+            knowledge_shard_import_internal(&state, seed, &opts, &archive.schema_name).await.unwrap();
+            let files = read_shard_archive(seed, ShardArchiveLimits::default()).unwrap();
+            let concepts = parse_shard_component_records("skos_concepts", &files["skos_concepts.json"]).unwrap();
+            let scheme: Uuid = serde_json::from_value(concepts[0]["primary_scheme_id"].clone()).unwrap();
+            let depth = if cycle { 1 } else { 5 };
+            let nodes = (0..depth+2).map(|_| Uuid::new_v4()).collect::<Vec<_>>();
+            let mut tx = ctx.begin_tx().await.unwrap();
+            sqlx::raw_sql("CREATE TABLE protected_hierarchy_reference(id UUID REFERENCES skos_semantic_relation_edge(id) ON DELETE RESTRICT)")
+                .execute(&mut *tx).await.unwrap();
+            for (i, node) in nodes.iter().enumerate() {
+                sqlx::query("INSERT INTO skos_concept(id,primary_scheme_id,notation,status) VALUES($1,$2,$3,'approved')")
+                    .bind(node).bind(scheme).bind(format!("hierarchy-{i}")).execute(&mut *tx).await.unwrap();
+            }
+            let mut edge_ids = Vec::new();
+            for i in (0..depth).rev() {
+                let id = Uuid::new_v4();
+                edge_ids.push(id);
+                sqlx::query("INSERT INTO skos_semantic_relation_edge(id,subject_id,object_id,relation_type,is_inferred)
+                    VALUES($1,$2,$3,'broader',true)")
+                    .bind(id).bind(nodes[i]).bind(nodes[i+1]).execute(&mut *tx).await.unwrap();
+                sqlx::query("INSERT INTO protected_hierarchy_reference VALUES($1)")
+                    .bind(id).execute(&mut *tx).await.unwrap();
+            }
+            assert_eq!(sqlx::query_scalar::<_, i32>("SELECT depth FROM skos_concept WHERE id=$1")
+                .bind(nodes[0]).fetch_one(&mut *tx).await.unwrap(), depth as i32);
+            tx.commit().await.unwrap();
+            let input = shard_export_native_full_v1(&state, &archive.schema_name).await;
+            let baseline = shard_native_database_snapshot(&ctx).await;
+            let mut files = read_shard_archive(&input, ShardArchiveLimits::default()).unwrap();
+            let relations = parse_shard_component_records("skos_relations", &files["skos_relations.jsonl"]).unwrap();
+            let rebind = |files: &mut std::collections::HashMap<String, Vec<u8>>, rows: &[serde_json::Value]| {
+                let bytes = rows.iter().map(|row| serde_json::to_string(row).unwrap()).collect::<Vec<_>>().join("\n").into_bytes();
+                let mut manifest: serde_json::Value = serde_json::from_slice(&files["manifest.json"]).unwrap();
+                manifest["counts"]["skos_relations"] = serde_json::json!(rows.len());
+                manifest["checksums"]["skos_relations.jsonl"] = serde_json::json!(hex::encode(sha2::Sha256::digest(&bytes)));
+                files.insert("skos_relations.jsonl".into(), bytes);
+                files.insert("manifest.json".into(), serde_json::to_vec(&manifest).unwrap());
+                validate_shard_relationships(files).unwrap();
+                let entries: Vec<_> = files.iter().map(|(name, bytes)|
+                    (name.as_str(), bytes.as_slice(), tar::EntryType::Regular)).collect();
+                test_shard_archive(&entries)
+            };
+            let target = if cycle { nodes[0] } else { nodes[depth+1] };
+            let mut invalid_relations = relations.clone();
+            let mut extra = relations.iter().find(|row| row["id"] == serde_json::json!(edge_ids[0])).unwrap().clone();
+            extra["id"] = serde_json::json!(Uuid::new_v4());
+            extra["subject_id"] = serde_json::json!(nodes[depth]);
+            extra["object_id"] = serde_json::json!(target);
+            invalid_relations.push(extra);
+            let invalid = rebind(&mut files, &invalid_relations);
+            let label = if cycle { "skos-prospective-cycle" } else { "skos-descendant-depth" };
+            let save = |suffix: &str, bytes: &[u8]| {
+                if let Ok(output) = std::env::var("FORTEMI_SHARD_RELATIONSHIP_FIXTURE_OUTPUT") {
+                    use std::io::Write;
+                    std::fs::create_dir_all(&output).unwrap();
+                    std::fs::OpenOptions::new().write(true).create_new(true)
+                        .open(std::path::Path::new(&output).join(format!("{label}-{suffix}.shard")))
+                        .unwrap().write_all(bytes).unwrap();
+                }
+            };
+            save("input", &input);
+            save("invalid", &invalid);
+            opts.include = Some("skos_relations".into());
+            for strategy in [ConflictStrategy::Replace, ConflictStrategy::Skip, ConflictStrategy::Merge] {
+                opts.on_conflict = strategy;
+                for dry_run in [false, true] {
+                    opts.dry_run = dry_run;
+                    let error = knowledge_shard_import_internal(&state, &invalid, &opts, &archive.schema_name)
+                        .await.expect_err("prospective hierarchy must reject invalid apply and preview");
+                    assert!(matches!(error, ApiError::BadRequest(message) if message.contains("hierarchy")));
+                    assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+                }
+            }
+            opts.on_conflict = ConflictStrategy::Replace;
+            for restore in [false, true] {
+                let mut tx = ctx.begin_tx().await.unwrap();
+                if restore { sqlx::query("SET LOCAL app.shard_import='on'").execute(&mut *tx).await.unwrap(); }
+                let inserted = sqlx::query("INSERT INTO skos_semantic_relation_edge(id,subject_id,object_id,relation_type,is_inferred)
+                    VALUES($1,$2,$3,'broader',true)")
+                    .bind(Uuid::new_v4()).bind(nodes[depth]).bind(target).execute(&mut *tx).await;
+                let error = if restore {
+                    inserted.unwrap();
+                    tx.commit().await.unwrap_err()
+                } else {
+                    let error = inserted.unwrap_err();
+                    tx.rollback().await.unwrap();
+                    error
+                };
+                assert!(error.to_string().contains("SKOS hierarchy"));
+                assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+            }
+            // Moving a retained root-side edge to another root keeps the valid depth.
+            let mut replacement = relations.clone();
+            replacement.iter_mut().find(|row| row["id"] == serde_json::json!(edge_ids[0])).unwrap()["object_id"]
+                = serde_json::json!(nodes[depth+1]);
+            let valid = rebind(&mut files, &replacement);
+            save("reparent", &valid);
+            let mut tx = ctx.begin_tx().await.unwrap();
+            sqlx::raw_sql("CREATE SEQUENCE hierarchy_rollback_reached;
+                CREATE FUNCTION reject_hierarchy() RETURNS trigger LANGUAGE plpgsql AS $$
+                  BEGIN PERFORM nextval('hierarchy_rollback_reached'); RAISE EXCEPTION 'injected hierarchy rollback'; END; $$;
+                CREATE CONSTRAINT TRIGGER reject_hierarchy AFTER UPDATE ON skos_semantic_relation_edge
+                  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_hierarchy();")
+                .execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            opts.dry_run = true;
+            knowledge_shard_import_internal(&state, &valid, &opts, &archive.schema_name).await.unwrap();
+            assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+            let mut tx = ctx.begin_tx().await.unwrap();
+            assert!(!sqlx::query_scalar::<_, bool>("SELECT is_called FROM hierarchy_rollback_reached")
+                .fetch_one(&mut *tx).await.unwrap());
+            tx.rollback().await.unwrap();
+            opts.dry_run = false;
+            assert!(knowledge_shard_import_internal(&state, &valid, &opts, &archive.schema_name).await.is_err());
+            assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+            let mut tx = ctx.begin_tx().await.unwrap();
+            assert!(sqlx::query_scalar::<_, bool>("SELECT is_called FROM hierarchy_rollback_reached")
+                .fetch_one(&mut *tx).await.unwrap());
+            sqlx::raw_sql("DROP TRIGGER reject_hierarchy ON skos_semantic_relation_edge;
+                DROP FUNCTION reject_hierarchy(); DROP SEQUENCE hierarchy_rollback_reached;")
+                .execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            let mut expected = baseline.clone();
+            let expected_rows = expected["skos_semantic_relation_edge"].as_array_mut().unwrap();
+            expected_rows.iter_mut().find(|row| row["id"] == serde_json::json!(edge_ids[0])).unwrap()["object_id"]
+                = serde_json::json!(nodes[depth+1]);
+            // Compare rows as a set: snapshots are ordered by their complete JSONB.
+            let relation_set = |snapshot: &serde_json::Value| {
+                let mut rows = snapshot["skos_semantic_relation_edge"].as_array().unwrap().clone();
+                rows.sort_by_key(|row| row["id"].as_str().unwrap().to_string());
+                rows
+            };
+            opts.dry_run = false;
+            for _ in 0..2 {
+                knowledge_shard_import_internal(&state, &valid, &opts, &archive.schema_name).await.unwrap();
+                let after = shard_native_database_snapshot(&ctx).await;
+                assert_eq!(relation_set(&after), relation_set(&expected));
+                for (table, rows) in baseline.as_object().unwrap() {
+                    if table != "skos_semantic_relation_edge" { assert_eq!(&after[table], rows, "{table}"); }
+                }
+            }
+            let exported = shard_export_native_full_v1(&state, &archive.schema_name).await;
+            save("replacement", &exported);
+        }).catch_unwind().await;
+        db.archives.drop_archive_schema(&name).await.unwrap();
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    #[tokio::test]
+    async fn shard_skos_prospective_cycle_rejects_without_mutation() {
+        shard_skos_prospective_hierarchy_case(true).await;
+    }
+
+    #[tokio::test]
+    async fn shard_skos_prospective_descendant_depth_rejects_without_mutation() {
+        shard_skos_prospective_hierarchy_case(false).await;
+    }
+
+    async fn shard_skos_retained_limit_case(broader: bool) {
+        use futures::FutureExt;
+        use sha2::Digest;
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL").expect("disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let name = format!("sh-skos-limit-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let result = std::panic::AssertUnwindSafe(async {
+            let seed = include_bytes!("../../../tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_relations-input.shard");
+            let mut opts = ShardImportOptions { include: None, dry_run: false,
+                on_conflict: ConflictStrategy::Replace, skip_embedding_regen: true };
+            knowledge_shard_import_internal(&state, seed, &opts, &archive.schema_name).await.unwrap();
+            let files = read_shard_archive(seed, ShardArchiveLimits::default()).unwrap();
+            let relations = parse_shard_component_records("skos_relations", &files["skos_relations.jsonl"]).unwrap();
+            let subject: Uuid = serde_json::from_value(relations[0]["subject_id"].clone()).unwrap();
+            let kind = if broader { "broader" } else { "narrower" };
+            let limit = if broader { 3 } else { 200 };
+            let mut tx = ctx.begin_tx().await.unwrap();
+            sqlx::raw_sql("CREATE TABLE protected_skos_limit_reference(id UUID REFERENCES skos_semantic_relation_edge(id) ON DELETE RESTRICT)")
+                .execute(&mut *tx).await.unwrap();
+            let mut edge_ids = Vec::new();
+            let mut object_ids = Vec::new();
+            for i in 0..=limit {
+                let object = Uuid::new_v4();
+                object_ids.push(object);
+                sqlx::query("INSERT INTO skos_concept(id,primary_scheme_id,notation,status)
+                    SELECT $1,primary_scheme_id,$2,'approved' FROM skos_concept WHERE id=$3")
+                    .bind(object).bind(format!("limit-{i}")).bind(subject).execute(&mut *tx).await.unwrap();
+                if i == limit { continue; }
+                let id = Uuid::new_v4();
+                edge_ids.push(id);
+                sqlx::query("INSERT INTO skos_semantic_relation_edge(id,subject_id,object_id,relation_type,is_inferred)
+                    VALUES($1,$2,$3,$4::skos_semantic_relation,true)")
+                    .bind(id).bind(subject).bind(object).bind(kind).execute(&mut *tx).await.unwrap();
+                sqlx::query("INSERT INTO protected_skos_limit_reference VALUES($1)")
+                    .bind(id).execute(&mut *tx).await.unwrap();
+            }
+            let count: i64 = sqlx::query_scalar("SELECT count(*) FROM skos_semantic_relation_edge
+                WHERE subject_id=$1 AND relation_type=$2::skos_semantic_relation")
+                .bind(subject).bind(kind).fetch_one(&mut *tx).await.unwrap();
+            assert_eq!(count, limit as i64);
+            tx.commit().await.unwrap();
+            let input = shard_export_native_full_v1(&state, &archive.schema_name).await;
+            let baseline = shard_native_database_snapshot(&ctx).await;
+            opts.include = Some("skos_relations".into());
+            let mut invalid_files = read_shard_archive(&input, ShardArchiveLimits::default()).unwrap();
+            let mut invalid_relations = parse_shard_component_records("skos_relations", &invalid_files["skos_relations.jsonl"]).unwrap();
+            let mut extra = invalid_relations.iter().find(|row| row["id"] == serde_json::json!(edge_ids[0])).unwrap().clone();
+            extra["id"] = serde_json::json!(Uuid::new_v4());
+            extra["object_id"] = serde_json::json!(object_ids[limit]);
+            invalid_relations.push(extra);
+            let invalid_data = invalid_relations.iter().map(|row| serde_json::to_string(row).unwrap())
+                .collect::<Vec<_>>().join("\n").into_bytes();
+            let mut manifest: serde_json::Value = serde_json::from_slice(&invalid_files["manifest.json"]).unwrap();
+            manifest["counts"]["skos_relations"] = serde_json::json!(invalid_relations.len());
+            manifest["checksums"]["skos_relations.jsonl"] = serde_json::json!(hex::encode(sha2::Sha256::digest(&invalid_data)));
+            invalid_files.insert("skos_relations.jsonl".into(), invalid_data);
+            invalid_files.insert("manifest.json".into(), serde_json::to_vec(&manifest).unwrap());
+            validate_shard_relationships(&invalid_files).unwrap();
+            let entries: Vec<_> = invalid_files.iter().map(|(name, bytes)|
+                (name.as_str(), bytes.as_slice(), tar::EntryType::Regular)).collect();
+            let invalid = test_shard_archive(&entries);
+            for strategy in [ConflictStrategy::Replace, ConflictStrategy::Skip, ConflictStrategy::Merge] {
+                opts.on_conflict = strategy;
+                for dry_run in [true, false] {
+                    opts.dry_run = dry_run;
+                    let error = knowledge_shard_import_internal(&state, &invalid, &opts, &archive.schema_name)
+                        .await.expect_err("over-limit relation selection must reject in preview and apply");
+                    assert!(matches!(error, ApiError::BadRequest(message) if message.contains("relation cardinality")));
+                    assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+                }
+            }
+            opts.on_conflict = ConflictStrategy::Replace;
+            opts.dry_run = true;
+            knowledge_shard_import_internal(&state, &input, &opts, &archive.schema_name).await.unwrap();
+            assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+            opts.dry_run = false;
+            let mut tx = ctx.begin_tx().await.unwrap();
+            sqlx::raw_sql("CREATE SEQUENCE skos_limit_rollback_reached;
+                CREATE FUNCTION reject_skos_limit() RETURNS trigger LANGUAGE plpgsql AS $$
+                  BEGIN PERFORM nextval('skos_limit_rollback_reached'); RAISE EXCEPTION 'injected limit rollback'; END; $$;
+                CREATE CONSTRAINT TRIGGER reject_skos_limit AFTER UPDATE ON skos_semantic_relation_edge
+                  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_skos_limit();")
+                .execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            opts.dry_run = true;
+            knowledge_shard_import_internal(&state, &input, &opts, &archive.schema_name).await.unwrap();
+            let mut tx = ctx.begin_tx().await.unwrap();
+            assert!(!sqlx::query_scalar::<_, bool>("SELECT is_called FROM skos_limit_rollback_reached")
+                .fetch_one(&mut *tx).await.unwrap());
+            tx.rollback().await.unwrap();
+            opts.dry_run = false;
+            assert!(knowledge_shard_import_internal(&state, &input, &opts, &archive.schema_name).await.is_err());
+            assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+            let mut tx = ctx.begin_tx().await.unwrap();
+            assert!(sqlx::query_scalar::<_, bool>("SELECT is_called FROM skos_limit_rollback_reached")
+                .fetch_one(&mut *tx).await.unwrap());
+            sqlx::raw_sql("DROP TRIGGER reject_skos_limit ON skos_semantic_relation_edge;
+                DROP FUNCTION reject_skos_limit(); DROP SEQUENCE skos_limit_rollback_reached;")
+                .execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            for _ in 0..2 {
+                knowledge_shard_import_internal(&state, &input, &opts, &archive.schema_name)
+                    .await.expect("retained relation replay at legitimate native limit");
+                assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+            }
+            // Ordinary native updates at the limit are also retained records.
+            let mut tx = ctx.begin_tx().await.unwrap();
+            sqlx::query("UPDATE skos_semantic_relation_edge SET inference_score=0.625 WHERE id=$1")
+                .bind(edge_ids[0]).execute(&mut *tx).await.unwrap();
+            tx.rollback().await.unwrap();
+            assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+            // A genuinely new edge still exceeds the same limit, in either context.
+            for restore in [false, true] {
+                let mut tx = ctx.begin_tx().await.unwrap();
+                if restore { sqlx::query("SET LOCAL app.shard_import='on'").execute(&mut *tx).await.unwrap(); }
+                let inserted = sqlx::query("INSERT INTO skos_semantic_relation_edge(id,subject_id,object_id,relation_type,is_inferred)
+                    VALUES($1,$2,$3,$4::skos_semantic_relation,true)")
+                    .bind(Uuid::new_v4()).bind(subject).bind(object_ids[limit]).bind(kind)
+                    .execute(&mut *tx).await;
+                let error = if restore {
+                    inserted.unwrap();
+                    tx.commit().await.unwrap_err()
+                } else {
+                    let error = inserted.unwrap_err();
+                    tx.rollback().await.unwrap();
+                    error
+                };
+                assert!(error.to_string().contains(if broader { "Polyhierarchy limit" } else { "Breadth limit" }));
+                assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+            }
+            let exported = shard_export_native_full_v1(&state, &archive.schema_name).await;
+            let output_files = read_shard_archive(&exported, ShardArchiveLimits::default()).unwrap();
+            validate_shard_relationships(&output_files).unwrap();
+            if let Ok(output) = std::env::var("FORTEMI_SHARD_RELATIONSHIP_FIXTURE_OUTPUT") {
+                use std::io::Write;
+                std::fs::create_dir_all(&output).unwrap();
+                let label = if broader { "skos-broader-limit" } else { "skos-narrower-limit" };
+                for (suffix, bytes) in [("input", input.as_slice()), ("replacement", exported.as_slice())] {
+                    std::fs::OpenOptions::new().write(true).create_new(true)
+                        .open(std::path::Path::new(&output).join(format!("{label}-{suffix}.shard")))
+                        .unwrap().write_all(bytes).unwrap();
+                }
+            }
+        }).catch_unwind().await;
+        db.archives.drop_archive_schema(&name).await.unwrap();
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    #[tokio::test]
+    async fn shard_skos_retained_broader_at_native_limit() {
+        shard_skos_retained_limit_case(true).await;
+    }
+
+    #[tokio::test]
+    async fn shard_skos_retained_narrower_at_native_limit() {
+        shard_skos_retained_limit_case(false).await;
+    }
+
+    async fn shard_partial_note_history_case(current: bool) {
+        use futures::FutureExt;
+        use sha2::Digest;
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL").expect("disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let name = format!("sh-partial-history-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let result = std::panic::AssertUnwindSafe(async {
+            let input = include_bytes!("../../../tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/note_skos_tags-input.shard");
+            let mut opts = ShardImportOptions { include: None, dry_run: false,
+                on_conflict: ConflictStrategy::Replace, skip_embedding_regen: true };
+            knowledge_shard_import_internal(&state, input, &opts, &archive.schema_name).await.unwrap();
+            let history_tables = ["note_original", "note_original_history", "note_revision",
+                "note_revised_current", "provenance_edge", "provenance_activity"];
+            let baseline = shard_native_database_snapshot(&ctx).await;
+            opts.include = Some("notes".into());
+            for dry_run in [true, false, false] {
+                opts.dry_run = dry_run;
+                knowledge_shard_import_internal(&state, input, &opts, &archive.schema_name).await.unwrap();
+                let after = shard_native_database_snapshot(&ctx).await;
+                for table in history_tables {
+                    assert_eq!(after.get(table).unwrap(), baseline.get(table).unwrap(),
+                        "unchanged notes-only restore must preserve {table}");
+                }
+            }
+            let component = if current { "note_revised_current" } else { "note_originals" };
+            let field = if current { "revised_content" } else { "original_content" };
+            let mut files = read_shard_archive(input, ShardArchiveLimits::default()).unwrap();
+            let filename = shard_component_filename(component).unwrap();
+            let mut rich = parse_shard_component_records(component, &files[filename]).unwrap();
+            let note_id = rich[0]["note_id"].clone();
+            let mut notes = parse_shard_component_records("notes", &files["notes.jsonl"]).unwrap();
+            notes.iter_mut().find(|row| row["id"] == note_id).unwrap()[field] = serde_json::json!("");
+            rich[0]["content"] = serde_json::json!("");
+            if current { rich[0]["last_revision_id"] = serde_json::Value::Null; }
+            let rebind = |files: &mut std::collections::HashMap<String, Vec<u8>>, filename: &str, rows: &[serde_json::Value]| {
+                let data = rows.iter().map(|row| serde_json::to_string(row).unwrap()).collect::<Vec<_>>().join("\n").into_bytes();
+                let mut manifest: serde_json::Value = serde_json::from_slice(&files["manifest.json"]).unwrap();
+                manifest["checksums"][filename] = serde_json::json!(hex::encode(sha2::Sha256::digest(&data)));
+                files.insert(filename.into(), data);
+                files.insert("manifest.json".into(), serde_json::to_vec(&manifest).unwrap());
+            };
+            let pack = |files: &std::collections::HashMap<String, Vec<u8>>| {
+                let entries: Vec<_> = files.iter().map(|(name, data)|
+                    (name.as_str(), data.as_slice(), tar::EntryType::Regular)).collect();
+                test_shard_archive(&entries)
+            };
+            rebind(&mut files, "notes.jsonl", &notes);
+            rebind(&mut files, filename, &rich);
+            validate_shard_relationships(&files).unwrap();
+            let changed = pack(&files);
+            let before = shard_native_database_snapshot(&ctx).await;
+            let mut tx = ctx.begin_tx().await.unwrap();
+            sqlx::raw_sql("CREATE SEQUENCE partial_history_rollback_reached;
+                CREATE FUNCTION reject_partial_history() RETURNS trigger LANGUAGE plpgsql AS $$
+                  BEGIN PERFORM nextval('partial_history_rollback_reached'); RAISE EXCEPTION 'injected history rollback'; END; $$;
+                CREATE CONSTRAINT TRIGGER reject_partial_history AFTER UPDATE ON note
+                  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_partial_history();")
+                .execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            for dry_run in [true, false] {
+                opts.dry_run = dry_run;
+                let error = knowledge_shard_import_internal(&state, &changed, &opts, &archive.schema_name).await.unwrap_err();
+                assert!(matches!(error, ApiError::BadRequest(message)
+                    if message.contains("unselected rich snapshot")));
+                assert_eq!(shard_native_database_snapshot(&ctx).await, before);
+            }
+            for strategy in [ConflictStrategy::Skip, ConflictStrategy::Merge] {
+                opts.on_conflict = strategy;
+                for dry_run in [true, false] {
+                    opts.dry_run = dry_run;
+                    knowledge_shard_import_internal(&state, &changed, &opts, &archive.schema_name).await.unwrap();
+                    assert_eq!(shard_native_database_snapshot(&ctx).await, before);
+                }
+            }
+            opts.on_conflict = ConflictStrategy::Replace;
+            opts.include = Some(format!("notes,{component}"));
+            opts.dry_run = true;
+            knowledge_shard_import_internal(&state, &changed, &opts, &archive.schema_name).await.unwrap();
+            assert_eq!(shard_native_database_snapshot(&ctx).await, before);
+            let mut tx = ctx.begin_tx().await.unwrap();
+            assert!(!sqlx::query_scalar::<_, bool>("SELECT is_called FROM partial_history_rollback_reached")
+                .fetch_one(&mut *tx).await.unwrap(), "preview and skipped owners must not run write triggers");
+            tx.rollback().await.unwrap();
+            opts.dry_run = false;
+            assert!(knowledge_shard_import_internal(&state, &changed, &opts, &archive.schema_name).await.is_err());
+            assert_eq!(shard_native_database_snapshot(&ctx).await, before);
+            let mut tx = ctx.begin_tx().await.unwrap();
+            assert!(sqlx::query_scalar::<_, bool>("SELECT is_called FROM partial_history_rollback_reached")
+                .fetch_one(&mut *tx).await.unwrap(), "changed projection must reach deferred commit failure");
+            sqlx::raw_sql("DROP TRIGGER reject_partial_history ON note;
+                DROP FUNCTION reject_partial_history(); DROP SEQUENCE partial_history_rollback_reached;")
+                .execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            knowledge_shard_import_internal(&state, &changed, &opts, &archive.schema_name).await.unwrap();
+            let selected = shard_native_database_snapshot(&ctx).await;
+            for table in history_tables {
+                if table == if current { "note_revised_current" } else { "note_original" } { continue; }
+                assert_eq!(selected.get(table).unwrap(), before.get(table).unwrap(), "unselected {table}");
+            }
+            knowledge_shard_import_internal(&state, &changed, &opts, &archive.schema_name).await.unwrap();
+            let repeated = shard_native_database_snapshot(&ctx).await;
+            for table in history_tables {
+                assert_eq!(repeated.get(table).unwrap(), selected.get(table).unwrap(),
+                    "repeated selected rich projection must preserve {table}");
+            }
+
+            // A flat-only note has no declared rich snapshot to conflict with.
+            let peer = notes.iter_mut().find(|row| row["id"] != note_id).unwrap();
+            let peer_id = peer["id"].clone();
+            assert!(baseline["note_original"].as_array().unwrap().iter()
+                .any(|row| row["note_id"] == peer_id && row["shard_export_present"] == false));
+            peer["original_content"] = serde_json::json!("Changed flat original");
+            peer["revised_content"] = serde_json::json!("Changed flat revised");
+            rebind(&mut files, "notes.jsonl", &notes);
+            let flat = pack(&files);
+            opts.include = Some("notes".into());
+            knowledge_shard_import_internal(&state, &flat, &opts, &archive.schema_name).await.unwrap();
+            let flat_state = shard_native_database_snapshot(&ctx).await;
+            assert_eq!(flat_state["note_revision"], selected["note_revision"]);
+            assert_eq!(flat_state["note_original_history"], selected["note_original_history"]);
+            knowledge_shard_import_internal(&state, &flat, &opts, &archive.schema_name).await.unwrap();
+            let repeated = shard_native_database_snapshot(&ctx).await;
+            for table in history_tables {
+                assert_eq!(repeated.get(table).unwrap(), flat_state.get(table).unwrap(),
+                    "repeated flat projection must preserve {table}");
+            }
+            let exported = shard_export_native_full_v1(&state, &archive.schema_name).await;
+            let output_files = read_shard_archive(&exported, ShardArchiveLimits::default()).unwrap();
+            validate_shard_relationships(&output_files).unwrap();
+            let output_notes = parse_shard_component_records("notes", &output_files["notes.jsonl"]).unwrap();
+            let output_peer = output_notes.iter().find(|row| row["id"] == peer_id).unwrap();
+            assert_eq!(output_peer["original_content"], "Changed flat original");
+            assert_eq!(output_peer["revised_content"], "Changed flat revised");
+            if let Ok(output) = std::env::var("FORTEMI_SHARD_RELATIONSHIP_FIXTURE_OUTPUT") {
+                use std::io::Write;
+                std::fs::create_dir_all(&output).unwrap();
+                let label = if current { "notes-current-selected" } else { "notes-original-selected" };
+                for (suffix, bytes) in [("input", flat.as_slice()), ("replacement", exported.as_slice())] {
+                    std::fs::OpenOptions::new().write(true).create_new(true)
+                        .open(std::path::Path::new(&output).join(format!("{label}-{suffix}.shard")))
+                        .unwrap().write_all(bytes).unwrap();
+                }
+            }
+        }).catch_unwind().await;
+        db.archives.drop_archive_schema(&name).await.unwrap();
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    #[tokio::test]
+    async fn shard_partial_note_history_original_selection_and_flat_projection() {
+        shard_partial_note_history_case(false).await;
+    }
+
+    #[tokio::test]
+    async fn shard_partial_note_history_current_selection_and_flat_projection() {
+        shard_partial_note_history_case(true).await;
+    }
+
+    async fn shard_skos_note_lifecycle_case(omit: bool) {
+        use futures::FutureExt;
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL").expect("disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let name = format!("sh-skos-lifecycle-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let result = std::panic::AssertUnwindSafe(async {
+            let input = include_bytes!("../../../tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/note_skos_tags-input.shard");
+            let omission = include_bytes!("../../../tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/note_skos_tags-omission.shard");
+            let mut opts = ShardImportOptions { include: None, dry_run: false,
+                on_conflict: ConflictStrategy::Replace, skip_embedding_regen: true };
+            knowledge_shard_import_internal(&state, input, &opts, &archive.schema_name).await.unwrap();
+            let files = read_shard_archive(input, ShardArchiveLimits::default()).unwrap();
+            let tags = parse_shard_component_records("note_skos_tags", &files["note_skos_tags.jsonl"]).unwrap();
+            let note: Uuid = serde_json::from_value(tags[0]["note_id"].clone()).unwrap();
+            let concept: Uuid = serde_json::from_value(tags[0]["concept_id"].clone()).unwrap();
+            let mut tx = ctx.begin_tx().await.unwrap();
+            sqlx::query("DELETE FROM note_skos_concept WHERE note_id=$1 AND concept_id=$2")
+                .bind(note).bind(concept).execute(&mut *tx).await.unwrap();
+            sqlx::query("UPDATE skos_concept SET status='candidate',note_count=0,promoted_at=NULL,
+                first_used_at=NULL,last_used_at=NULL WHERE id=$1")
+                .bind(concept).execute(&mut *tx).await.unwrap();
+            sqlx::raw_sql("CREATE TABLE protected_skos_tag_reference(note_id UUID,concept_id UUID,
+                FOREIGN KEY(note_id,concept_id) REFERENCES note_skos_concept(note_id,concept_id) ON DELETE RESTRICT)")
+                .execute(&mut *tx).await.unwrap();
+            for _ in 0..2 {
+                let independent = Uuid::new_v4();
+                matric_db::PgNoteRepository::new(db.pool.clone()).insert_with_id_tx(&mut tx, independent,
+                    CreateNoteRequest { content: "Independent native SKOS assignment".into(),format: "markdown".into(),
+                        source: "test".into(),collection_id: None,tags: Some(Vec::new()),metadata: None,
+                        document_type_id: None,title: None }).await.unwrap();
+                sqlx::query("INSERT INTO note_skos_concept(note_id,concept_id) VALUES($1,$2)")
+                    .bind(independent).bind(concept).execute(&mut *tx).await.unwrap();
+                sqlx::query("INSERT INTO protected_skos_tag_reference VALUES($1,$2)")
+                    .bind(independent).bind(concept).execute(&mut *tx).await.unwrap();
+            }
+            let lifecycle: (i32,String) = sqlx::query_as("SELECT note_count,status::text FROM skos_concept WHERE id=$1")
+                .bind(concept).fetch_one(&mut *tx).await.unwrap();
+            assert_eq!(lifecycle,(2,"candidate".into()));
+            if omit {
+                sqlx::query("INSERT INTO note_skos_concept(note_id,concept_id) VALUES($1,$2)")
+                    .bind(note).bind(concept).execute(&mut *tx).await.unwrap();
+            }
+            tx.commit().await.unwrap();
+            let baseline = shard_native_database_snapshot(&ctx).await;
+            let incoming = if omit { omission.as_slice() } else { input.as_slice() };
+            opts.include = Some(if omit { "notes,note_skos_tags" } else { "note_skos_tags" }.into());
+            opts.dry_run = true;
+            knowledge_shard_import_internal(&state, incoming, &opts, &archive.schema_name).await.unwrap();
+            assert_eq!(shard_native_database_snapshot(&ctx).await,baseline);
+            opts.dry_run = false;
+            let mut tx = ctx.begin_tx().await.unwrap();
+            sqlx::raw_sql("CREATE SEQUENCE skos_lifecycle_rollback_reached;
+                CREATE FUNCTION reject_skos_lifecycle() RETURNS trigger LANGUAGE plpgsql AS $$
+                  BEGIN PERFORM nextval('skos_lifecycle_rollback_reached'); RAISE EXCEPTION 'injected lifecycle rollback'; END; $$;
+                CREATE CONSTRAINT TRIGGER reject_skos_lifecycle AFTER INSERT OR DELETE ON note_skos_concept
+                  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_skos_lifecycle();")
+                .execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            assert!(knowledge_shard_import_internal(&state, incoming, &opts, &archive.schema_name).await.is_err());
+            assert_eq!(shard_native_database_snapshot(&ctx).await,baseline);
+            let mut tx = ctx.begin_tx().await.unwrap();
+            assert!(sqlx::query_scalar::<_, bool>("SELECT is_called FROM skos_lifecycle_rollback_reached")
+                .fetch_one(&mut *tx).await.unwrap(),"failure must reach deferred commit trigger");
+            sqlx::raw_sql("DROP TRIGGER reject_skos_lifecycle ON note_skos_concept;
+                DROP FUNCTION reject_skos_lifecycle(); DROP SEQUENCE skos_lifecycle_rollback_reached;")
+                .execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            for _ in 0..2 {
+                knowledge_shard_import_internal(&state, incoming, &opts, &archive.schema_name).await.unwrap();
+                let after = shard_native_database_snapshot(&ctx).await;
+                for table in ["note_original", "note_original_history", "note_revision",
+                    "note_revised_current", "provenance_edge", "provenance_activity"] {
+                    assert_eq!(after.get(table).unwrap(), baseline.get(table).unwrap(),
+                        "partial note/tag restore must preserve unselected {table}");
+                }
+                assert_eq!(after["skos_concept"],baseline["skos_concept"],
+                    "restoring note-owned assignments must not author unselected concept lifecycle or snapshots");
+                assert_eq!(after["protected_skos_tag_reference"],baseline["protected_skos_tag_reference"]);
+                let retained = |snapshot: &serde_json::Value| snapshot["note_skos_concept"].as_array().unwrap()
+                    .iter().filter(|row| row["note_id"] != serde_json::json!(note)).cloned().collect::<Vec<_>>();
+                assert_eq!(retained(&after),retained(&baseline));
+                let count = after["note_skos_concept"].as_array().unwrap().iter()
+                    .filter(|row| row["note_id"] == serde_json::json!(note) && row["concept_id"] == serde_json::json!(concept)).count();
+                assert_eq!(count,usize::from(!omit));
+            }
+            let exported = shard_export_native_full_v1(&state, &archive.schema_name).await;
+            if let Ok(output) = std::env::var("FORTEMI_SHARD_RELATIONSHIP_FIXTURE_OUTPUT") {
+                use std::io::Write;
+                std::fs::create_dir_all(&output).unwrap();
+                let label = if omit { "skos-tag-omission" } else { "skos-tag-insert" };
+                std::fs::OpenOptions::new().write(true).create_new(true)
+                    .open(std::path::Path::new(&output).join(format!("{label}-replacement.shard")))
+                    .unwrap().write_all(&exported).unwrap();
+            }
+            let before_native = shard_native_database_snapshot(&ctx).await;
+            let mut tx = ctx.begin_tx().await.unwrap();
+            sqlx::query("DELETE FROM note_skos_concept WHERE note_id=$1 AND concept_id=$2")
+                .bind(note).bind(concept).execute(&mut *tx).await.unwrap();
+            sqlx::query("UPDATE skos_concept SET status='candidate',note_count=2,promoted_at=NULL WHERE id=$1")
+                .bind(concept).execute(&mut *tx).await.unwrap();
+            sqlx::query("INSERT INTO note_skos_concept(note_id,concept_id) VALUES($1,$2)")
+                .bind(note).bind(concept).execute(&mut *tx).await.unwrap();
+            let native: (i32,String,bool) = sqlx::query_as("SELECT note_count,status::text,promoted_at=now() AND updated_at=now()
+                FROM skos_concept WHERE id=$1").bind(concept).fetch_one(&mut *tx).await.unwrap();
+            assert_eq!(native,(3,"approved".into(),true),"ordinary native tagging retains promotion behavior");
+            tx.rollback().await.unwrap();
+            assert_eq!(shard_native_database_snapshot(&ctx).await,before_native);
+        }).catch_unwind().await;
+        db.archives.drop_archive_schema(&name).await.unwrap();
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    #[tokio::test]
+    async fn shard_skos_note_lifecycle_insertion_preserves_unselected_concepts() {
+        shard_skos_note_lifecycle_case(false).await;
+    }
+
+    #[tokio::test]
+    async fn shard_skos_note_lifecycle_omission_preserves_unselected_concepts() {
+        shard_skos_note_lifecycle_case(true).await;
+    }
+
+    async fn shard_skos_native_effects_case(explicit: bool) {
+        use futures::FutureExt;
+        use sha2::Digest;
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL").expect("disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let name = format!("sh-skos-effects-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let result = std::panic::AssertUnwindSafe(async {
+            let input = include_bytes!("../../../tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_relations-input.shard");
+            let mut files = read_shard_archive(input, ShardArchiveLimits::default()).unwrap();
+            let mut expected = parse_shard_component_records("skos_relations", &files["skos_relations.jsonl"]).unwrap();
+            assert_eq!(expected.len(), 1);
+            if explicit {
+                expected[0]["is_inferred"] = serde_json::json!(false);
+                let bytes = serde_json::to_vec(&expected[0]).unwrap();
+                let mut manifest: serde_json::Value = serde_json::from_slice(&files["manifest.json"]).unwrap();
+                manifest["checksums"]["skos_relations.jsonl"] = serde_json::json!(hex::encode(sha2::Sha256::digest(&bytes)));
+                files.insert("skos_relations.jsonl".into(), bytes);
+                files.insert("manifest.json".into(), serde_json::to_vec(&manifest).unwrap());
+            }
+            let entries: Vec<_> = files.iter().map(|(name, data)|
+                (name.as_str(), data.as_slice(), tar::EntryType::Regular)).collect();
+            let incoming = test_shard_archive(&entries);
+            let mut opts = ShardImportOptions { include: None, dry_run: false,
+                on_conflict: ConflictStrategy::Replace, skip_embedding_regen: true };
+            let before = shard_native_database_snapshot(&ctx).await;
+            opts.dry_run = true;
+            knowledge_shard_import_internal(&state, &incoming, &opts, &archive.schema_name).await.unwrap();
+            assert_eq!(shard_native_database_snapshot(&ctx).await, before);
+            opts.dry_run = false;
+            knowledge_shard_import_internal(&state, &incoming, &opts, &archive.schema_name).await.unwrap();
+            let baseline = shard_native_database_snapshot(&ctx).await;
+            opts.include = Some("skos_relations".into());
+            opts.dry_run = true;
+            knowledge_shard_import_internal(&state, &incoming, &opts, &archive.schema_name).await.unwrap();
+            assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+            opts.dry_run = false;
+            for _ in 0..2 {
+                let exported = shard_export_native_full_v1(&state, &archive.schema_name).await;
+                let output = read_shard_archive(&exported, ShardArchiveLimits::default()).unwrap();
+                let actual = parse_shard_component_records("skos_relations", &output["skos_relations.jsonl"]).unwrap();
+                assert_eq!(actual, expected, "restore must not synthesize undeclared reciprocal identities");
+                knowledge_shard_import_internal(&state, &incoming, &opts, &archive.schema_name).await.unwrap();
+                assert_eq!(shard_native_database_snapshot(&ctx).await["skos_concept"], baseline["skos_concept"],
+                    "relation-only replay must not rewrite unselected concept snapshots");
+            }
+            let exported = shard_export_native_full_v1(&state, &archive.schema_name).await;
+            if let Ok(output) = std::env::var("FORTEMI_SHARD_RELATIONSHIP_FIXTURE_OUTPUT") {
+                use std::io::Write;
+                std::fs::create_dir_all(&output).unwrap();
+                let label = if explicit { "skos-explicit" } else { "skos-partial-replay" };
+                for (suffix, bytes) in [("input", incoming.as_slice()), ("replacement", exported.as_slice())] {
+                    std::fs::OpenOptions::new().write(true).create_new(true)
+                        .open(std::path::Path::new(&output).join(format!("{label}-{suffix}.shard")))
+                        .unwrap().write_all(bytes).unwrap();
+                }
+            }
+            // The same native functions still maintain ordinary authoring state.
+            let relation = &expected[0];
+            let subject: Uuid = serde_json::from_value(relation["subject_id"].clone()).unwrap();
+            let object: Uuid = serde_json::from_value(relation["object_id"].clone()).unwrap();
+            let mut tx = ctx.begin_tx().await.unwrap();
+            sqlx::query("DELETE FROM skos_semantic_relation_edge").execute(&mut *tx).await.unwrap();
+            sqlx::query("INSERT INTO skos_semantic_relation_edge(subject_id,object_id,relation_type,is_inferred)
+                VALUES($1,$2,'related',false)").bind(subject).bind(object).execute(&mut *tx).await.unwrap();
+            assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM skos_semantic_relation_edge")
+                .fetch_one(&mut *tx).await.unwrap(), 2, "native authoring must still create reciprocal relations");
+            assert_eq!(sqlx::query_scalar::<_, i64>("SELECT count(*) FROM skos_concept WHERE updated_at=now() AND related_count=1")
+                .fetch_one(&mut *tx).await.unwrap(), 2, "native hierarchy counters and timestamps remain live");
+            tx.rollback().await.unwrap();
+            assert_eq!(shard_native_database_snapshot(&ctx).await["skos_concept"], baseline["skos_concept"]);
+        }).catch_unwind().await;
+        db.archives.drop_archive_schema(&name).await.unwrap();
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    #[tokio::test]
+    async fn shard_skos_native_effects_partial_relation_replay() {
+        shard_skos_native_effects_case(false).await;
+    }
+
+    #[tokio::test]
+    async fn shard_skos_native_effects_explicit_relation_identity() {
+        shard_skos_native_effects_case(true).await;
+    }
+
+    async fn shard_export_native_full_v1(state: &AppState, schema: &str) -> Vec<u8> {
+        let response = knowledge_shard(
+            State(state.clone()),
+            Extension(ArchiveContext {
+                schema: schema.into(),
+                is_default: false,
+                name: None,
+            }),
+            Query(ShardExportQuery {
+                schema_version: Some(SHARD_SCHEMA_2_VERSION.into()),
+                profile: Some("full-v1".into()),
+                include: None,
+                include_blobs: true,
+            }),
+        )
+        .await
+        .unwrap()
+        .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+        axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap()
+            .to_vec()
+    }
+
+    async fn shard_export_skos_schemes(state: &AppState, schema: &str) -> Vec<serde_json::Value> {
+        let bytes = shard_export_native_full_v1(state, schema).await;
+        let files = read_shard_archive(&bytes, ShardArchiveLimits::default()).unwrap();
+        parse_shard_component_records("skos_schemes", &files["skos_schemes.json"]).unwrap()
+    }
+
+    #[tokio::test]
+    async fn shard_skos_bootstrap_native_default_round_trips_without_remapping() {
+        use futures::FutureExt;
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL").expect("disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let source_name = format!("sh-skos-native-source-{}", Uuid::new_v4().simple());
+        let target_name = format!("sh-skos-native-target-{}", Uuid::new_v4().simple());
+        let source = db
+            .archives
+            .create_archive_schema(&source_name, None)
+            .await
+            .unwrap();
+        let target = db
+            .archives
+            .create_archive_schema(&target_name, None)
+            .await
+            .unwrap();
+        let source_ctx = db.for_schema(&source.schema_name).unwrap();
+        let target_ctx = db.for_schema(&target.schema_name).unwrap();
+        let result = std::panic::AssertUnwindSafe(async {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/fixtures/shards/external/react-native-skos-retained-2026-09-11/skos_labels-input.shard");
+            let mut opts = ShardImportOptions { include: None, dry_run: false,
+                on_conflict: ConflictStrategy::Replace, skip_embedding_regen: true };
+            knowledge_shard_import_internal(&state, &std::fs::read(path).unwrap(), &opts, &source.schema_name).await.unwrap();
+            let mut tx = source_ctx.begin_tx().await.unwrap();
+            let source_id: Uuid = sqlx::query_scalar("UPDATE skos_concept_scheme SET title='Native default' WHERE notation='default' RETURNING id")
+                .fetch_one(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            let exported = shard_export_native_full_v1(&state, &source.schema_name).await;
+            let expected = read_shard_archive(&exported, ShardArchiveLimits::default()).unwrap();
+            let schemes = parse_shard_component_records("skos_schemes", &expected["skos_schemes.json"]).unwrap();
+            assert!(schemes.iter().any(|scheme| scheme["id"] == serde_json::json!(source_id)));
+            let baseline = shard_native_database_snapshot(&target_ctx).await;
+            assert_ne!(baseline["skos_concept_scheme"][0]["id"], serde_json::json!(source_id));
+            opts.dry_run = true;
+            knowledge_shard_import_internal(&state, &exported, &opts, &target.schema_name).await.unwrap();
+            assert_eq!(shard_native_database_snapshot(&target_ctx).await, baseline);
+            opts.dry_run = false;
+            for _ in 0..2 {
+                knowledge_shard_import_internal(&state, &exported, &opts, &target.schema_name).await.unwrap();
+                let output = shard_export_native_full_v1(&state, &target.schema_name).await;
+                let actual = read_shard_archive(&output, ShardArchiveLimits::default()).unwrap();
+                assert_eq!(actual.keys().collect::<std::collections::HashSet<_>>(),
+                    expected.keys().collect::<std::collections::HashSet<_>>());
+                for (file, bytes) in &expected {
+                    if file != "manifest.json" { assert_eq!(&actual[file], bytes, "{file}"); }
+                }
+            }
+            if let Ok(output) = std::env::var("FORTEMI_SHARD_RELATIONSHIP_FIXTURE_OUTPUT") {
+                use std::io::Write;
+                std::fs::create_dir_all(&output).unwrap();
+                std::fs::OpenOptions::new().write(true).create_new(true)
+                    .open(std::path::Path::new(&output).join("skos-native-default-replacement.shard")).unwrap()
+                    .write_all(&exported).unwrap();
+            }
+        }).catch_unwind().await;
+        db.archives.drop_archive_schema(&target_name).await.unwrap();
+        db.archives.drop_archive_schema(&source_name).await.unwrap();
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    #[tokio::test]
+    async fn shard_skos_bootstrap_export_and_native_adoption() {
+        use futures::FutureExt;
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL").expect("disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        for action in ["edit", "concept", "membership", "collection"] {
+            let name = format!("sh-skos-bootstrap-{}", Uuid::new_v4().simple());
+            let archive = db
+                .archives
+                .create_archive_schema(&name, None)
+                .await
+                .unwrap();
+            let ctx = db.for_schema(&archive.schema_name).unwrap();
+            let result = std::panic::AssertUnwindSafe(async {
+                assert!(shard_export_skos_schemes(&state, &archive.schema_name).await.is_empty(),
+                    "unadopted archive scaffolding is not an independent wire root");
+                let mut tx = ctx.begin_tx().await.unwrap();
+                let id: Uuid = sqlx::query_scalar("SELECT id FROM skos_concept_scheme WHERE notation='default'")
+                    .fetch_one(&mut *tx).await.unwrap();
+                tx.rollback().await.unwrap();
+                let baseline = shard_native_database_snapshot(&ctx).await;
+                for commit in [false, true] {
+                    let mut tx = ctx.begin_tx().await.unwrap();
+                    match action {
+                        "edit" => { sqlx::query("UPDATE skos_concept_scheme SET title='Native title' WHERE id=$1")
+                            .bind(id).execute(&mut *tx).await.unwrap(); }
+                        "concept" => { sqlx::query("INSERT INTO skos_concept(primary_scheme_id,notation) VALUES($1,'native')")
+                            .bind(id).execute(&mut *tx).await.unwrap(); }
+                        "collection" => { sqlx::query("INSERT INTO skos_collection(scheme_id,pref_label) VALUES($1,'Native collection')")
+                            .bind(id).execute(&mut *tx).await.unwrap(); }
+                        "membership" => {
+                            let other = Uuid::new_v4();
+                            sqlx::query("INSERT INTO skos_concept_scheme(id,notation,title) VALUES($1,'other','Other')")
+                                .bind(other).execute(&mut *tx).await.unwrap();
+                            sqlx::query("INSERT INTO skos_concept(id,primary_scheme_id) VALUES($1,$1)")
+                                .bind(other).execute(&mut *tx).await.unwrap();
+                            sqlx::query("INSERT INTO skos_concept_in_scheme(concept_id,scheme_id) VALUES($1,$2)")
+                                .bind(other).bind(id).execute(&mut *tx).await.unwrap();
+                        }
+                        _ => unreachable!(),
+                    }
+                    let custody: i64 = sqlx::query_scalar("SELECT count(*) FROM shard_skos_scheme_bootstrap WHERE scheme_id=$1")
+                        .bind(id).fetch_one(&mut *tx).await.unwrap();
+                    assert_eq!(custody, 0, "{action} adopts live ownership");
+                    if commit {
+                        tx.commit().await.unwrap();
+                        let exported = shard_export_skos_schemes(&state, &archive.schema_name).await;
+                        assert!(exported.iter().any(|scheme| scheme["id"] == serde_json::json!(id)), "{action} exports the live scheme");
+                    } else {
+                        tx.rollback().await.unwrap();
+                        assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+                        assert!(shard_export_skos_schemes(&state, &archive.schema_name).await.is_empty());
+                    }
+                }
+            }).catch_unwind().await;
+            db.archives.drop_archive_schema(&name).await.unwrap();
+            if let Err(panic) = result {
+                std::panic::resume_unwind(panic);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn shard_skos_bootstrap_conflicts_preserve_live_identity_and_preview() {
+        use futures::FutureExt;
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL").expect("disposable integration database");
+        let db = Database::connect(&database_url).await.unwrap();
+        db.migrate().await.unwrap();
+        let components = ["skos_schemes".to_string()].into_iter().collect();
+        for state in [
+            "pristine",
+            "edited",
+            "referenced_then_unused",
+            "unrecorded",
+            "declared",
+        ] {
+            let name = format!("sh-skos-conflict-{}", Uuid::new_v4().simple());
+            let archive = db
+                .archives
+                .create_archive_schema(&name, None)
+                .await
+                .unwrap();
+            let ctx = db.for_schema(&archive.schema_name).unwrap();
+            let result = std::panic::AssertUnwindSafe(async {
+                let mut scheme = shard_native_database_snapshot(&ctx).await["skos_concept_scheme"][0].clone();
+                let old_id: Uuid = serde_json::from_value(scheme["id"].clone()).unwrap();
+                let mut opts = ShardImportOptions { include: None, dry_run: false,
+                    on_conflict: ConflictStrategy::Replace, skip_embedding_regen: true };
+                let mut tx = ctx.begin_tx().await.unwrap();
+                match state {
+                    "pristine" => {},
+                    "edited" => { sqlx::query("UPDATE skos_concept_scheme SET title=title WHERE id=$1")
+                        .bind(old_id).execute(&mut *tx).await.unwrap(); },
+                    "unrecorded" => { sqlx::query("DELETE FROM shard_skos_scheme_bootstrap WHERE scheme_id=$1")
+                        .bind(old_id).execute(&mut *tx).await.unwrap(); },
+                    "referenced_then_unused" => {
+                        sqlx::query("INSERT INTO skos_collection(id,pref_label,scheme_id) VALUES($1,'Transient reference',$1)")
+                            .bind(old_id).execute(&mut *tx).await.unwrap();
+                        sqlx::query("DELETE FROM skos_collection WHERE id=$1")
+                            .bind(old_id).execute(&mut *tx).await.unwrap();
+                    },
+                    "declared" => {
+                        let files = std::collections::HashMap::from([("skos_schemes.json".into(),
+                            serde_json::to_vec(&vec![scheme.clone()]).unwrap())]);
+                        apply_shard_skos_components_tx(&mut tx, &files, &components, &opts, false,
+                            &mut ShardImportCounts::default(), &mut ShardImportCounts::default()).await.unwrap();
+                    },
+                    _ => unreachable!(),
+                }
+                tx.commit().await.unwrap();
+                let new_id = Uuid::new_v4();
+                scheme["id"] = serde_json::json!(new_id);
+                let files = std::collections::HashMap::from([("skos_schemes.json".into(),
+                    serde_json::to_vec(&vec![scheme.clone()]).unwrap())]);
+                let before = shard_native_database_snapshot(&ctx).await;
+                for dry_run in [true, false] {
+                    opts.dry_run = dry_run;
+                    let mut tx = ctx.begin_tx().await.unwrap();
+                    if dry_run { sqlx::query("SET TRANSACTION READ ONLY").execute(&mut *tx).await.unwrap(); }
+                    let outcome = apply_shard_skos_components_tx(&mut tx, &files, &components, &opts, false,
+                        &mut ShardImportCounts::default(), &mut ShardImportCounts::default()).await;
+                    assert_eq!(outcome.is_ok(), state == "pristine", "{state} dry_run={dry_run}: {outcome:?}");
+                    tx.rollback().await.unwrap();
+                    assert_eq!(shard_native_database_snapshot(&ctx).await, before);
+                }
+                if state == "pristine" {
+                    let mut tx = ctx.begin_tx().await.unwrap();
+                    apply_shard_skos_components_tx(&mut tx, &files, &components, &opts, false,
+                        &mut ShardImportCounts::default(), &mut ShardImportCounts::default()).await.unwrap();
+                    tx.commit().await.unwrap();
+                    let after = shard_native_database_snapshot(&ctx).await;
+                    assert_eq!(after["skos_concept_scheme"].as_array().unwrap().len(), 1);
+                    assert_eq!(after["skos_concept_scheme"][0]["id"], serde_json::json!(new_id));
+                    assert!(after["shard_skos_scheme_bootstrap"].as_array().unwrap().is_empty());
+                    let first = after["skos_concept_scheme"][0].clone();
+                    let mut second = first.clone();
+                    second["id"] = serde_json::json!(Uuid::new_v4());
+                    second["notation"] = serde_json::json!("second");
+                    second["uri"] = serde_json::json!("https://example.test/second");
+                    let files = std::collections::HashMap::from([("skos_schemes.json".into(),
+                        serde_json::to_vec(&vec![first.clone(), second.clone()]).unwrap())]);
+                    let mut tx = ctx.begin_tx().await.unwrap();
+                    apply_shard_skos_components_tx(&mut tx, &files, &components, &opts, false,
+                        &mut ShardImportCounts::default(), &mut ShardImportCounts::default()).await.unwrap();
+                    sqlx::raw_sql("CREATE TABLE protected_scheme_reference(id UUID REFERENCES skos_concept_scheme(id) ON DELETE RESTRICT);
+                        INSERT INTO protected_scheme_reference SELECT id FROM skos_concept_scheme;")
+                        .execute(&mut *tx).await.unwrap();
+                    tx.commit().await.unwrap();
+                    let baseline = shard_native_database_snapshot(&ctx).await;
+                    let mut swapped = vec![first.clone(), second.clone()];
+                    for key in ["notation", "uri"] {
+                        swapped[0][key] = second[key].clone();
+                        swapped[1][key] = first[key].clone();
+                    }
+                    let files = std::collections::HashMap::from([("skos_schemes.json".into(),
+                        serde_json::to_vec(&swapped).unwrap())]);
+                    opts.dry_run = true;
+                    let mut tx = ctx.begin_tx().await.unwrap();
+                    sqlx::query("SET TRANSACTION READ ONLY").execute(&mut *tx).await.unwrap();
+                    apply_shard_skos_components_tx(&mut tx, &files, &components, &opts, false,
+                        &mut ShardImportCounts::default(), &mut ShardImportCounts::default()).await.unwrap();
+                    tx.rollback().await.unwrap();
+                    assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+                    opts.dry_run = false;
+                    for commit in [false, true, true] {
+                        let mut tx = ctx.begin_tx().await.unwrap();
+                        apply_shard_skos_components_tx(&mut tx, &files, &components, &opts, false,
+                            &mut ShardImportCounts::default(), &mut ShardImportCounts::default()).await.unwrap();
+                        if commit {
+                            tx.commit().await.unwrap();
+                            let after = shard_native_database_snapshot(&ctx).await;
+                            assert_eq!(after["protected_scheme_reference"], baseline["protected_scheme_reference"]);
+                            for original in baseline["skos_concept_scheme"].as_array().unwrap() {
+                                let desired = swapped.iter().find(|row| row["id"] == original["id"]).unwrap();
+                                let mut expected = original.clone();
+                                expected["notation"] = desired["notation"].clone();
+                                expected["uri"] = desired["uri"].clone();
+                                let actual = after["skos_concept_scheme"].as_array().unwrap().iter()
+                                    .find(|row| row["id"] == original["id"]).unwrap();
+                                assert_eq!(actual, &expected, "selected unique swaps preserve native identity and metadata");
+                            }
+                        } else {
+                            tx.rollback().await.unwrap();
+                            assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+                        }
+                    }
+                }
+            }).catch_unwind().await;
+            db.archives.drop_archive_schema(&name).await.unwrap();
+            if let Err(panic) = result {
+                std::panic::resume_unwind(panic);
+            }
+        }
+    }
+
+    async fn shard_retained_relationship_fixture(
+        name: &str,
+        table: &str,
+        columns: &str,
+        keys: &str,
+        predicate: &str,
+    ) {
+        use futures::FutureExt;
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must select a disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let archive_name = format!("sh-retained-rel-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&archive_name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let result = std::panic::AssertUnwindSafe(async {
+            let skos = name.starts_with("skos_") || name == "note_skos_tags";
+            let directory = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join(if skos {
+                    "../../tests/fixtures/shards/external/react-native-skos-retained-2026-09-11"
+                } else {
+                    "../../tests/fixtures/shards/external/react-native-relationships-2026-09-11"
+                });
+            let fixture = |label: &str| std::fs::read(directory.join(format!("{name}-{label}.shard"))).unwrap();
+            let input = fixture("input");
+            let replacement = fixture("replacement");
+            let omission = fixture("omission");
+            let mut opts = ShardImportOptions { include: None, dry_run: false,
+                on_conflict: ConflictStrategy::Replace, skip_embedding_regen: true };
+            knowledge_shard_import_internal(&state, &input, &opts, &archive.schema_name).await.unwrap();
+            let mut tx = ctx.begin_tx().await.unwrap();
+            sqlx::raw_sql(&format!("CREATE TABLE protected_relationship_reference ({columns},
+                FOREIGN KEY ({keys}) REFERENCES {table}({keys}) ON DELETE RESTRICT);
+                INSERT INTO protected_relationship_reference SELECT {keys} FROM {table} WHERE {predicate};"))
+                .execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            let before = shard_native_database_snapshot(&ctx).await;
+            assert!(!before["protected_relationship_reference"].as_array().unwrap().is_empty());
+            for _ in 0..2 {
+                let before_repeat = shard_native_database_snapshot(&ctx).await;
+                let repeat = knowledge_shard_import_internal(&state, &input, &opts, &archive.schema_name).await;
+                if repeat.is_err() {
+                    assert_eq!(shard_native_database_snapshot(&ctx).await, before_repeat,
+                        "rejected retained relationship import must roll back every native table");
+                }
+                repeat.expect("retained native relationship must survive repeat import");
+                let after = shard_native_database_snapshot(&ctx).await;
+                assert_eq!(after[table], before[table]);
+                assert_eq!(after["protected_relationship_reference"], before["protected_relationship_reference"]);
+            }
+            if name == "assignment-movement" {
+                opts.include = Some("communities".into());
+                for dry_run in [true, false] {
+                    opts.dry_run = dry_run;
+                    let baseline = shard_native_database_snapshot(&ctx).await;
+                    assert!(knowledge_shard_import_internal(&state, &replacement, &opts, &archive.schema_name).await.is_err(),
+                        "community-only replace must preserve unselected assignments; dry_run={dry_run}");
+                    assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+                }
+                opts.dry_run = true;
+                let files = read_shard_archive(&replacement, ShardArchiveLimits::default()).unwrap();
+                let components = ["communities".to_string()].into_iter().collect();
+                let mut tx = ctx.begin_tx().await.unwrap();
+                sqlx::query("SET TRANSACTION READ ONLY").execute(&mut *tx).await.unwrap();
+                assert!(apply_shard_graph_components_tx(&mut tx, &files, &components, &opts,
+                    &mut ShardImportCounts::default(), &mut ShardImportCounts::default()).await.is_err());
+                tx.rollback().await.unwrap();
+                opts.include = None;
+            }
+            opts.dry_run = true;
+            let baseline = shard_native_database_snapshot(&ctx).await;
+            knowledge_shard_import_internal(&state, &replacement, &opts, &archive.schema_name).await.unwrap();
+            assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+            opts.dry_run = false;
+            opts.on_conflict = ConflictStrategy::Skip;
+            knowledge_shard_import_internal(&state, &replacement, &opts, &archive.schema_name).await.unwrap();
+            let skipped = shard_native_database_snapshot(&ctx).await;
+            assert_eq!(skipped[table], before[table]);
+            assert_eq!(skipped["protected_relationship_reference"], before["protected_relationship_reference"]);
+            opts.on_conflict = ConflictStrategy::Replace;
+            let mut tx = ctx.begin_tx().await.unwrap();
+            sqlx::raw_sql(&format!("CREATE SEQUENCE retained_rollback_reached;
+                CREATE FUNCTION reject_retained_relationship() RETURNS trigger LANGUAGE plpgsql AS $$
+                BEGIN PERFORM nextval('retained_rollback_reached'); RAISE EXCEPTION 'injected retained relationship rollback'; END; $$;
+                CREATE CONSTRAINT TRIGGER reject_retained_relationship AFTER INSERT OR UPDATE ON {table}
+                DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_retained_relationship();"))
+                .execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            let baseline = shard_native_database_snapshot(&ctx).await;
+            assert!(knowledge_shard_import_internal(&state, &replacement, &opts, &archive.schema_name).await.is_err());
+            assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+            let mut tx = ctx.begin_tx().await.unwrap();
+            assert!(sqlx::query_scalar::<_, bool>("SELECT is_called FROM retained_rollback_reached")
+                .fetch_one(&mut *tx).await.unwrap(), "failure must reach the deferred commit trigger");
+            sqlx::raw_sql(&format!("DROP TRIGGER reject_retained_relationship ON {table};
+                DROP FUNCTION reject_retained_relationship(); DROP SEQUENCE retained_rollback_reached;"))
+                .execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            for _ in 0..2 {
+                knowledge_shard_import_internal(&state, &replacement, &opts, &archive.schema_name).await.unwrap();
+                assert_eq!(shard_native_database_snapshot(&ctx).await["protected_relationship_reference"], before["protected_relationship_reference"]);
+            }
+            let export = knowledge_shard(State(state.clone()), Extension(ArchiveContext {
+                schema: archive.schema_name.clone(), is_default: false, name: None,
+            }), Query(ShardExportQuery { schema_version: Some(SHARD_SCHEMA_2_VERSION.to_string()),
+                profile: Some("full-v1".into()), include: None, include_blobs: true })).await.unwrap().into_response();
+            assert_eq!(export.status(), StatusCode::OK);
+            let exported = axum::body::to_bytes(export.into_body(), usize::MAX).await.unwrap();
+            let actual = read_shard_archive(&exported, ShardArchiveLimits::default()).unwrap();
+            let expected = read_shard_archive(&replacement, ShardArchiveLimits::default()).unwrap();
+            let export_components: &[&str] = if skos {
+                &["skos_labels", "skos_notes", "skos_relations", "skos_mapping_relations",
+                  "skos_scheme_memberships", "note_skos_tags", "skos_collection_members"]
+            } else {
+                &["links", "graph_sources", "graph_edges", "communities", "community_assignments"]
+            };
+            for component in export_components {
+                let file = shard_component_filename(component).unwrap();
+                let a = parse_shard_component_records(component, &actual[file]).unwrap();
+                let e = parse_shard_component_records(component, &expected[file]).unwrap();
+                let mut tx = ctx.begin_tx().await.unwrap();
+                let equal = sqlx::query_scalar::<_, bool>("SELECT
+                    (SELECT jsonb_agg(value ORDER BY value) FROM jsonb_array_elements($1::jsonb))
+                    IS NOT DISTINCT FROM
+                    (SELECT jsonb_agg(value ORDER BY value) FROM jsonb_array_elements($2::jsonb))")
+                    .bind(serde_json::json!(a)).bind(serde_json::json!(e))
+                    .fetch_one(&mut *tx).await.unwrap();
+                tx.rollback().await.unwrap();
+                assert!(equal, "{name}: current export {component}: {a:?} != {e:?}");
+            }
+            if let Ok(output) = std::env::var("FORTEMI_SHARD_RELATIONSHIP_FIXTURE_OUTPUT") {
+                use std::io::Write;
+                std::fs::create_dir_all(&output).unwrap();
+                std::fs::OpenOptions::new().write(true).create_new(true)
+                    .open(std::path::Path::new(&output).join(format!("{name}-replacement.shard"))).unwrap()
+                    .write_all(&exported).unwrap();
+            }
+            let retained = shard_native_database_snapshot(&ctx).await;
+            assert!(knowledge_shard_import_internal(&state, &omission, &opts, &archive.schema_name).await.is_err());
+            assert_eq!(shard_native_database_snapshot(&ctx).await, retained);
+            let mut tx = ctx.begin_tx().await.unwrap();
+            sqlx::query("DROP TABLE protected_relationship_reference").execute(&mut *tx).await.unwrap();
+            tx.commit().await.unwrap();
+            for _ in 0..2 {
+                knowledge_shard_import_internal(&state, &omission, &opts, &archive.schema_name).await.unwrap();
+                assert!(shard_native_database_snapshot(&ctx).await[table].as_array().unwrap().is_empty());
+            }
+        }).catch_unwind().await;
+        db.archives
+            .drop_archive_schema(&archive_name)
+            .await
+            .unwrap();
+        if let Err(panic) = result {
+            std::panic::resume_unwind(panic);
+        }
+    }
+
+    #[tokio::test]
+    async fn shard_retained_relationship_skos_labels() {
+        shard_retained_relationship_fixture(
+            "skos_labels",
+            "skos_concept_label",
+            "id UUID",
+            "id",
+            "true",
+        )
+        .await;
+    }
+    #[tokio::test]
+    async fn shard_retained_relationship_skos_notes() {
+        shard_retained_relationship_fixture(
+            "skos_notes",
+            "skos_concept_note",
+            "id UUID",
+            "id",
+            "true",
+        )
+        .await;
+    }
+    #[tokio::test]
+    async fn shard_retained_relationship_skos_relations() {
+        shard_retained_relationship_fixture(
+            "skos_relations",
+            "skos_semantic_relation_edge",
+            "id UUID",
+            "id",
+            "true",
+        )
+        .await;
+    }
+    #[tokio::test]
+    async fn shard_retained_relationship_skos_mappings() {
+        shard_retained_relationship_fixture(
+            "skos_mapping_relations",
+            "skos_mapping_relation_edge",
+            "id UUID",
+            "id",
+            "true",
+        )
+        .await;
+    }
+    #[tokio::test]
+    async fn shard_retained_relationship_skos_memberships() {
+        shard_retained_relationship_fixture(
+            "skos_scheme_memberships",
+            "skos_concept_in_scheme",
+            "concept_id UUID, scheme_id UUID",
+            "concept_id, scheme_id",
+            "true",
+        )
+        .await;
+    }
+    #[tokio::test]
+    async fn shard_retained_relationship_skos_note_tags() {
+        shard_retained_relationship_fixture(
+            "note_skos_tags",
+            "note_skos_concept",
+            "note_id UUID, concept_id UUID",
+            "note_id, concept_id",
+            "true",
+        )
+        .await;
+    }
+    #[tokio::test]
+    async fn shard_retained_relationship_skos_collection_members() {
+        shard_retained_relationship_fixture(
+            "skos_collection_members",
+            "skos_collection_member",
+            "collection_id UUID, concept_id UUID",
+            "collection_id, concept_id",
+            "true",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn shard_retained_relationship_note_link() {
+        shard_retained_relationship_fixture(
+            "note-link",
+            "link",
+            "id UUID",
+            "id",
+            "to_note_id IS NOT NULL",
+        )
+        .await;
+    }
+    #[tokio::test]
+    async fn shard_retained_relationship_url_link() {
+        shard_retained_relationship_fixture(
+            "url-link",
+            "link",
+            "id UUID",
+            "id",
+            "to_url IS NOT NULL",
+        )
+        .await;
+    }
+    #[tokio::test]
+    async fn shard_retained_relationship_graph_edge() {
+        shard_retained_relationship_fixture(
+            "graph-edge",
+            "graph_edge_artifact",
+            "graph_source_id TEXT, from_note_id UUID, to_note_id UUID, kind TEXT",
+            "graph_source_id, from_note_id, to_note_id, kind",
+            "true",
+        )
+        .await;
+    }
+    #[tokio::test]
+    async fn shard_retained_relationship_assignment() {
+        shard_retained_relationship_fixture(
+            "assignment",
+            "community_assignment",
+            "community_set_id TEXT, note_id UUID",
+            "community_set_id, note_id",
+            "true",
+        )
+        .await;
+    }
+    #[tokio::test]
+    async fn shard_retained_relationship_assignment_movement() {
+        shard_retained_relationship_fixture(
+            "assignment-movement",
+            "community_assignment",
+            "community_set_id TEXT, note_id UUID",
+            "community_set_id, note_id",
+            "true",
+        )
+        .await;
+    }
+
+    #[tokio::test]
+    async fn shard_bootstrap_default_becomes_live_after_native_note_creation() {
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must select a disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let name = format!("sh-bootstrap-live-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let input = include_bytes!(
+            "../../../tests/fixtures/shards/external/react-2026.7.13/react-full-v1.shard"
+        );
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        knowledge_shard_import_internal(&state, input, &opts, &archive.schema_name)
+            .await
+            .unwrap();
+        let before = shard_native_database_snapshot(&ctx).await;
+        let bootstrap = before["shard_embedding_set_bootstrap"].as_array().unwrap();
+        assert_eq!(bootstrap.len(), 1);
+        let bootstrap_id = bootstrap[0]["set_id"].as_str().unwrap();
+        let export = shard_export_embedding_state(&state, &archive.schema_name).await;
+        assert!(!export["embedding_sets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["id"] == bootstrap_id));
+        let note_id = Uuid::new_v4();
+        let request = || CreateNoteRequest {
+            content: "Ordinary native note after restore".to_string(),
+            format: "markdown".to_string(),
+            source: "bootstrap-native-test".to_string(),
+            collection_id: None,
+            tags: Some(Vec::new()),
+            metadata: None,
+            document_type_id: None,
+            title: Some("Native note".to_string()),
+        };
+        for commit in [false, true] {
+            let mut tx = ctx.begin_tx().await.unwrap();
+            matric_db::PgNoteRepository::new(db.pool.clone())
+                .insert_with_id_tx(&mut tx, note_id, request())
+                .await
+                .unwrap();
+            let count: i64 =
+                sqlx::query_scalar("SELECT count(*) FROM shard_embedding_set_bootstrap")
+                    .fetch_one(&mut *tx)
+                    .await
+                    .unwrap();
+            assert_eq!(count, 0, "native auto-membership adopts its set");
+            if commit {
+                tx.commit().await.unwrap();
+            } else {
+                tx.rollback().await.unwrap();
+                assert_eq!(shard_native_database_snapshot(&ctx).await, before);
+            }
+        }
+        let live = shard_export_embedding_state(&state, &archive.schema_name).await;
+        assert!(live["embedding_sets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["id"] == bootstrap_id));
+        assert!(live["embedding_set_members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["embedding_set_id"] == bootstrap_id
+                && row["note_id"] == note_id.to_string()));
+        for _ in 0..2 {
+            knowledge_shard_import_internal(&state, input, &opts, &archive.schema_name)
+                .await
+                .unwrap();
+            assert_eq!(
+                shard_export_embedding_state(&state, &archive.schema_name).await,
+                live,
+                "repeat import cannot retire an adopted native default"
+            );
+        }
+        db.archives.drop_archive_schema(&name).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn shard_history_partial_replace_preserves_retained_references() {
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must select a disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let name = format!("sh-history-refs-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let input = include_bytes!(
+            "../../../tests/fixtures/shards/external/react-2026.7.13/react-full-v1.shard"
+        );
+        let mut opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        knowledge_shard_import_internal(&state, input, &opts, &archive.schema_name)
+            .await
+            .unwrap();
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::raw_sql(
+            "CREATE TABLE retained_history_reference (
+                id uuid PRIMARY KEY REFERENCES note_original_history(id) ON DELETE RESTRICT);
+            INSERT INTO retained_history_reference SELECT id FROM note_original_history;
+            CREATE TABLE retained_revision_reference (
+                id uuid PRIMARY KEY REFERENCES note_revision(id) ON DELETE RESTRICT);
+            INSERT INTO retained_revision_reference SELECT id FROM note_revision;",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        let before = shard_native_database_snapshot(&ctx).await;
+        assert!(!before["retained_history_reference"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert!(!before["retained_revision_reference"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        opts.include = Some("note_originals,note_original_history,note_revisions".into());
+        for dry_run in [true, false, false] {
+            opts.dry_run = dry_run;
+            knowledge_shard_import_internal(&state, input, &opts, &archive.schema_name)
+                .await
+                .expect("partial history replacement must retain existing identities");
+            assert_eq!(
+                shard_native_database_snapshot(&ctx).await,
+                before,
+                "retained history/revisions, current pointers and provenance must remain unchanged"
+            );
+        }
+        let mut files = read_shard_archive(input, ShardArchiveLimits::default()).unwrap();
+        let mut originals =
+            parse_shard_component_records("note_originals", &files["note_originals.jsonl"])
+                .unwrap();
+        let note_id = Uuid::parse_str(originals[0]["note_id"].as_str().unwrap()).unwrap();
+        originals[0]["content"] = serde_json::json!("authoritative restored content");
+        originals[0]["hash"] = serde_json::json!("blake3:restored-content");
+        originals[0]["version_number"] = serde_json::json!(7);
+        files.insert(
+            "note_originals.jsonl".into(),
+            serde_json::to_vec(&originals[0]).unwrap(),
+        );
+        let selected = ["note_originals".to_string()].into_iter().collect();
+        let mut tx = ctx.begin_tx().await.unwrap();
+        apply_shard_note_history_components_tx(
+            &mut tx,
+            &files,
+            &selected,
+            &opts,
+            &mut ShardImportCounts::default(),
+            &mut ShardImportCounts::default(),
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        let restored = shard_native_database_snapshot(&ctx).await;
+        assert_eq!(
+            restored["note_original_history"], before["note_original_history"],
+            "restore must not synthesize or prune native history"
+        );
+        assert_eq!(
+            restored["note_original"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["note_id"] == note_id.to_string())
+                .unwrap()["version_number"],
+            7
+        );
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::query(
+            "UPDATE note_original SET content = 'native edit after restore' WHERE note_id = $1",
+        )
+        .bind(note_id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        let version: i32 =
+            sqlx::query_scalar("SELECT version_number FROM note_original WHERE note_id = $1")
+                .bind(note_id)
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+        assert_eq!(
+            version, 8,
+            "transaction-local restore context must not disable native versioning"
+        );
+        let captured: String = sqlx::query_scalar(
+            "SELECT content FROM note_original_history WHERE note_id=$1 AND version_number=7",
+        )
+        .bind(note_id)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        assert!(captured.contains("authoritative restored content"));
+        tx.rollback().await.unwrap();
+        assert_eq!(shard_native_database_snapshot(&ctx).await, restored);
+        let mut revisions =
+            parse_shard_component_records("note_revisions", &files["note_revisions.jsonl"])
+                .unwrap();
+        let revision_id = Uuid::parse_str(revisions[0]["id"].as_str().unwrap()).unwrap();
+        revisions[0]["content"] = serde_json::json!("restored revision content");
+        revisions[0]["is_user_edited"] = serde_json::json!(false);
+        revisions[0]["user_last_edited_at"] = serde_json::Value::Null;
+        files.insert(
+            "note_revisions.jsonl".into(),
+            serde_json::to_vec(&revisions[0]).unwrap(),
+        );
+        let selected = ["note_revisions".to_string()].into_iter().collect();
+        let mut tx = ctx.begin_tx().await.unwrap();
+        apply_shard_note_history_components_tx(
+            &mut tx,
+            &files,
+            &selected,
+            &opts,
+            &mut ShardImportCounts::default(),
+            &mut ShardImportCounts::default(),
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        let restored = shard_native_database_snapshot(&ctx).await;
+        let revision = restored["note_revision"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == revision_id.to_string())
+            .unwrap();
+        assert_eq!(revision["is_user_edited"], false);
+        assert_eq!(revision["user_last_edited_at"], serde_json::Value::Null);
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::query("UPDATE note_revision SET content='native revision edit' WHERE id=$1")
+            .bind(revision_id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let edited: (bool, bool) = sqlx::query_as(
+            "SELECT is_user_edited,user_last_edited_at IS NOT NULL
+            FROM note_revision WHERE id=$1",
+        )
+        .bind(revision_id)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+        assert_eq!(edited, (true, true));
+        tx.rollback().await.unwrap();
+        assert_eq!(shard_native_database_snapshot(&ctx).await, restored);
+        db.archives.drop_archive_schema(&name).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn shard_provenance_replace_preserves_independent_roots_and_references() {
+        use sha2::Digest;
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must select a disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let name = format!("sh-prov-owners-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let input = include_bytes!(
+            "../../../tests/fixtures/shards/external/react-2026.7.13/react-full-v1.shard"
+        );
+        let mut opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        knowledge_shard_import_internal(&state, input, &opts, &archive.schema_name)
+            .await
+            .unwrap();
+        let outsider = Uuid::new_v4();
+        let activity = Uuid::new_v4();
+        let edge = Uuid::new_v4();
+        let record = Uuid::new_v4();
+        let mut tx = ctx.begin_tx().await.unwrap();
+        matric_db::PgNoteRepository::new(db.pool.clone())
+            .insert_with_id_tx(
+                &mut tx,
+                outsider,
+                CreateNoteRequest {
+                    content: "Unrelated native provenance owner".into(),
+                    format: "markdown".into(),
+                    source: "native-provenance-test".into(),
+                    collection_id: None,
+                    tags: Some(Vec::new()),
+                    metadata: None,
+                    document_type_id: None,
+                    title: None,
+                },
+            )
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO provenance_activity SELECT
+            (jsonb_populate_record(NULL::provenance_activity,to_jsonb(a) ||
+            jsonb_build_object('id',$1::uuid,'note_id',$2::uuid,'revision_id',NULL))).*
+            FROM provenance_activity a ORDER BY id LIMIT 1",
+        )
+        .bind(activity)
+        .bind(outsider)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO provenance_edge SELECT
+            (jsonb_populate_record(NULL::provenance_edge,to_jsonb(e) ||
+            jsonb_build_object('id',$1::uuid,'revision_id',NULL))).*
+            FROM provenance_edge e ORDER BY id LIMIT 1",
+        )
+        .bind(edge)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query("DELETE FROM provenance WHERE note_id=$1")
+            .bind(outsider)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO provenance SELECT
+            (jsonb_populate_record(NULL::provenance,to_jsonb(p) ||
+            jsonb_build_object('id',$1::uuid,'note_id',$2::uuid,'attachment_id',NULL))).*
+            FROM provenance p ORDER BY id LIMIT 1",
+        )
+        .bind(record)
+        .bind(outsider)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::raw_sql(
+            "CREATE TABLE retained_provenance_reference (
+            activity_id uuid REFERENCES provenance_activity(id) ON DELETE RESTRICT,
+            named_id uuid REFERENCES named_location(id) ON DELETE RESTRICT,
+            location_id uuid REFERENCES prov_location(id) ON DELETE RESTRICT,
+            device_id uuid REFERENCES prov_agent_device(id) ON DELETE RESTRICT);
+            INSERT INTO retained_provenance_reference
+            SELECT (SELECT id FROM provenance_activity ORDER BY id LIMIT 1),
+                (SELECT id FROM named_location ORDER BY id LIMIT 1),
+                (SELECT id FROM prov_location ORDER BY id LIMIT 1),
+                (SELECT id FROM prov_agent_device ORDER BY id LIMIT 1);",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        let before = shard_native_database_snapshot(&ctx).await;
+        opts.include = Some("provenance_edges,provenance_activities,named_locations,provenance_locations,provenance_devices,provenance_records".into());
+        for dry_run in [true, false, false] {
+            opts.dry_run = dry_run;
+            knowledge_shard_import_internal(&state, input, &opts, &archive.schema_name)
+                .await
+                .expect(
+                    "ordinary provenance import must preserve retained and independent identities",
+                );
+            assert_eq!(
+                shard_native_database_snapshot(&ctx).await,
+                before,
+                "reference endpoints do not grant ownership of independent provenance records"
+            );
+        }
+        let files = read_shard_archive(input, ShardArchiveLimits::default()).unwrap();
+        let source_activity: ShardProvenanceActivityRecord =
+            serde_json::from_slice(&files["provenance_activities.jsonl"]).unwrap();
+        let owner = source_activity.note_id;
+        let current_revision = source_activity.revision_id.unwrap();
+        let second_note =
+            shard_jsonl_records::<ShardNoteRecord>(&files["notes.jsonl"], "invalid notes")
+                .unwrap()
+                .map(Result::unwrap)
+                .find(|note| note.id != owner)
+                .unwrap()
+                .id;
+        let omitted_revision = Uuid::new_v4();
+        let omitted_history = Uuid::new_v4();
+        let omitted_activity = Uuid::new_v4();
+        let omitted_edge = Uuid::new_v4();
+        let omitted_record = Uuid::new_v4();
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::query(
+            "INSERT INTO note_revision SELECT
+            (jsonb_populate_record(NULL::note_revision,to_jsonb(r) ||
+            jsonb_build_object('id',$1::uuid,'revision_number',99))).*
+            FROM note_revision r WHERE id=$2",
+        )
+        .bind(omitted_revision)
+        .bind(current_revision)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO note_original_history SELECT
+            (jsonb_populate_record(NULL::note_original_history,to_jsonb(h) ||
+            jsonb_build_object('id',$1::uuid,'version_number',99))).*
+            FROM note_original_history h WHERE note_id=$2 ORDER BY id LIMIT 1",
+        )
+        .bind(omitted_history)
+        .bind(owner)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO provenance_activity SELECT
+            (jsonb_populate_record(NULL::provenance_activity,to_jsonb(a) ||
+            jsonb_build_object('id',$1::uuid,'revision_id',$2::uuid))).*
+            FROM provenance_activity a WHERE id=$3",
+        )
+        .bind(omitted_activity)
+        .bind(omitted_revision)
+        .bind(source_activity.id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO provenance_edge SELECT
+            (jsonb_populate_record(NULL::provenance_edge,to_jsonb(e) ||
+            jsonb_build_object('id',$1::uuid))).*
+            FROM provenance_edge e WHERE revision_id=$2 ORDER BY id LIMIT 1",
+        )
+        .bind(omitted_edge)
+        .bind(current_revision)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO provenance SELECT
+            (jsonb_populate_record(NULL::provenance,to_jsonb(p) ||
+            jsonb_build_object('id',$1::uuid,'note_id',$2::uuid,'activity_id',$3::uuid))).*
+            FROM provenance p WHERE note_id=$4",
+        )
+        .bind(omitted_record)
+        .bind(second_note)
+        .bind(omitted_activity)
+        .bind(owner)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE provenance_activity SET revision_id=$1 WHERE id=$2")
+            .bind(omitted_revision)
+            .bind(source_activity.id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE note_revised_current SET last_revision_id=$1 WHERE note_id=$2")
+            .bind(omitted_revision)
+            .bind(owner)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        opts.include = None;
+        for dry_run in [true, false, false] {
+            opts.dry_run = dry_run;
+            let baseline = shard_native_database_snapshot(&ctx).await;
+            knowledge_shard_import_internal(&state, input, &opts, &archive.schema_name)
+                .await
+                .expect("retained provenance must move before omitted revisions are deleted");
+            let after = shard_native_database_snapshot(&ctx).await;
+            if dry_run {
+                assert_eq!(after, baseline);
+                continue;
+            }
+            for (table, id) in [
+                ("note_revision", omitted_revision),
+                ("note_original_history", omitted_history),
+                ("provenance_activity", omitted_activity),
+                ("provenance_edge", omitted_edge),
+                ("provenance", omitted_record),
+            ] {
+                assert!(
+                    !after[table]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|row| row["id"] == id.to_string()),
+                    "selected-owner omission must remove {table}/{id}"
+                );
+            }
+            for (table, field, id) in [
+                ("note", "id", outsider),
+                ("note_original", "note_id", outsider),
+                ("note_revised_current", "note_id", outsider),
+                ("note_revision", "note_id", outsider),
+                ("embedding_set_member", "note_id", outsider),
+                ("provenance_activity", "id", activity),
+                ("provenance_edge", "id", edge),
+                ("provenance", "id", record),
+            ] {
+                let rows = |snapshot: &serde_json::Value| {
+                    snapshot[table]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .filter(|row| row[field] == id.to_string())
+                        .cloned()
+                        .collect::<Vec<_>>()
+                };
+                assert_eq!(
+                    rows(&after),
+                    rows(&before),
+                    "unrelated native {table} survives full replace"
+                );
+            }
+            assert_eq!(
+                after["retained_provenance_reference"],
+                before["retained_provenance_reference"]
+            );
+            let retained = after["provenance_activity"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["id"] == source_activity.id.to_string())
+                .unwrap();
+            assert_eq!(retained["revision_id"], current_revision.to_string());
+        }
+
+        for blocked_reference in ["record", "activity", "current"] {
+            let block_activity = blocked_reference == "record";
+            let blocked_id = Uuid::new_v4();
+            let mut tx = ctx.begin_tx().await.unwrap();
+            let previous_current: Option<Uuid> = sqlx::query_scalar(
+                "SELECT last_revision_id FROM note_revised_current WHERE note_id=$1",
+            )
+            .bind(outsider)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+            if block_activity {
+                sqlx::query(
+                    "INSERT INTO provenance_activity SELECT
+                    (jsonb_populate_record(NULL::provenance_activity,to_jsonb(a) ||
+                    jsonb_build_object('id',$1::uuid))).* FROM provenance_activity a WHERE id=$2",
+                )
+                .bind(blocked_id)
+                .bind(source_activity.id)
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+                sqlx::query("UPDATE provenance SET activity_id=$1 WHERE id=$2")
+                    .bind(blocked_id)
+                    .bind(record)
+                    .execute(&mut *tx)
+                    .await
+                    .unwrap();
+            } else {
+                sqlx::query(
+                    "INSERT INTO note_revision SELECT
+                    (jsonb_populate_record(NULL::note_revision,to_jsonb(r) ||
+                    jsonb_build_object('id',$1::uuid,'revision_number',99))).*
+                    FROM note_revision r WHERE id=$2",
+                )
+                .bind(blocked_id)
+                .bind(current_revision)
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+                let statement = if blocked_reference == "current" {
+                    "UPDATE note_revised_current SET last_revision_id=$1 WHERE note_id=$2"
+                } else {
+                    "UPDATE provenance_activity SET revision_id=$1 WHERE id=$2"
+                };
+                sqlx::query(statement)
+                    .bind(blocked_id)
+                    .bind(if blocked_reference == "current" {
+                        outsider
+                    } else {
+                        activity
+                    })
+                    .execute(&mut *tx)
+                    .await
+                    .unwrap();
+            }
+            tx.commit().await.unwrap();
+            let baseline = shard_native_database_snapshot(&ctx).await;
+            let expected = if block_activity {
+                "Knowledge shard omitted activities are referenced by retained provenance records."
+            } else {
+                "Knowledge shard omitted revisions are referenced by retained live records."
+            };
+            let partial = if block_activity {
+                "notes,provenance_activities"
+            } else {
+                "notes,note_revisions"
+            };
+            for include in [None, Some(partial.to_owned())] {
+                opts.include = include;
+                for dry_run in [true, false] {
+                    opts.dry_run = dry_run;
+                    let error =
+                        knowledge_shard_import_internal(&state, input, &opts, &archive.schema_name)
+                            .await
+                            .expect_err(
+                                "preview and apply must reject deletion of referenced live records",
+                            );
+                    assert!(
+                        matches!(error,ApiError::BadRequest(ref message) if message == expected)
+                    );
+                    assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+                }
+            }
+            opts.include = None;
+            let mut read_only = ctx.begin_tx().await.unwrap();
+            sqlx::query("SET TRANSACTION READ ONLY")
+                .execute(&mut *read_only)
+                .await
+                .unwrap();
+            let selected = [
+                "notes",
+                "note_revisions",
+                "note_revised_current",
+                "provenance_activities",
+                "provenance_records",
+            ]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+            let error =
+                preview_shard_history_reference_conflicts_tx(&mut read_only, &files, &selected)
+                    .await
+                    .expect_err("reference preview rejects inside a read-only transaction");
+            assert!(matches!(error,ApiError::BadRequest(ref message) if message == expected));
+            read_only.rollback().await.unwrap();
+            let mut tx = ctx.begin_tx().await.unwrap();
+            if block_activity {
+                sqlx::query("UPDATE provenance SET activity_id=$1 WHERE id=$2")
+                    .bind(source_activity.id)
+                    .bind(record)
+                    .execute(&mut *tx)
+                    .await
+                    .unwrap();
+                sqlx::query("DELETE FROM provenance_activity WHERE id=$1")
+                    .bind(blocked_id)
+                    .execute(&mut *tx)
+                    .await
+                    .unwrap();
+            } else {
+                if blocked_reference == "current" {
+                    sqlx::query(
+                        "UPDATE note_revised_current SET last_revision_id=$1 WHERE note_id=$2",
+                    )
+                    .bind(previous_current)
+                    .bind(outsider)
+                    .execute(&mut *tx)
+                    .await
+                    .unwrap();
+                } else {
+                    sqlx::query("UPDATE provenance_activity SET revision_id=NULL WHERE id=$1")
+                        .bind(activity)
+                        .execute(&mut *tx)
+                        .await
+                        .unwrap();
+                }
+                sqlx::query("DELETE FROM note_revision WHERE id=$1")
+                    .bind(blocked_id)
+                    .execute(&mut *tx)
+                    .await
+                    .unwrap();
+            }
+            tx.commit().await.unwrap();
+        }
+
+        let mut empty = files.clone();
+        for component in [
+            "note_original_history",
+            "note_revisions",
+            "provenance_edges",
+        ] {
+            empty.insert(
+                shard_component_filename(component).unwrap().into(),
+                Vec::new(),
+            );
+        }
+        let mut activities = parse_shard_component_records(
+            "provenance_activities",
+            &empty["provenance_activities.jsonl"],
+        )
+        .unwrap();
+        activities[0]["revision_id"] = serde_json::Value::Null;
+        empty.insert(
+            "provenance_activities.jsonl".into(),
+            serde_json::to_vec(&activities[0]).unwrap(),
+        );
+        let mut currents = parse_shard_component_records(
+            "note_revised_current",
+            &empty["note_revised_current.jsonl"],
+        )
+        .unwrap();
+        for current in &mut currents {
+            current["last_revision_id"] = serde_json::Value::Null;
+        }
+        empty.insert(
+            "note_revised_current.jsonl".into(),
+            currents
+                .iter()
+                .map(|row| serde_json::to_string(row).unwrap())
+                .collect::<Vec<_>>()
+                .join("\n")
+                .into_bytes(),
+        );
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&empty["manifest.json"]).unwrap();
+        for component in [
+            "note_original_history",
+            "note_revisions",
+            "provenance_edges",
+            "provenance_activities",
+            "note_revised_current",
+        ] {
+            let filename = shard_component_filename(component).unwrap();
+            manifest["checksums"][filename] =
+                serde_json::json!(hex::encode(sha2::Sha256::digest(&empty[filename])));
+            manifest["counts"][component] =
+                serde_json::json!(parse_shard_component_records(component, &empty[filename])
+                    .unwrap()
+                    .len());
+        }
+        empty.insert(
+            "manifest.json".into(),
+            serde_json::to_vec(&manifest).unwrap(),
+        );
+        let mut entries = empty
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice(), tar::EntryType::Regular))
+            .collect::<Vec<_>>();
+        entries.sort_by_key(|entry| entry.0);
+        let empty = test_shard_archive(&entries);
+        if let Ok(directory) = std::env::var("FORTEMI_SHARD_HISTORY_FIXTURE_OUTPUT") {
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(
+                std::path::Path::new(&directory).join("history-empty-selected.shard"),
+                &empty,
+            )
+            .unwrap();
+        }
+        let baseline = shard_native_database_snapshot(&ctx).await;
+        opts.include = Some("note_original_history,note_revisions,provenance_edges".into());
+        for dry_run in [true, false] {
+            opts.dry_run = dry_run;
+            knowledge_shard_import_internal(&state, &empty, &opts, &archive.schema_name)
+                .await
+                .unwrap();
+            assert_eq!(
+                shard_native_database_snapshot(&ctx).await,
+                baseline,
+                "empty child components do not select their note owners implicitly"
+            );
+        }
+        opts.include = None;
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::raw_sql(
+            "CREATE FUNCTION reject_omitted_revision() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN RAISE EXCEPTION 'injected late revision cleanup failure'; END; $$;
+            CREATE TRIGGER reject_omitted_revision BEFORE DELETE ON note_revision
+            FOR EACH ROW EXECUTE FUNCTION reject_omitted_revision();",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        let error = knowledge_shard_import_internal(&state, &empty, &opts, &archive.schema_name)
+            .await
+            .expect_err("late revision omission failure must roll back all earlier writes");
+        assert!(
+            matches!(error,ApiError::OperationFailed{ref detail,..} if detail.starts_with("remove omitted note revisions;"))
+        );
+        assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::raw_sql("DROP TRIGGER reject_omitted_revision ON note_revision; DROP FUNCTION reject_omitted_revision();")
+            .execute(&mut *tx).await.unwrap();
+        tx.commit().await.unwrap();
+        knowledge_shard_import_internal(&state, &empty, &opts, &archive.schema_name)
+            .await
+            .unwrap();
+        let after = shard_native_database_snapshot(&ctx).await;
+        for table in ["note_revision", "note_original_history"] {
+            assert!(
+                !after[table]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|row| row["note_id"] == owner.to_string()),
+                "empty selected {table} component must remove owned omissions"
+            );
+        }
+        assert_eq!(
+            after["provenance_activity"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|row| row["id"] == source_activity.id.to_string())
+                .unwrap()["revision_id"],
+            serde_json::Value::Null
+        );
+        let mut tx = ctx.begin_tx().await.unwrap();
+        let timestamps: (chrono::DateTime<chrono::Utc>,chrono::DateTime<chrono::Utc>) = sqlx::query_as(
+            "WITH old AS MATERIALIZED (SELECT id,updated_at FROM named_location ORDER BY id LIMIT 1),
+             changed AS (UPDATE named_location n SET name='Native edit after restore'
+                FROM old WHERE n.id=old.id RETURNING n.updated_at)
+             SELECT old.updated_at,changed.updated_at FROM old,changed")
+            .fetch_one(&mut *tx).await.unwrap();
+        assert!(
+            timestamps.1 > timestamps.0,
+            "native location edits still update their timestamp"
+        );
+        tx.rollback().await.unwrap();
+        assert_eq!(shard_native_database_snapshot(&ctx).await, after);
+        db.archives.drop_archive_schema(&name).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn shard_embedding_set_renames_preserve_selected_identities() {
+        use sha2::Digest;
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must select a disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let name = format!("sh-set-renames-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let input = include_bytes!(
+            "../../../tests/fixtures/shards/external/react-2026.7.13/react-full-v1.shard"
+        );
+        let mut opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        knowledge_shard_import_internal(&state, input, &opts, &archive.schema_name)
+            .await
+            .unwrap();
+        let ids = [Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4()];
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::raw_sql(
+            "CREATE TABLE rename_reference (
+            set_id uuid PRIMARY KEY REFERENCES embedding_set(id) ON DELETE RESTRICT)",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        for (index, id) in ids.iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO embedding_set SELECT
+                (jsonb_populate_record(NULL::embedding_set, to_jsonb(s) ||
+                jsonb_build_object('id',$1::uuid,'name',$2::text,'slug',$2::text,
+                  'is_system',false,'mode','manual'))).*
+                FROM embedding_set s WHERE shard_export_present ORDER BY id LIMIT 1",
+            )
+            .bind(id)
+            .bind(format!("selected-rename-{index}"))
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+            sqlx::query("INSERT INTO rename_reference VALUES ($1)")
+                .bind(id)
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            sqlx::query(
+                "INSERT INTO embedding_set_member (embedding_set_id,note_id,membership_type)
+                SELECT $1,id,'include' FROM note ORDER BY id LIMIT 1",
+            )
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        }
+        tx.commit().await.unwrap();
+        let initial = shard_native_database_snapshot(&ctx).await;
+        let exported = shard_export_embedding_state(&state, &archive.schema_name).await;
+        let original = ids
+            .iter()
+            .map(|id| {
+                exported["embedding_sets"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|row| row["id"] == id.to_string())
+                    .unwrap()
+                    .clone()
+            })
+            .collect::<Vec<_>>();
+        let selected = ["embedding_sets".to_string()].into_iter().collect();
+        let mut cyclic = original.clone();
+        for index in 0..3 {
+            cyclic[index]["name"] = original[(index + 1) % 3]["name"].clone();
+            cyclic[index]["slug"] = original[(index + 2) % 3]["slug"].clone();
+        }
+        let mut files = std::collections::HashMap::from([(
+            "embedding_sets.json".to_string(),
+            serde_json::to_vec(&cyclic).unwrap(),
+        )]);
+        opts.dry_run = true;
+        let mut tx = ctx.begin_tx().await.unwrap();
+        apply_shard_embedding_components_tx(
+            &mut tx,
+            &files,
+            &selected,
+            &opts,
+            &mut ShardImportCounts::default(),
+            &mut ShardImportCounts::default(),
+        )
+        .await
+        .expect("valid selected identity cycles must pass dry-run");
+        tx.commit().await.unwrap();
+        assert_eq!(shard_native_database_snapshot(&ctx).await, initial);
+        opts.dry_run = false;
+        let without_selected_sets = |mut snapshot: serde_json::Value| {
+            snapshot["embedding_set"]
+                .as_array_mut()
+                .unwrap()
+                .retain(|row| !ids.iter().any(|id| row["id"] == id.to_string()));
+            snapshot
+        };
+        for pass in 0..2 {
+            if pass == 1 {
+                cyclic.reverse();
+            }
+            files.insert(
+                "embedding_sets.json".into(),
+                serde_json::to_vec(&cyclic).unwrap(),
+            );
+            let mut tx = ctx.begin_tx().await.unwrap();
+            let mut imported = ShardImportCounts::default();
+            apply_shard_embedding_components_tx(
+                &mut tx,
+                &files,
+                &selected,
+                &opts,
+                &mut imported,
+                &mut ShardImportCounts::default(),
+            )
+            .await
+            .expect("selected identity cycles must not delete their owners");
+            assert_eq!(imported.embedding_sets, 3);
+            tx.commit().await.unwrap();
+            assert_eq!(
+                without_selected_sets(shard_native_database_snapshot(&ctx).await),
+                without_selected_sets(initial.clone()),
+                "all references and unrelated rows survive"
+            );
+            let current = shard_export_embedding_state(&state, &archive.schema_name).await;
+            for expected in &cyclic {
+                assert_eq!(
+                    current["embedding_sets"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|row| row["id"] == expected["id"])
+                        .unwrap(),
+                    expected
+                );
+            }
+            assert_eq!(
+                current["embedding_set_members"],
+                exported["embedding_set_members"]
+            );
+        }
+        let baseline = shard_native_database_snapshot(&ctx).await;
+        let mut external = cyclic.clone();
+        let unrelated = exported["embedding_sets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| !ids.iter().any(|id| row["id"] == id.to_string()))
+            .unwrap();
+        for field in ["name", "slug"] {
+            external[0][field] = unrelated[field].clone();
+            files.insert(
+                "embedding_sets.json".into(),
+                serde_json::to_vec(&external).unwrap(),
+            );
+            for dry_run in [true, false] {
+                opts.dry_run = dry_run;
+                let mut tx = ctx.begin_tx().await.unwrap();
+                let error = apply_shard_embedding_components_tx(
+                    &mut tx,
+                    &files,
+                    &selected,
+                    &opts,
+                    &mut ShardImportCounts::default(),
+                    &mut ShardImportCounts::default(),
+                )
+                .await
+                .expect_err("unselected live identity cannot be renamed or deleted");
+                assert!(
+                    matches!(error,ApiError::BadRequest(ref message) if message ==
+                    "Knowledge shard embedding set conflicts with an existing live identity.")
+                );
+                tx.rollback().await.unwrap();
+                assert_eq!(shard_native_database_snapshot(&ctx).await, baseline);
+            }
+            external = cyclic.clone();
+        }
+        opts.dry_run = false;
+        files.insert(
+            "embedding_sets.json".into(),
+            serde_json::to_vec(&original).unwrap(),
+        );
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::raw_sql(
+            "CREATE FUNCTION reject_final_set_rename() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN IF NEW.name = 'selected-rename-2' THEN
+                RAISE EXCEPTION 'injected final rename failure'; END IF; RETURN NEW; END; $$;
+            CREATE TRIGGER reject_final_set_rename BEFORE INSERT OR UPDATE ON embedding_set
+            FOR EACH ROW EXECUTE FUNCTION reject_final_set_rename();",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        let mut tx = ctx.begin_tx().await.unwrap();
+        let error = apply_shard_embedding_components_tx(
+            &mut tx,
+            &files,
+            &selected,
+            &opts,
+            &mut ShardImportCounts::default(),
+            &mut ShardImportCounts::default(),
+        )
+        .await
+        .expect_err("late final rename must fail");
+        assert!(matches!(error,ApiError::OperationFailed{ref detail,..}
+            if detail.starts_with("apply embedding set import;")));
+        tx.rollback().await.unwrap();
+        assert_eq!(
+            shard_native_database_snapshot(&ctx).await,
+            baseline,
+            "temporary names and prior writes must roll back on late failure"
+        );
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::raw_sql(
+            "DROP TRIGGER reject_final_set_rename ON embedding_set;
+            DROP FUNCTION reject_final_set_rename();",
+        )
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+
+        let url = spawn_asset_lifecycle_test_server(
+            state.clone(),
+            ArchiveContext {
+                schema: archive.schema_name.clone(),
+                is_default: false,
+                name: Some(name.clone()),
+            },
+        )
+        .await;
+        let client = reqwest::Client::new();
+        let response = client.get(format!("{url}/api/v1/backup/knowledge-shard?schema_version=2.0.0&profile=full-v1&include_blobs=true"))
+            .send().await.unwrap();
+        assert_eq!(response.status(), reqwest::StatusCode::OK);
+        let bytes = response.bytes().await.unwrap();
+        let exported_files = read_shard_archive(&bytes, ShardArchiveLimits::default()).unwrap();
+        let archive_with_sets = |sets: &serde_json::Value| {
+            let mut files = exported_files.clone();
+            let data = serde_json::to_vec(sets).unwrap();
+            let mut manifest: serde_json::Value =
+                serde_json::from_slice(&files["manifest.json"]).unwrap();
+            manifest["checksums"]["embedding_sets.json"] =
+                serde_json::json!(hex::encode(sha2::Sha256::digest(&data)));
+            files.insert(
+                "manifest.json".into(),
+                serde_json::to_vec(&manifest).unwrap(),
+            );
+            files.insert("embedding_sets.json".into(), data);
+            let mut entries = files
+                .iter()
+                .map(|(name, bytes)| (name.as_str(), bytes.as_slice(), tar::EntryType::Regular))
+                .collect::<Vec<_>>();
+            entries.sort_by_key(|entry| entry.0);
+            test_shard_archive(&entries)
+        };
+        let restore = archive_with_sets(&exported["embedding_sets"]);
+        for (mode, dry_run) in [
+            ("replace", true),
+            ("skip", false),
+            ("replace", false),
+            ("replace", false),
+        ] {
+            let before = shard_native_database_snapshot(&ctx).await;
+            let response = client.post(format!("{url}/api/v1/backup/knowledge-shard/import"))
+                .json(&serde_json::json!({"shard_base64":base64::engine::general_purpose::STANDARD.encode(&restore),
+                    "include":"embedding_sets", "on_conflict":mode,"dry_run":dry_run,
+                    "skip_embedding_regen":true,"verify_signature":"trusted-local-only"}))
+                .send().await.unwrap();
+            let status = response.status();
+            let body = response.text().await.unwrap();
+            assert_eq!(
+                status,
+                reqwest::StatusCode::OK,
+                "{mode} dry_run={dry_run}: {body}"
+            );
+            let after = shard_native_database_snapshot(&ctx).await;
+            if dry_run || mode == "skip" {
+                assert_eq!(
+                    after, before,
+                    "HTTP dry-run/skip preserves every native row"
+                );
+            } else {
+                assert_eq!(
+                    without_selected_sets(after),
+                    without_selected_sets(initial.clone())
+                );
+                assert_eq!(
+                    shard_export_embedding_state(&state, &archive.schema_name).await,
+                    exported
+                );
+            }
+        }
+        let baseline = shard_native_database_snapshot(&ctx).await;
+        for field in ["name", "slug"] {
+            let mut duplicate = exported["embedding_sets"].clone();
+            duplicate[1][field] = duplicate[0][field].clone();
+            let invalid = archive_with_sets(&duplicate);
+            for dry_run in [false, true] {
+                let response = client.post(format!("{url}/api/v1/backup/knowledge-shard/import"))
+                    .json(&serde_json::json!({"shard_base64":base64::engine::general_purpose::STANDARD.encode(&invalid),
+                        "include":"embedding_sets","on_conflict":"replace","dry_run":dry_run,
+                        "skip_embedding_regen":true,"verify_signature":"trusted-local-only"}))
+                    .send().await.unwrap();
+                assert_eq!(response.status(), reqwest::StatusCode::BAD_REQUEST);
+                assert_eq!(
+                    shard_native_database_snapshot(&ctx).await,
+                    baseline,
+                    "duplicate {field} preflight rejection is atomic"
+                );
+            }
+        }
+
+        // A new identity can acquire a key vacated by another selected identity.
+        let new_id = Uuid::new_v4();
+        let mut new_set = original[0].clone();
+        new_set["id"] = serde_json::json!(new_id);
+        let mut renamed = original[0].clone();
+        renamed["name"] = serde_json::json!("vacated-selected-name");
+        renamed["slug"] = serde_json::json!("vacated-selected-slug");
+        files.insert(
+            "embedding_sets.json".into(),
+            serde_json::to_vec(&[new_set.clone(), renamed.clone()]).unwrap(),
+        );
+        let mut tx = ctx.begin_tx().await.unwrap();
+        apply_shard_embedding_components_tx(
+            &mut tx,
+            &files,
+            &selected,
+            &opts,
+            &mut ShardImportCounts::default(),
+            &mut ShardImportCounts::default(),
+        )
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+        let mut after = shard_native_database_snapshot(&ctx).await;
+        after["embedding_set"]
+            .as_array_mut()
+            .unwrap()
+            .retain(|row| row["id"] != new_id.to_string());
+        assert_eq!(
+            without_selected_sets(after),
+            without_selected_sets(baseline)
+        );
+        let current = shard_export_embedding_state(&state, &archive.schema_name).await;
+        for expected in [new_set, renamed] {
+            assert_eq!(
+                current["embedding_sets"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|row| row["id"] == expected["id"])
+                    .unwrap(),
+                &expected
+            );
+        }
+        db.archives.drop_archive_schema(&name).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn shard_embedding_set_collision_does_not_replace_native_default() {
+        let _guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must select a disposable integration database");
+        let db = Database::connect(&database_url).await.unwrap();
+        db.migrate().await.unwrap();
+        let name = format!("sh-set-conflict-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&name, None)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::query("UPDATE embedding_set SET description = 'native owner customization' WHERE slug = 'default'")
+            .execute(&mut *tx).await.unwrap();
+        tx.commit().await.unwrap();
+        let before = shard_native_database_snapshot(&ctx).await;
+        let (mut files, _, _, _, _) = valid_shard_embedding_relationship_fixture();
+        let mut configs: Vec<serde_json::Value> =
+            serde_json::from_slice(&files["embedding_configs.json"]).unwrap();
+        let config_id = Uuid::new_v4();
+        configs[0]["id"] = serde_json::json!(config_id);
+        configs[0]["name"] = serde_json::json!(format!("set-conflict-{config_id}"));
+        files.insert(
+            "embedding_configs.json".into(),
+            serde_json::to_vec(&configs).unwrap(),
+        );
+        let mut sets: Vec<serde_json::Value> =
+            serde_json::from_slice(&files["embedding_sets.json"]).unwrap();
+        sets[0]["embedding_config_id"] = serde_json::json!(config_id);
+        sets[0]["name"] = serde_json::json!("Default");
+        sets[0]["slug"] = serde_json::json!("default");
+        files.insert(
+            "embedding_sets.json".into(),
+            serde_json::to_vec(&sets).unwrap(),
+        );
+        let selected = [
+            "embedding_configs".to_string(),
+            "embedding_sets".to_string(),
+        ]
+        .into_iter()
+        .collect();
+        for dry_run in [false, true] {
+            let opts = ShardImportOptions {
+                include: None,
+                dry_run,
+                on_conflict: ConflictStrategy::Replace,
+                skip_embedding_regen: true,
+            };
+            let mut tx = ctx.begin_tx().await.unwrap();
+            let result = apply_shard_embedding_components_tx(
+                &mut tx,
+                &files,
+                &selected,
+                &opts,
+                &mut ShardImportCounts::default(),
+                &mut ShardImportCounts::default(),
+            )
+            .await;
+            assert!(
+                result.is_err(),
+                "name/slug collision is not authority to delete a native default"
+            );
+            tx.rollback().await.unwrap();
+            assert_eq!(shard_native_database_snapshot(&ctx).await, before);
+        }
+        db.archives.drop_archive_schema(&name).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn shard_graph_http_replace_preserves_external_note_references() {
+        use sha2::Digest;
+        async fn retained_state(ctx: &matric_db::SchemaContext) -> serde_json::Value {
+            let mut tx = ctx.begin_tx().await.unwrap();
+            let value = sqlx::query_scalar("SELECT jsonb_build_object(
+                'grants', (SELECT jsonb_agg(to_jsonb(g) ORDER BY id) FROM note_share_grant g),
+                'incoming_links', (SELECT jsonb_agg(to_jsonb(l) ORDER BY id) FROM link l
+                    WHERE from_note_id = '018f2d2d-bc00-7cc8-8ad2-f147d6a2e790'),
+                'unrelated_note', (SELECT to_jsonb(n) FROM note n
+                    WHERE id = '018f2d2d-bc00-7cc8-8ad2-f147d6a2e790'),
+                'attachments', (SELECT jsonb_agg(jsonb_build_object('id', id, 'created_at', created_at)
+                    ORDER BY id) FROM attachment
+                    WHERE id <> '018f2d2d-bc00-7cc8-8ad2-f147d6a2e791'))")
+                .fetch_one(&mut *tx).await.unwrap();
+            tx.rollback().await.unwrap();
+            value
+        }
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
+        let storage = tempfile::tempdir().unwrap();
+        let db = Database::connect(&database_url)
+            .await
+            .unwrap()
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.unwrap();
+        let name = format!("sh-graph-http-{}", Uuid::new_v4().simple());
+        let archive = db
+            .archives
+            .create_archive_schema(&name, Some("Graph HTTP owner regression"))
+            .await
+            .unwrap();
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let input = include_bytes!(
+            "../../../tests/fixtures/shards/external/react-2026.7.13/react-full-v1.shard"
+        );
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        knowledge_shard_import_internal(&state, input, &opts, &archive.schema_name)
+            .await
+            .unwrap();
+        let ctx = db.for_schema(&archive.schema_name).unwrap();
+        let mut tx = ctx.begin_tx().await.unwrap();
+        // Clone native rows through typed PostgreSQL records, retaining the
+        // original notes as external reference endpoints of an unrelated owner.
+        sqlx::raw_sql("INSERT INTO graph_source SELECT (jsonb_populate_record(NULL::graph_source,
+              to_jsonb(gs) || jsonb_build_object('id', 'http-unrelated-source'))).*
+              FROM graph_source gs ORDER BY id LIMIT 1;
+            INSERT INTO graph_edge_artifact SELECT (jsonb_populate_record(NULL::graph_edge_artifact,
+              to_jsonb(ge) || jsonb_build_object('graph_source_id', 'http-unrelated-source'))).*
+              FROM graph_edge_artifact ge ORDER BY graph_source_id LIMIT 1;
+            INSERT INTO community_set SELECT (jsonb_populate_record(NULL::community_set,
+              to_jsonb(cs) || jsonb_build_object('id', 'http-unrelated-set', 'graph_source_id', 'http-unrelated-source'))).*
+              FROM community_set cs ORDER BY id LIMIT 1;
+            INSERT INTO community SELECT (jsonb_populate_record(NULL::community,
+              to_jsonb(c) || jsonb_build_object('community_set_id', 'http-unrelated-set'))).*
+              FROM community c WHERE community_set_id = (SELECT id FROM community_set WHERE id <> 'http-unrelated-set' ORDER BY id LIMIT 1);
+            INSERT INTO community_assignment SELECT (jsonb_populate_record(NULL::community_assignment,
+              to_jsonb(ca) || jsonb_build_object('community_set_id', 'http-unrelated-set'))).*
+              FROM community_assignment ca WHERE community_set_id = (SELECT id FROM community_set WHERE id <> 'http-unrelated-set' ORDER BY id LIMIT 1);")
+            .execute(&mut *tx).await.unwrap();
+        sqlx::raw_sql("INSERT INTO note (id, format, source, created_at_utc, updated_at_utc)
+                VALUES ('018f2d2d-bc00-7cc8-8ad2-f147d6a2e790', 'markdown', 'unrelated', NOW(), NOW());
+            INSERT INTO note_share_grant (note_id, grantee_id)
+                VALUES ('018f2d2d-bc00-7cc8-8ad2-f147d6a2e77a', '018f2d2d-bc00-7cc8-8ad2-f147d6a2e790');
+            INSERT INTO link (id, from_note_id, to_note_id, kind, score, created_at_utc)
+                VALUES ('018f2d2d-bc00-7cc8-8ad2-f147d6a2e792', '018f2d2d-bc00-7cc8-8ad2-f147d6a2e790',
+                    '018f2d2d-bc00-7cc8-8ad2-f147d6a2e77a', 'manual', 1.0, NOW()),
+                    ('018f2d2d-bc00-7cc8-8ad2-f147d6a2e793', '018f2d2d-bc00-7cc8-8ad2-f147d6a2e77a',
+                    '018f2d2d-bc00-7cc8-8ad2-f147d6a2e790', 'manual', 1.0, NOW());
+            INSERT INTO attachment SELECT (jsonb_populate_record(NULL::attachment,
+                to_jsonb(a) || jsonb_build_object('id', '018f2d2d-bc00-7cc8-8ad2-f147d6a2e791'))).*
+                FROM attachment a ORDER BY id LIMIT 1;
+            INSERT INTO tag (name, created_at_utc) VALUES ('destination-only', NOW());
+            INSERT INTO note_tag (note_id, tag_name, source)
+                VALUES ('018f2d2d-bc00-7cc8-8ad2-f147d6a2e77a', 'destination-only', 'user'),
+                       ('018f2d2d-bc00-7cc8-8ad2-f147d6a2e790', 'destination-only', 'user');")
+            .execute(&mut *tx).await.unwrap();
+        tx.commit().await.unwrap();
+        let retained_before = retained_state(&ctx).await;
+        let unrelated = |snapshot: serde_json::Value| {
+            let mut result = snapshot;
+            for family in ["sources", "edges", "sets", "communities", "assignments"] {
+                result[family]
+                    .as_array_mut()
+                    .unwrap()
+                    .retain(|row| match family {
+                        "sources" => row["id"] == "http-unrelated-source",
+                        "edges" => row["graph_source_id"] == "http-unrelated-source",
+                        "sets" => row["id"] == "http-unrelated-set",
+                        _ => row["community_set_id"] == "http-unrelated-set",
+                    });
+            }
+            result
+        };
+        let before = unrelated(shard_graph_snapshot(&ctx).await);
+        assert!(!before["edges"].as_array().unwrap().is_empty());
+        assert!(!before["assignments"].as_array().unwrap().is_empty());
+        let url = spawn_asset_lifecycle_test_server(
+            state,
+            ArchiveContext {
+                schema: archive.schema_name.clone(),
+                is_default: false,
+                name: Some(name.clone()),
+            },
+        )
+        .await;
+        let client = reqwest::Client::new();
+        let mut changed_children =
+            read_shard_archive(input, ShardArchiveLimits::default()).unwrap();
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&changed_children["manifest.json"]).unwrap();
+        for (component, id) in [
+            (
+                "note_original_history",
+                "018f2d2d-bc00-7cc8-8ad2-f147d6a2e801",
+            ),
+            ("links", "018f2d2d-bc00-7cc8-8ad2-f147d6a2e802"),
+            (
+                "provenance_activities",
+                "018f2d2d-bc00-7cc8-8ad2-f147d6a2e803",
+            ),
+            ("skos_notes", "018f2d2d-bc00-7cc8-8ad2-f147d6a2e804"),
+        ] {
+            let filename = shard_component_filename(component).unwrap();
+            let mut records =
+                parse_shard_component_records(component, &changed_children[filename]).unwrap();
+            assert!(
+                !records.is_empty(),
+                "positive owned-child fixture for {component}"
+            );
+            records[0]["id"] = serde_json::json!(id);
+            let data = records
+                .iter()
+                .map(|row| serde_json::to_string(row).unwrap())
+                .collect::<Vec<_>>()
+                .join("\n")
+                .into_bytes();
+            manifest["checksums"][filename] =
+                serde_json::json!(hex::encode(sha2::Sha256::digest(&data)));
+            changed_children.insert(filename.to_string(), data);
+        }
+        // The fixture's capture references its activity, so keep that reference
+        // valid even though both records belong to the skipped note owner.
+        let mut captures = parse_shard_component_records(
+            "provenance_records",
+            &changed_children["provenance_records.jsonl"],
+        )
+        .unwrap();
+        for capture in &mut captures {
+            if capture["activity_id"].is_string() {
+                capture["activity_id"] = serde_json::json!("018f2d2d-bc00-7cc8-8ad2-f147d6a2e803");
+            }
+        }
+        let data = captures
+            .iter()
+            .map(|row| serde_json::to_string(row).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n")
+            .into_bytes();
+        manifest["checksums"]["provenance_records.jsonl"] =
+            serde_json::json!(hex::encode(sha2::Sha256::digest(&data)));
+        changed_children.insert("provenance_records.jsonl".into(), data);
+        changed_children.insert(
+            "manifest.json".into(),
+            serde_json::to_vec(&manifest).unwrap(),
+        );
+        let mut changed_entries = changed_children
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice(), tar::EntryType::Regular))
+            .collect::<Vec<_>>();
+        changed_entries.sort_by_key(|entry| entry.0);
+        let changed_children = test_shard_archive(&changed_entries);
+        for (mode, dry_run, archive_bytes) in [
+            ("replace", true, input.as_slice()),
+            ("skip", false, input.as_slice()),
+            ("skip", true, changed_children.as_slice()),
+            ("skip", false, changed_children.as_slice()),
+            ("replace", false, input.as_slice()),
+            ("replace", false, input.as_slice()),
+        ] {
+            let all_before = shard_native_database_snapshot(&ctx).await;
+            let response = client.post(format!("{url}/api/v1/backup/knowledge-shard/import"))
+                .json(&serde_json::json!({"shard_base64": base64::engine::general_purpose::STANDARD.encode(archive_bytes),
+                    "on_conflict": mode, "dry_run": dry_run, "skip_embedding_regen": true, "verify_signature": "trusted-local-only"}))
+                .send().await.unwrap();
+            let status = response.status();
+            let body = response.text().await.unwrap();
+            assert_eq!(
+                status,
+                reqwest::StatusCode::OK,
+                "{mode} dry_run={dry_run}: {body}"
+            );
+            if dry_run || mode == "skip" {
+                let all_after = shard_native_database_snapshot(&ctx).await;
+                for (table, expected) in all_before.as_object().unwrap() {
+                    assert_eq!(
+                        &all_after[table], expected,
+                        "HTTP {mode} dry_run={dry_run} preserves every native row in {table}"
+                    );
+                }
+            }
+            if mode == "skip" {
+                let report: serde_json::Value = serde_json::from_str(&body).unwrap();
+                for (component, count) in [
+                    ("notes", 2),
+                    ("note_original_history", 2),
+                    ("links", 1),
+                    ("provenance_activities", 1),
+                    ("skos_notes", 1),
+                ] {
+                    assert_eq!(
+                        report["skipped"][component], count,
+                        "skipped-owner count for {component}"
+                    );
+                    assert_eq!(
+                        report["imported"][component], 0,
+                        "no imported children for skipped {component}"
+                    );
+                }
+            }
+            assert_eq!(
+                unrelated(shard_graph_snapshot(&ctx).await),
+                before,
+                "HTTP {mode} dry_run={dry_run} preserves external graph references"
+            );
+            assert_eq!(retained_state(&ctx).await, retained_before);
+            let mut tx = ctx.begin_tx().await.unwrap();
+            let replaced = mode == "replace" && !dry_run;
+            let counts: (i64, i64, i64) = sqlx::query_as(
+                "SELECT
+                (SELECT count(*) FROM attachment),
+                (SELECT sum(reference_count)::bigint FROM attachment_blob),
+                (SELECT count(*) FROM note_tag WHERE tag_name = 'destination-only')",
+            )
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+            assert_eq!(counts, if replaced { (2, 2, 1) } else { (3, 3, 2) });
+            let omitted_outgoing: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM link WHERE id = '018f2d2d-bc00-7cc8-8ad2-f147d6a2e793'",
+            )
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+            assert_eq!(omitted_outgoing, if replaced { 0 } else { 1 });
+            tx.rollback().await.unwrap();
+        }
+        for (include, mode) in [("templates", "skip"), ("", "replace")] {
+            let before = shard_native_database_snapshot(&ctx).await;
+            let response = client.post(format!("{url}/api/v1/backup/knowledge-shard/import"))
+                .json(&serde_json::json!({"shard_base64": base64::engine::general_purpose::STANDARD.encode(&changed_children),
+                    "include": include, "on_conflict": mode, "skip_embedding_regen": true, "verify_signature": "trusted-local-only"}))
+                .send().await.unwrap();
+            let status = response.status();
+            let body = response.text().await.unwrap();
+            assert_eq!(
+                status,
+                reqwest::StatusCode::OK,
+                "partial include={include}: {body}"
+            );
+            assert_eq!(
+                shard_native_database_snapshot(&ctx).await,
+                before,
+                "partial/empty selection must not change excluded native families"
+            );
+        }
+        let mut independent = read_shard_archive(input, ShardArchiveLimits::default()).unwrap();
+        let mut manifest: serde_json::Value =
+            serde_json::from_slice(&independent["manifest.json"]).unwrap();
+        for (component, updates) in [
+            ("graph_sources", vec![("id", "skip-independent-source")]),
+            (
+                "graph_edges",
+                vec![("graph_source_id", "skip-independent-source")],
+            ),
+            (
+                "communities",
+                vec![
+                    ("id", "skip-independent-set"),
+                    ("graph_source_id", "skip-independent-source"),
+                ],
+            ),
+            (
+                "community_assignments",
+                vec![("community_set_id", "skip-independent-set")],
+            ),
+            (
+                "templates",
+                vec![
+                    ("id", "018f2d2d-bc00-7cc8-8ad2-f147d6a2e805"),
+                    ("name", "Independent template"),
+                ],
+            ),
+        ] {
+            let filename = shard_component_filename(component).unwrap();
+            let mut records =
+                parse_shard_component_records(component, &independent[filename]).unwrap();
+            for record in &mut records {
+                for (field, value) in &updates {
+                    record[field] = serde_json::json!(value);
+                }
+            }
+            let data = if filename.ends_with(".jsonl") {
+                records
+                    .iter()
+                    .map(|row| serde_json::to_string(row).unwrap())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+                    .into_bytes()
+            } else {
+                serde_json::to_vec(&records).unwrap()
+            };
+            manifest["checksums"][filename] =
+                serde_json::json!(hex::encode(sha2::Sha256::digest(&data)));
+            independent.insert(filename.into(), data);
+        }
+        independent.insert(
+            "manifest.json".into(),
+            serde_json::to_vec(&manifest).unwrap(),
+        );
+        let mut entries = independent
+            .iter()
+            .map(|(name, data)| (name.as_str(), data.as_slice(), tar::EntryType::Regular))
+            .collect::<Vec<_>>();
+        entries.sort_by_key(|entry| entry.0);
+        let independent = test_shard_archive(&entries);
+        if let Some(directory) = std::env::var_os("FORTEMI_SHARD_OWNER_FIXTURE_DIR") {
+            let directory = std::path::PathBuf::from(directory);
+            std::fs::create_dir_all(&directory).unwrap();
+            std::fs::write(
+                directory.join("skip-owned-children.shard"),
+                &changed_children,
+            )
+            .unwrap();
+            std::fs::write(directory.join("skip-independent-roots.shard"), &independent).unwrap();
+        }
+        for (dry_run, inserts) in [(true, false), (false, true), (false, false)] {
+            let before = shard_native_database_snapshot(&ctx).await;
+            let response = client.post(format!("{url}/api/v1/backup/knowledge-shard/import"))
+                .json(&serde_json::json!({"shard_base64": base64::engine::general_purpose::STANDARD.encode(&independent),
+                    "on_conflict": "skip", "dry_run": dry_run, "skip_embedding_regen": true, "verify_signature": "trusted-local-only"}))
+                .send().await.unwrap();
+            let status = response.status();
+            let body = response.text().await.unwrap();
+            assert_eq!(
+                status,
+                reqwest::StatusCode::OK,
+                "independent root skip: {body}"
+            );
+            let after = shard_native_database_snapshot(&ctx).await;
+            if inserts {
+                let expected_additions = [
+                    ("graph_source", 1),
+                    ("graph_edge_artifact", 1),
+                    ("community_set", 1),
+                    ("community", 1),
+                    ("community_assignment", 2),
+                    ("note_template", 1),
+                ];
+                for (table, rows) in before.as_object().unwrap() {
+                    let expected = expected_additions
+                        .iter()
+                        .find(|(name, _)| name == table)
+                        .map(|(_, count)| *count)
+                        .unwrap_or(0);
+                    let actual = after[table].as_array().unwrap();
+                    let rows = rows.as_array().unwrap();
+                    assert_eq!(
+                        actual.len(),
+                        rows.len() + expected,
+                        "independent additions in {table}"
+                    );
+                    assert!(
+                        rows.iter().all(|row| actual.contains(row)),
+                        "existing {table} rows must not change"
+                    );
+                }
+            } else {
+                assert_eq!(after, before, "independent root dry-run/repeated skip");
+            }
+        }
+        let rollback_before = shard_graph_snapshot(&ctx).await;
+        let rollback_all_before = shard_native_database_snapshot(&ctx).await;
+        let mut tx = ctx.begin_tx().await.unwrap();
+        sqlx::raw_sql("CREATE FUNCTION reject_http_graph_assignment() RETURNS trigger LANGUAGE plpgsql AS $$
+            BEGIN RAISE EXCEPTION 'injected HTTP owner failure'; END; $$;
+            CREATE TRIGGER reject_http_graph_assignment BEFORE INSERT OR UPDATE ON community_assignment
+            FOR EACH ROW EXECUTE FUNCTION reject_http_graph_assignment();")
+            .execute(&mut *tx).await.unwrap();
+        tx.commit().await.unwrap();
+        let response = client.post(format!("{url}/api/v1/backup/knowledge-shard/import"))
+            .json(&serde_json::json!({"shard_base64": base64::engine::general_purpose::STANDARD.encode(input),
+                "on_conflict": "replace", "skip_embedding_regen": true, "verify_signature": "trusted-local-only"}))
+            .send().await.unwrap();
+        assert_eq!(
+            response.status(),
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR
+        );
+        assert_eq!(shard_graph_snapshot(&ctx).await, rollback_before);
+        assert_eq!(
+            shard_native_database_snapshot(&ctx).await,
+            rollback_all_before
+        );
+        assert_eq!(retained_state(&ctx).await, retained_before);
+        db.archives.drop_archive_schema(&name).await.unwrap();
     }
 
     #[test]

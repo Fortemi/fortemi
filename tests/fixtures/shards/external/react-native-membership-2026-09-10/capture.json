@@ -1,0 +1,12 @@
+{
+  "profile": "2.0.0/full-v1",
+  "status": "unreleased-candidate",
+  "package_sha256": "7f88c9ea564942315712b12c0bbc553a33e308e897d9d1725169b6396417ba4a",
+  "verifier_sha256": "fb2ee72c4b45e7a10fbda5e5f4d6f10763a428355088fe13e9505eff2bdad43d",
+  "source_fixture_sha256": "054da5528276806b9be69dcfff364a6969b72344045f05f9f6fcbeaca82a7a59",
+  "fixtures": {
+    "input.shard": "e9bbe0494db20d63533246de43305dd327ba55b9fa298f2531f1bd4b0cf89257",
+    "replacement.shard": "2e6600fe991661e35e19af6b200c3f24be249377f1c2f390b74c77ed23f4e1e7",
+    "expected.shard": "83558f786f61b56a9f1fcac6b1a0e43485e4b5a2ffe86704fc57635eac4e79fd"
+  }
+}

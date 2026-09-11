@@ -8,6 +8,18 @@
 
 ## Context
 
+### Lane B Runtime Correction Delivery (#1147, 2026-09-11)
+
+The cycle20 correction candidate preserves scoped replacement ownership and
+retained identities while coordinating native and restore writers. Source-bound
+server150/migration18/archive17/required-live tenant24 and28producer exports into
+56clean installed consumers pass. React's native consumer candidate3739827 is
+tracked by Fortemi/fortemi-react PR445 and issue #424. No authority schema/profile
+tuple changes are introduced by these runtime corrections. Source delivery does
+not replace exact-head CI, shared fixture/pin publication or released-runtime
+qualification; those gates and the suite NO-GO remain in force. Historical matrix
+receipts are not widened to include this unreleased behavior.
+
 ### Validated Tag Restore Correction (#1145)
 
 Knowledge Shard note tags are governed by the selected wire schema. After full
@@ -270,6 +282,608 @@ Dry-run and real import execute the same validation and planning path. The
 write phase either commits the entire plan or leaves the destination unchanged.
 
 ### 5. Preservation invariants
+
+#### Ordinary Owner Selection (Unreleased #1147 Work)
+
+Cycle20 reproduces two valid retained-concept coordinate swaps that preview but
+fail during apply: URI exchange and primary-scheme exchange at the same notation.
+Concept replacement now inspects incoming IDs, URIs and paired scheme/notation
+coordinates. A collision with an unselected live identity rejects in preview and
+apply. Changed coordinates belonging to selected retained IDs are vacated to NULL
+before upsert; concept IDs, replaced_by references and unselected children are not
+deleted or reassigned. Existing complete-archive uniqueness checks remain intact.
+
+Apply obtains the migration208 concept statement guard via a zero-row UPDATE
+before locking conflict rows in ID order, avoiding a row-lock-before-guard order.
+Preview performs no write or row-lock staging. Existing transaction rollback
+restores temporary coordinates and every selected/unselected snapshot. There is
+no new schema revision, profile, migration or consumer source/package change.
+
+The first implementation exposed a separate wipe-preview regression: destination
+concept owners were checked even though explicit full wipe removes them before
+apply. SKOS planning now receives the explicit-wipe flag and omits that destination
+concept-coordinate check during wipe preview only. Complete-archive validation is
+unchanged. The same independent owner rejects under ordinary replacement but
+previews read-only and is removed by repeated explicit full wipe. Original wipe
+RED and actual post-wipe exports are retained. This is not general partial-wipe
+foreign-key preview qualification.
+
+Handler regressions cover both wire orders from original state, repeat, Skip/Merge,
+read-only preview, observable deferred rollback, RESTRICT-protected references and
+unselected live-coordinate collisions. Native note-tagging tests additionally
+exercise literary-warrant promotion on the third assignment: over-capacity commit
+rejects and rolls back notes/assignments/lifecycle; with a balancing demotion,
+SET CONSTRAINTS ALL IMMEDIATE validates the final state before test rollback.
+The latter is explicit constraint validation, not a persisted positive native
+commit/export receipt. Further native entry points, alternate-key permutations,
+inverse consistency, performance, full Lane B acceptance and release qualification
+remain open. Suite NO-GO; exact2.0.0/full-v1 candidate evidence only.
+
+Cycle19 closes the concept-status omission in the cycle18 relation-only guard.
+Two baseline handler/native regressions committed 201 approved narrower children
+by promoting a candidate while leaving relations untouched. Shared read-only
+planning now runs for selected concepts as well as relations. Unselected relation
+rows remain in the projected graph; selecting concepts alone grants no relation
+omission authority. Skip/Merge retained conflicts keep their destination status
+and snapshot: the final restoration pass operates only on actually applied IDs.
+
+Forward migration `20260911020800_skos_concept_status_constraints.sql` attaches
+unconditional pre-statement concept INSERT/UPDATE/DELETE coordination to the same
+tenant/archive guard. An unconditional deferred INSERT/UPDATE constraint checks
+the current concept status and affected narrower parents in the triggering schema.
+It does not trust queued row values or caller search_path/restore settings. Valid
+promotion-before-demotion batches commit; over-limit final states reject. Existing
+relation validators and coordination function bodies remain unchanged. This is a
+native runtime correction, with no new wire field, authority revision or profile.
+
+The mixed-writer regression covers48 combinations of public/registered archive,
+three isolation levels, native/restore context, first-writer commit/rollback and
+status-first/relation-first order. It observes backend blocking and checks final
+capacity and unchanged logical guard values. Read Committed rejects excess breadth;
+stale stronger-isolation transactions reject40001. Handler tests cover concept-only
+preview/apply, retained RESTRICT references, Skip/Merge and valid batch replacement.
+Source-local test evidence does not qualify released runtimes or the complete
+original Lane B matrix. Partial ownership, narrower-only/inverse consistency,
+alternate keys, performance, publication/pins, exact-head CI, delivery, cleanup and
+release qualification remain. Suite NO-GO; exact2.0.0/full-v1 candidate only.
+
+Clean archive cloning exposed an additional interaction: concept INSERT creates
+the tenant-only coordination row before the clone reaches that table. The original
+clone failed on its primary key. Clone now tolerates that one identical tenant key
+in `skos_relation_write_guard`; data-table conflicts remain strict. The clone test
+checks source/target guard values and both concept triggers. This does not turn
+runtime lock ownership into portable shard state or suppress native constraints.
+
+Cycle18 reproduces actual concurrent import write skew: two distinct, individually
+valid relation-only imports both passed deferred validation and committed, leaving
+four broader parents or a cycle. A test-only post-validation advisory barrier made
+both competing snapshots observable before commit; original output and observations
+are preserved. Forward migration
+`20260911020700_skos_relation_writer_serialization.sql` serializes relation INSERT,
+UPDATE and DELETE before row validation through an unconditional statement trigger.
+
+Each archive has a forced-RLS `skos_relation_write_guard` table keyed only by tenant.
+A physical no-op UPSERT retains the same logical tenant value while holding the row
+until transaction end. Read Committed writers validate after the prior writer;
+Repeatable Read/Serializable writers with stale snapshots abort with40001 and must
+retry the whole transaction. Rollback releases the guard. Other tenants and archives
+use distinct rows/tables. The coordination row is local runtime state, not a new
+Knowledge Shard component or a portable record; all three integration planes remain
+separate. Existing immediate and deferred validators and their function identities
+remain unchanged. No historical migration, declared native record or profile changes.
+
+Both actual handler races now show one waiting writer and exactly one successful
+commit, retaining old relations/references and unselected snapshots. Winner replay
+and loser preview rejection pass. The migration test executes24 combinations of
+public/old-archive schema, three isolation levels, native/restore contexts and
+first-writer commit/rollback, plus independent tenant/archive controls. Server146,
+migration17, clean archive17 and required-live tenant23 pass. The restricted-runtime
+case verifies guard visibility, forged-tenant rejection and rollback. Twenty-two
+actual producer exports pass44 pristine installed consumers with exact component,
+key-presence and mandatory-byte checks; cycle18 receipts bind this evidence.
+This is not suite-wide concurrency acceptance: concept-status and other non-relation
+writers do not use this guard. Partial owner/status changes, narrower-only/inverse
+consistency, general alternate-key permutations, large-graph performance and all
+original Lane B acceptance/publication/pins/CI/delivery/cleanup/releases remain.
+Suite NO-GO; exact2.0.0/full-v1 candidate only.
+
+PostgreSQL's [transaction isolation rules](https://www.postgresql.org/docs/current/transaction-iso.html)
+explain why a lock alone does not refresh Repeatable Read snapshots and why a
+physical update is needed for the stale-writer failure used here. The tests above,
+not that documentation alone, establish the scoped implementation result.
+
+Cycle17 reproduces two valid final relation batches that preview successfully but
+fail during apply: an intermediate cycle and a two-owner move at the three-parent
+limit where neither retained update can run first. Sorting cannot resolve that
+capacity case. Forward migration `20260911020600_skos_atomic_relation_batches.sql`
+keeps ordinary native writes' immediate broader/narrower guards and installs an
+unconditional deferred final-state constraint in public and registered archives.
+Restore skips only immediate validation; the deferred constraint cannot be disabled
+by changing the restore flag and validates at transaction commit. Native authoring
+effects remain guarded during restore as previously defined.
+
+Final validation reads each queued ID's current row from the triggering schema,
+not an obsolete event snapshot or the caller search path. Repeated updates and
+deleted queued rows therefore do not validate transient state. Existing native
+validator functions and OIDs remain unchanged; new archives clone the constraint.
+Legitimate three-parent,200-approved-child and depth-five bounds remain active.
+Invalid final cycles/cardinality abort the whole transaction. No retained identity
+is deleted/recreated, no reciprocal record is synthesized, and unselected concept
+snapshots remain exact. Historical migrations and rows are not rewritten.
+
+Both handler cases cover preview, protected references, both input orders from the
+old graph, repeated imports, whole-state rollback and a reached deferred failure.
+The public/old-archive migration test covers idempotence, ordinary immediate errors,
+unconditional final validation, repeated/deleted events, changed caller context and
+invalid cycle/broader/narrower commits. Server144, migration16, clean archive17,
+required-live tenant22 and API/DB Clippy/format/diff pass. Twenty actual producer
+exports pass40 pristine installed-Core destinations with exact component contents,
+key presence and mandatory bytes; cycle17 receipts bind this unreleased evidence.
+General alternate-key permutations, partial owner/status changes, narrower-only/
+inverse consistency, concurrent writers and large-graph performance remain open.
+Transaction-local final validation is not proof against racing writers. Full
+original Lane B acceptance, publication/pins, authenticated/worker/platform/released
+checks, CI/delivery and cleanup/releases remain required. Suite NO-GO, unchanged
+schema/profile authority and exact2.0.0/full-v1 candidate evidence only.
+
+Cycle16 reproduced two invalid successful apply operations: closing a short
+broader cycle and extending a root so an unselected descendant's actual depth
+became six. Current scalar snapshots and the old pre-insert cycle predicate did
+not validate the resulting graph. Forward migration
+`20260911020500_skos_prospective_hierarchy.sql` replaces the broader trigger's
+cached-depth/existing-cycle checks with traversal of the prospective graph,
+excluding the retained ID and including its replacement. The existing function
+OID and public/registered-archive bindings remain; narrower validation is unchanged.
+
+Both native validation and read-only shard planning include affected descendants
+and bound traversal at six edges. Deduplicated `(node, depth)` states terminate
+even for cycles; reaching six rejects either a cycle or a path beyond native depth
+five. This validates actual broader edges rather than trusting cached `depth`
+snapshots. It does not recompute or rewrite unselected concept metadata. Related
+edges remain outside the native broader hierarchy, and restore does not infer or
+materialize undeclared inverse edges. Three-parent and approved-child limits stay.
+
+Actual handler cases cover apply/preview rejection under replace/skip/merge,
+ordinary native and restore-context rejection, exact native-table preservation,
+protected references, valid retained single-edge reparenting/repeat, read-only
+write-trigger detection and reached deferred-commit rollback. An idempotent public/
+old-archive migration test checks bounded cycle/depth/self-loop rejection, valid
+reparent/upsert, related-edge controls, binding identity and rollback. Server142,
+migration15, pristine archive17 and required-live tenant22 pass with API/DB Clippy
+and format/diff. Eighteen actual producer exports pass36 pristine installed-Core
+destinations; the cycle16 receipt binds exact components, key presence and bytes.
+
+These tests do not establish multi-edge final-plan application order, concurrency,
+narrower-only/inverse-consistency semantics or all partial owner/status changes.
+In particular, per-row native checks may encounter an invalid intermediate graph
+while applying a valid final multi-edge plan; reproduce that next without deleting
+retained identities or disabling final-state validation. No new failure is yet
+confirmed for that case. No wire schema/profile or consumer source change, data
+backfill, historical migration edit or release is claimed. Full original Lane B
+acceptance/delivery/publication/pins/platform/cleanup/releases and suite NO-GO remain.
+
+Cycle15 reproduces valid retained semantic-relation imports failing at the actual
+native limits: three broader parents and200 approved narrower children. Later
+February migrations supersede the original ten-child limit and count only approved
+children. Forward migration `20260911020400_skos_retained_relation_limits.sql`
+excludes the retained relation ID before counting its resulting state. Candidate
+children do not consume approved-child capacity; retargeting one to an approved
+child must count it. The numerical limits and existing broader depth/cycle calls
+remain active, without a restore-context bypass. Shared function OIDs and public/
+registered-archive trigger bindings are retained; no existing rows are rewritten.
+
+The initial over-limit archive test also exposed dry-run accepting a plan that
+native apply would reject. A shared read-only cardinality projection now accounts
+for incoming IDs, retained/unselected relations, selected-owner omissions and
+effective selected concept statuses. It applies the same bounds before writes in
+preview and apply; skip/merge ignore retained conflicts but still reject genuinely
+new over-limit edges. Native trigger checks remain the write-time enforcement.
+
+Two handler cases cover repeated replay at the limits with protected RESTRICT
+references, whole-native-table equality, over-limit replace/skip/merge rejection,
+preview write-trigger detection, reached deferred-commit rollback and native
+update/rejection controls. The idempotent public/old-archive migration test covers
+approved/candidate capacity, retargeting, depth rejection, retained upsert/update,
+function bindings and rollback. Server140, migration14, clean archive17 and
+required-live tenant22 pass with API/DB Clippy and format/diff checks. Sixteen
+actual producer exports pass32 pristine installed-Core destinations, including
+both boundary graphs, with all-component/key-presence/mandatory-byte comparison.
+The cycle15 receipt binds those exact source and candidate package identities.
+
+This is not complete hierarchy qualification: recursive cycle formation, batch
+reparenting/order at capacity, selected child/status changes and concurrent writers
+remain separate acceptance gates. The migration preserves the existing cycle
+predicate; it does not establish that the predicate checks prospective edges.
+Wire schemas/profiles, consumer source/package and historical fixtures are unchanged.
+Full original Lane B acceptance, shared publication/pins, exact-head CI, delivery,
+platform/released checks and cleanup/releases remain open. Suite NO-GO remains.
+
+Note-owned assignment restore likewise does not author the referenced concept's
+lifecycle. Actual insertion and selected-note omission regressions reproduced
+automatic candidate promotion and changed unselected concept count/timestamp
+snapshots. Forward migration `20260911020300_restore_skos_note_lifecycle_guard.sql`
+guards the existing note-count trigger in shard restore context. When concepts
+are unselected, their stored snapshots remain destination-owned rather than
+being recomputed by tagging rules. Selecting concepts restores their declared
+source snapshots through the existing apply stage. Ordinary native tagging
+retains count, first/last-use and literary-warrant promotion behavior.
+
+Both handler regressions pass with read-only preview, reached deferred-commit
+failure/whole-native-table rollback, repeat imports, independent assignment
+references and native promotion controls. Public/registered-archive migration
+is idempotent and preserves the original function and native insert/delete
+events. No existing row, historical migration or schema/profile is rewritten.
+This correction does not qualify all partial child-owner changes, broader/
+narrower validator limits, concurrency or the original Lane B release gates.
+
+The cycle13 clean-installed consumer run exposed a separate producer failure:
+`notes,note_skos_tags` omission selects notes but not revision components, yet the
+schema-2 apply path clears existing note revision export-presence flags. Exported
+provenance still names those revisions, so Core rejects the artifact for missing
+revision declarations. Eleven scenarios pass across22 clean destinations; this
+twelfth scenario fails validation before import. The server136/migration13/
+archive17/tenant22 suites do not clear that cross-runtime failure. Preserve the
+failing omission artifact and correct partial-note history/current visibility and
+native state without dropping provenance or weakening consumer validation.
+
+The cycle14 correction separates schema-2 flat content restoration from the live
+revision writer. Retained originals keep their declared hashes and metadata when
+content is unchanged; retained current snapshots keep their pointers and metadata.
+Existing unselected original/current/revision declarations remain visible. Only
+new native scaffolding is hidden automatically; selecting original/current
+components still permits authoritative omission, and selected revision omission
+uses the existing reference-checked cleanup. No revision is authored on replay.
+
+Flat note content and declared rich snapshots share native storage and must agree
+under the existing relationship validator. A changed flat projection therefore
+rejects in read-only preview and apply when its declared original/current snapshot
+is unselected. Select the corresponding `note_originals` or `note_revised_current`
+component to restore that change. Skip/merge retained owners stay unchanged.
+Flat-only notes without declared rich snapshots can still change their content,
+including empty revised content, without generating new revision history.
+
+Actual-handler tests cover notes-only replay, both original/current conflict
+directions, explicit selection, flat-only edits, exact six-table history/provenance
+preservation, skipped owners, preview and reached deferred-commit rollback. Full
+database snapshots are compared for preview and failed apply; successful repeated
+imports compare history/provenance rather than local attachment scan timestamps,
+which the existing scan policy refreshes. Server138, migration13, clean archive17,
+required-live tenant22 and API/DB Clippy pass. All14 actual producer exports pass
+28 pristine installed-Core destinations, including the former omission failure,
+with all-component/key-presence/mandatory-byte comparisons. The cycle14 receipt
+qualifies only those recorded exports and destinations, not a release.
+
+This is a runtime correction under unchanged schemas, not a new profile or an
+inferred repair of previously hidden history. Reapplying a trusted complete source
+with the relevant rich components selected remains the explicit restoration path;
+no existing rows, applied migrations or historical failure artifacts are rewritten.
+Full original Lane B acceptance, shared publication/pins, CI, platform/released
+qualification, cleanup and releases remain open. Suite NO-GO is unchanged.
+
+Restoring semantic relations must not invoke native authoring effects. Two new
+actual-handler regressions reproduced an undeclared reciprocal UUID during
+explicit-relation import and changed unselected concept counts/depth/timestamps
+during relation-only replay. Forward migration
+`20260911020200_restore_skos_relation_authoring_guards.sql` guards only the native
+hierarchy and reciprocal triggers while `app.shard_import` is active. It retains
+their original functions and ordinary native behavior, including reciprocal
+creation, counter maintenance and rollback. It updates public and registered
+archives; future archives clone the guarded public triggers. Existing relation
+rows are not inferred disposable or rewritten by this migration.
+
+The two actual import/export cases pass, as do server134, migration12, clean
+archive17 and required-live tenant22. Complete component records and mandatory
+bytes pass comparison against the input and through four pristine installed-Core
+destinations. Original fixture comparison treats omitted optional empty migration
+history as empty; consumer-hop field presence remains exact. This is a runtime
+correction under unchanged schema/profile authority, not publication or released
+qualification. Other partial-selection/owner-change cases, note-count/lifecycle
+effects, native validators, concurrency and the original Lane B gates remain.
+
+The candidate SKOS correction preserves independent schemes, concepts and
+collections. Child omission requires selection of both the child component and
+its owning root: concepts own labels, notes, mappings, scheme memberships and
+outgoing semantic relations; notes own assignments; SKOS collections own members.
+Reference endpoints confer no omission authority. Incoming UUID identities and
+complete composite keys are excluded from cleanup before in-place upserts.
+Explicit wipe remains separate. The fixed seven consumer archive triples in
+`tests/fixtures/shards/external/react-native-skos-retained-2026-09-11` pass native
+reference, repeat, edit, skip, rollback and omission checks; an additional mixed
+ownership test preserves independent roots and incoming references.
+
+The initial three bootstrap/count regressions are corrected by forward migration
+`20260911020000_skos_scheme_bootstrap_custody.sql` and explicit initializer custody.
+Only a freshly executed public seed migration or an archive initializer/repair
+that actually inserts a default scheme may record its tenant-qualified identity.
+Existing default/system/unused rows are never backfilled as disposable. Edits,
+imported updates and scheme references adopt live ownership transactionally;
+deleting the last reference does not recreate custody. Export excludes untouched
+scaffolding, but includes referenced schemes and every unmarked live identity.
+Replacement locks conflicting roots, disposes only recorded unused scaffolding,
+and rejects an unselected live identity conflict in apply and read-only preview.
+Selected roots may exchange notation/URI keys without remapping identities.
+Native references, payloads and rollback survive the exchange.
+
+In-place collection updates exposed a further timestamp-trigger regression.
+Forward migration `20260911020100_restore_skos_collection_timestamp_guard.sql`
+preserves source timestamps only in restore context, retaining the original
+function identity and normal native edit behavior. No applied migration was
+rewritten. The former native-count test now asserts that untouched scaffolding
+survives unchanged in the database; exact wire counts, identities and timestamps
+remain checked separately, not relaxed to accept extra exported roots.
+
+Current local server shard132, migration11, clean archive17 and required-live
+tenant22 checks pass. Eight actual producer exports, including a natively edited
+default scheme, pass16 pristine installed-consumer destinations. The live default
+also crosses the real server export/import handlers into a clean server archive
+with its original UUID and all component/byte contents intact. These results do
+not qualify all partial-selection/native-writer/concurrency cases, released
+artifacts or every platform. The wire schema/profile is unchanged; publication,
+consumer pins and full original Lane B delivery remain open. Preserve custody
+records during rollback planning; reverting to blanket root deletion or rewriting
+applied migrations is not a supported rollback. Suite NO-GO remains.
+
+Graph sources and community sets are independent roots. A graph source
+reference does not make every referencing set part of that source's replacement
+selection. A complete graph-family declaration is not authorization to delete
+all destination graph roots. Replace reconciles edges of selected sources and
+members/assignments of selected sets; retained roots and unrelated roots survive.
+Skip retains children of skipped source/set owners; a new independent set may
+reference an existing source. Merge remains the existing add-missing-records
+strategy, distinct from skip. Empty selected families do not imply a wipe.
+Destructive swap retains its separately explicit wipe policy.
+
+Retained graph edges update by their complete source/from/to/kind primary key;
+community assignments update by set/note. Selected-owner omission cleanup excludes
+those incoming keys before native upserts, preserving references and creation
+metadata. Opaque source/set/community IDs remain case-sensitive. Incoming
+assignments move before omitted nested communities are deleted. A remaining native
+assignment to an omitted community rejects the operation instead of cascading;
+when assignments are not selected, read-only planning checks the same conflict
+before apply. This does not simulate arbitrary external FK or trigger failures in
+dry-run, reserve concurrent state, or widen selection ownership.
+
+The fixed `tests/fixtures/shards/external/react-native-relationships-2026-09-11`
+corpus is copied byte-for-byte from consumer #424's clean-installed checks.
+Its five input/replacement/omission triples cover note/URL link controls, retained
+graph edges, assignments and movement. Real native importer checks protect
+references, detect reached deferred-commit rollback, and retain native export
+values. These local checks do not publish the corpus or qualify released/platform
+support; shared publication, consumer pins and delivery remain required. No wire
+schema, profile or migration changes are introduced by this correction.
+
+The skip apply plan resolves existing selected note, revision, concept and SKOS
+collection owners inside the import transaction, after any explicit wipe. Owned
+history, outgoing links, embeddings/memberships, concept children and provenance
+records are skipped with those owners even when the child ID is new. Reference
+endpoints alone do not transfer ownership: new templates and graph/community
+roots may reference existing collections or notes. Merge retains its distinct
+add-missing behavior. The complete original archive remains the validation and
+manifest authority; owner filtering changes only the internal apply selection
+and its skipped counts, without copying or rewriting an authority bundle.
+
+Schema-2 note/history presence and collection snapshot counts are updated only
+for notes/collections actually applied. Skip does not reset embedding-family
+presence flags. Exact HTTP snapshots cover every archive-local native table plus
+the shared embedding-config and job tables, including direct presence fields,
+timestamps, derived columns, partial/empty selections and late rollback. The
+changed-child fixture and positive independent-root fixture are deterministic
+test variants of the pinned released React archive; consumer qualification of
+those variants remains a separate gate.
+
+The unreleased graph apply correction and its transaction-level tests exercise
+these rules, including repeated omissions, retained-set reparenting, dry-run and
+late-failure rollback. The public HTTP regression additionally exposed retained
+note deletion cascading unrelated graph edges and assignments. Ordinary restore
+now updates retained notes and attachments in place, preserving incoming graph
+references, links and local note grants. It explicitly reconciles selected-note
+tags and attachment omissions. Outgoing links belong to their source notes;
+replacement removes omitted outgoing links only when those notes and the links
+component are selected, without deleting incoming links or retained link IDs.
+
+The local HTTP test covers dry-run, skip, repeated replacement, unrelated native
+rows, attachment identity/refcounts and late-failure rollback. It does not qualify
+released/authenticated artifacts or the complete cross-family preservation matrix.
+Replacement revision-history identity, provenance/SKOS ownership, omitted
+embedding/history families, the complete partial-selection matrix and shared
+consumer fixtures/receipts still require
+reconciliation before delivery. No release or widened compatibility claim follows
+from this unreleased regression work.
+
+Schema-2 configuration declarations now live in the archive-local
+`shard_embedding_config_declaration` identity relation. Configuration values
+remain in the shared live `embedding_config` registry, not a copied component
+snapshot. Export includes explicitly declared roots plus configurations required
+by included embedding sets. Future archives start without explicit config roots;
+native configuration writes declare the identity in their active schema, while
+ordinary shared-registry API writes use the public schema. Imported existing
+identities are explicitly declared even for skip/merge without overwriting their
+values under those strategies. The legacy global presence flag is not reset by
+shard import and no longer controls schema-2 configuration export.
+
+Migration20260910010000 preserves currently visible config roots in public and
+every existing archive; it does not infer bootstrap ownership from user rows or
+recover declarations lost before upgrade. The identity relation uses forced
+tenant RLS and a tenant-qualified shared-config FK. Native-write and declaration
+updates share a transaction; deleted configurations cascade their declarations.
+The build now tracks the migrations directory so a newly added migration cannot
+be omitted from a cached binary. Roll back failed imports transactionally and
+retain pre-upgrade data; deployed migration corrections are forward changes,
+not edits to applied migration history.
+
+This removes one cross-archive presence mutation, not every shared-registry
+hazard. Shard replacement now compares typed PostgreSQL configuration values,
+locks existing identities, and rejects differing values declared or referenced
+by another registered archive (including public). Identical reuse is accepted;
+sole-owner changes remain allowed. Dry-run performs the same conflict check.
+The guard covers live set references even without a shard declaration and does
+not grant permission to rewrite shared roots merely because they were selected.
+Concurrent first creation, archive DDL/native registry writer races and the
+authenticated route remain separate qualification requirements.
+Membership replacement no longer globally resets member presence. Omission
+cleanup requires the member component and both endpoint scopes: the note and
+set must each be explicitly selected. A set declaration can be a dependency of
+a note-scoped export, not a complete list of that shared set's memberships.
+Retained coordinates update in place; excluded-note/selected-set and
+selected-note/excluded-set memberships survive. Missing or empty endpoint
+selection grants no omission authority. Referenced notes are not deleted.
+This corrects the earlier unreleased #1147 single-set ownership interpretation
+and React #424's single-note cleanup. No wire/profile change or data migration
+is introduced; producer/consumer fixture publication and exact released-runtime
+qualification remain required. Explicit destructive wipe is separate.
+Vector omission follows the same two-sided selection: both non-null note and set
+must be selected. Null endpoints remain independent, and either excluded endpoint
+prevents deletion. Retained vector IDs update in place, preserving external and
+native token references. Changed incoming coordinates temporarily use a null set
+inside the transaction, then receive final values by identity; immediate native
+uniqueness remains enforced and unselected coordinate occupants cannot be removed
+to resolve a collision. No migration or wire tuple change is introduced. React
+#424 preserves native member vector pointers that are absent from the wire
+record. Omission of a still-referenced vector rejects in that consumer. Complete
+dry-run alternate-key equivalence, concurrency, shared fixture publication and
+released/platform qualification remain open.
+Ordinary replacement now uses the same live alternate-coordinate guard for
+dry-run and actual apply. Existing incoming IDs may vacate coordinates, and
+omittable selected-owner rows may release them; unselected occupants reject with
+the same fixed validation error. Actual apply locks existing selected IDs and
+coordinate occupants in ID order before checking. READ ONLY tests prove that
+preview does not stage or delete rows. This is not first-insert/native-writer
+concurrency proof, arbitrary-trigger/reference preview, or explicit-wipe preview.
+
+Forward migration20260911010000 corrects native set statistics on same-tenant
+vector reparenting. Both old and new non-null set coordinates are refreshed;
+null-set transitions refresh the departed/arrived set. Trigger tables are
+qualified by TG_TABLE_SCHEMA and counts are tenant-scoped, preserving sibling
+schemas even when a qualified archive write uses the public search path.
+Existing trigger function identity is retained; fresh and existing archive
+triggers use the correction. It does not backfill historical snapshot counts.
+Selected declared sets still restore their source snapshot after dependent apply.
+This supersedes the no-migration statement for this additional native correction,
+not the unchanged wire/profile tuple. Same-note cross-set/null-set import,
+repeat, dry-run and failed-import rollback are checked. Broader consumer omission
+fixtures and released qualification remain separate acceptance work.
+The additional note-owner correction preserves native note-owned token rows,
+IDs, payloads, owners and timestamps. Ordinary apply clears only token.chunk_id
+pointers whose token.note_id differs from the incoming vector's note, including
+a null incoming note. It does not move another note's tokens, delete referenced
+token identities, or fabricate a replacement chunk association. Matching pointers
+survive. Detached pointers are not reconstructed from absent wire fields on later
+imports; native token generation can establish new associations independently.
+Dry-run does not detach and failed apply restores pointers transactionally.
+React #424 applies the same independent-note rule to member.embedding_id and
+marks virtual materializations referencing vectors with changed note/set owners
+stale, so existing live selectors reevaluate their criteria. This is not general
+cache invalidation: newly matching uncached vectors, arbitrary native writers,
+content/model changes and complete worker/released/platform coverage remain open.
+These native adjuncts are not new shard fields. No schema/profile tuple or new
+migration is introduced by this additional correction; suite NO-GO remains.
+The external `react-native-membership-2026-09-10` corpus binds identical fixed
+input/replacement/expected bytes used by clean-installed Core and PostgreSQL
+tests. Local retained-reference, rollback, repeat and clean-destination membership
+checks pass; these do not establish all-component or released-runtime parity.
+Set presence is no longer reset globally. `shard_embedding_set_bootstrap` records
+identity-only creation custody for fresh archive seeds and repair-created seeds.
+The migration runner records a public seed only when that invocation actually
+creates it in an empty database. The additive migration does not infer custody
+for existing rows, even exact-looking Default/system rows. A failed or interrupted
+initial migration that loses creation custody must preserve the unmarked seed,
+not reconstruct deletion authority from its current shape.
+
+Ordinary set edits, auto-memberships and embedding/attachment/coarse references
+adopt bootstrap sets as live state. Transaction-local restore context suppresses
+native auto-membership generation and implicit adoption during validated apply;
+explicit imported set/member/embedding declarations adopt their parent identity.
+The context is not an authorization boundary and never persists past the
+transaction. Replacement hides only recorded bootstrap identities without live
+embedding references. Name/slug collisions may retire only those recorded unused
+bootstrap identities; collisions with unselected native/unmarked identities fail,
+including dry-run. Selected embedding-set IDs and potential name/slug conflicts
+are locked together in identity order before custody checks. Selected IDs may
+exchange names/slugs or free a key for a new selected identity. Immediate unique
+constraints are satisfied using transaction-local temporary keys on changed
+selected rows, followed by in-place upserts; retained IDs and external references
+are never deleted to accomplish a rename. Dry-run checks the batch without
+staging keys. Any staging collision or later apply failure rolls back the import.
+HTTP partial-selection/skip/repeat and duplicate-key rejection plus internal
+three-way cycles, independent name/slug permutations, new-identity key reuse and
+late-failure rollback are tested. The local HTTP harness injects archive context;
+it does not qualify authenticated routing or arbitrary concurrent writers.
+Migration20260910020100 preserves the native tombstone trigger predicate alongside
+the restore-context check; already applied custody migration history is unchanged.
+
+The custody table has forced tenant RLS and a tenant-qualified parent FK. Native
+adoption and failed imports roll back with their transaction. Existing-state
+export preservation, native CRUD after restore, populated upgrade, fresh creation
+and repair custody have distinct test scopes. These do not qualify arbitrary
+concurrent native writers, public-archive authenticated import, or published
+consumer/platform matrices.
+
+Explicit wipe clears the target archive's configuration declarations, never the
+shared `embedding_config` registry. A target-only declaration is removed from
+export even though its native shared value remains available to other archives.
+The same shared-value conflict guard applies after wipe: selecting destructive
+replacement does not authorize changing another archive's live configuration.
+Internal tests cover repeated wipe, dry-run, sibling native/export preservation,
+conflicting-value rejection and whole-database rollback after a late template
+failure. The on-disk reader with swap's production regeneration option preserves
+existing jobs and adds only target-schema jobs. This is not authenticated HTTP
+swap or background-worker execution qualification; public-schema, concurrent and
+released/platform matrices remain separate gates.
+
+Existing-state/clean-destination,
+upgrade/native-writer and cross-archive matrices remain separately required.
+Consumer replacement
+of community assignments must use the independent set-owner rule above, not treat
+every referencing note as authorization to replace an unrelated set's members.
+
+This is a runtime preservation correction under existing profile invariants, not
+a schema/profile version change. Immutable authority bundles and historical
+receipts remain unchanged. Fortemi owns the shared fixtures and policy; native
+PGlite acceptance is linked through Fortemi/fortemi-react#424. RecordStore's
+record-v1 does not carry graph components; AIWG and HotM wire production/consumption
+retain their existing schemas. Producer/consumer runtime receipts and release
+pins must be reconciled before widening the current named-profile claim.
+
+History and provenance now update retained identities in place. Original-history
+omission cleanup requires explicitly applied note owners and the history component;
+revision omission cleanup additionally waits until retained current pointers,
+activities and provenance records have been applied. A child-only or empty child
+selection does not implicitly select its note owner. Existing current pointers
+to retained revisions are not cleared by revision-only import. Omitted revisions
+with retained activity references or unselected current pointers reject the apply
+transaction instead of cascading or leaving live records dangling.
+
+Provenance edges belong to selected revisions, not their source-note reference.
+Activities belong to selected note owners. Unified records reconcile under
+explicitly selected note/attachment owners, excluding retained record IDs so
+reparented records survive. Activity omission cleanup follows unified-record apply;
+an activity still referenced by retained provenance rejects the transaction.
+Named locations, provenance locations and devices are independent roots: ordinary
+replacement never globally deletes them. Existing references retain their identity
+and are not nulled by delete/reinsert behavior. Explicit wipe remains separate.
+
+Forward migrations20260910030000 and20260910030100 suppress automatic original
+history snapshots and original/revision/location edit stamping only while the
+transaction-local `app.shard_import` context is on. Native trigger predicates and
+behavior outside restore remain intact. The first migration was already applied
+before timestamp-trigger regressions were found; the second is a forward fix,
+not a rewrite of applied history. Restore context is not an authorization boundary.
+
+Local PostgreSQL regressions cover retained RESTRICT references, partial and
+repeat restore, native edits after restore, independently owned provenance,
+selected-owner omissions, retained activity reparenting before revision deletion,
+empty history, and exact late-cleanup rollback. These checks do not qualify every
+alternate-key coordinate exchange, concurrent writer, authenticated/public route,
+or published consumer/platform matrix. Ordinary replace dry-run projects the
+post-import activity/revision references without executing writes or triggers.
+It accounts for selected-owner omissions, incoming reference changes and attachment
+cascades, then reports the same retained-reference conflicts as actual cleanup.
+Full and partial selections, unrelated current pointers, incoming activity moves,
+and execution inside a PostgreSQL read-only transaction are tested. Actual apply
+still rechecks references after its writes; preview does not reserve future state
+or qualify concurrent writers, arbitrary trigger errors or explicit-wipe preview.
+Consumer original-history/unified-record delete/reinsert and retained-revision
+edge omission behavior still require alignment with this authority.
 
 A conformant round trip preserves, subject only to a declared migration:
 

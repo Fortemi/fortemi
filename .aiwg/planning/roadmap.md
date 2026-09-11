@@ -7,6 +7,16 @@
 
 ## How to use this document
 
+- 2026-09-11 Lane B #1147 delivery checkpoint: scoped replacement, retained
+  identity, native-trigger and writer-coordination fixes are entering direct
+  source delivery from basec4ef3767. Cycle20 source-bound server150/migration18/
+  archive17/required-live tenant24 and28exports/56clean consumers pass. React's
+  coordinated native candidate3739827 is in PR445 with exact-head CI58325 still
+  running. This is not closure of #1147/#424, phase completion or released
+  compatibility. Full Lane B acceptance, shared fixtures/pins, authenticated/
+  worker/platform/released qualification and cleanup/release sweep remain open;
+  suite NO-GO remains. Routine closeout releases have no calendar schedule gate.
+
 - The [September execution addendum](backlog-execution-2026-09.md) and [complete server issue register](backlog-2026-09.csv) are the current selection and closure baseline. They reconcile the historical phase narrative below without discarding its recorded product decisions.
 
 - The approved [release cadence](release-cadence-2026-09.md) adds weekly triage, fortnightly stable opportunities beginning September 17, and monthly suite compatibility review. [#1143](https://git.integrolabs.net/Fortemi/fortemi/issues/1143) owns process rollout and first-cycle evidence. Cadence dates do not replace phase prerequisites or create phase completion estimates.

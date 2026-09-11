@@ -1,0 +1,89 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-10T21:50:56Z",
+    "description": "Unreleased explicit wipe isolates local declarations and preserves sibling shared configuration values"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+    "type": "code",
+    "created_at": "2026-09-10T21:50:56Z",
+    "checksum": "sha256:0926739fc73e93a84912ad4eb3776eba22dbc57c31278a59715441f307a44dcf",
+    "attributes": {
+      "producer_issue": "Fortemi/fortemi#1147",
+      "consumer_issue": "Fortemi/fortemi-react#424",
+      "base_revision": "c4ef37675f5637af76001570ef620e80ca1f9304",
+      "artifacts": {
+        "crates/matric-api/src/main.rs": "sha256:0926739fc73e93a84912ad4eb3776eba22dbc57c31278a59715441f307a44dcf",
+        "crates/matric-db/src/notes.rs": "sha256:66ad2e5cf2aeb76da69770797709ded0cb6a9d9aedec46af3dcc972f230b52cb",
+        "crates/matric-db/build.rs": "sha256:1385a3e637b290f4ad5cc91891a6ef24f95391dd514457cd67102f19da13158f",
+        "crates/matric-db/src/tenancy.rs": "sha256:646be73108892ac85b7d61badca81bc982aaa4d407f4fe8b1d7bf2fe764f79d5",
+        "crates/matric-db/src/tests/migration_repair_tests.rs": "sha256:ea12a8d0f4e684ce2b9aa1ee08773497234a903e5250dc203b7b52efefb49472",
+        "crates/matric-db/tests/tenant_isolation_matrix_test.rs": "sha256:8de8de05b728369db0f4aed319b990b3025ee0ece1ae7670444d57c339063485",
+        "migrations/20260910010000_archive_shard_config_declarations.sql": "sha256:48b84eeda8a585ca5d3d95198ab3364a94935fb086279f10d20953bf76bb1540",
+        "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md": "sha256:410c6b8e287e3aaed60d3bfcac03604aa7a5f7248c096fe3a480cbd82e148c3e",
+        "docs/architecture/backup-system-design.md": "sha256:317f6fadd0b85675f0b8956c4a929abafb734746a038e954733bab790c6340d6",
+        "CHANGELOG.md": "sha256:714a438d06434773da9e57a64404db7e668e3e82d561f7ab84b47317d3a96dc5",
+        "crates/matric-db/src/archives.rs": "sha256:f2df96d1da6cd73974668ce636621f5c4e2c71c4ee9050c30b94a89f6d722649",
+        "crates/matric-db/src/lib.rs": "sha256:9c22de7657ff13cf9d3e8aea11c357fe9821517f5510fccd6e25ed0d887d0c35",
+        "migrations/20260910020000_embedding_set_bootstrap_custody.sql": "sha256:24f583a5e0d13b2e7df60323bee7818fb8d90c34f0dc1cb7135fec4b44deabdb",
+        "migrations/20260910020100_restore_auto_membership_tombstone_guard.sql": "sha256:0a4c4274d046530d6758d855b6144a1ec4eaf9ecd27d54e8b08dd4b973fc1296"
+      },
+      "verification": {
+        "shard_tests": "108 passed, 0 failed, 52.32s",
+        "focused_test": "1 passed, 0 failed, 2.90s",
+        "clippy": "API+DB all targets -D warnings passed, 14.50s",
+        "format_and_diff": "passed"
+      },
+      "limitations": [
+        "Suite NO-GO; unreleased local 2.0.0/full-v1 evidence only",
+        "Authenticated HTTP swap and actual background-worker execution not qualified by internal File reader and queued-job assertions",
+        "Coordinated selected-ID name swaps, shared-config first-creation/native-writer/DDL concurrency and fresh-public import/export pending",
+        "Remaining history/provenance/SKOS/embedding omission semantics and shared published fixture/pin matrices incomplete",
+        "Installed/released consumer/platform qualification and all original Lane B acceptance and cleanup/release sweep pending"
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:lane-b-1147-wipe-isolation",
+    "type": "modification",
+    "started_at": "2026-09-10T21:36:00Z",
+    "ended_at": "2026-09-10T21:50:56Z",
+    "description": "Reproduce shared-registry wipe failure; clear archive-local declarations; verify sibling native/export preservation, repeat/dry-run/conflict/late-failure rollback and on-disk production-option target-only job scoping"
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+      "activity": "urn:aiwg:activity:lane-b-1147-wipe-isolation",
+      "time": "2026-09-10T21:50:56Z"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:lane-b-1147-wipe-isolation",
+      "agent": "urn:aiwg:agent:codex",
+      "role": "primary_implementer"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+        "source": "urn:gitea:issue:Fortemi/fortemi:1147",
+        "derivation_type": "implements",
+        "activity": "urn:aiwg:activity:lane-b-1147-wipe-isolation"
+      },
+      {
+        "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+        "source": "urn:aiwg:artifact:crates/matric-api/src/main.rs:sha256:333eed51ad48d5846c54e5836aefc4fbe06e2aba3d329837947f9e15ddc0fd60",
+        "derivation_type": "extends",
+        "activity": "urn:aiwg:activity:lane-b-1147-wipe-isolation"
+      }
+    ]
+  }
+}

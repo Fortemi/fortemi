@@ -844,6 +844,34 @@ async fn test_clone_archive_schema() {
         "Clone should preserve semantic relations after both concepts exist"
     );
 
+    let mut guard_rows = Vec::new();
+    for schema in [&source.schema_name, &clone.schema_name] {
+        let rows: Vec<Uuid> = sqlx::query_scalar(&format!(
+            "SELECT tenant_id FROM {schema}.skos_relation_write_guard ORDER BY tenant_id"
+        ))
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert!(
+            !rows.is_empty(),
+            "native concept/relation writes create coordination"
+        );
+        guard_rows.push(rows);
+        let guards: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_trigger WHERE tgrelid=to_regclass($1)
+             AND tgname IN ('aaa_skos_serialize_concept_writes','trg_skos_validate_concept_status_final_state')",
+        )
+        .bind(format!("{schema}.skos_concept"))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(guards, 2, "cloned concepts retain both native guards");
+    }
+    assert_eq!(
+        guard_rows[0], guard_rows[1],
+        "clone retains tenant-only logical guard values"
+    );
+
     // Cleanup
     let _ = db.archives.drop_archive_schema(&source_name).await;
     let _ = db.archives.drop_archive_schema(&clone_name).await;

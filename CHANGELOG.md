@@ -7,6 +7,148 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+### In Progress
+
+- Preserve retained concept URI and scheme/notation swaps during partial SKOS
+  replacement (#1147). Preview rejects collisions with unselected live identities;
+  apply coordinates writers before row locks and vacates only changed nullable
+  keys before upsert. IDs, replacement references and unselected children remain.
+  Both wire orders, repeat, Skip/Merge, deferred rollback and independent-owner
+  rejection pass. Native note-tag promotion also enforces final breadth. No schema
+  or migration changes; full Lane B acceptance and release gates remain open.
+  Explicit full-wipe preview ignores concept coordinate owners that apply removes;
+  ordinary replacement still rejects those unselected identities.
+- Enforce the 200-approved-child SKOS limit when a concept status changes without
+  a relation write (#1147). Concept-only preview includes retained unselected
+  relations; final snapshot restoration excludes skipped/merged conflicts.
+  Forward migration208 shares tenant/archive writer coordination and validates
+  final status, permitting balanced batch swaps. Native/import rejection and
+  48 mixed-writer isolation/context/order/commit combinations pass. Full Lane B
+  acceptance, released qualification and delivery remain open.
+  Archive clone tolerates only the tenant-only coordination row created by its
+  own concept writes; ordinary data-table conflicts and native guards stay strict.
+- Prevent concurrent relation-only imports from jointly exceeding SKOS parent
+  limits or creating cycles (#1147). Add tenant/archive-scoped writer coordination
+  with forced RLS and unchanged logical values. Deterministic actual import races,
+  three isolation levels, rollback and independent tenant/archive controls pass.
+  Non-relation writers, partial status changes and full Lane B release gates remain.
+- Apply valid multi-edge SKOS restore batches without intermediate cycle or
+  capacity rejection (#1147). Keep ordinary immediate guards and add unconditional
+  deferred final-state constraints, preserving retained IDs and references.
+  Both wire orders, repeat, read-only preview, deferred rollback and invalid final
+  commits are tested. Concurrent writers and full Lane B release gates remain open.
+- Reject prospective broader cycles and descendant depth overflow during shard
+  restore and native relation writes (#1147). A forward migration preserves
+  function bindings and parent limits while validating bounded actual graph
+  traversal; read-only preview/apply use the projected final graph. Rejection,
+  native controls, retained single-edge reparenting, repeat and deferred rollback
+  tests pass without rewriting unselected snapshots. Multi-edge ordering,
+  narrower-only semantics, concurrency and full Lane B release gates remain open.
+- Preserve retained SKOS relation replay at the native three-parent and
+  200-approved-child limits (#1147). A forward migration keeps function identities
+  and legitimate bounds, counting only the resulting retained/incoming edge.
+  Add shared read-only cardinality planning so over-limit imports reject in both
+  preview and apply. Retained references, native updates, approved/candidate
+  capacity, skip/merge, repeat and deferred rollback tests pass. Recursive hierarchy,
+  reparenting/concurrency and full Lane B acceptance/release gates remain open.
+- Preserve unselected original/history/current/provenance state during schema-2
+  partial-note restore (#1147). Stop authoring revisions on replay and hiding
+  existing unselected revision declarations. Reject flat-content conflicts with
+  unselected declared rich snapshots in preview/apply; explicit rich selection
+  and flat-only edits remain supported. Notes-only, note/tag omission, empty
+  content, skip/merge, repeat and deferred rollback regressions pass. No schema,
+  applied migration or historical state is rewritten. Full Lane B acceptance,
+  shared publication/pins, CI and released qualification remain open.
+- Preserve unselected SKOS concept lifecycle/count/timestamp snapshots when
+  restoring note-owned assignments (#1147). A forward migration guards tagging
+  authoring effects only during restore, retaining normal native candidate
+  promotion and function identity. Actual insertion/omission, deferred rollback,
+  repeat and independent-reference regressions pass. Full original acceptance,
+  shared publication/pins and released qualification remain open.
+  The cycle13 consumer run exposed a partial-note revision-visibility failure:
+  exported provenance references omitted revisions. Eleven scenarios pass and
+  one failed before consumer import. The subsequent correction above preserves
+  the original failed artifact and does not relax consumer validation.
+- Prevent native SKOS relation authoring triggers from generating undeclared
+  reciprocal identities or rewriting unselected concept snapshots during shard
+  restore (#1147). A forward migration preserves original native trigger functions
+  and authoring behavior. Two reproduced handler regressions pass; server134,
+  migration12, clean archive17/tenant22 and two cross-runtime scenarios pass.
+  Full original acceptance, publication/pins and released qualification remain.
+- Scope SKOS child omission to selected owners and retain incoming primary keys
+  and independent taxonomy roots (#1147), using21 fixed consumer archives and
+  native retained-reference/mixed-ownership tests. Add explicit bootstrap scheme
+  custody and native adoption with forward migrations, preserving existing live
+  defaults and exact source collection timestamps. Live identity conflicts reject
+  in preview/apply; selected scheme notation/URI swaps retain references. Server132,
+  migration11, clean archive17/tenant22 and eight producer-to-consumer scenarios
+  pass. Full original acceptance, publication and release qualification remain.
+- Preserve retained graph-edge and community-assignment primary keys and native
+  references during scoped `full-v1` replacement (#1147). Move assignments before
+  omitted nested communities; reject remaining assignments instead of cascading.
+  Match community-only omission planning and apply for unselected assignments.
+  Add the fixed consumer relationship corpus and real native rollback/export
+  regressions. No schema or migration change; released qualification remains open.
+- Restrict `full-v1` graph replacement to selected-owner children and preserve
+  independent graph/community roots (#1147). Retained notes and attachments now
+  update in place, preserving unrelated graph references, incoming links and
+  note grants. Reconcile selected tags, attachment omissions and outgoing links
+  explicitly. Broader cross-family ownership and released-artifact qualification
+  remain incomplete; this work is not release-ready.
+- Preserve skipped owners' history, presence flags and descendants even when
+  incoming child IDs are new (#1147). Keep independent new roots usable with
+  existing reference endpoints; restrict note/collection presence writes to
+  applied records. Cross-family replacement and released registry qualification
+  remain unfinished.
+- Separate schema-2 configuration root declarations from the shared live registry
+  (#1147). Preserve sibling archive rows/exports during replacement, backfill
+  existing visible roots and track native writes transactionally. Keep forced
+  tenant RLS and tenant-qualified references on the identity relation. Track new
+  migration files in Cargo builds. Reject changed config values used by other
+  archives without rejecting identical reuse or sole-owner updates. Concurrency
+  qualification remains in progress.
+- Reconcile omitted embedding memberships only when both their note and set are
+  selected, preserving retained coordinates and either excluded endpoint (#1147).
+  Broader replacement and released-artifact gates remain open.
+- Preserve retained vector IDs and token references; reconcile vector omissions
+  only for selected non-null note-and-set pairs. Support transactional retained
+  coordinate swaps without deleting alternate-key occupants (#1147). Null and
+  excluded endpoints remain independent. Preview/concurrency/release gates remain.
+- Preserve note-owned token identities/payloads during vector note changes,
+  detaching only invalid optional chunk pointers transactionally (#1147).
+- Reject unselected vector-coordinate occupants consistently in read-only preview
+  and ordinary replacement; allow selected IDs to vacate coordinates (#1147).
+  Refresh old/new set statistics during vector reparenting through a forward,
+  schema/tenant-qualified trigger correction. Note-owner changes, complete
+  preview/concurrency coverage and released qualification remain in progress.
+- Replace global set visibility cleanup with explicit bootstrap creation custody
+  (#1147). Preserve native/unmarked defaults and reject their name/slug collisions;
+  native edits/references adopt live ownership. Track fresh and repair-created
+  seeds without inferring existing user ownership. Transactional restore suppresses
+  native auto-membership generation and explicitly adopts declared set parents.
+  Concurrency, authenticated/public-archive and released/platform gates remain open.
+- Scope explicit shard wipe to archive-local configuration declarations, preserving
+  shared native configuration values (#1147). Repeated wipe, conflict rejection,
+  dry-run and late-failure rollback preserve sibling state. The internal on-disk
+  reader with production regeneration options queues only target-schema jobs;
+  authenticated swap, actual workers and released/platform qualification remain open.
+- Allow selected embedding-set identities to exchange names/slugs and vacate keys
+  for new selected identities without deleting retained sets or their references
+  (#1147). Lock and validate the batch before transactional key staging; reject
+  unselected live collisions. Cycle, partial-selection, skip, repeat, duplicate
+  preflight and late-rollback checks pass locally. Authenticated/concurrent and
+  published consumer qualification remain open.
+- Preserve retained original-history, revision and provenance identities in place
+  (#1147). Scope omissions to explicitly selected owners and defer revision cleanup
+  until retained provenance has moved. Reject dangling live-reference deletions.
+  Preserve independent spatial provenance roots and their references. Forward
+  trigger guards prevent restore from synthesizing history or stamping source
+  timestamps/edit flags, while keeping ordinary native edit behavior. Consumer,
+  alternate-key and released/platform gates remain open. Ordinary replacement
+  dry-run now projects incoming reference changes and selected-owner omissions
+  without writes, rejecting retained activity/revision references consistently
+  with apply. Concurrent-writer and explicit-wipe preview qualification is separate.
+
 ## [2026.9.9] - 2026-09-09
 
 Corrective release carrying the OpenBao provider and tenant-isolation fixes prepared in 2026.9.8.

@@ -402,6 +402,8 @@ impl Database {
                 .map(|migration| migration.version)
                 .collect();
             let mut repaired_legacy_archives = false;
+            let mut newly_created_bootstrap = None;
+            let mut newly_created_skos_bootstrap = None;
 
             for migration in migrator.iter() {
                 if migration.migration_type.is_down_migration() {
@@ -416,6 +418,44 @@ impl Database {
                         repaired_legacy_archives = true;
                     }
                     conn.apply(migration).await?;
+                    // Capture custody only when this runner actually creates the
+                    // seed in an empty database, never from pre-existing rows.
+                    if migration.version == 20260117000001 {
+                        newly_created_bootstrap = sqlx::query_scalar::<_, uuid::Uuid>(
+                            "SELECT id FROM public.embedding_set WHERE slug = 'default'
+                             AND NOT EXISTS (SELECT 1 FROM public.note)",
+                        )
+                        .fetch_optional(&mut *conn)
+                        .await?;
+                    }
+                    if migration.version == 20260910020000 {
+                        if let Some(set_id) = newly_created_bootstrap {
+                            sqlx::query(
+                                "INSERT INTO public.shard_embedding_set_bootstrap (tenant_id, set_id)
+                                 SELECT tenant_id, id FROM public.embedding_set WHERE id = $1
+                                   AND NOT EXISTS (SELECT 1 FROM public.note)",
+                            )
+                            .bind(set_id)
+                            .execute(&mut *conn)
+                            .await?;
+                        }
+                    }
+                    if migration.version == 20260118000001 {
+                        newly_created_skos_bootstrap = sqlx::query_scalar::<_, uuid::Uuid>(
+                            "SELECT id FROM public.skos_concept_scheme WHERE notation = 'default'",
+                        ).fetch_optional(&mut *conn).await?;
+                    }
+                    if migration.version == 20260911020000 {
+                        if let Some(scheme_id) = newly_created_skos_bootstrap {
+                            sqlx::query(
+                                "INSERT INTO public.shard_skos_scheme_bootstrap (tenant_id, scheme_id)
+                                 SELECT tenant_id, id FROM public.skos_concept_scheme WHERE id = $1
+                                   AND NOT EXISTS (SELECT 1 FROM public.skos_concept WHERE primary_scheme_id = $1)
+                                   AND NOT EXISTS (SELECT 1 FROM public.skos_concept_in_scheme WHERE scheme_id = $1)
+                                   AND NOT EXISTS (SELECT 1 FROM public.skos_collection WHERE scheme_id = $1)",
+                            ).bind(scheme_id).execute(&mut *conn).await?;
+                        }
+                    }
                 }
             }
 
