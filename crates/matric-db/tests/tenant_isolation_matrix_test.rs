@@ -877,6 +877,141 @@ async fn shard_skos_custody_enforces_tenant_visibility_and_native_adoption() {
 }
 
 #[tokio::test]
+async fn auto_membership_is_tenant_scoped_with_and_without_rls_bypass() {
+    let Some(database) = setup().await else {
+        return;
+    };
+    let (tenant_a, tenant_b) = two_tenants(&database).await;
+    for (pool, bypasses_rls) in [(&database.admin, true), (&database.runtime, false)] {
+        for tenant in [Uuid::nil(), tenant_a] {
+            let mut tx = pool.begin().await.unwrap();
+            sqlx::query("SELECT set_config('app.current_tenant', $1, true)")
+                .bind(tenant_b.to_string())
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            let foreign_set = Uuid::new_v4();
+            sqlx::query("INSERT INTO embedding_set (id,name,slug) VALUES ($1,$2,$2)")
+                .bind(foreign_set)
+                .bind(format!("foreign-auto-{foreign_set}"))
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            let foreign_note = Uuid::new_v4();
+            sqlx::query("SELECT set_config('app.shard_import','on',true)")
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO note (id,format,source,created_at_utc,updated_at_utc) VALUES ($1,'markdown','foreign-auto-test',NOW(),NOW())")
+                .bind(foreign_note).execute(&mut *tx).await.unwrap();
+            sqlx::query("SELECT set_config('app.shard_import','off',true)")
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            sqlx::query("SELECT set_config('app.current_tenant', $1, true)")
+                .bind(tenant.to_string())
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            let own_set = Uuid::new_v4();
+            sqlx::query("INSERT INTO embedding_set (id,name,slug) VALUES ($1,$2,$2)")
+                .bind(own_set)
+                .bind(format!("own-auto-{own_set}"))
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            sqlx::query("INSERT INTO shard_embedding_set_bootstrap (set_id) VALUES ($1)")
+                .bind(own_set)
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            let note = Uuid::new_v4();
+            sqlx::query(
+                "INSERT INTO note (id,format,source,created_at_utc,updated_at_utc) VALUES ($1,'markdown','auto-membership-test',NOW(),NOW())",
+            )
+            .bind(note)
+            .execute(&mut *tx)
+            .await
+            .expect("foreign auto sets must not break native note creation");
+            let members: Vec<(Uuid, Uuid, String)> = sqlx::query_as(
+                "SELECT embedding_set_id,tenant_id,membership_type::text FROM embedding_set_member WHERE note_id=$1 AND embedding_set_id=ANY($2) ORDER BY embedding_set_id",
+            )
+            .bind(note)
+            .bind(vec![own_set, foreign_set])
+            .fetch_all(&mut *tx)
+            .await
+            .unwrap();
+            assert_eq!(members, vec![(own_set, tenant, "auto".to_string())]);
+            let custody: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM shard_embedding_set_bootstrap WHERE set_id=$1",
+            )
+            .bind(own_set)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+            assert_eq!(custody, 0, "native membership adopts its own set");
+            let matches: bool = sqlx::query_scalar("SELECT evaluate_note_for_embedding_set($1,$2)")
+                .bind(note)
+                .bind(foreign_set)
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+            assert!(
+                !matches,
+                "criteria evaluation must reject cross-tenant pairs"
+            );
+            let foreign_visible: bool = sqlx::query_scalar(
+                "SELECT public.evaluate_note_for_embedding_set_scoped('public',$1,$2,$3)",
+            )
+            .bind(tenant_b)
+            .bind(foreign_note)
+            .bind(foreign_set)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+            assert_eq!(
+                foreign_visible, bypasses_rls,
+                "explicit scope must not grant RLS bypass"
+            );
+            sqlx::query("SAVEPOINT reject_foreign_membership")
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            let denied = sqlx::query("INSERT INTO embedding_set_member (embedding_set_id,note_id,membership_type) VALUES ($1,$2,'manual')")
+                .bind(foreign_set).bind(note).execute(&mut *tx).await.unwrap_err();
+            assert_eq!(
+                denied.as_database_error().unwrap().code().as_deref(),
+                Some("23503")
+            );
+            sqlx::query("ROLLBACK TO SAVEPOINT reject_foreign_membership")
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+
+            for importing in [false, true] {
+                sqlx::query("SELECT set_config('app.shard_import', $1, true)")
+                    .bind(if importing { "on" } else { "off" })
+                    .execute(&mut *tx)
+                    .await
+                    .unwrap();
+                let suppressed = Uuid::new_v4();
+                sqlx::query("INSERT INTO note (id,format,source,created_at_utc,updated_at_utc,deleted_at) VALUES ($1,'markdown','auto-membership-test',NOW(),NOW(), CASE WHEN $2 THEN NULL ELSE NOW() END)")
+                    .bind(suppressed).bind(importing).execute(&mut *tx).await.unwrap();
+                let count: i64 = sqlx::query_scalar(
+                    "SELECT count(*) FROM embedding_set_member WHERE note_id=$1",
+                )
+                .bind(suppressed)
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+                assert_eq!(count, 0, "imports and tombstones suppress auto membership");
+            }
+            tx.rollback().await.unwrap();
+        }
+    }
+}
+
+#[tokio::test]
 async fn shard_bootstrap_custody_enforces_tenant_visibility_and_native_adoption() {
     let Some(database) = setup().await else {
         return;

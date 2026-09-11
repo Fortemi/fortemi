@@ -21,6 +21,246 @@ async fn setup_test_db() -> PgPool {
 }
 
 #[tokio::test]
+async fn auto_membership_uses_archive_criteria_and_owning_schema() {
+    let _archive_schema_guard = ARCHIVE_SCHEMA_TEST_LOCK.lock().await;
+    let pool = setup_test_db().await;
+    let db = Database::new(pool.clone());
+    let name = format!("auto-membership-{}", Uuid::new_v4());
+    let archive = db
+        .archives
+        .create_archive_schema(&name, None)
+        .await
+        .unwrap();
+    let schema = archive.schema_name;
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.shard_import','on',true)")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let note = Uuid::new_v4();
+    let collection = Uuid::new_v4();
+    // The same note identity in public has different content and no archive tags.
+    sqlx::query("INSERT INTO public.note (id,format,source,created_at_utc,updated_at_utc) VALUES ($1,'markdown','auto-membership-test','2026-09-01Z','2026-09-01Z')")
+        .bind(note).execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO public.note_revised_current (note_id,content) VALUES ($1,'public unrelated text')")
+        .bind(note).execute(&mut *tx).await.unwrap();
+    sqlx::query(&format!("SET LOCAL search_path TO {schema}, public"))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO collection (id,name,created_at_utc) VALUES ($1,$2,NOW())")
+        .bind(collection)
+        .bind(format!("criteria-{collection}"))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO note (id,format,source,collection_id,created_at_utc,updated_at_utc) VALUES ($1,'markdown','auto-membership-test',$2,'2026-09-01Z','2026-09-01Z')")
+        .bind(note).bind(collection).execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO note_revised_current (note_id,content) VALUES ($1,'archive membership criterion')")
+        .bind(note).execute(&mut *tx).await.unwrap();
+    sqlx::query("INSERT INTO tag (name,created_at_utc) VALUES ('research/tenant',NOW())")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO note_tag (note_id,tag_name) VALUES ($1,'research/tenant')")
+        .bind(note)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    let cases = vec![
+        (serde_json::json!({}), "auto", true, true, true),
+        (
+            serde_json::json!({"tags":["RESEARCH"]}),
+            "mixed",
+            true,
+            true,
+            true,
+        ),
+        (
+            serde_json::json!({"tags":["missing"]}),
+            "auto",
+            true,
+            true,
+            false,
+        ),
+        (
+            serde_json::json!({"collections":[collection]}),
+            "auto",
+            true,
+            true,
+            true,
+        ),
+        (
+            serde_json::json!({"collections":[Uuid::new_v4()]}),
+            "auto",
+            true,
+            true,
+            false,
+        ),
+        (
+            serde_json::json!({"fts_query":"criterion"}),
+            "auto",
+            true,
+            true,
+            true,
+        ),
+        (
+            serde_json::json!({"fts_query":"unrelated"}),
+            "auto",
+            true,
+            true,
+            false,
+        ),
+        (
+            serde_json::json!({"created_after":"2026-08-31T00:00:00Z","created_before":"2026-09-02T00:00:00Z"}),
+            "auto",
+            true,
+            true,
+            true,
+        ),
+        (
+            serde_json::json!({"created_after":"2026-09-01T00:00:00Z"}),
+            "auto",
+            true,
+            true,
+            false,
+        ),
+        (
+            serde_json::json!({"created_before":"2026-09-01T00:00:00Z"}),
+            "auto",
+            true,
+            true,
+            false,
+        ),
+        (
+            serde_json::json!({"include_all":true,"tags":["missing"]}),
+            "auto",
+            true,
+            true,
+            true,
+        ),
+        (
+            serde_json::json!({"exclude_archived":true}),
+            "auto",
+            true,
+            true,
+            true,
+        ),
+        (serde_json::json!({}), "manual", true, true, false),
+        (serde_json::json!({}), "auto", false, true, false),
+        (serde_json::json!({}), "auto", true, false, false),
+    ];
+    let mut expected = Vec::new();
+    let mut all_sets = Vec::new();
+    for (criteria, mode, active, refresh, matches) in cases {
+        let set = Uuid::new_v4();
+        sqlx::query("INSERT INTO embedding_set (id,name,slug,criteria,mode,is_active,auto_refresh) VALUES ($1,$2,$2,$3,$4::embedding_set_mode,$5,$6)")
+            .bind(set).bind(format!("criteria-{set}")).bind(&criteria).bind(mode)
+            .bind(active).bind(refresh).execute(&mut *tx).await.unwrap();
+        sqlx::query("INSERT INTO shard_embedding_set_bootstrap (set_id) VALUES ($1)")
+            .bind(set)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let evaluated: bool =
+            sqlx::query_scalar("SELECT public.evaluate_note_for_embedding_set($1,$2)")
+                .bind(note)
+                .bind(set)
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+        assert_eq!(
+            evaluated,
+            matches || !refresh,
+            "criteria={criteria}, mode={mode}"
+        );
+        all_sets.push(set);
+        if matches {
+            expected.push(set);
+        }
+    }
+    expected.sort();
+    sqlx::query("SET LOCAL search_path TO public")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("SELECT set_config('app.shard_import','off',true)")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    for _ in 0..2 {
+        sqlx::query(&format!(
+            "UPDATE {schema}.note SET source='native-auto-membership' WHERE id=$1"
+        ))
+        .bind(note)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        let actual: Vec<Uuid> = sqlx::query_scalar(&format!("SELECT embedding_set_id FROM {schema}.embedding_set_member WHERE note_id=$1 AND embedding_set_id=ANY($2) ORDER BY embedding_set_id"))
+            .bind(note).bind(&all_sets).fetch_all(&mut *tx).await.unwrap();
+        assert_eq!(
+            actual, expected,
+            "qualified archive writes use archive criteria and converge"
+        );
+    }
+    let public_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM public.embedding_set_member WHERE note_id=$1")
+            .bind(note)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(
+        public_count, 0,
+        "archive auto membership must not target public"
+    );
+    let adopted: Vec<Uuid> = sqlx::query_scalar(&format!("SELECT s.id FROM {schema}.embedding_set s WHERE s.id=ANY($1) AND NOT EXISTS (SELECT 1 FROM {schema}.shard_embedding_set_bootstrap b WHERE b.set_id=s.id) ORDER BY s.id"))
+        .bind(&all_sets).fetch_all(&mut *tx).await.unwrap();
+    assert_eq!(
+        adopted, expected,
+        "only matched sets acquire native custody"
+    );
+    sqlx::query("SELECT set_config('app.shard_import','on',true)")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query(&format!(
+        "UPDATE {schema}.note SET archived=true, collection_id=NULL WHERE id=$1"
+    ))
+    .bind(note)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(&format!("SET LOCAL search_path TO {schema}, public"))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let set = Uuid::new_v4();
+    for criteria in [
+        serde_json::json!({"include_all":true,"exclude_archived":true}),
+        serde_json::json!({"collections":[collection]}),
+        serde_json::json!({"tags":["research"],"fts_query":"unrelated"}),
+    ] {
+        sqlx::query("INSERT INTO embedding_set (id,name,slug,criteria) VALUES ($1,$2,$2,$3) ON CONFLICT (id) DO UPDATE SET criteria=EXCLUDED.criteria")
+            .bind(set).bind(format!("excluded-{set}")).bind(criteria)
+            .execute(&mut *tx).await.unwrap();
+        let matches: bool =
+            sqlx::query_scalar("SELECT public.evaluate_note_for_embedding_set($1,$2)")
+                .bind(note)
+                .bind(set)
+                .fetch_one(&mut *tx)
+                .await
+                .unwrap();
+        assert!(
+            !matches,
+            "archive exclusion, null collections and AND criteria reject"
+        );
+    }
+    tx.rollback().await.unwrap();
+    db.archives.drop_archive_schema(&name).await.unwrap();
+}
+
+#[tokio::test]
 async fn test_create_archive_schema() {
     let _archive_schema_guard = ARCHIVE_SCHEMA_TEST_LOCK.lock().await;
     let pool = setup_test_db().await;
@@ -699,16 +939,21 @@ async fn test_clone_archive_schema() {
     .await
     .expect("Failed to resolve source default embedding set");
 
-    sqlx::query(&format!(
-        "INSERT INTO {}.embedding_set_member (embedding_set_id, note_id, membership_type)
-         VALUES ($1, $2, 'explicit')",
+    let promoted = sqlx::query(&format!(
+        "UPDATE {}.embedding_set_member SET membership_type='explicit'
+         WHERE embedding_set_id=$1 AND note_id=$2 AND membership_type='auto'",
         source.schema_name
     ))
     .bind(source_embedding_set_id)
     .bind(note_id)
     .execute(&pool)
     .await
-    .expect("Failed to seed source embedding-set membership");
+    .expect("Failed to promote source automatic membership");
+    assert_eq!(
+        promoted.rows_affected(),
+        1,
+        "native note creation must enroll the source default set"
+    );
 
     // Seed a cyclic-capable SKOS graph. The semantic edge table sorts before
     // skos_concept alphabetically, so this proves clone-time FK deferral copies

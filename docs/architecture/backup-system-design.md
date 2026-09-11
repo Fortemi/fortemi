@@ -1,5 +1,21 @@
 # Backup System Architecture Design
 
+Native auto membership uses the triggering note's schema and tenant for set
+selection, criteria evaluation and inserted membership. Migration209 replaces
+the public trigger function used by public and archive tables, including future
+archives cloned from public. A shared invoker-privilege evaluator preserves tag,
+collection, FTS, date, include-all and archive-exclusion rules without changing
+the caller's search path or granting access to another tenant. Cross-tenant
+composite FKs and FORCE RLS remain mandatory. No existing rows are backfilled.
+
+Qualified archive note writes now enroll matching sets instead of silently
+consulting public. Matching native memberships adopt only their own bootstrap
+sets; imported notes and tombstones still suppress enrollment. The clone test
+promotes an asserted automatic source membership to explicit membership before
+copying it, retaining strict clone data-conflict behavior. This runtime fix does
+not change shard wire/profile authority or qualify unreleased artifacts. Full
+Lane B acceptance, exact-head CI and the cleanup/release sweep remain; NO-GO.
+
 Cycle20 stages changed nullable concept URI and scheme/notation coordinates before
 retained-ID replacement. Preview/apply reject a coordinate owned by an unselected
 live concept; selected concepts may exchange coordinates without deleting IDs or

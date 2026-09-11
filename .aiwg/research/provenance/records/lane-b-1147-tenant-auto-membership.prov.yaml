@@ -1,0 +1,85 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-11T12:28:08.574Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:migrations/20260911020900_tenant_scoped_auto_membership.sql",
+    "type": "code",
+    "created_at": "2026-09-11T12:28:08.574Z",
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "migrations/20260911020900_tenant_scoped_auto_membership.sql",
+          "sha256": "101f3b7aede7c3b043c85dbac2e6a724e4cc66a3dc48c78d74caf9e48adb87a1"
+        },
+        {
+          "path": "crates/matric-db/tests/tenant_isolation_matrix_test.rs",
+          "sha256": "a6a3dd2de4cad393934f476f7c9989ef872d30e1564b4e96bc493b87cb0df9d9"
+        },
+        {
+          "path": "crates/matric-db/tests/archive_schema_test.rs",
+          "sha256": "6acebfa0f90ad3e93b3a0872bbc6aafea5002284fb9972fd3f4ee2c3ad1eee17"
+        },
+        {
+          "path": "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md",
+          "sha256": "1623c605419410fdd0af18d9d75f9d484afb009a6e4135660b980278a110191b"
+        },
+        {
+          "path": "docs/architecture/backup-system-design.md",
+          "sha256": "e3f27ec9594e61930900a787644052032dbf62b387241ff94c114658bfd30931"
+        },
+        {
+          "path": "docs/content/test-infrastructure.md",
+          "sha256": "06358fbf7809f2e54231ba5771b96f2e37c30b9f773becafa0f79a70cca0f5aa"
+        },
+        {
+          "path": ".aiwg/planning/roadmap.md",
+          "sha256": "ad50956661a2277471e5da526af910fe6367ab14205434e77993b84004c0ff8b"
+        }
+      ],
+      "boundaries": [
+        "Forward migration209; applied migrations and wire/profile authorities unchanged",
+        "Personal/hosted and privileged/runtime tenant regression; archive criteria and qualified-DML checks",
+        "Fresh local migration18/worker18/workspace API1051/asset lifecycle PASS; tenant25/archive18; DB Clippy/fmt PASS",
+        "Exact-head remote CI and released qualification remain; full original Lane B scope and suite NO-GO preserved"
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:modification:lane-b-1147-tenant-auto-membership:001",
+    "type": "modification",
+    "started_at": "2026-09-11T12:08:00Z",
+    "ended_at": "2026-09-11T12:28:08.574Z",
+    "description": "Scope native automatic membership and criteria to the note tenant/schema without bypassing RLS or changing restore suppression."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "name": "Codex",
+    "type": "ai_assistant"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:migrations/20260911020900_tenant_scoped_auto_membership.sql",
+      "activity": "urn:aiwg:activity:modification:lane-b-1147-tenant-auto-membership:001",
+      "time": "2026-09-11T12:28:08.574Z"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:migrations/20260911020900_tenant_scoped_auto_membership.sql",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:modification:lane-b-1147-tenant-auto-membership:001",
+      "agent": "urn:aiwg:agent:codex",
+      "role": "primary_implementer"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:migrations/20260911020900_tenant_scoped_auto_membership.sql",
+        "source": "urn:gitea:issue:Fortemi/fortemi:1147",
+        "derivation_type": "implements",
+        "activity": "urn:aiwg:activity:modification:lane-b-1147-tenant-auto-membership:001"
+      }
+    ]
+  }
+}

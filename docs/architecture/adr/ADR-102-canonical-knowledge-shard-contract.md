@@ -8,6 +8,23 @@
 
 ## Context
 
+### Tenant-Scoped Native Auto Membership (#1147, 2026-09-11)
+
+Migration209 corrects native auto-membership selection after tenant bootstrap
+fixtures exposed a cross-tenant insert under the CI superuser. Candidate sets,
+criteria lookups and membership writes now use the note's tenant and triggering
+schema explicitly. The existing two-argument SQL evaluator delegates to the
+same schema/tenant-aware helper; both functions retain caller privileges and RLS.
+Archive writes no longer silently miss their own sets when the caller's search
+path is public. Native matching still adopts bootstrap custody; tombstones and
+validated shard import continue suppressing automatic membership.
+
+This forward migration replaces functions without rewriting applied migrations,
+backfilling membership or modifying portable records. No authority tuple,
+profile, fixture or consumer format change is required. The runtime correction
+needs its own exact-source CI and released producer/consumer qualification;
+historical matrix receipts do not prove it. Suite NO-GO remains in force.
+
 ### Lane B Runtime Correction Delivery (#1147, 2026-09-11)
 
 The cycle20 correction candidate preserves scoped replacement ownership and

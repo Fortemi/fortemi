@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-09-11T11:18:00Z"
+  updated_at: "2026-09-11T12:28:08.574Z"
 records:
+  - entity: "urn:aiwg:artifact:migrations/20260911020900_tenant_scoped_auto_membership.sql"
+    record: "records/lane-b-1147-tenant-auto-membership.prov.yaml"
   - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
     record: "records/lane-b-1147-ci-observer.prov.yaml"
   - entity: "urn:aiwg:artifact:crates/matric-db/examples/ci_database_bootstrap.rs"

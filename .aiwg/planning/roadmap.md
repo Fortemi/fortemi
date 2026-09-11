@@ -7,6 +7,21 @@
 
 ## How to use this document
 
+- 2026-09-11 Lane B cycle28: exact CI asset failure reproduced after a passing
+  workspace run. Native auto membership considered another tenant's active set
+  under the CI superuser and failed its tenant FK. Migration209 scopes candidate
+  selection, criteria and writes to the note's tenant/schema without relaxing RLS,
+  FK, tombstone or import guards. The focused regression is RED before the fix;
+  required-live tenant25/archive18/migration18 and post-tenant blob tests pass.
+  Fresh local CI bootstrap/refusal, worker18, full workspace (API1051), and
+  the previously failing asset-lifecycle sequence pass; DB Clippy/fmt pass.
+  Exact-head remote CI and signed delivery remain required.
+  HotM desktop58376/Tauri58380 now pass; release remains pending. React58368's
+  unit-job deadline remains unresolved. No wire/profile change or expanded
+  receipt claim; full original Lane B acceptance and release sweep stay open.
+  Suite NO-GO. The named roadmap skill remains unavailable through discovery;
+  architecture-evolution and address-issues guide this continuation.
+
 - 2026-09-11 Lane B cycle26: CI58351 passed the migration bootstrap but failed
   one of1050 API tests at the SKOS waiting-writer observation. An isolated
   three-connection probe reproduced a stale transaction activity snapshot;

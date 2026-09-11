@@ -64,6 +64,23 @@ preserves the complete ledger and seeded-default ownership records. It does not
 create or remove databases. It is not a production upgrade command; production
 backup/recovery prerequisites and migration-history validation remain mandatory.
 
+### Tenant Fixtures And Repeated Asset Gates
+
+The serialized workspace tenant matrix can leave an active auto-refresh set for
+a hosted tenant. The later asset-lifecycle gate repeats blob tests using the
+personal synthetic tenant on a privileged CI connection. Migration209 prevents
+that connection from selecting foreign sets; the composite tenant FK remains
+the rejection boundary. Do not delete the hosted fixture or disable tenant
+guards to make the later gate pass.
+
+Required-live tenant tests cover personal/hosted writes with and without RLS
+bypass, matching membership ownership, bootstrap adoption, forbidden references,
+invoker privileges and import/tombstone suppression. Archive tests cover qualified
+writes with a public search path, matching/nonmatching criteria, repeat writes
+and unchanged public membership. Run the full workspace before the existing
+`scripts/ci/verify-asset-lifecycle-system-receipt.sh` gate to retain the CI-order
+regression. A local dirty-worktree receipt is not clean-checkout release evidence.
+
 ### Concurrent Writer Observation
 
 The SKOS import race tests hold a controller transaction while observing worker
