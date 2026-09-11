@@ -143,15 +143,15 @@ jobs:
 
       - name: Run migrations
         run: |
+          set -euo pipefail
           DB_CONTAINER="matric-fast-db-${GITHUB_RUN_ID}"
           # Ensure extensions exist (matric is superuser in testdb image; init-extensions.sh handles this
           # on first boot, but these are a safety net for containers with pre-existing data volumes)
           docker exec ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS vector;"
           docker exec ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS postgis;"
-          for f in migrations/*.sql; do
-            echo "Running migration: $f"
-            docker exec -i ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 < "$f"
-          done
+          export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
+          FORTEMI_CI_DISPOSABLE_DATABASE=1 cargo run --locked -p matric-db \
+            --features migrations --example ci_database_bootstrap
 
       - name: Run fast tests
         run: |
@@ -233,15 +233,15 @@ jobs:
 
       - name: Run migrations
         run: |
+          set -euo pipefail
           DB_CONTAINER="matric-test-db-${GITHUB_RUN_ID}"
           # Ensure extensions exist (matric is superuser in testdb image; init-extensions.sh handles this
           # on first boot, but these are a safety net for containers with pre-existing data volumes)
           docker exec ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS vector;"
           docker exec ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS postgis;"
-          for f in migrations/*.sql; do
-            echo "Running migration: $f"
-            docker exec -i ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 < "$f"
-          done
+          export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
+          FORTEMI_CI_DISPOSABLE_DATABASE=1 cargo run --locked -p matric-db \
+            --features migrations --example ci_database_bootstrap
 
       - name: Run worker integration tests (serial, first)
         run: |
@@ -337,9 +337,9 @@ jobs:
           # Ensure extensions exist (matric is superuser in testdb image)
           docker exec ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS vector;"
           docker exec ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS postgis;"
-          for f in migrations/*.sql; do
-            docker exec -i ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 < "$f"
-          done
+          export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
+          FORTEMI_CI_DISPOSABLE_DATABASE=1 cargo run --locked -p matric-db \
+            --features migrations --example ci_database_bootstrap
 
       - name: Install llvm-cov
         run: |
@@ -486,15 +486,15 @@ jobs:
 
       - name: Run migrations
         run: |
+          set -euo pipefail
           DB_CONTAINER="matric-slow-db-${GITHUB_RUN_ID}"
           # Ensure extensions exist (matric is superuser in testdb image; init-extensions.sh handles this
           # on first boot, but these are a safety net for containers with pre-existing data volumes)
           docker exec ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS vector;"
           docker exec ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS postgis;"
-          for f in migrations/*.sql; do
-            echo "Running migration: $f"
-            docker exec -i ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 < "$f"
-          done
+          export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
+          FORTEMI_CI_DISPOSABLE_DATABASE=1 cargo run --locked -p matric-db \
+            --features migrations --example ci_database_bootstrap
 
       - name: Run slow/ignored tests
         run: |

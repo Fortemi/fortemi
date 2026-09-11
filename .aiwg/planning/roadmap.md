@@ -7,6 +7,18 @@
 
 ## How to use this document
 
+- 2026-09-11 Lane B CI bootstrap follow-up: producer2ae13de1 is on main, but
+  CI58329 failed because raw SQL initialization omitted the SQLx ledger. An
+  isolated reproduction applied154 migrations successfully, then failed on
+  initial-schema replay. Main and downstream CI now use the actual migration
+  runner with fresh-only designation, complete checksum validation and repeat
+  ledger/default-ownership checks. Local workspace checks (including API1050),
+  migration18, worker18, fresh/repeat/refusal guards and Clippy pass on titan.
+  Exact-head CI and downstream qualification remain required. React PR445 is
+  at9c72a7b with all eight CI58340 jobs passing, awaiting verified merge. This is
+  neither issue/phase closure nor released compatibility; full Lane B acceptance,
+  shared fixtures/pins and cleanup/release sweep remain open. Suite NO-GO.
+
 - 2026-09-11 Lane B #1147 delivery checkpoint: scoped replacement, retained
   identity, native-trigger and writer-coordination fixes are entering direct
   source delivery from basec4ef3767. Cycle20 source-bound server150/migration18/

@@ -43,6 +43,27 @@ cargo test --workspace -- --ignored
 cargo test test_name --package matric-db
 ```
 
+### Disposable CI Database Bootstrap
+
+The main builder and downstream fast, integration, coverage and slow jobs use
+the same `Database::migrate()` runner as server startup. Applying SQL files
+directly does not create the SQLx checksum ledger or record ownership of newly
+seeded defaults; later migration calls would replay the initial schema.
+
+With `DATABASE_URL` set to a newly created disposable PostgreSQL database that
+has the required extensions, the CI initialization gate is:
+
+```bash
+FORTEMI_CI_DISPOSABLE_DATABASE=1 cargo run --locked -p matric-db \
+  --features migrations --example ci_database_bootstrap
+```
+
+The gate refuses databases with existing application tables, checks every applied
+migration checksum and success flag, and verifies that a second migration call
+preserves the complete ledger and seeded-default ownership records. It does not
+create or remove databases. It is not a production upgrade command; production
+backup/recovery prerequisites and migration-history validation remain mandatory.
+
 ## Architecture
 
 ### Components

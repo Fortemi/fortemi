@@ -1,0 +1,80 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-11T10:35:00Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:crates/matric-db/examples/ci_database_bootstrap.rs",
+    "type": "code",
+    "created_at": "2026-09-11T10:35:00Z",
+    "attributes": {
+      "artifacts": [
+        {
+          "path": ".gitea/workflows/ci-builder.yaml",
+          "sha256": "3ad1f678428363480be5693aefd65ccb71645798aa8e3fa04f496c944d14ce70"
+        },
+        {
+          "path": ".gitea/workflows/test.yml",
+          "sha256": "fcb9883e67468745fb3f6fd1be5d5bf13bca1c4278705fc39ffcd06d39cf1d24"
+        },
+        {
+          "path": "crates/matric-db/Cargo.toml",
+          "sha256": "244d3d9803f8e82117daeb79c490a6b0c025f970a7b14633e04ba931a486d5a3"
+        },
+        {
+          "path": "crates/matric-db/examples/ci_database_bootstrap.rs",
+          "sha256": "cae9c0bbda4acc1d7168659aa250cb0458a27b487c3e7af816ded3b2de6b6546"
+        },
+        {
+          "path": "docs/content/test-infrastructure.md",
+          "sha256": "07220e2b26360c03f03aece4080cfaa2bbb6a6f7c5c42602b03367b60b51e052"
+        },
+        {
+          "path": ".aiwg/planning/roadmap.md",
+          "sha256": "a2b9c5136dd1399e77e6e2daa5547b8f993b3ce997861be76d6c02d91c7f24f9"
+        }
+      ],
+      "boundaries": [
+        "CI bootstrap only; no runtime, migration, schema or profile change",
+        "Actual migration runner and complete repeated ledger/default-custody checks",
+        "Suite NO-GO; full original Lane B acceptance and release sweep remain open"
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:modification:lane-b-1147-ci-bootstrap:001",
+    "type": "modification",
+    "started_at": "2026-09-11T10:17:00Z",
+    "ended_at": "2026-09-11T10:35:00Z",
+    "description": "Replace raw SQL CI initialization with the real migration runner; validate fresh-only designation, all-schema refusal, complete checksums and repeated seed custody."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "name": "Codex",
+    "type": "ai_assistant"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:crates/matric-db/examples/ci_database_bootstrap.rs",
+      "activity": "urn:aiwg:activity:modification:lane-b-1147-ci-bootstrap:001",
+      "time": "2026-09-11T10:35:00Z"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:crates/matric-db/examples/ci_database_bootstrap.rs",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:modification:lane-b-1147-ci-bootstrap:001",
+      "agent": "urn:aiwg:agent:codex",
+      "role": "primary_implementer"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:crates/matric-db/examples/ci_database_bootstrap.rs",
+        "source": "urn:gitea:issue:Fortemi/fortemi:1147",
+        "derivation_type": "implements",
+        "activity": "urn:aiwg:activity:modification:lane-b-1147-ci-bootstrap:001"
+      }
+    ]
+  }
+}

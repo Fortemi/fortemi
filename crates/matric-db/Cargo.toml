@@ -8,6 +8,10 @@ repository.workspace = true
 authors.workspace = true
 homepage.workspace = true
 
+[[example]]
+name = "ci_database_bootstrap"
+required-features = ["migrations"]
+
 [[test]]
 name = "feb_to_current_migration_gate"
 path = "tests/feb_to_current_migration_gate.rs"

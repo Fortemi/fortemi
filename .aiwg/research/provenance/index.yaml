@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-09-11T09:42:33Z"
+  updated_at: "2026-09-11T10:35:00Z"
 records:
+  - entity: "urn:aiwg:artifact:crates/matric-db/examples/ci_database_bootstrap.rs"
+    record: "records/lane-b-1147-ci-bootstrap.prov.yaml"
   - entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
     record: "records/lane-b-1147-source-delivery.prov.yaml"
   - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"

@@ -652,7 +652,7 @@ jobs:
 
       - name: Run migrations
         run: |
-          set -e
+          set -euo pipefail
           DB_CONTAINER="matric-build-db-${GITHUB_RUN_ID}"
 
           # Ensure extensions exist (matric is superuser in testdb image; init-extensions.sh handles this
@@ -660,14 +660,10 @@ jobs:
           docker exec ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS vector;"
           docker exec ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS postgis;"
 
-          # Run migrations in order
-          for f in migrations/*.sql; do
-            echo "======================================"
-            echo "Running migration: $f"
-            echo "======================================"
-            docker exec -i ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -v ON_ERROR_STOP=1 < "$f"
-            echo "Migration $f completed successfully"
-          done
+          DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
+          export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
+          FORTEMI_CI_DISPOSABLE_DATABASE=1 cargo run --locked -p matric-db \
+            --features migrations --example ci_database_bootstrap
 
           # Verify tables were created
           echo "======================================"
