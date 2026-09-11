@@ -7,6 +7,18 @@
 
 ## How to use this document
 
+- 2026-09-11 Lane B cycle31: CI58437 rejected the2026.9.10 preparation because
+  its committed documentation seed still named2026.9.9. Preserve the failure.
+  Build the canonical hosted-auth API image from d8e791f and regenerate through
+  the real API using the existing scripts. The new1.2.0/core-v1 seed contains all
+  435 tracked source documents from that exact generation revision; content
+  coverage, freshness RED/GREEN and six generator/freshness tests pass. This
+  snapshot remains pinned to d8e791f, not to later execution-status amendments.
+  No runtime, migration, dependency or contract/profile change. React58432/58433
+  and HotM58422 now pass; signed React2026.9.4 and HotM2026.9.5 tags are pushed
+  after exact release-authority checks. Actual publication/mirror and full Lane B
+  acceptance remain separate. New producer correction CI is required; suite NO-GO.
+
 - 2026-09-11 Lane B cycle30: main58399 and comprehensive58416 pass on delivered
   4676d6fa, including the formerly failing asset lifecycle. Native-sidecar dispatch
   is tag-only and correctly skipped main; release-tag downstream execution remains

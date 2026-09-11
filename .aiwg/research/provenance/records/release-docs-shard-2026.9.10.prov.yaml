@@ -1,0 +1,71 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-11T13:49:44.087Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard",
+    "type": "document",
+    "created_at": "2026-09-11T13:49:44.087Z",
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "docker/seed-data/fortemi-docs.shard",
+          "sha256": "db47e04786262966960ff7433809e1f5586fad36ac4346e79d3ca5fa6c6c41af"
+        },
+        {
+          "path": "docker/seed-data/fortemi-docs.shard.receipt.json",
+          "sha256": "5a786ed497576a25d2941b90f812a1bbcdf61c4020aeab8ab14be0ffdd7a6037"
+        },
+        {
+          "path": ".aiwg/planning/roadmap.md",
+          "sha256": "cc07c1fc6da13fc89e39710aa25ede9ae1f4649c1522da09eb820261a6265b6e"
+        }
+      ],
+      "source_commit": "d8e791fabfab74fc81aed68de3d9bc102fac30f9",
+      "image": "lane-b-docs-api-c31:2026.9.10",
+      "image_id": "sha256:aeeef9e580b07ac7701830c83188078377af95e2a39e31f7ac69efb2d39012a2",
+      "boundaries": [
+        "435 tracked documents at generation source d8e791f; subsequent roadmap execution notes are not relabeled as seed inputs",
+        "Actual canonical Dockerfile and API generator;1.2.0/core-v1 documentation seed, not a new contract/profile authority",
+        "Freshness RED/GREEN, exact content coverage435/435 and6 generator/freshness tests PASS; suite NO-GO"
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:generation:release-docs-shard-2026.9.10:001",
+    "type": "generation",
+    "started_at": "2026-09-11T13:42:33.804Z",
+    "ended_at": "2026-09-11T13:49:44.087Z",
+    "description": "Regenerate release documentation seed through the actual source-bound API after CI freshness rejection."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "name": "Codex",
+    "type": "ai_assistant"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard",
+      "activity": "urn:aiwg:activity:generation:release-docs-shard-2026.9.10:001",
+      "time": "2026-09-11T13:49:44.087Z"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:generation:release-docs-shard-2026.9.10:001",
+      "agent": "urn:aiwg:agent:codex",
+      "role": "primary_implementer"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard",
+        "source": "urn:gitea:issue:Fortemi/fortemi:1147",
+        "derivation_type": "implements",
+        "activity": "urn:aiwg:activity:generation:release-docs-shard-2026.9.10:001"
+      }
+    ]
+  }
+}

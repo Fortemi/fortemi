@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-09-11T13:29:10.432Z"
+  updated_at: "2026-09-11T13:49:44.087Z"
 records:
+  - entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard"
+    record: "records/release-docs-shard-2026.9.10.prov.yaml"
   - entity: "urn:aiwg:artifact:docs/releases/v2026.9.10-announcement.md"
     record: "records/release-preparation-2026.9.10.prov.yaml"
   - entity: "urn:aiwg:artifact:migrations/20260911020900_tenant_scoped_auto_membership.sql"
