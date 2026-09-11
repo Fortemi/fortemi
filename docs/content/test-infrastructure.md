@@ -64,6 +64,21 @@ preserves the complete ledger and seeded-default ownership records. It does not
 create or remove databases. It is not a production upgrade command; production
 backup/recovery prerequisites and migration-history validation remain mandatory.
 
+### Concurrent Writer Observation
+
+The SKOS import race tests hold a controller transaction while observing worker
+locks. PostgreSQL caches the `pg_stat_activity` PID inventory within that
+transaction, so a connection opened after its first poll can be absent even
+while `pg_blocking_pids` confirms that it is blocked. The test observer clears
+its statistics snapshot before each activity query. This does not release locks
+or change the production writer-coordination transaction.
+
+`shard_skos_concurrent_observer_refreshes_late_connections` deterministically
+primes the activity snapshot before opening two worker connections. It verifies
+real blocking independently, then checks the shared observer discovers it.
+Both native import race tests still require exactly one successful commit and
+validate final graph constraints, retained rows, rollback and repeat behavior.
+
 ## Architecture
 
 ### Components

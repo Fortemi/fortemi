@@ -7,6 +7,25 @@
 
 ## How to use this document
 
+- 2026-09-11 Lane B cycle26: CI58351 passed the migration bootstrap but failed
+  one of1050 API tests at the SKOS waiting-writer observation. An isolated
+  three-connection probe reproduced a stale transaction activity snapshot;
+  a deterministic Rust regression fails with the original query and passes
+  with a per-poll snapshot refresh. Both native capacity/cycle races pass
+  without changing production locks, migrations or graph assertions. Fresh CI
+  initialization/refusal, migration18, worker18 and serialized workspace checks
+  pass, including API1051. The fresh database was removed after zero connections.
+  The reused diagnostic database's separate hosted-catalog failure is preserved;
+  it is not reproduced in the fresh CI database. Clippy and formatting pass.
+  Exact-head remote CI and signed delivery remain the next delivery gates.
+  React PR445 is merged at9c72a7b. Its main CI58349 has ten5000ms timeouts in
+  three multi-import test groups despite passing portable and browser jobs.
+  React2026.9.4 preparation includes bounded integration budgets and current
+  receipt updates; Core2991 coverage, packed Core verification and browser40pass/
+  2skip pass locally. No release is claimed. Full original Lane B acceptance,
+  exact-source CI, shared fixtures/pins, released qualification and cleanup/
+  release sweep remain open. Suite NO-GO.
+
 - 2026-09-11 Lane B CI bootstrap follow-up: producer2ae13de1 is on main, but
   CI58329 failed because raw SQL initialization omitted the SQLx ledger. An
   isolated reproduction applied154 migrations successfully, then failed on

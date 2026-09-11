@@ -1,0 +1,68 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-11T11:17:49.738Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+    "type": "code",
+    "created_at": "2026-09-11T11:17:49.738Z",
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "crates/matric-api/src/main.rs",
+          "sha256": "e472d696371bd81ef57ef70cf316e195f3ab4291508c362d15e8fad454934e79"
+        },
+        {
+          "path": "docs/content/test-infrastructure.md",
+          "sha256": "5d08cc5ee4fadbbf7e3faac2a256114c65a6d62d5f04fbc033a07988387f2b81"
+        },
+        {
+          "path": ".aiwg/planning/roadmap.md",
+          "sha256": "3504baa330db80b2e26e1fe462be7b46f23982a5ba16f91f64da69f442dafdb6"
+        }
+      ],
+      "boundaries": [
+        "Test observer and deterministic regression only; no production transaction, migration, schema or profile change",
+        "Original observer RED; refreshed observer and two real native import races GREEN; fresh CI API1051/migration18/worker18 PASS",
+        "Suite NO-GO; full original Lane B acceptance and release sweep remain"
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:modification:lane-b-1147-ci-observer:001",
+    "type": "modification",
+    "started_at": "2026-09-11T11:03:00Z",
+    "ended_at": "2026-09-11T11:17:49.738Z",
+    "description": "Refresh test-controller statistics snapshots to observe late worker connections; retain real blocking and final-state assertions."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "name": "Codex",
+    "type": "ai_assistant"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+      "activity": "urn:aiwg:activity:modification:lane-b-1147-ci-observer:001",
+      "time": "2026-09-11T11:17:49.738Z"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:modification:lane-b-1147-ci-observer:001",
+      "agent": "urn:aiwg:agent:codex",
+      "role": "primary_implementer"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:crates/matric-api/src/main.rs",
+        "source": "urn:gitea:issue:Fortemi/fortemi:1147",
+        "derivation_type": "tests",
+        "activity": "urn:aiwg:activity:modification:lane-b-1147-ci-observer:001"
+      }
+    ]
+  }
+}

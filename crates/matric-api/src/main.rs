@@ -65240,6 +65240,95 @@ not-json
         shard_skos_partial_status_case(true).await;
     }
 
+    async fn shard_waiter_has_blocked_writer(
+        controller: &mut sqlx::PgConnection,
+        waiters: &[i32],
+    ) -> bool {
+        // The controller transaction can outlive connections opened by the workers.
+        sqlx::query("SELECT pg_stat_clear_snapshot()")
+            .execute(&mut *controller)
+            .await
+            .unwrap();
+        sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pg_stat_activity
+            WHERE NOT pid=ANY($1::int[]) AND pg_blocking_pids(pid) && $1::int[])",
+        )
+        .bind(waiters)
+        .fetch_one(controller)
+        .await
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn shard_skos_concurrent_observer_refreshes_late_connections() {
+        use sqlx::Connection;
+        let database_url = std::env::var("DATABASE_URL").expect("disposable integration database");
+        let mut controller = sqlx::PgConnection::connect(&database_url).await.unwrap();
+        let mut observer = controller.begin().await.unwrap();
+        // Cache the PID inventory before either worker connects, as a fast poll can.
+        sqlx::query("SELECT count(*) FROM pg_stat_activity")
+            .execute(&mut *observer)
+            .await
+            .unwrap();
+        let gate = (Uuid::new_v4().as_u128() & i64::MAX as u128) as i64;
+        let mut first = sqlx::PgConnection::connect(&database_url).await.unwrap();
+        let first_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut first)
+            .await
+            .unwrap();
+        let mut first_tx = first.begin().await.unwrap();
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(gate)
+            .execute(&mut *first_tx)
+            .await
+            .unwrap();
+        let mut second = sqlx::PgConnection::connect(&database_url).await.unwrap();
+        let second_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut second)
+            .await
+            .unwrap();
+        let mut worker = tokio::spawn(async move {
+            sqlx::query("SELECT pg_advisory_xact_lock($1)")
+                .bind(gate)
+                .execute(&mut second)
+                .await
+                .unwrap();
+            second.close().await.unwrap();
+        });
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+        let mut blocked = false;
+        while tokio::time::Instant::now() < deadline {
+            blocked = sqlx::query_scalar("SELECT $1=ANY(pg_blocking_pids($2))")
+                .bind(first_pid)
+                .bind(second_pid)
+                .fetch_one(&mut *observer)
+                .await
+                .unwrap();
+            if blocked {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        let observed = shard_waiter_has_blocked_writer(&mut observer, &[first_pid]).await;
+        first_tx.rollback().await.unwrap();
+        first.close().await.unwrap();
+        observer.rollback().await.unwrap();
+        controller.close().await.unwrap();
+        match tokio::time::timeout(std::time::Duration::from_secs(10), &mut worker).await {
+            Ok(result) => result.unwrap(),
+            Err(_) => {
+                worker.abort();
+                let _ = worker.await;
+                panic!("observer worker did not finish after gate release");
+            }
+        }
+        assert!(blocked, "late second connection must really wait on first");
+        assert!(
+            observed,
+            "observer must discover a blocked writer connected after its first activity snapshot"
+        );
+    }
+
     async fn shard_skos_concurrent_import_case(cycle: bool) {
         use futures::FutureExt;
         use sha2::Digest;
@@ -65359,9 +65448,7 @@ not-json
                 let waiters: Vec<i32> = sqlx::query_scalar("SELECT pid FROM pg_locks WHERE locktype='advisory'
                     AND classid::bigint=$1 AND objid::bigint=$2 AND objsubid=1 AND NOT granted")
                     .bind(gate >> 32).bind(gate & 0xffff_ffff).fetch_all(&mut *controller).await.unwrap();
-                let serialized: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_stat_activity
-                    WHERE NOT pid=ANY($1::int[]) AND pg_blocking_pids(pid) && $1::int[])")
-                    .bind(&waiters).fetch_one(&mut *controller).await.unwrap();
+                let serialized = shard_waiter_has_blocked_writer(&mut controller, &waiters).await;
                 if waiters.len()==2 || (waiters.len()==1 && serialized) {
                     observed = Some((waiters.len(),serialized));
                     break;
