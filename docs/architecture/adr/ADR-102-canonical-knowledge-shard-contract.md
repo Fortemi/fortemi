@@ -8,6 +8,16 @@
 
 ## Context
 
+### Release 2026.9.10 Preparation (#1145, #1146, #1147)
+
+Main58399 and comprehensive58416 pass at4676d6fa after the runtime corrections
+described below. Release metadata advances to2026.9.10 without changing schema,
+profile or consumer advertisement authority. The coordinated React preparation
+merged in PR446 at9f74c0b after all eight58418 jobs passed. Neither source CI nor
+candidate import receipts substitute for actual published-artifact acceptance.
+The native-sidecar handoff is tag-only; main's skipped dispatch is expected.
+Full Lane B acceptance, required consumer pins and suite NO-GO remain in force.
+
 ### Tenant-Scoped Native Auto Membership (#1147, 2026-09-11)
 
 Migration209 corrects native auto-membership selection after tenant bootstrap

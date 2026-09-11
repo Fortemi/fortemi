@@ -1,0 +1,108 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-11T13:29:10.432Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:docs/releases/v2026.9.10-announcement.md",
+    "type": "document",
+    "created_at": "2026-09-11T13:29:10.432Z",
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "Cargo.toml",
+          "sha256": "d7ad4a5bf90ef7a077153ac6403d190ca1f17ccd22e38b38f866e2f5399fbbd1"
+        },
+        {
+          "path": "Cargo.lock",
+          "sha256": "8959993a83633654dab38be13a5a19c8b137093ee419947481115df21dbce172"
+        },
+        {
+          "path": "mcp-server/package.json",
+          "sha256": "487e66518046ec71087e375f7e4529558d476705cbea70240fc3eb04c68b1f3c"
+        },
+        {
+          "path": "mcp-server/package-lock.json",
+          "sha256": "89f13c5c598be9a2042a2e040ced1a8a020749ad9d0c258cf8fa6664fd54b077"
+        },
+        {
+          "path": "CHANGELOG.md",
+          "sha256": "c909cf4f89199f0d0f5b78a9a2e1fd51e0b73d04f19176b5796dab104b649700"
+        },
+        {
+          "path": "docs/releases/v2026.9.10-announcement.md",
+          "sha256": "6c235726ab4167e5c3dba63a961b24b380e7a3787d960b7f415345ab3ed3e218"
+        },
+        {
+          "path": ".aiwg/reports/doc-sync-audit-release-2026.9.10.md",
+          "sha256": "9213b6f4365bd9d418ab8796e76a87d95c75eccb7f66ee696903ceb6fc938abf"
+        },
+        {
+          "path": ".aiwg/.last-doc-sync",
+          "sha256": "d57194476c79c1e1e20eb71a4cd15858ee75a4973d1aee2bcffb196c1d70e697"
+        },
+        {
+          "path": ".aiwg/planning/roadmap.md",
+          "sha256": "75e0b936763ed49b991bf8c9f0dba8d30fb7f5a085d13937e697cb4b963b146d"
+        },
+        {
+          "path": "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md",
+          "sha256": "6ec2761d3c31dd3fe105908301b78b8f1cd5d3265c15b508cbc37713dde99b6b"
+        }
+      ],
+      "boundaries": [
+        "Release metadata only; runtime, migrations, dependency graph and schema/profile authorities unchanged",
+        "Main58399/comprehensive58416 and pre-version local configured gates PASS at4676d6fa",
+        "New metadata-head CI, publication, consumer pins and full original Lane B acceptance remain; suite NO-GO"
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:modification:release-preparation-2026.9.10:001",
+    "type": "modification",
+    "started_at": "2026-09-11T13:25:00Z",
+    "ended_at": "2026-09-11T13:29:10.432Z",
+    "description": "Prepare bounded Fortemi2026.9.10 release metadata after incremental code-to-docs review."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "name": "Codex",
+    "type": "ai_assistant"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:docs/releases/v2026.9.10-announcement.md",
+      "activity": "urn:aiwg:activity:modification:release-preparation-2026.9.10:001",
+      "time": "2026-09-11T13:29:10.432Z"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:docs/releases/v2026.9.10-announcement.md",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:modification:release-preparation-2026.9.10:001",
+      "agent": "urn:aiwg:agent:codex",
+      "role": "primary_implementer"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:docs/releases/v2026.9.10-announcement.md",
+        "source": "urn:gitea:issue:Fortemi/fortemi:1145",
+        "derivation_type": "implements",
+        "activity": "urn:aiwg:activity:modification:release-preparation-2026.9.10:001"
+      },
+      {
+        "entity": "urn:aiwg:artifact:docs/releases/v2026.9.10-announcement.md",
+        "source": "urn:gitea:issue:Fortemi/fortemi:1146",
+        "derivation_type": "implements",
+        "activity": "urn:aiwg:activity:modification:release-preparation-2026.9.10:001"
+      },
+      {
+        "entity": "urn:aiwg:artifact:docs/releases/v2026.9.10-announcement.md",
+        "source": "urn:gitea:issue:Fortemi/fortemi:1147",
+        "derivation_type": "implements",
+        "activity": "urn:aiwg:activity:modification:release-preparation-2026.9.10:001"
+      }
+    ]
+  }
+}

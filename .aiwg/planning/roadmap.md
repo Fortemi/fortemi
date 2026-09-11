@@ -7,6 +7,20 @@
 
 ## How to use this document
 
+- 2026-09-11 Lane B cycle30: main58399 and comprehensive58416 pass on delivered
+  4676d6fa, including the formerly failing asset lifecycle. Native-sidecar dispatch
+  is tag-only and correctly skipped main; release-tag downstream execution remains
+  required. Configured local release gates pass, including 2557 library tests
+  across seven suites with one existing ignored test. The fresh owned database
+  was removed after zero connections. Prepare 2026.9.10 workspace/MCP versions,
+  curated changelog and release announcement after bounded code-to-docs review.
+  React PR446 merged by roctinam at exact9f74c0b after all eight58418 jobs passed;
+  main58432/docsite58433 and actual release publication remain separate gates.
+  HotM2026.9.5 is prepared; final58422 is still live. No phase or issue closure,
+  schema/profile change, calendar gate or new release claim. Full original Lane B
+  acceptance, required pins, released/runtime/platform qualification and cleanup/
+  release sweep remain. Suite NO-GO; roadmap discovery still lacks the named skill.
+
 - 2026-09-11 Lane B cycle28: exact CI asset failure reproduced after a passing
   workspace run. Native auto membership considered another tenant's active set
   under the CI superuser and failed its tenant FK. Migration209 scopes candidate

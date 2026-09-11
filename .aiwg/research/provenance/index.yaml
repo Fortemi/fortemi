@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-09-11T12:28:08.574Z"
+  updated_at: "2026-09-11T13:29:10.432Z"
 records:
+  - entity: "urn:aiwg:artifact:docs/releases/v2026.9.10-announcement.md"
+    record: "records/release-preparation-2026.9.10.prov.yaml"
   - entity: "urn:aiwg:artifact:migrations/20260911020900_tenant_scoped_auto_membership.sql"
     record: "records/lane-b-1147-tenant-auto-membership.prov.yaml"
   - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
