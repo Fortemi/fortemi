@@ -583,6 +583,8 @@ jobs:
           node --test scripts/ci/verify-dataset-qualification-graph.test.mjs
           node scripts/ci/verify-native-remote-fixture.mjs
           node --test scripts/ci/verify-native-remote-fixture.test.mjs
+          node scripts/ci/verify-remote-negative-receipt.mjs
+          node --test scripts/ci/remote-negative-controls.test.mjs scripts/ci/verify-remote-negative-receipt.test.mjs
           node --test scripts/qualification/*.test.mjs
 
   build:

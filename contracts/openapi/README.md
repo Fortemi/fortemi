@@ -36,3 +36,9 @@ Core2026.9.4 execution and owned-resource cleanup. Its operator403 is explicitly
 not a hosted denied-note result; read the fixture's mode and operation boundaries
 before reusing it. The25/37-case historical captures and generated schema stay
 unchanged.
+
+The producer-owned negative corpus supplies explicitly controlled malformed-body,
+socket reset/truncation, abort and enrichment-error tests against published
+Core2026.9.4 over private loopback. Its31-check receipt is not a live Fortemi
+server run or hosted authorization proof. The executable fixture/receipt gates
+and reproduction boundaries are in [the fixture README](fixtures/README.md).

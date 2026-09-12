@@ -10,6 +10,16 @@
 
 ### Supplemental Native Remote Read Evidence (#1146, 2026-09-12)
 
+Producer-owned `remote-negative-controls.json` supplements that live capture
+with explicitly injected malformed bodies, socket resets/truncation, abort and
+enrichment errors. The31-check/61-request receipt executes clean-installed
+published Core2026.9.4 against a bounded ephemeral loopback fault server, not
+Fortemi. Its operator403 reassignment remains injection rather than actual note
+denial. Corpus, harness and package identities are separately verified; the
+historical native and25/37-case captures remain immutable. Consumer pin/CI,
+remaining live operations and hosted qualification remain separate gates.
+No wire/schema/profile or separate-persistence-plane authority changes follow.
+
 The live REST plane now has a producer-owned native Linux AMD64 capture of
 published Core2026.9.4 against published server2026.9.9:13 checks/86 real HTTP
 calls, exact artifact/script/response digests, and terminal private-resource

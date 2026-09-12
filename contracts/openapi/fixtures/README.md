@@ -1,5 +1,52 @@
 # Remote Adapter Capture
 
+## Controlled Negative Corpus (#1146 / React #421)
+
+`remote-negative-controls.json` is producer-owned **fault injection**, not a
+capture of malformed output from Fortemi. It binds the unchanged native fixture
+below and declares21 controls. `remote-negative-package.receipt.json` records
+31 checks/61 private-loopback requests from a clean offline installation of
+published Core2026.9.4, exact tarball SHA2564a126d59bc18af4fb981d5bdbf19a761402e246b7d85cf3e6445de4eacf92897.
+
+The harness serves historical producer note/enrichment bytes on an ephemeral
+loopback listener, then deliberately injects malformed success bodies, socket
+resets before headers, explicit aborts before headers, truncated response bodies,
+unrecognized/mismatched404 responses and enrichment401/403/404/429/500. Each note
+fault exercises both public reads; each enrichment fault first proves the note
+is independently readable. Typed errors, no-null results, bounded diagnostics,
+request budgets, no automatic retry and listener cleanup are checked. A socket
+failure before headers is `transport`; a failed JSON body read is
+`invalid-response`; deliberate cancellation before headers is `aborted`.
+
+The operator403 is intentionally reassigned to an enrichment path. This does
+not establish real note authorization. These controls supplement the separate
+native live-server evidence and never widen its personal-mode, platform or
+operation qualification. No Fortemi API, database, model or shared service runs
+in this negative harness. Script/helper/corpus/package identities and the
+classification are independently checked by the receipt verifier:
+
+```sh
+node scripts/ci/verify-remote-negative-receipt.mjs
+node --test scripts/ci/remote-negative-controls.test.mjs scripts/ci/verify-remote-negative-receipt.test.mjs
+```
+
+To reproduce the published-package controls, use the reviewed offline Titan
+runner, the exact cached tarball and a **new** output directory:
+
+```sh
+node "$SUITE/.aiwg/testing/scripts/local-test-runner.mjs" start --timeout-seconds 180 -- \
+  node scripts/ci/verify-remote-negative-package.mjs \
+  "$PUBLISHED_CORE_TARBALL" "$NEW_OUTPUT_DIRECTORY" "$NPM_CACHE"
+```
+
+The wrapper fails outside the verified2CPU/8GiB/no-swap private-network/devices
+cgroup. The core harness uses serial cases and a5-second safety deadline per
+case. A deadline is failure, not a passing abort control. The empty installation
+and listeners are removed even on assertion failure. Capture the outer terminal
+unit/cgroup receipt as well; historical cleanup is not current host-state proof.
+Consumer source pins/CI and remaining live-operation/authorization/release gates
+are separate. Suite NO-GO remains unchanged.
+
 `remote-adapter.json` contains actual HTTP request/response pairs captured by
 `scripts/ci/capture-remote-adapter-fixture.mjs` for producer issue #1146 and
 React consumer issues #417 through #421. Runtime identity is the immutable

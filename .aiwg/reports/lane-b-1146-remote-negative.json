@@ -1,0 +1,184 @@
+{
+  "observedAt": "2026-09-12T09:08:00Z",
+  "status": "LOCAL_VERIFIED_CI_PENDING",
+  "baseCommit": "912c0636a6d2273e5663a977e0182bfe874c3bd3",
+  "issues": [
+    "https://git.integrolabs.net/Fortemi/fortemi/issues/1146",
+    "https://git.integrolabs.net/Fortemi/fortemi-react/issues/421"
+  ],
+  "classification": "producer-owned-controlled-fault-injection",
+  "controls": 21,
+  "publishedPackageChecks": 31,
+  "privateLoopbackRequests": 61,
+  "verifierTests": 54,
+  "packageVersion": "2026.9.4",
+  "packageSha256": "4a126d59bc18af4fb981d5bdbf19a761402e246b7d85cf3e6445de4eacf92897",
+  "fixtureSha256": "264e6b23f76405586ad62c4705b08829b58ea240a91d890caf735f091c5ba094",
+  "jobs": [
+    {
+      "unit": "fortemi-local-test-1000-f77ac754-7f56-499a-bfe1-09d2aa1bc8f0.service",
+      "terminal": {
+        "unit": "fortemi-local-test-1000-f77ac754-7f56-499a-bfe1-09d2aa1bc8f0.service",
+        "observedAt": "2026-09-12T09:02:00.711Z",
+        "LoadState": "loaded",
+        "ActiveState": "inactive",
+        "SubState": "dead",
+        "RuntimeMaxUSec": "3min",
+        "Result": "success",
+        "ExecMainCode": "1",
+        "ExecMainStatus": "0",
+        "ControlGroup": "/system.slice/fortemi-local-test-1000-f77ac754-7f56-499a-bfe1-09d2aa1bc8f0.service",
+        "MemoryPeak": "63975424",
+        "CPUUsageNSec": "358874000",
+        "CPUQuotaPerSecUSec": "2s",
+        "MemoryHigh": "6442450944",
+        "MemoryMax": "8589934592",
+        "MemorySwapMax": "0",
+        "TasksMax": "256",
+        "exitCode": "exited",
+        "exitStatus": "0",
+        "finishedAt": "2026-09-12T09:02:00.711Z"
+      },
+      "cgroupAbsent": true
+    },
+    {
+      "unit": "fortemi-local-test-1000-a5770271-c5c0-446b-9d1a-41b407e86315.service",
+      "terminal": {
+        "unit": "fortemi-local-test-1000-a5770271-c5c0-446b-9d1a-41b407e86315.service",
+        "observedAt": "2026-09-12T09:02:25.584Z",
+        "LoadState": "loaded",
+        "ActiveState": "inactive",
+        "SubState": "dead",
+        "RuntimeMaxUSec": "3min",
+        "Result": "success",
+        "ExecMainCode": "1",
+        "ExecMainStatus": "0",
+        "ControlGroup": "/system.slice/fortemi-local-test-1000-a5770271-c5c0-446b-9d1a-41b407e86315.service",
+        "MemoryPeak": "319963136",
+        "CPUUsageNSec": "1160353000",
+        "CPUQuotaPerSecUSec": "2s",
+        "MemoryHigh": "6442450944",
+        "MemoryMax": "8589934592",
+        "MemorySwapMax": "0",
+        "TasksMax": "256",
+        "exitCode": "exited",
+        "exitStatus": "0",
+        "finishedAt": "2026-09-12T09:02:25.584Z"
+      },
+      "cgroupAbsent": true
+    },
+    {
+      "unit": "fortemi-local-test-1000-b449c1b3-0c00-4033-8f9c-2cbc98857446.service",
+      "terminal": {
+        "unit": "fortemi-local-test-1000-b449c1b3-0c00-4033-8f9c-2cbc98857446.service",
+        "observedAt": "2026-09-12T09:03:56.254Z",
+        "LoadState": "loaded",
+        "ActiveState": "inactive",
+        "SubState": "dead",
+        "RuntimeMaxUSec": "2min",
+        "Result": "success",
+        "ExecMainCode": "1",
+        "ExecMainStatus": "0",
+        "ControlGroup": "/system.slice/fortemi-local-test-1000-b449c1b3-0c00-4033-8f9c-2cbc98857446.service",
+        "MemoryPeak": "61296640",
+        "CPUUsageNSec": "442732000",
+        "CPUQuotaPerSecUSec": "2s",
+        "MemoryHigh": "6442450944",
+        "MemoryMax": "8589934592",
+        "MemorySwapMax": "0",
+        "TasksMax": "256",
+        "exitCode": "exited",
+        "exitStatus": "0",
+        "finishedAt": "2026-09-12T09:03:56.254Z"
+      },
+      "cgroupAbsent": true
+    }
+  ],
+  "subjects": [
+    {
+      "path": ".aiwg/activity.log",
+      "sha256": "f29a88020ad10f08d0f8f70eb57faff33ead7e34eb02dbc79e5abff196af152c",
+      "bytes": 1121
+    },
+    {
+      "path": ".aiwg/planning/roadmap.md",
+      "sha256": "3bc8e30f1032f14b89ce0ccbfbb4478d722c0ed2ccb153641434237a21270758",
+      "bytes": 336044
+    },
+    {
+      "path": ".gitea/workflows/ci-builder.yaml",
+      "sha256": "2cd6924adc26a41aa66e384703353c36d92c3af55aa7393f527ccc83196ecba2",
+      "bytes": 66498
+    },
+    {
+      "path": "contracts/openapi/README.md",
+      "sha256": "7b81aaedf9afceec1d8215fe460672076f04a679a1827912b515bdf13cc94fcc",
+      "bytes": 2244
+    },
+    {
+      "path": "contracts/openapi/fixtures/README.md",
+      "sha256": "2480a9af095b635b95f5c991b31c3f795699dc72567c6103ab80b6252816766e",
+      "bytes": 8621
+    },
+    {
+      "path": "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md",
+      "sha256": "eccf2d04647764b273ca8cb7e2cd80a2e2e33804841906e52d823cf4c932f676",
+      "bytes": 78888
+    },
+    {
+      "path": "contracts/openapi/fixtures/remote-negative-controls.json",
+      "sha256": "264e6b23f76405586ad62c4705b08829b58ea240a91d890caf735f091c5ba094",
+      "bytes": 3065
+    },
+    {
+      "path": "contracts/openapi/fixtures/remote-negative-package.receipt.json",
+      "sha256": "5052f58e9c89850d65bfba70b71d07c362b1e153a42202f435bdf97d70689cfb",
+      "bytes": 35758
+    },
+    {
+      "path": "scripts/ci/remote-negative-controls.mjs",
+      "sha256": "2eb609a7dfdecbe609bdb092b35581e03a7051206647a784cb6ac46c7fb171b2",
+      "bytes": 8319
+    },
+    {
+      "path": "scripts/ci/remote-negative-controls.test.mjs",
+      "sha256": "658a3615b3da76ddc554a41adc5291f481d7ece061142b59ba7fba623fdb2446",
+      "bytes": 2757
+    },
+    {
+      "path": "scripts/ci/verify-remote-negative-package.mjs",
+      "sha256": "b5b4ab2b14329025a8c0d85dbae203f0bfa2ea343dcaff399bce856eb86fceeb",
+      "bytes": 4277
+    },
+    {
+      "path": "scripts/ci/verify-remote-negative-receipt.mjs",
+      "sha256": "ff9a978e0eca7161538efbcbed3559f8ee6e49e41f5a42e6c042665f502caf1f",
+      "bytes": 3816
+    },
+    {
+      "path": "scripts/ci/verify-remote-negative-receipt.test.mjs",
+      "sha256": "83cfb1e32b94c5f93294259615019cd1af7fdb3721b0aebbad2c845ffa1a08da",
+      "bytes": 1790
+    }
+  ],
+  "historicalInputsUnchanged": [
+    "contracts/openapi/fixtures/remote-adapter.json",
+    "contracts/openapi/fixtures/remote-operations.json",
+    "contracts/openapi/fixtures/native-remote-auth.json",
+    "contracts/openapi/fixtures/native-remote-auth.receipt.json",
+    "contracts/openapi/openapi.yaml",
+    "contracts/openapi/openapi.sha256"
+  ],
+  "executionBoundary": "Serial detached offline Titan jobs; clean offline published package install, no Fortemi API/database, GPU or shared-service access. Listeners and scratch removed.",
+  "claims": {
+    "liveFortemiServer": false,
+    "hostedNoteDenial": false,
+    "inference": false,
+    "suiteParity": false
+  },
+  "remaining": "Consumer source pin/delivery, exact CI, actual live denied-note and remaining advertised-operation qualification. Not a full issue closure.",
+  "sourceDelivery": "PENDING",
+  "releaseDisposition": "RELEASE_PENDING_ACCEPTANCE: latest server2026.9.9, no new tag/asset or runtime wire/profile change",
+  "fullLane": "ACTIVE",
+  "suite": "NO-GO"
+}

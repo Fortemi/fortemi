@@ -1,0 +1,1110 @@
+{
+  "schemaVersion": "fortemi.remote-negative-package.v1",
+  "status": "PASS",
+  "unit": "fortemi-local-test-1000-a5770271-c5c0-446b-9d1a-41b407e86315.service",
+  "packageVersion": "2026.9.4",
+  "packageCommit": "9f74c0bab0cce5ef8e2433e8944a4efda5575eb4",
+  "packageSha256": "4a126d59bc18af4fb981d5bdbf19a761402e246b7d85cf3e6445de4eacf92897",
+  "fixtureSha256": "264e6b23f76405586ad62c4705b08829b58ea240a91d890caf735f091c5ba094",
+  "basisSha256": "96a4955315108cd83473d66c8b9a7626e0b97ab9784e761375707c1da3f5efb3",
+  "scriptSha256": "b5b4ab2b14329025a8c0d85dbae203f0bfa2ea343dcaff399bce856eb86fceeb",
+  "helperSha256": "2eb609a7dfdecbe609bdb092b35581e03a7051206647a784cb6ac46c7fb171b2",
+  "classification": "producer-owned-controlled-fault-injection",
+  "claims": {
+    "liveFortemiServer": false,
+    "hostedNoteDenial": false,
+    "inference": false,
+    "suiteParity": false
+  },
+  "boundary": "Controlled loopback HTTP faults derived from producer-owned native responses. Malformed bodies, reset/truncated sockets, abort and route-reassigned Problem Details are deliberate injection, not output or authorization behavior of a live Fortemi server.",
+  "checks": [
+    {
+      "id": "invalid-json",
+      "readMethod": "getNote",
+      "expectedKind": "invalid-response",
+      "actualKind": "invalid-response",
+      "status": 200,
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "0c21a879c732a67910d80988df4919d794f6a070aab610ef865032a28046b021",
+          "bytes": 8,
+          "injected": true
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": false,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "invalid-json",
+      "readMethod": "getNoteFull",
+      "expectedKind": "invalid-response",
+      "actualKind": "invalid-response",
+      "status": 200,
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "0c21a879c732a67910d80988df4919d794f6a070aab610ef865032a28046b021",
+          "bytes": 8,
+          "injected": true
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": false,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "empty-object",
+      "readMethod": "getNote",
+      "expectedKind": "invalid-response",
+      "actualKind": "invalid-response",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "bytes": 2,
+          "injected": true
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": false,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "empty-object",
+      "readMethod": "getNoteFull",
+      "expectedKind": "invalid-response",
+      "actualKind": "invalid-response",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "bytes": 2,
+          "injected": true
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": false,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "null-detail",
+      "readMethod": "getNote",
+      "expectedKind": "invalid-response",
+      "actualKind": "invalid-response",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+          "bytes": 4,
+          "injected": true
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": false,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "null-detail",
+      "readMethod": "getNoteFull",
+      "expectedKind": "invalid-response",
+      "actualKind": "invalid-response",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b",
+          "bytes": 4,
+          "injected": true
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": false,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "array-detail",
+      "readMethod": "getNote",
+      "expectedKind": "invalid-response",
+      "actualKind": "invalid-response",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "bytes": 2,
+          "injected": true
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": false,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "array-detail",
+      "readMethod": "getNoteFull",
+      "expectedKind": "invalid-response",
+      "actualKind": "invalid-response",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "bytes": 2,
+          "injected": true
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": false,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "incomplete-envelope",
+      "readMethod": "getNote",
+      "expectedKind": "invalid-response",
+      "actualKind": "invalid-response",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "c3dd549d9f6c841f8ddd1753e2442e50cbdb4ed70d9fc1ef4eb327fce5579ba4",
+          "bytes": 11,
+          "injected": true
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": false,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "incomplete-envelope",
+      "readMethod": "getNoteFull",
+      "expectedKind": "invalid-response",
+      "actualKind": "invalid-response",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "c3dd549d9f6c841f8ddd1753e2442e50cbdb4ed70d9fc1ef4eb327fce5579ba4",
+          "bytes": 11,
+          "injected": true
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": false,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "invalid-links",
+      "readMethod": "getNoteFull",
+      "expectedKind": "invalid-response",
+      "actualKind": "invalid-response",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/links"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "6c22792f9174548ddfdcf95305e1c110a5a3d9bfc46d83941d04ec25872f359c",
+          "bytes": 1345,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "6c22792f9174548ddfdcf95305e1c110a5a3d9bfc46d83941d04ec25872f359c",
+          "bytes": 1345,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/links",
+          "status": 200,
+          "responseSha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+          "bytes": 2,
+          "injected": true
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": true,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "invalid-concepts",
+      "readMethod": "getNoteFull",
+      "expectedKind": "invalid-response",
+      "actualKind": "invalid-response",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/links"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/concepts"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "6c22792f9174548ddfdcf95305e1c110a5a3d9bfc46d83941d04ec25872f359c",
+          "bytes": 1345,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "6c22792f9174548ddfdcf95305e1c110a5a3d9bfc46d83941d04ec25872f359c",
+          "bytes": 1345,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/links",
+          "status": 200,
+          "responseSha256": "37ec740d539a4943f9f7a287e60f14fe07f8744496c64927eb92c77c3835fc74",
+          "bytes": 325,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/concepts",
+          "status": 200,
+          "responseSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "bytes": 2,
+          "injected": true
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": true,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "invalid-provenance",
+      "readMethod": "getNoteFull",
+      "expectedKind": "invalid-response",
+      "actualKind": "invalid-response",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/links"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/concepts"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/provenance"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "6c22792f9174548ddfdcf95305e1c110a5a3d9bfc46d83941d04ec25872f359c",
+          "bytes": 1345,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "6c22792f9174548ddfdcf95305e1c110a5a3d9bfc46d83941d04ec25872f359c",
+          "bytes": 1345,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/links",
+          "status": 200,
+          "responseSha256": "37ec740d539a4943f9f7a287e60f14fe07f8744496c64927eb92c77c3835fc74",
+          "bytes": 325,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/concepts",
+          "status": 200,
+          "responseSha256": "1d6c1b4a7a37b8d748a11910621e4086445dfbbf7543669e9e303feb60a9d277",
+          "bytes": 731,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/provenance",
+          "status": 200,
+          "responseSha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a",
+          "bytes": 2,
+          "injected": true
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": true,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "reset-before-headers",
+      "readMethod": "getNote",
+      "expectedKind": "transport",
+      "actualKind": "transport",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        }
+      ],
+      "responses": [],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": false,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "reset-before-headers",
+      "readMethod": "getNoteFull",
+      "expectedKind": "transport",
+      "actualKind": "transport",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        }
+      ],
+      "responses": [],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": false,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "reset-enrichment",
+      "readMethod": "getNoteFull",
+      "expectedKind": "transport",
+      "actualKind": "transport",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/links"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/concepts"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "6c22792f9174548ddfdcf95305e1c110a5a3d9bfc46d83941d04ec25872f359c",
+          "bytes": 1345,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "6c22792f9174548ddfdcf95305e1c110a5a3d9bfc46d83941d04ec25872f359c",
+          "bytes": 1345,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/concepts",
+          "status": 200,
+          "responseSha256": "1d6c1b4a7a37b8d748a11910621e4086445dfbbf7543669e9e303feb60a9d277",
+          "bytes": 731,
+          "injected": false
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": true,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "abort-before-headers",
+      "readMethod": "getNote",
+      "expectedKind": "aborted",
+      "actualKind": "aborted",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        }
+      ],
+      "responses": [],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": false,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "abort-before-headers",
+      "readMethod": "getNoteFull",
+      "expectedKind": "aborted",
+      "actualKind": "aborted",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        }
+      ],
+      "responses": [],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": false,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "abort-enrichment",
+      "readMethod": "getNoteFull",
+      "expectedKind": "aborted",
+      "actualKind": "aborted",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/links"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/concepts"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/provenance"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "6c22792f9174548ddfdcf95305e1c110a5a3d9bfc46d83941d04ec25872f359c",
+          "bytes": 1345,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "6c22792f9174548ddfdcf95305e1c110a5a3d9bfc46d83941d04ec25872f359c",
+          "bytes": 1345,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/concepts",
+          "status": 200,
+          "responseSha256": "1d6c1b4a7a37b8d748a11910621e4086445dfbbf7543669e9e303feb60a9d277",
+          "bytes": 731,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/provenance",
+          "status": 200,
+          "responseSha256": "4f62fdbe7b3abdbf1f23b18f78d27bffbd8f000b303367b028d40b7b62550009",
+          "bytes": 269,
+          "injected": false
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": true,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "truncated-detail",
+      "readMethod": "getNote",
+      "expectedKind": "invalid-response",
+      "actualKind": "invalid-response",
+      "status": 200,
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        }
+      ],
+      "responses": [],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": false,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "truncated-detail",
+      "readMethod": "getNoteFull",
+      "expectedKind": "invalid-response",
+      "actualKind": "invalid-response",
+      "status": 200,
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        }
+      ],
+      "responses": [],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": false,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "truncated-enrichment",
+      "readMethod": "getNoteFull",
+      "expectedKind": "invalid-response",
+      "actualKind": "invalid-response",
+      "status": 200,
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/links"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/concepts"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/provenance"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "6c22792f9174548ddfdcf95305e1c110a5a3d9bfc46d83941d04ec25872f359c",
+          "bytes": 1345,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "6c22792f9174548ddfdcf95305e1c110a5a3d9bfc46d83941d04ec25872f359c",
+          "bytes": 1345,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/concepts",
+          "status": 200,
+          "responseSha256": "1d6c1b4a7a37b8d748a11910621e4086445dfbbf7543669e9e303feb60a9d277",
+          "bytes": 731,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/provenance",
+          "status": 200,
+          "responseSha256": "4f62fdbe7b3abdbf1f23b18f78d27bffbd8f000b303367b028d40b7b62550009",
+          "bytes": 269,
+          "injected": false
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": true,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "proxy-not-found",
+      "readMethod": "getNote",
+      "expectedKind": "http",
+      "actualKind": "http",
+      "status": 404,
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 404,
+          "responseSha256": "955aaa3b742a39307a2bc85ea38d13cd9f40f0afb902dae8a30cb309176587fa",
+          "bytes": 23,
+          "injected": true
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": false,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "proxy-not-found",
+      "readMethod": "getNoteFull",
+      "expectedKind": "http",
+      "actualKind": "http",
+      "status": 404,
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 404,
+          "responseSha256": "955aaa3b742a39307a2bc85ea38d13cd9f40f0afb902dae8a30cb309176587fa",
+          "bytes": 23,
+          "injected": true
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": false,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "mismatched-problem-status",
+      "readMethod": "getNote",
+      "expectedKind": "http",
+      "actualKind": "http",
+      "status": 404,
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 404,
+          "responseSha256": "160afda8fc1785256753a5ac47c1c73f8d50413cdadc685e7b064326c2b41c94",
+          "bytes": 98,
+          "injected": true
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": false,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "mismatched-problem-status",
+      "readMethod": "getNoteFull",
+      "expectedKind": "http",
+      "actualKind": "http",
+      "status": 404,
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 404,
+          "responseSha256": "160afda8fc1785256753a5ac47c1c73f8d50413cdadc685e7b064326c2b41c94",
+          "bytes": 98,
+          "injected": true
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": false,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "enrichment401",
+      "readMethod": "getNoteFull",
+      "expectedKind": "http",
+      "actualKind": "http",
+      "status": 401,
+      "problemCode": "unauthorized",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/links"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "6c22792f9174548ddfdcf95305e1c110a5a3d9bfc46d83941d04ec25872f359c",
+          "bytes": 1345,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "6c22792f9174548ddfdcf95305e1c110a5a3d9bfc46d83941d04ec25872f359c",
+          "bytes": 1345,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/links",
+          "status": 401,
+          "responseSha256": "428700ae6fb0d4771dfd1cb37d5988d73dfa0015dabed4fdc11287d7e7ad448b",
+          "bytes": 206,
+          "injected": true
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": true,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "operator403-as-enrichment-injection",
+      "readMethod": "getNoteFull",
+      "expectedKind": "http",
+      "actualKind": "http",
+      "status": 403,
+      "problemCode": "forbidden",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/links"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "6c22792f9174548ddfdcf95305e1c110a5a3d9bfc46d83941d04ec25872f359c",
+          "bytes": 1345,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "6c22792f9174548ddfdcf95305e1c110a5a3d9bfc46d83941d04ec25872f359c",
+          "bytes": 1345,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/links",
+          "status": 403,
+          "responseSha256": "18173b8860567a98cc30f4dc25cea93551ba2804b1f760e4f26bb49c94cac5c1",
+          "bytes": 167,
+          "injected": true
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": true,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "enrichment404-not-note-absence",
+      "readMethod": "getNoteFull",
+      "expectedKind": "http",
+      "actualKind": "http",
+      "status": 404,
+      "problemCode": "not-found",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/links"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "6c22792f9174548ddfdcf95305e1c110a5a3d9bfc46d83941d04ec25872f359c",
+          "bytes": 1345,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "6c22792f9174548ddfdcf95305e1c110a5a3d9bfc46d83941d04ec25872f359c",
+          "bytes": 1345,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/links",
+          "status": 404,
+          "responseSha256": "d4759b4ffee68b07c550e3127415e4d95ff8ba9c227d40a80c95cdfa5d13df19",
+          "bytes": 174,
+          "injected": true
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": true,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "enrichment429",
+      "readMethod": "getNoteFull",
+      "expectedKind": "http",
+      "actualKind": "http",
+      "status": 429,
+      "problemCode": "rate-limit-exceeded",
+      "retryAfterSeconds": 60,
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/links"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "6c22792f9174548ddfdcf95305e1c110a5a3d9bfc46d83941d04ec25872f359c",
+          "bytes": 1345,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "6c22792f9174548ddfdcf95305e1c110a5a3d9bfc46d83941d04ec25872f359c",
+          "bytes": 1345,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/links",
+          "status": 429,
+          "responseSha256": "c4e675eff6242c1ff621bd16ae1cda22ef2261301b56a49c08473f3fa74e5250",
+          "bytes": 211,
+          "injected": true
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": true,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    },
+    {
+      "id": "enrichment500",
+      "readMethod": "getNoteFull",
+      "expectedKind": "http",
+      "actualKind": "http",
+      "status": 500,
+      "problemCode": "internal-error",
+      "requests": [
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860"
+        },
+        {
+          "method": "GET",
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/links"
+        }
+      ],
+      "responses": [
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "6c22792f9174548ddfdcf95305e1c110a5a3d9bfc46d83941d04ec25872f359c",
+          "bytes": 1345,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860",
+          "status": 200,
+          "responseSha256": "6c22792f9174548ddfdcf95305e1c110a5a3d9bfc46d83941d04ec25872f359c",
+          "bytes": 1345,
+          "injected": false
+        },
+        {
+          "path": "/api/v1/notes/01a094b2-e398-7452-9f48-c6fd45a3f860/links",
+          "status": 500,
+          "responseSha256": "dc43a1b1633d794f0747a6a1dd4f417dc08d752b7fec6e6d1b50864f0099d164",
+          "bytes": 190,
+          "injected": true
+        }
+      ],
+      "injected": 1,
+      "noteReadableBeforeEnrichmentFault": true,
+      "transport": "real-private-loopback-http",
+      "classification": "controlled-fault-injection",
+      "listenerClosed": true
+    }
+  ],
+  "scratchRemoved": true
+}

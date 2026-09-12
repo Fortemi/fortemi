@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "fortemi.remote-negative-controls.v1",
+  "classification": "producer-owned-controlled-fault-injection",
+  "basis": {
+    "fixture": "native-remote-auth.json",
+    "sha256": "96a4955315108cd83473d66c8b9a7626e0b97ab9784e761375707c1da3f5efb3"
+  },
+  "claims": { "liveFortemiServer": false, "hostedNoteDenial": false, "inference": false, "suiteParity": false },
+  "boundary": "Controlled loopback HTTP faults derived from producer-owned native responses. Malformed bodies, reset/truncated sockets, abort and route-reassigned Problem Details are deliberate injection, not output or authorization behavior of a live Fortemi server.",
+  "controls": [
+    { "id": "invalid-json", "stage": "note", "mode": "body", "rawBody": "not-json", "expectedKind": "invalid-response" },
+    { "id": "empty-object", "stage": "note", "mode": "body", "rawBody": "{}", "expectedKind": "invalid-response" },
+    { "id": "null-detail", "stage": "note", "mode": "body", "rawBody": "null", "expectedKind": "invalid-response" },
+    { "id": "array-detail", "stage": "note", "mode": "body", "rawBody": "[]", "expectedKind": "invalid-response" },
+    { "id": "incomplete-envelope", "stage": "note", "mode": "body", "rawBody": "{\"note\":{}}", "expectedKind": "invalid-response" },
+    { "id": "invalid-links", "stage": "links", "mode": "body", "rawBody": "[]", "expectedKind": "invalid-response" },
+    { "id": "invalid-concepts", "stage": "concepts", "mode": "body", "rawBody": "{}", "expectedKind": "invalid-response" },
+    { "id": "invalid-provenance", "stage": "provenance", "mode": "body", "rawBody": "{}", "expectedKind": "invalid-response" },
+    { "id": "reset-before-headers", "stage": "note", "mode": "reset", "expectedKind": "transport" },
+    { "id": "reset-enrichment", "stage": "links", "mode": "reset", "expectedKind": "transport" },
+    { "id": "abort-before-headers", "stage": "note", "mode": "abort", "expectedKind": "aborted" },
+    { "id": "abort-enrichment", "stage": "links", "mode": "abort", "expectedKind": "aborted" },
+    { "id": "truncated-detail", "stage": "note", "mode": "truncate", "expectedKind": "invalid-response" },
+    { "id": "truncated-enrichment", "stage": "links", "mode": "truncate", "expectedKind": "invalid-response" },
+    { "id": "proxy-not-found", "stage": "note", "mode": "proxy404", "expectedKind": "http" },
+    { "id": "mismatched-problem-status", "stage": "note", "mode": "mismatched404", "expectedKind": "http" },
+    { "id": "enrichment401", "stage": "links", "mode": "problem", "nativeStatus": 401, "expectedKind": "http" },
+    { "id": "operator403-as-enrichment-injection", "stage": "links", "mode": "problem", "nativeStatus": 403, "expectedKind": "http" },
+    { "id": "enrichment404-not-note-absence", "stage": "links", "mode": "problem", "nativeStatus": 404, "expectedKind": "http" },
+    { "id": "enrichment429", "stage": "links", "mode": "problem", "nativeStatus": 429, "expectedKind": "http" },
+    { "id": "enrichment500", "stage": "links", "mode": "problem", "nativeStatus": 500, "expectedKind": "http" }
+  ]
+}

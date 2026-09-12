@@ -7,6 +7,15 @@
 
 ## How to use this document
 
+- 2026-09-12 Lane B cycle54: #1146/#421 add producer-owned controlled-fault
+  corpus21 controls and a published-Core31-check/61-request private-loopback
+  receipt.54 corpus/receipt/native regression tests pass. Malformed output,
+  network resets/truncation, explicit aborts and enrichment failures are injected,
+  not mislabeled as live Fortemi or hosted denial evidence. Consumer source pins,
+  exact CI, remaining advertised operations and releases stay open. No phase
+  closure or suite NO-GO change. Evidence:
+  `contracts/openapi/fixtures/remote-negative-package.receipt.json`.
+
 - 2026-09-12 Lane B cycle52: #1146 adds a producer-owned native capture for
   published Core2026.9.4/server2026.9.9, with13 real-HTTP checks/86 calls and
   verified private-resource cleanup. Personal authentication and operator-only
