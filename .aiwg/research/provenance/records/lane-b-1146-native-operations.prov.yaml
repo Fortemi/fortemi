@@ -1,0 +1,114 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-12T09:49:25.831Z",
+    "description": "Published native authenticated operation capture and bounded qualification"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-1146-native-operations.json",
+    "type": "artifact_bundle",
+    "created_at": "2026-09-12T09:49:25.831Z",
+    "checksum": "sha256:fdefc824211cf29664b89a79cd76e22f231171ee391b0f657e764ed144da73e8",
+    "attributes": {
+      "subjects": [
+        {
+          "path": ".aiwg/activity.log",
+          "sha256": "63eeba2a4ffc8fb3bced4a93e4ba67bc9b48f6c3b7c7b1c9572f3af9777cd660",
+          "bytes": 1734
+        },
+        {
+          "path": ".aiwg/planning/roadmap.md",
+          "sha256": "b7f822c507b21b158db993d3014ff5d0f6e124b47aefd3b10a7af2e365624b99",
+          "bytes": 336579
+        },
+        {
+          "path": ".gitea/workflows/ci-builder.yaml",
+          "sha256": "6a346e609ddfc4e0cbd9619f3ca97bc091c56ed31e3d23cccae714d32096b03e",
+          "bytes": 66634
+        },
+        {
+          "path": "contracts/openapi/README.md",
+          "sha256": "6b8509faad6913c0fa779095f251a77d7f34d1331f11301b67228cba797f7305",
+          "bytes": 2615
+        },
+        {
+          "path": "contracts/openapi/fixtures/README.md",
+          "sha256": "9be5747fe3cd58261244e68b85ce7d4cafcae34461ab98673ee23d32b8af59a5",
+          "bytes": 10911
+        },
+        {
+          "path": "contracts/openapi/fixtures/native-remote-operations.json",
+          "sha256": "71347753ce83568ab2028e63a28c809d81086c37815eec583f844d27227c2a59",
+          "bytes": 179704
+        },
+        {
+          "path": "contracts/openapi/fixtures/native-remote-operations.receipt.json",
+          "sha256": "6216ed53ba579526ba1d4104d325c6312a04abfbc3596aeb324b40d3b1c6d939",
+          "bytes": 2258
+        },
+        {
+          "path": "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md",
+          "sha256": "9ffc0fc76af19823648e66780f013b8d574c7ad32ae1b412ba6195d577cbba44",
+          "bytes": 79806
+        },
+        {
+          "path": "scripts/ci/capture-native-remote-operations.mjs",
+          "sha256": "0cc9a2dc22e10dc78b51831b4d2db63fa3690acbf91402e148bca5b1e1f04b24",
+          "bytes": 19812
+        },
+        {
+          "path": "scripts/ci/verify-native-remote-operations.mjs",
+          "sha256": "0209096a923d3efe7285e91962a6088f14233801065dbe57aebda74f8130d767",
+          "bytes": 9204
+        },
+        {
+          "path": "scripts/ci/verify-native-remote-operations.test.mjs",
+          "sha256": "422b0c037bcc61cd4592d21ac6494ffa51e19d4c6cf7ab7822a40eb68a3b8de2",
+          "bytes": 5223
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:testing:lane-b-1146-native-operations:057",
+    "type": "testing",
+    "started_at": "2026-09-12T09:41:00Z",
+    "ended_at": "2026-09-12T09:49:25.831Z",
+    "description": "23 checks/86 HTTP calls and96 tests; actual published artifacts, personal identity, all8 mutations, explicit semantic fallback and verified cleanup"
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1146-native-operations.json",
+      "activity": "urn:aiwg:activity:testing:lane-b-1146-native-operations:057",
+      "time": "2026-09-12T09:49:25.831Z"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1146-native-operations.json",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:testing:lane-b-1146-native-operations:057",
+      "agent": "urn:aiwg:agent:codex",
+      "role": "primary_implementer"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1146-native-operations.json",
+        "source": "urn:aiwg:artifact:contracts/openapi/fixtures/remote-operations.json",
+        "activity": "urn:aiwg:activity:testing:lane-b-1146-native-operations:057",
+        "derivation_type": "tests"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1146-native-operations.json",
+        "source": "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md",
+        "activity": "urn:aiwg:activity:testing:lane-b-1146-native-operations:057",
+        "derivation_type": "conforms_to"
+      }
+    ]
+  }
+}

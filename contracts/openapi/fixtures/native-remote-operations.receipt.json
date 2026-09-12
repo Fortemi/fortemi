@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "fortemi.native-remote-operations-receipt.v1",
+  "observedAt": "2026-09-12T09:47:08.776Z",
+  "fixturePath": "contracts/openapi/fixtures/native-remote-operations.json",
+  "fixtureSha256": "71347753ce83568ab2028e63a28c809d81086c37815eec583f844d27227c2a59",
+  "captureScriptPath": "scripts/ci/capture-native-remote-operations.mjs",
+  "captureScriptSha256": "0cc9a2dc22e10dc78b51831b4d2db63fa3690acbf91402e148bca5b1e1f04b24",
+  "unit": "fortemi-local-test-1000-9a36ae97-f095-4eb8-bb20-ccfd36629e55.service",
+  "terminal": {
+    "unit": "fortemi-local-test-1000-9a36ae97-f095-4eb8-bb20-ccfd36629e55.service",
+    "observedAt": "2026-09-12T09:44:25.652Z",
+    "LoadState": "loaded",
+    "ActiveState": "inactive",
+    "SubState": "dead",
+    "RuntimeMaxUSec": "5min",
+    "Result": "success",
+    "ExecMainCode": "1",
+    "ExecMainStatus": "0",
+    "ControlGroup": "/system.slice/fortemi-local-test-1000-9a36ae97-f095-4eb8-bb20-ccfd36629e55.service",
+    "MemoryPeak": "376143872",
+    "CPUUsageNSec": "2748005000",
+    "CPUQuotaPerSecUSec": "2s",
+    "MemoryHigh": "6442450944",
+    "MemoryMax": "8589934592",
+    "MemorySwapMax": "0",
+    "TasksMax": "256",
+    "exitCode": "exited",
+    "exitStatus": "0",
+    "finishedAt": "2026-09-12T09:44:25.652Z"
+  },
+  "cleanup": {
+    "cgroupAbsent": true,
+    "apiPidAbsent": true,
+    "postmasterPidAbsent": true,
+    "postgresStopped": true,
+    "postgresRemoved": true
+  },
+  "producerIssue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1146",
+  "consumers": [
+    "https://git.integrolabs.net/Fortemi/fortemi-react/issues/419",
+    "https://git.integrolabs.net/Fortemi/fortemi-react/issues/420"
+  ],
+  "claims": {
+    "realHttp": true,
+    "publishedConsumer": true,
+    "personalRequiredAuthentication": true,
+    "allAdvertisedMutations": true,
+    "hostedRoleDenial": false,
+    "positiveVectorRetrieval": false,
+    "suiteParity": false
+  },
+  "qualificationBoundary": "Historical Linux AMD64 released-server/published-Core execution with required personal identity. Authenticated roles use AllowAllPolicy. Semantic/hybrid fallback is not positive vector retrieval. Preserve historical fixture and separate persistence-plane authority; consumer pins, CI and release gates remain."
+}

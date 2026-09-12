@@ -1,5 +1,11 @@
 # Fortemi OpenAPI contract
 
+The supplemental native operation fixture under `fixtures/` qualifies
+published Core2026.9.4 against native server2026.9.9 for authenticated FTS and
+all advertised note mutations. It retains explicit semantic fallback and
+personal-authorization boundaries; it does not change OpenAPI authority or
+establish positive vector retrieval. See the fixture README and receipt.
+
 `openapi.yaml` is the deterministic OpenAPI 3.1 consumer contract generated
 from the same `ApiDoc` registration used by Fortemi's runtime
 `/openapi.yaml` endpoint. `openapi.sha256` authenticates its exact bytes.

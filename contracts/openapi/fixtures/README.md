@@ -1,5 +1,46 @@
 # Remote Adapter Capture
 
+## Native Search And Mutation Capture (#1146 / React #419/#420)
+
+`native-remote-operations.json` records23 checks/86 real private-loopback HTTP
+calls from clean-installed published Core2026.9.4 to published native Linux
+AMD64 server2026.9.9. Its receipt binds exact artifact, executable, harness and
+fixture digests plus terminal resource cleanup. Required personal identity,
+FTS q/AND-tags/limits/empty and nonempty projections, and all advertised note
+mutations are covered. Missing/invalid identity produces20 real401 responses;
+legacy missing-q400 and missing-note mutation404 are retained.
+
+Create, content/tag update, star/unstar, archive/unarchive, delete and restore
+are followed by state readback. Create suppresses the AI pipeline and revision;
+restore retains its supported server indexing behavior. Both synthetic notes
+are soft-deleted, leaving0 visible notes and2 expected tombstones before removal
+of the private PostgreSQL cluster. Request bodies and raw response digests are
+retained without identity material.
+
+Semantic/hybrid results explicitly degrade to FTS when embedding is unavailable;
+array-only semantic rejects this fallback. This is **not positive vector
+retrieval**. Personal AllowAllPolicy does not qualify hosted roles, tenant
+isolation or read-only mutation enforcement. No schema, wire, profile or
+historical25/37/read/negative fixture changes follow. Consumer pins, exact CI,
+remaining positive vector evidence and lane release gates remain separate.
+
+The capture requires the bounded offline Titan runner and its private PostgreSQL
+helper; it refuses foreground execution outside that cgroup. It accepts the
+exact released executable, Core tarball, new output directory and offline npm
+cache as positional arguments. The helper and prior artifact-origin receipts
+live in the suite testing/evidence plane, not in the live server contract.
+
+Verify without launching any server, database or inference service:
+
+```sh
+node scripts/ci/verify-native-remote-operations.mjs
+node --test scripts/ci/verify-native-remote-operations.test.mjs
+```
+
+Consumer pinning must name the delivered producer commit and separately verify
+fixture, receipt and capture-script hashes. A historical cleanup receipt is not
+proof of current host state. Suite NO-GO remains unchanged.
+
 ## Controlled Negative Corpus (#1146 / React #421)
 
 `remote-negative-controls.json` is producer-owned **fault injection**, not a

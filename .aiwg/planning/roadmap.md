@@ -7,6 +7,14 @@
 
 ## How to use this document
 
+- 2026-09-12 Lane B cycle57: #1146 publishes supplemental native search/mutation
+  evidence for consumers419/420:23 real-HTTP checks/86 calls against actual
+  published Core2026.9.4/server2026.9.9, required personal identity, all8 mutation
+  actions, explicit semantic fallback and synthetic cleanup.96 integrity/
+  regression tests pass. No wire/profile/historical fixture change. Consumer
+  pins, exact CI, positive vector retrieval and release acceptance remain;
+  prior six-cycle delivery escalation and suite NO-GO are retained.
+
 - 2026-09-12 Lane B cycle54: #1146/#421 add producer-owned controlled-fault
   corpus21 controls and a published-Core31-check/61-request private-loopback
   receipt.54 corpus/receipt/native regression tests pass. Malformed output,

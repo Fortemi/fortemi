@@ -1,0 +1,47 @@
+{
+  "schemaVersion": "fortemi.lane-b-producer-operations.v1",
+  "checkedAt": "2026-09-12T09:49:25.613Z",
+  "issue": 1146,
+  "consumers": [
+    419,
+    420
+  ],
+  "previousSource": "bb0c8509f7d5586ec34dfb40c0af58aa1bfd604d",
+  "fixturePath": "contracts/openapi/fixtures/native-remote-operations.json",
+  "fixtureSha256": "71347753ce83568ab2028e63a28c809d81086c37815eec583f844d27227c2a59",
+  "captureScriptSha256": "0cc9a2dc22e10dc78b51831b4d2db63fa3690acbf91402e148bca5b1e1f04b24",
+  "checks": 23,
+  "calls": 86,
+  "tests": {
+    "total": 96,
+    "new": 42,
+    "result": "PASS"
+  },
+  "liveUnit": "fortemi-local-test-1000-9a36ae97-f095-4eb8-bb20-ccfd36629e55.service",
+  "testUnit": "fortemi-local-test-1000-e951cfb3-070a-4df8-8391-fd8f670a09c5.service",
+  "claims": {
+    "realHttp": true,
+    "publishedConsumer": true,
+    "personalRequiredAuthentication": true,
+    "allAdvertisedMutations": true,
+    "hostedRoleDenial": false,
+    "positiveVectorRetrieval": false,
+    "suiteParity": false
+  },
+  "cleanup": {
+    "cgroupAbsent": true,
+    "apiPidAbsent": true,
+    "postmasterPidAbsent": true,
+    "postgresStopped": true,
+    "postgresRemoved": true
+  },
+  "delivery": "Source preparation; exact commit CI, consumer pins and lane release gates remain required",
+  "suiteStatus": "NO-GO",
+  "scope": "Supplemental native operation evidence under unchanged REST/schema/profile authority; old fixtures and auth boundaries preserved",
+  "remaining": [
+    "consumer fixture/receipt/script pins",
+    "exact producer/consumer CI",
+    "positive vector retrieval",
+    "full Lane B release sweep"
+  ]
+}

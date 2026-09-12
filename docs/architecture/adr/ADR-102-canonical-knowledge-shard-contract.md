@@ -8,6 +8,21 @@
 
 ## Context
 
+### Supplemental Native Operations (#1146, React #419/#420)
+
+The producer additionally owns a23-check/86-request native operation capture
+for the same published Core2026.9.4/server2026.9.9 artifacts. It covers required
+personal identity, FTS request/projection semantics, all8 mutation actions with
+state readback, actual401/400/404 and verified synthetic lifecycle cleanup.
+The adjacent receipt binds executable/package/script/fixture identities and
+terminal private-resource cleanup; integrity gates reject altered evidence.
+
+Semantic/hybrid fallback remains explicit and array-only semantic rejects it.
+Positive vector retrieval and hosted authenticated-role/tenant denial are
+unqualified. Historical fixtures, generated OpenAPI and all three persistence
+planes retain their distinct authorities. Consumer pins, exact CI and remaining
+lane release acceptance are required before closure; suite NO-GO is unchanged.
+
 ### Supplemental Native Remote Read Evidence (#1146, 2026-09-12)
 
 Producer-owned `remote-negative-controls.json` supplements that live capture

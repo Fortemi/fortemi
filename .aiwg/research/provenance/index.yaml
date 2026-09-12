@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-09-12T09:08:00Z"
+  updated_at: "2026-09-12T09:50:00Z"
 records:
+  - entity: "urn:aiwg:artifact:.aiwg/reports/lane-b-1146-native-operations.json"
+    record: "records/lane-b-1146-native-operations.prov.yaml"
   - entity: "urn:aiwg:artifact:.aiwg/reports/lane-b-1146-remote-negative.json"
     record: "records/lane-b-1146-remote-negative.prov.yaml"
   - entity: "urn:aiwg:artifact:.aiwg/reports/lane-b-1146-native-remote.json"

@@ -1,0 +1,3458 @@
+{
+  "schemaVersion": "fortemi.native-remote-operations.v1",
+  "status": "PASS",
+  "checks": [
+    "clean authenticated destination and capabilities",
+    "create both synthetic notes through published adapter",
+    "authenticated FTS q AND-tags and actual EnhancedSearchHit projection",
+    "AND tags exclude nonmatching notes",
+    "empty FTS results preserve returned-hit total",
+    "bounded FTS limit and rank order",
+    "semantic report explicitly retains unavailable-inference FTS fallback",
+    "array-only semantic rejects fallback",
+    "hybrid explicitly reports FTS degradation",
+    "invalid and unsupported intents reject before HTTP",
+    "actual producer rejects legacy missing-q request",
+    "missing identity cannot search or dispatch advertised mutations",
+    "invalid identity cannot search or dispatch advertised mutations",
+    "authenticated star persists expected state",
+    "authenticated unstar persists expected state",
+    "authenticated archive persists expected state",
+    "authenticated unarchive persists expected state",
+    "authenticated content update persists through composed read",
+    "authenticated tag update persists and changes search membership",
+    "authenticated delete yields authoritative absence",
+    "authenticated restore preserves content and identity",
+    "mutation404 is typed failure not false success",
+    "synthetic lifecycle cleanup verifies both tombstones and no visible notes"
+  ],
+  "calls": [
+    {
+      "check": "clean authenticated destination and capabilities",
+      "rawBody": "{\"notes\":[],\"total\":0}",
+      "method": "GET",
+      "path": "/api/v1/notes",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "c103f889fea7af60b02405c29f5f21e97fb9cdd175f770652275feea4f35e535",
+      "body": {
+        "notes": [],
+        "total": 0
+      }
+    },
+    {
+      "check": "create both synthetic notes through published adapter",
+      "rawBody": "{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\"}",
+      "method": "POST",
+      "path": "/api/v1/notes",
+      "requestBody": {
+        "content": "PACKAGE REMOTE NEEDLE",
+        "title": "Synthetic selected",
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "selected"
+        ],
+        "source": "native-package-test",
+        "revision_mode": "none",
+        "pipeline": []
+      },
+      "status": 201,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "efde9e2e89b9ad44dec84ed53a605c017338a65752665c747c4e25f82fe546f3",
+      "body": {
+        "id": "01a09500-e8da-7862-84e0-bf3a0225b424"
+      }
+    },
+    {
+      "check": "create both synthetic notes through published adapter",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"updated_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"starred\":false,\"archived\":false,\"last_accessed_at\":\"2026-09-12T09:44:19.962008Z\",\"access_count\":1,\"title\":\"Synthetic selected\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"hash\":\"sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a\",\"user_created_at\":\"2026-09-12T09:44:19.930393Z\",\"user_last_edited_at\":\"2026-09-12T09:44:19.930393Z\"},\"revised\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"last_revision_id\":\"01a09500-e8e6-7d43-916d-0e242b931855\",\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"selected\"],\"concepts\":[{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"notation\":\"selected\",\"pref_label\":\"selected\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "a1194a0b04cbc8de2da745fa84aa4a7c632c9db4ee3af9851e80a402aba1dae6",
+      "body": {
+        "note": {
+          "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.930653Z",
+          "updated_at_utc": "2026-09-12T09:44:19.930653Z",
+          "starred": false,
+          "archived": false,
+          "last_accessed_at": "2026-09-12T09:44:19.962008Z",
+          "access_count": 1,
+          "title": "Synthetic selected",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "hash": "sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a",
+          "user_created_at": "2026-09-12T09:44:19.930393Z",
+          "user_last_edited_at": "2026-09-12T09:44:19.930393Z"
+        },
+        "revised": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "last_revision_id": "01a09500-e8e6-7d43-916d-0e242b931855",
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "selected"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "notation": "selected",
+            "pref_label": "selected",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "create both synthetic notes through published adapter",
+      "rawBody": "{\"outgoing\":[],\"incoming\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424/links",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "1ac17e0d706df07ae13acef69110ca1bf96e47535ec7835a066d709da338786e",
+      "body": {
+        "outgoing": [],
+        "incoming": []
+      }
+    },
+    {
+      "check": "create both synthetic notes through published adapter",
+      "rawBody": "[[{\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false,\"created_at\":\"2026-09-12T09:44:19.949366Z\"},{\"id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"primary_scheme_id\":\"01a09500-e67a-7bd6-9281-dcff30d59400\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"status\":\"candidate\",\"note_count\":1,\"first_used_at\":\"2026-09-12T09:44:19.946760Z\",\"last_used_at\":\"2026-09-12T09:44:19.946760Z\",\"depth\":0,\"broader_count\":0,\"narrower_count\":0,\"related_count\":0,\"created_at\":\"2026-09-12T09:44:19.949366Z\",\"updated_at\":\"2026-09-12T09:44:19.946760Z\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"label_language\":\"en\",\"scheme_notation\":\"default\",\"scheme_title\":\"Default Tags\"}],[{\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false,\"created_at\":\"2026-09-12T09:44:19.953769Z\"},{\"id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"primary_scheme_id\":\"01a09500-e67a-7bd6-9281-dcff30d59400\",\"notation\":\"selected\",\"status\":\"candidate\",\"note_count\":1,\"first_used_at\":\"2026-09-12T09:44:19.946760Z\",\"last_used_at\":\"2026-09-12T09:44:19.946760Z\",\"depth\":0,\"broader_count\":0,\"narrower_count\":0,\"related_count\":0,\"created_at\":\"2026-09-12T09:44:19.953769Z\",\"updated_at\":\"2026-09-12T09:44:19.946760Z\",\"pref_label\":\"selected\",\"label_language\":\"en\",\"scheme_notation\":\"default\",\"scheme_title\":\"Default Tags\"}]]",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424/concepts",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "f4c1f06336d0a86711a73f6bf1174dc1e26dff39b6358c67dd7db56184b97e80",
+      "body": [
+        [
+          {
+            "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false,
+            "created_at": "2026-09-12T09:44:19.949366Z"
+          },
+          {
+            "id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "primary_scheme_id": "01a09500-e67a-7bd6-9281-dcff30d59400",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "status": "candidate",
+            "note_count": 1,
+            "first_used_at": "2026-09-12T09:44:19.946760Z",
+            "last_used_at": "2026-09-12T09:44:19.946760Z",
+            "depth": 0,
+            "broader_count": 0,
+            "narrower_count": 0,
+            "related_count": 0,
+            "created_at": "2026-09-12T09:44:19.949366Z",
+            "updated_at": "2026-09-12T09:44:19.946760Z",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "label_language": "en",
+            "scheme_notation": "default",
+            "scheme_title": "Default Tags"
+          }
+        ],
+        [
+          {
+            "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false,
+            "created_at": "2026-09-12T09:44:19.953769Z"
+          },
+          {
+            "id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "primary_scheme_id": "01a09500-e67a-7bd6-9281-dcff30d59400",
+            "notation": "selected",
+            "status": "candidate",
+            "note_count": 1,
+            "first_used_at": "2026-09-12T09:44:19.946760Z",
+            "last_used_at": "2026-09-12T09:44:19.946760Z",
+            "depth": 0,
+            "broader_count": 0,
+            "narrower_count": 0,
+            "related_count": 0,
+            "created_at": "2026-09-12T09:44:19.953769Z",
+            "updated_at": "2026-09-12T09:44:19.946760Z",
+            "pref_label": "selected",
+            "label_language": "en",
+            "scheme_notation": "default",
+            "scheme_title": "Default Tags"
+          }
+        ]
+      ]
+    },
+    {
+      "check": "create both synthetic notes through published adapter",
+      "rawBody": "{\"all_activities\":[],\"all_edges\":[],\"current_chain\":{\"activity\":null,\"edges\":[],\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"revision_id\":\"01a09500-e8e6-7d43-916d-0e242b931855\"},\"derived_count\":0,\"derived_notes\":[],\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\"}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424/provenance",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "ed13b0bb788410966527394b59e0734bd7807ec6af2df134d161aa972c829361",
+      "body": {
+        "all_activities": [],
+        "all_edges": [],
+        "current_chain": {
+          "activity": null,
+          "edges": [],
+          "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "revision_id": "01a09500-e8e6-7d43-916d-0e242b931855"
+        },
+        "derived_count": 0,
+        "derived_notes": [],
+        "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424"
+      }
+    },
+    {
+      "check": "create both synthetic notes through published adapter",
+      "rawBody": "{\"id\":\"01a09500-e914-71a2-8220-1604fc290248\"}",
+      "method": "POST",
+      "path": "/api/v1/notes",
+      "requestBody": {
+        "content": "PACKAGE REMOTE NEEDLE",
+        "title": "Synthetic excluded",
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "excluded"
+        ],
+        "source": "native-package-test",
+        "revision_mode": "none",
+        "pipeline": []
+      },
+      "status": 201,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "4649e525b878edf5f62a695769b9bdc327c78b414ca01ee2ec46cf1f6321c039",
+      "body": {
+        "id": "01a09500-e914-71a2-8220-1604fc290248"
+      }
+    },
+    {
+      "check": "create both synthetic notes through published adapter",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e914-71a2-8220-1604fc290248\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.988912Z\",\"updated_at_utc\":\"2026-09-12T09:44:19.988912Z\",\"starred\":false,\"archived\":false,\"last_accessed_at\":\"2026-09-12T09:44:20.001072Z\",\"access_count\":1,\"title\":\"Synthetic excluded\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"hash\":\"sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a\",\"user_created_at\":\"2026-09-12T09:44:19.988829Z\",\"user_last_edited_at\":\"2026-09-12T09:44:19.988829Z\"},\"revised\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"last_revision_id\":\"01a09500-e917-7c11-a41f-61c8264604ad\",\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"excluded\",\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\"],\"concepts\":[{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e919-74a2-b249-c360c55b2ff9\",\"notation\":\"excluded\",\"pref_label\":\"excluded\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e914-71a2-8220-1604fc290248",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "6ef4fa557c355acd64ab291b439b320ff1eb0655e08ce9ca458b70b491f5a268",
+      "body": {
+        "note": {
+          "id": "01a09500-e914-71a2-8220-1604fc290248",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.988912Z",
+          "updated_at_utc": "2026-09-12T09:44:19.988912Z",
+          "starred": false,
+          "archived": false,
+          "last_accessed_at": "2026-09-12T09:44:20.001072Z",
+          "access_count": 1,
+          "title": "Synthetic excluded",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "hash": "sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a",
+          "user_created_at": "2026-09-12T09:44:19.988829Z",
+          "user_last_edited_at": "2026-09-12T09:44:19.988829Z"
+        },
+        "revised": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "last_revision_id": "01a09500-e917-7c11-a41f-61c8264604ad",
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "excluded",
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e919-74a2-b249-c360c55b2ff9",
+            "notation": "excluded",
+            "pref_label": "excluded",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "create both synthetic notes through published adapter",
+      "rawBody": "{\"outgoing\":[],\"incoming\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e914-71a2-8220-1604fc290248/links",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "1ac17e0d706df07ae13acef69110ca1bf96e47535ec7835a066d709da338786e",
+      "body": {
+        "outgoing": [],
+        "incoming": []
+      }
+    },
+    {
+      "check": "create both synthetic notes through published adapter",
+      "rawBody": "[[{\"note_id\":\"01a09500-e914-71a2-8220-1604fc290248\",\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false,\"created_at\":\"2026-09-12T09:44:19.949366Z\"},{\"id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"primary_scheme_id\":\"01a09500-e67a-7bd6-9281-dcff30d59400\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"status\":\"candidate\",\"note_count\":2,\"first_used_at\":\"2026-09-12T09:44:19.946760Z\",\"last_used_at\":\"2026-09-12T09:44:19.993449Z\",\"depth\":0,\"broader_count\":0,\"narrower_count\":0,\"related_count\":0,\"created_at\":\"2026-09-12T09:44:19.949366Z\",\"updated_at\":\"2026-09-12T09:44:19.993449Z\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"label_language\":\"en\",\"scheme_notation\":\"default\",\"scheme_title\":\"Default Tags\"}],[{\"note_id\":\"01a09500-e914-71a2-8220-1604fc290248\",\"concept_id\":\"01a09500-e919-74a2-b249-c360c55b2ff9\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false,\"created_at\":\"2026-09-12T09:44:19.993964Z\"},{\"id\":\"01a09500-e919-74a2-b249-c360c55b2ff9\",\"primary_scheme_id\":\"01a09500-e67a-7bd6-9281-dcff30d59400\",\"notation\":\"excluded\",\"status\":\"candidate\",\"note_count\":1,\"first_used_at\":\"2026-09-12T09:44:19.993449Z\",\"last_used_at\":\"2026-09-12T09:44:19.993449Z\",\"depth\":0,\"broader_count\":0,\"narrower_count\":0,\"related_count\":0,\"created_at\":\"2026-09-12T09:44:19.993964Z\",\"updated_at\":\"2026-09-12T09:44:19.993449Z\",\"pref_label\":\"excluded\",\"label_language\":\"en\",\"scheme_notation\":\"default\",\"scheme_title\":\"Default Tags\"}]]",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e914-71a2-8220-1604fc290248/concepts",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "f142c3f9be9f2b481c1421580703d7ee3d0b47a5d0061ec282f7c689e3cd1fac",
+      "body": [
+        [
+          {
+            "note_id": "01a09500-e914-71a2-8220-1604fc290248",
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false,
+            "created_at": "2026-09-12T09:44:19.949366Z"
+          },
+          {
+            "id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "primary_scheme_id": "01a09500-e67a-7bd6-9281-dcff30d59400",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "status": "candidate",
+            "note_count": 2,
+            "first_used_at": "2026-09-12T09:44:19.946760Z",
+            "last_used_at": "2026-09-12T09:44:19.993449Z",
+            "depth": 0,
+            "broader_count": 0,
+            "narrower_count": 0,
+            "related_count": 0,
+            "created_at": "2026-09-12T09:44:19.949366Z",
+            "updated_at": "2026-09-12T09:44:19.993449Z",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "label_language": "en",
+            "scheme_notation": "default",
+            "scheme_title": "Default Tags"
+          }
+        ],
+        [
+          {
+            "note_id": "01a09500-e914-71a2-8220-1604fc290248",
+            "concept_id": "01a09500-e919-74a2-b249-c360c55b2ff9",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false,
+            "created_at": "2026-09-12T09:44:19.993964Z"
+          },
+          {
+            "id": "01a09500-e919-74a2-b249-c360c55b2ff9",
+            "primary_scheme_id": "01a09500-e67a-7bd6-9281-dcff30d59400",
+            "notation": "excluded",
+            "status": "candidate",
+            "note_count": 1,
+            "first_used_at": "2026-09-12T09:44:19.993449Z",
+            "last_used_at": "2026-09-12T09:44:19.993449Z",
+            "depth": 0,
+            "broader_count": 0,
+            "narrower_count": 0,
+            "related_count": 0,
+            "created_at": "2026-09-12T09:44:19.993964Z",
+            "updated_at": "2026-09-12T09:44:19.993449Z",
+            "pref_label": "excluded",
+            "label_language": "en",
+            "scheme_notation": "default",
+            "scheme_title": "Default Tags"
+          }
+        ]
+      ]
+    },
+    {
+      "check": "create both synthetic notes through published adapter",
+      "rawBody": "{\"all_activities\":[],\"all_edges\":[],\"current_chain\":{\"activity\":null,\"edges\":[],\"note_id\":\"01a09500-e914-71a2-8220-1604fc290248\",\"revision_id\":\"01a09500-e917-7c11-a41f-61c8264604ad\"},\"derived_count\":0,\"derived_notes\":[],\"note_id\":\"01a09500-e914-71a2-8220-1604fc290248\"}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e914-71a2-8220-1604fc290248/provenance",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "0715392c84892a919b184c24d28286b613d77951c7823e61b0f068cae7dccf15",
+      "body": {
+        "all_activities": [],
+        "all_edges": [],
+        "current_chain": {
+          "activity": null,
+          "edges": [],
+          "note_id": "01a09500-e914-71a2-8220-1604fc290248",
+          "revision_id": "01a09500-e917-7c11-a41f-61c8264604ad"
+        },
+        "derived_count": 0,
+        "derived_notes": [],
+        "note_id": "01a09500-e914-71a2-8220-1604fc290248"
+      }
+    },
+    {
+      "check": "authenticated FTS q AND-tags and actual EnhancedSearchHit projection",
+      "rawBody": "{\"results\":[{\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"score\":1.0,\"snippet\":\"PACKAGE REMOTE NEEDLE\",\"title\":\"Synthetic selected\",\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"selected\"],\"chain_info\":{\"chain_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"original_title\":\"Synthetic selected\",\"chunks_matched\":1,\"best_chunk_sequence\":0,\"total_chunks\":1}}],\"query\":\"NEEDLE\",\"total\":1,\"degraded\":false}",
+      "method": "GET",
+      "path": "/api/v1/search?q=NEEDLE&mode=fts&limit=10&tags=native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832%2Cselected",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "d4c0385caca2606f4e224760e9fe673a59a482025f181a350aefee60efd5814e",
+      "body": {
+        "results": [
+          {
+            "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+            "score": 1,
+            "snippet": "PACKAGE REMOTE NEEDLE",
+            "title": "Synthetic selected",
+            "tags": [
+              "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+              "selected"
+            ],
+            "chain_info": {
+              "chain_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+              "original_title": "Synthetic selected",
+              "chunks_matched": 1,
+              "best_chunk_sequence": 0,
+              "total_chunks": 1
+            }
+          }
+        ],
+        "query": "NEEDLE",
+        "total": 1,
+        "degraded": false
+      }
+    },
+    {
+      "check": "authenticated FTS q AND-tags and actual EnhancedSearchHit projection",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"updated_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"starred\":false,\"archived\":false,\"last_accessed_at\":\"2026-09-12T09:44:20.056570Z\",\"access_count\":2,\"title\":\"Synthetic selected\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"hash\":\"sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a\",\"user_created_at\":\"2026-09-12T09:44:19.930393Z\",\"user_last_edited_at\":\"2026-09-12T09:44:19.930393Z\"},\"revised\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"last_revision_id\":\"01a09500-e8e6-7d43-916d-0e242b931855\",\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"selected\"],\"concepts\":[{\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"notation\":\"selected\",\"pref_label\":\"selected\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "24a87961cf9c242b8018eab349295e91a916b6352e8f80d78ab6d76ea24b5c07",
+      "body": {
+        "note": {
+          "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.930653Z",
+          "updated_at_utc": "2026-09-12T09:44:19.930653Z",
+          "starred": false,
+          "archived": false,
+          "last_accessed_at": "2026-09-12T09:44:20.056570Z",
+          "access_count": 2,
+          "title": "Synthetic selected",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "hash": "sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a",
+          "user_created_at": "2026-09-12T09:44:19.930393Z",
+          "user_last_edited_at": "2026-09-12T09:44:19.930393Z"
+        },
+        "revised": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "last_revision_id": "01a09500-e8e6-7d43-916d-0e242b931855",
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "selected"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "notation": "selected",
+            "pref_label": "selected",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "AND tags exclude nonmatching notes",
+      "rawBody": "{\"results\":[],\"query\":\"NEEDLE\",\"total\":0,\"degraded\":false}",
+      "method": "GET",
+      "path": "/api/v1/search?q=NEEDLE&mode=fts&limit=10&tags=selected%2Cexcluded",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "6002f3fb6baa5eb3153842371f193ce0880c0734cb9fb3675e2e423bfe63e403",
+      "body": {
+        "results": [],
+        "query": "NEEDLE",
+        "total": 0,
+        "degraded": false
+      }
+    },
+    {
+      "check": "empty FTS results preserve returned-hit total",
+      "rawBody": "{\"results\":[],\"query\":\"NO_MATCH_PACKAGE_TERM\",\"total\":0,\"degraded\":false}",
+      "method": "GET",
+      "path": "/api/v1/search?q=NO_MATCH_PACKAGE_TERM&mode=fts&limit=10",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "4ea80388e02d73516de6bf14d0d5f4029f41f953930f721a79c0c08d3e624680",
+      "body": {
+        "results": [],
+        "query": "NO_MATCH_PACKAGE_TERM",
+        "total": 0,
+        "degraded": false
+      }
+    },
+    {
+      "check": "bounded FTS limit and rank order",
+      "rawBody": "{\"results\":[{\"note_id\":\"01a09500-e914-71a2-8220-1604fc290248\",\"score\":1.0,\"snippet\":\"PACKAGE REMOTE NEEDLE\",\"title\":\"Synthetic excluded\",\"tags\":[\"excluded\",\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\"],\"chain_info\":{\"chain_id\":\"01a09500-e914-71a2-8220-1604fc290248\",\"original_title\":\"Synthetic excluded\",\"chunks_matched\":1,\"best_chunk_sequence\":0,\"total_chunks\":1}}],\"query\":\"NEEDLE\",\"total\":1,\"degraded\":false}",
+      "method": "GET",
+      "path": "/api/v1/search?q=NEEDLE&mode=fts&limit=1",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "647f3dcfc1ee73867195e1f95da86b0d38f943b765c4037a4e0fd72c7a2423a6",
+      "body": {
+        "results": [
+          {
+            "note_id": "01a09500-e914-71a2-8220-1604fc290248",
+            "score": 1,
+            "snippet": "PACKAGE REMOTE NEEDLE",
+            "title": "Synthetic excluded",
+            "tags": [
+              "excluded",
+              "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832"
+            ],
+            "chain_info": {
+              "chain_id": "01a09500-e914-71a2-8220-1604fc290248",
+              "original_title": "Synthetic excluded",
+              "chunks_matched": 1,
+              "best_chunk_sequence": 0,
+              "total_chunks": 1
+            }
+          }
+        ],
+        "query": "NEEDLE",
+        "total": 1,
+        "degraded": false
+      }
+    },
+    {
+      "check": "bounded FTS limit and rank order",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e914-71a2-8220-1604fc290248\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.988912Z\",\"updated_at_utc\":\"2026-09-12T09:44:19.988912Z\",\"starred\":false,\"archived\":false,\"last_accessed_at\":\"2026-09-12T09:44:20.068189Z\",\"access_count\":2,\"title\":\"Synthetic excluded\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"hash\":\"sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a\",\"user_created_at\":\"2026-09-12T09:44:19.988829Z\",\"user_last_edited_at\":\"2026-09-12T09:44:19.988829Z\"},\"revised\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"last_revision_id\":\"01a09500-e917-7c11-a41f-61c8264604ad\",\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"excluded\",\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\"],\"concepts\":[{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e919-74a2-b249-c360c55b2ff9\",\"notation\":\"excluded\",\"pref_label\":\"excluded\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e914-71a2-8220-1604fc290248",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "1e9bdb9687002c8b0cdca90d4b5e36de2798a00dad28d53793e98c2d2bf93664",
+      "body": {
+        "note": {
+          "id": "01a09500-e914-71a2-8220-1604fc290248",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.988912Z",
+          "updated_at_utc": "2026-09-12T09:44:19.988912Z",
+          "starred": false,
+          "archived": false,
+          "last_accessed_at": "2026-09-12T09:44:20.068189Z",
+          "access_count": 2,
+          "title": "Synthetic excluded",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "hash": "sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a",
+          "user_created_at": "2026-09-12T09:44:19.988829Z",
+          "user_last_edited_at": "2026-09-12T09:44:19.988829Z"
+        },
+        "revised": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "last_revision_id": "01a09500-e917-7c11-a41f-61c8264604ad",
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "excluded",
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e919-74a2-b249-c360c55b2ff9",
+            "notation": "excluded",
+            "pref_label": "excluded",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "semantic report explicitly retains unavailable-inference FTS fallback",
+      "rawBody": "{\"results\":[{\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"score\":1.0,\"snippet\":\"PACKAGE REMOTE NEEDLE\",\"title\":\"Synthetic selected\",\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"selected\"],\"chain_info\":{\"chain_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"original_title\":\"Synthetic selected\",\"chunks_matched\":1,\"best_chunk_sequence\":0,\"total_chunks\":1}},{\"note_id\":\"01a09500-e914-71a2-8220-1604fc290248\",\"score\":0.95454544,\"snippet\":\"PACKAGE REMOTE NEEDLE\",\"title\":\"Synthetic excluded\",\"tags\":[\"excluded\",\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\"],\"chain_info\":{\"chain_id\":\"01a09500-e914-71a2-8220-1604fc290248\",\"original_title\":\"Synthetic excluded\",\"chunks_matched\":1,\"best_chunk_sequence\":0,\"total_chunks\":1}}],\"query\":\"NEEDLE\",\"total\":2,\"degraded\":true,\"degradation\":{\"code\":\"embedding_request_failed\",\"effective_mode\":\"fts\"}}",
+      "method": "GET",
+      "path": "/api/v1/search?q=NEEDLE&mode=semantic&limit=10",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "ee7058d82cd25b64bd6abf4e4d864e96dbd66f4f0d87ade802f471ec32fc09bc",
+      "body": {
+        "results": [
+          {
+            "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+            "score": 1,
+            "snippet": "PACKAGE REMOTE NEEDLE",
+            "title": "Synthetic selected",
+            "tags": [
+              "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+              "selected"
+            ],
+            "chain_info": {
+              "chain_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+              "original_title": "Synthetic selected",
+              "chunks_matched": 1,
+              "best_chunk_sequence": 0,
+              "total_chunks": 1
+            }
+          },
+          {
+            "note_id": "01a09500-e914-71a2-8220-1604fc290248",
+            "score": 0.95454544,
+            "snippet": "PACKAGE REMOTE NEEDLE",
+            "title": "Synthetic excluded",
+            "tags": [
+              "excluded",
+              "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832"
+            ],
+            "chain_info": {
+              "chain_id": "01a09500-e914-71a2-8220-1604fc290248",
+              "original_title": "Synthetic excluded",
+              "chunks_matched": 1,
+              "best_chunk_sequence": 0,
+              "total_chunks": 1
+            }
+          }
+        ],
+        "query": "NEEDLE",
+        "total": 2,
+        "degraded": true,
+        "degradation": {
+          "code": "embedding_request_failed",
+          "effective_mode": "fts"
+        }
+      }
+    },
+    {
+      "check": "semantic report explicitly retains unavailable-inference FTS fallback",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"updated_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"starred\":false,\"archived\":false,\"last_accessed_at\":\"2026-09-12T09:44:20.093642Z\",\"access_count\":3,\"title\":\"Synthetic selected\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"hash\":\"sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a\",\"user_created_at\":\"2026-09-12T09:44:19.930393Z\",\"user_last_edited_at\":\"2026-09-12T09:44:19.930393Z\"},\"revised\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"last_revision_id\":\"01a09500-e8e6-7d43-916d-0e242b931855\",\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"selected\"],\"concepts\":[{\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"notation\":\"selected\",\"pref_label\":\"selected\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "fbae305897ba201796e671714169937d6ae8be2a6525e8621956a7c1e328b038",
+      "body": {
+        "note": {
+          "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.930653Z",
+          "updated_at_utc": "2026-09-12T09:44:19.930653Z",
+          "starred": false,
+          "archived": false,
+          "last_accessed_at": "2026-09-12T09:44:20.093642Z",
+          "access_count": 3,
+          "title": "Synthetic selected",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "hash": "sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a",
+          "user_created_at": "2026-09-12T09:44:19.930393Z",
+          "user_last_edited_at": "2026-09-12T09:44:19.930393Z"
+        },
+        "revised": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "last_revision_id": "01a09500-e8e6-7d43-916d-0e242b931855",
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "selected"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "notation": "selected",
+            "pref_label": "selected",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "semantic report explicitly retains unavailable-inference FTS fallback",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e914-71a2-8220-1604fc290248\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.988912Z\",\"updated_at_utc\":\"2026-09-12T09:44:19.988912Z\",\"starred\":false,\"archived\":false,\"last_accessed_at\":\"2026-09-12T09:44:20.095888Z\",\"access_count\":3,\"title\":\"Synthetic excluded\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"hash\":\"sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a\",\"user_created_at\":\"2026-09-12T09:44:19.988829Z\",\"user_last_edited_at\":\"2026-09-12T09:44:19.988829Z\"},\"revised\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"last_revision_id\":\"01a09500-e917-7c11-a41f-61c8264604ad\",\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"excluded\",\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\"],\"concepts\":[{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e919-74a2-b249-c360c55b2ff9\",\"notation\":\"excluded\",\"pref_label\":\"excluded\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e914-71a2-8220-1604fc290248",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "da48a28c27f69016b3a830102b5c076b429e91c83a3fb68865ab197d4a33dae4",
+      "body": {
+        "note": {
+          "id": "01a09500-e914-71a2-8220-1604fc290248",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.988912Z",
+          "updated_at_utc": "2026-09-12T09:44:19.988912Z",
+          "starred": false,
+          "archived": false,
+          "last_accessed_at": "2026-09-12T09:44:20.095888Z",
+          "access_count": 3,
+          "title": "Synthetic excluded",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "hash": "sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a",
+          "user_created_at": "2026-09-12T09:44:19.988829Z",
+          "user_last_edited_at": "2026-09-12T09:44:19.988829Z"
+        },
+        "revised": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "last_revision_id": "01a09500-e917-7c11-a41f-61c8264604ad",
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "excluded",
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e919-74a2-b249-c360c55b2ff9",
+            "notation": "excluded",
+            "pref_label": "excluded",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "array-only semantic rejects fallback",
+      "rawBody": "{\"results\":[{\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"score\":1.0,\"snippet\":\"PACKAGE REMOTE NEEDLE\",\"title\":\"Synthetic selected\",\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"selected\"],\"chain_info\":{\"chain_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"original_title\":\"Synthetic selected\",\"chunks_matched\":1,\"best_chunk_sequence\":0,\"total_chunks\":1}},{\"note_id\":\"01a09500-e914-71a2-8220-1604fc290248\",\"score\":0.95454544,\"snippet\":\"PACKAGE REMOTE NEEDLE\",\"title\":\"Synthetic excluded\",\"tags\":[\"excluded\",\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\"],\"chain_info\":{\"chain_id\":\"01a09500-e914-71a2-8220-1604fc290248\",\"original_title\":\"Synthetic excluded\",\"chunks_matched\":1,\"best_chunk_sequence\":0,\"total_chunks\":1}}],\"query\":\"NEEDLE\",\"total\":2,\"degraded\":true,\"degradation\":{\"code\":\"embedding_request_failed\",\"effective_mode\":\"fts\"}}",
+      "method": "GET",
+      "path": "/api/v1/search?q=NEEDLE&mode=semantic&limit=10",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "ee7058d82cd25b64bd6abf4e4d864e96dbd66f4f0d87ade802f471ec32fc09bc",
+      "body": {
+        "results": [
+          {
+            "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+            "score": 1,
+            "snippet": "PACKAGE REMOTE NEEDLE",
+            "title": "Synthetic selected",
+            "tags": [
+              "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+              "selected"
+            ],
+            "chain_info": {
+              "chain_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+              "original_title": "Synthetic selected",
+              "chunks_matched": 1,
+              "best_chunk_sequence": 0,
+              "total_chunks": 1
+            }
+          },
+          {
+            "note_id": "01a09500-e914-71a2-8220-1604fc290248",
+            "score": 0.95454544,
+            "snippet": "PACKAGE REMOTE NEEDLE",
+            "title": "Synthetic excluded",
+            "tags": [
+              "excluded",
+              "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832"
+            ],
+            "chain_info": {
+              "chain_id": "01a09500-e914-71a2-8220-1604fc290248",
+              "original_title": "Synthetic excluded",
+              "chunks_matched": 1,
+              "best_chunk_sequence": 0,
+              "total_chunks": 1
+            }
+          }
+        ],
+        "query": "NEEDLE",
+        "total": 2,
+        "degraded": true,
+        "degradation": {
+          "code": "embedding_request_failed",
+          "effective_mode": "fts"
+        }
+      }
+    },
+    {
+      "check": "hybrid explicitly reports FTS degradation",
+      "rawBody": "{\"results\":[{\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"score\":1.0,\"snippet\":\"PACKAGE REMOTE NEEDLE\",\"title\":\"Synthetic selected\",\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"selected\"],\"chain_info\":{\"chain_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"original_title\":\"Synthetic selected\",\"chunks_matched\":1,\"best_chunk_sequence\":0,\"total_chunks\":1}},{\"note_id\":\"01a09500-e914-71a2-8220-1604fc290248\",\"score\":0.95454544,\"snippet\":\"PACKAGE REMOTE NEEDLE\",\"title\":\"Synthetic excluded\",\"tags\":[\"excluded\",\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\"],\"chain_info\":{\"chain_id\":\"01a09500-e914-71a2-8220-1604fc290248\",\"original_title\":\"Synthetic excluded\",\"chunks_matched\":1,\"best_chunk_sequence\":0,\"total_chunks\":1}}],\"query\":\"NEEDLE\",\"total\":2,\"degraded\":true,\"degradation\":{\"code\":\"embedding_request_failed\",\"effective_mode\":\"fts\"}}",
+      "method": "GET",
+      "path": "/api/v1/search?q=NEEDLE&mode=hybrid&limit=10",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "ee7058d82cd25b64bd6abf4e4d864e96dbd66f4f0d87ade802f471ec32fc09bc",
+      "body": {
+        "results": [
+          {
+            "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+            "score": 1,
+            "snippet": "PACKAGE REMOTE NEEDLE",
+            "title": "Synthetic selected",
+            "tags": [
+              "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+              "selected"
+            ],
+            "chain_info": {
+              "chain_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+              "original_title": "Synthetic selected",
+              "chunks_matched": 1,
+              "best_chunk_sequence": 0,
+              "total_chunks": 1
+            }
+          },
+          {
+            "note_id": "01a09500-e914-71a2-8220-1604fc290248",
+            "score": 0.95454544,
+            "snippet": "PACKAGE REMOTE NEEDLE",
+            "title": "Synthetic excluded",
+            "tags": [
+              "excluded",
+              "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832"
+            ],
+            "chain_info": {
+              "chain_id": "01a09500-e914-71a2-8220-1604fc290248",
+              "original_title": "Synthetic excluded",
+              "chunks_matched": 1,
+              "best_chunk_sequence": 0,
+              "total_chunks": 1
+            }
+          }
+        ],
+        "query": "NEEDLE",
+        "total": 2,
+        "degraded": true,
+        "degradation": {
+          "code": "embedding_request_failed",
+          "effective_mode": "fts"
+        }
+      }
+    },
+    {
+      "check": "hybrid explicitly reports FTS degradation",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"updated_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"starred\":false,\"archived\":false,\"last_accessed_at\":\"2026-09-12T09:44:20.122091Z\",\"access_count\":4,\"title\":\"Synthetic selected\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"hash\":\"sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a\",\"user_created_at\":\"2026-09-12T09:44:19.930393Z\",\"user_last_edited_at\":\"2026-09-12T09:44:19.930393Z\"},\"revised\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"last_revision_id\":\"01a09500-e8e6-7d43-916d-0e242b931855\",\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"selected\"],\"concepts\":[{\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"notation\":\"selected\",\"pref_label\":\"selected\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "8308f2471e1319ad7fd2e5205c4e8dcce35cdd0311052538fcad77d4184ba8d3",
+      "body": {
+        "note": {
+          "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.930653Z",
+          "updated_at_utc": "2026-09-12T09:44:19.930653Z",
+          "starred": false,
+          "archived": false,
+          "last_accessed_at": "2026-09-12T09:44:20.122091Z",
+          "access_count": 4,
+          "title": "Synthetic selected",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "hash": "sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a",
+          "user_created_at": "2026-09-12T09:44:19.930393Z",
+          "user_last_edited_at": "2026-09-12T09:44:19.930393Z"
+        },
+        "revised": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "last_revision_id": "01a09500-e8e6-7d43-916d-0e242b931855",
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "selected"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "notation": "selected",
+            "pref_label": "selected",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "hybrid explicitly reports FTS degradation",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e914-71a2-8220-1604fc290248\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.988912Z\",\"updated_at_utc\":\"2026-09-12T09:44:19.988912Z\",\"starred\":false,\"archived\":false,\"last_accessed_at\":\"2026-09-12T09:44:20.124165Z\",\"access_count\":4,\"title\":\"Synthetic excluded\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"hash\":\"sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a\",\"user_created_at\":\"2026-09-12T09:44:19.988829Z\",\"user_last_edited_at\":\"2026-09-12T09:44:19.988829Z\"},\"revised\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"last_revision_id\":\"01a09500-e917-7c11-a41f-61c8264604ad\",\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"excluded\",\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\"],\"concepts\":[{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e919-74a2-b249-c360c55b2ff9\",\"notation\":\"excluded\",\"pref_label\":\"excluded\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e914-71a2-8220-1604fc290248",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "e34c6dcc7fe2461fb1ee1c7ed0c776b77aa66b5b73384b6e2f3944115d3d7160",
+      "body": {
+        "note": {
+          "id": "01a09500-e914-71a2-8220-1604fc290248",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.988912Z",
+          "updated_at_utc": "2026-09-12T09:44:19.988912Z",
+          "starred": false,
+          "archived": false,
+          "last_accessed_at": "2026-09-12T09:44:20.124165Z",
+          "access_count": 4,
+          "title": "Synthetic excluded",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "hash": "sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a",
+          "user_created_at": "2026-09-12T09:44:19.988829Z",
+          "user_last_edited_at": "2026-09-12T09:44:19.988829Z"
+        },
+        "revised": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "last_revision_id": "01a09500-e917-7c11-a41f-61c8264604ad",
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "excluded",
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e919-74a2-b249-c360c55b2ff9",
+            "notation": "excluded",
+            "pref_label": "excluded",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "actual producer rejects legacy missing-q request",
+      "rawBody": "Failed to deserialize query string: missing field `q`",
+      "method": "GET",
+      "path": "/api/v1/search?query=NEEDLE",
+      "requestBody": null,
+      "status": 400,
+      "contentType": "text/plain; charset=utf-8",
+      "retryAfter": null,
+      "responseSha256": "56fdcd3f5acc3f96f808402b7456700333bcfbdb78e60e68db3c80f486e7b23e",
+      "body": "Failed to deserialize query string: missing field `q`"
+    },
+    {
+      "check": "missing identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"detail\":\"Authentication required. Provide a valid Bearer token.\",\"request_id\":\"01a09500-e9a6-7e01-bdf2-f48ad130bbd8\",\"status\":401,\"title\":\"Unauthorized\",\"type\":\"https://fortemi.com/problems/unauthorized\"}",
+      "method": "GET",
+      "path": "/api/v1/search?q=NEEDLE&mode=fts&limit=20",
+      "requestBody": null,
+      "status": 401,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "8cdfb8525d1bb67fd1b08f8ff0dae930d1f34aecf71369b6c21af835e3bb3403",
+      "body": {
+        "detail": "Authentication required. Provide a valid Bearer token.",
+        "request_id": "01a09500-e9a6-7e01-bdf2-f48ad130bbd8",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "https://fortemi.com/problems/unauthorized"
+      }
+    },
+    {
+      "check": "missing identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"detail\":\"Authentication required. Provide a valid Bearer token.\",\"request_id\":\"01a09500-e9ab-74e1-8164-27a8c2188b86\",\"status\":401,\"title\":\"Unauthorized\",\"type\":\"https://fortemi.com/problems/unauthorized\"}",
+      "method": "GET",
+      "path": "/api/v1/search?q=NEEDLE&mode=semantic&limit=10",
+      "requestBody": null,
+      "status": 401,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "66ac465e84cf3287080db9c793dcb49a93c951d2aec77bb8aa423cb2284f88e2",
+      "body": {
+        "detail": "Authentication required. Provide a valid Bearer token.",
+        "request_id": "01a09500-e9ab-74e1-8164-27a8c2188b86",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "https://fortemi.com/problems/unauthorized"
+      }
+    },
+    {
+      "check": "missing identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"detail\":\"Authentication required. Provide a valid Bearer token.\",\"request_id\":\"01a09500-e9ac-70d1-872d-2d38bf5a6f8d\",\"status\":401,\"title\":\"Unauthorized\",\"type\":\"https://fortemi.com/problems/unauthorized\"}",
+      "method": "POST",
+      "path": "/api/v1/notes",
+      "requestBody": {
+        "content": "MUST NOT BE STORED",
+        "revision_mode": "none",
+        "pipeline": []
+      },
+      "status": 401,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "4f4524201c8ea67e08284d028e0cce94ef499a58f0e9a6318338187243e90756",
+      "body": {
+        "detail": "Authentication required. Provide a valid Bearer token.",
+        "request_id": "01a09500-e9ac-70d1-872d-2d38bf5a6f8d",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "https://fortemi.com/problems/unauthorized"
+      }
+    },
+    {
+      "check": "missing identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"detail\":\"Authentication required. Provide a valid Bearer token.\",\"request_id\":\"01a09500-e9ad-72e2-a852-4cedcd569ba4\",\"status\":401,\"title\":\"Unauthorized\",\"type\":\"https://fortemi.com/problems/unauthorized\"}",
+      "method": "PATCH",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": {
+        "content": "MUST NOT BE STORED",
+        "revision_mode": "none"
+      },
+      "status": 401,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "13597897c6d78a3ea64e0cb616fd71e63ea1f6154f9588293ee498c70a530222",
+      "body": {
+        "detail": "Authentication required. Provide a valid Bearer token.",
+        "request_id": "01a09500-e9ad-72e2-a852-4cedcd569ba4",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "https://fortemi.com/problems/unauthorized"
+      }
+    },
+    {
+      "check": "missing identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"detail\":\"Authentication required. Provide a valid Bearer token.\",\"request_id\":\"01a09500-e9ae-7cf3-9b5a-ea83ad7e7e6b\",\"status\":401,\"title\":\"Unauthorized\",\"type\":\"https://fortemi.com/problems/unauthorized\"}",
+      "method": "PATCH",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": {
+        "starred": true
+      },
+      "status": 401,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "f44d899077d1b198c926c9e053cfd21e49925a2651e25212d3e6b214d3c13e9a",
+      "body": {
+        "detail": "Authentication required. Provide a valid Bearer token.",
+        "request_id": "01a09500-e9ae-7cf3-9b5a-ea83ad7e7e6b",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "https://fortemi.com/problems/unauthorized"
+      }
+    },
+    {
+      "check": "missing identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"detail\":\"Authentication required. Provide a valid Bearer token.\",\"request_id\":\"01a09500-e9af-7822-88f1-9702d9f7b8b3\",\"status\":401,\"title\":\"Unauthorized\",\"type\":\"https://fortemi.com/problems/unauthorized\"}",
+      "method": "PATCH",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": {
+        "starred": false
+      },
+      "status": 401,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "79bdbce72b288a2334e35bfd2634c84b554b5f3508397c8b145835e5ac2109ab",
+      "body": {
+        "detail": "Authentication required. Provide a valid Bearer token.",
+        "request_id": "01a09500-e9af-7822-88f1-9702d9f7b8b3",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "https://fortemi.com/problems/unauthorized"
+      }
+    },
+    {
+      "check": "missing identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"detail\":\"Authentication required. Provide a valid Bearer token.\",\"request_id\":\"01a09500-e9b0-7233-a41f-cbae4b5436b3\",\"status\":401,\"title\":\"Unauthorized\",\"type\":\"https://fortemi.com/problems/unauthorized\"}",
+      "method": "PATCH",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": {
+        "archived": true
+      },
+      "status": 401,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "51034dc626471fabb5f920efdea7ca84ebc31869e50777538fc9a4cf12ceb388",
+      "body": {
+        "detail": "Authentication required. Provide a valid Bearer token.",
+        "request_id": "01a09500-e9b0-7233-a41f-cbae4b5436b3",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "https://fortemi.com/problems/unauthorized"
+      }
+    },
+    {
+      "check": "missing identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"detail\":\"Authentication required. Provide a valid Bearer token.\",\"request_id\":\"01a09500-e9b1-7de2-b1da-e2ce46d1a177\",\"status\":401,\"title\":\"Unauthorized\",\"type\":\"https://fortemi.com/problems/unauthorized\"}",
+      "method": "PATCH",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": {
+        "archived": false
+      },
+      "status": 401,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "ccf644687ae08f05756dbc77ee95b0178c214fd6fc6150361c96d96056c6290d",
+      "body": {
+        "detail": "Authentication required. Provide a valid Bearer token.",
+        "request_id": "01a09500-e9b1-7de2-b1da-e2ce46d1a177",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "https://fortemi.com/problems/unauthorized"
+      }
+    },
+    {
+      "check": "missing identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"detail\":\"Authentication required. Provide a valid Bearer token.\",\"request_id\":\"01a09500-e9b1-7de2-b1da-e2d95357783f\",\"status\":401,\"title\":\"Unauthorized\",\"type\":\"https://fortemi.com/problems/unauthorized\"}",
+      "method": "DELETE",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": null,
+      "status": 401,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "6207f8ddca7ca4b5d0d499c11d7481ba0e10b9e9d9228f19fcb5604f37d47981",
+      "body": {
+        "detail": "Authentication required. Provide a valid Bearer token.",
+        "request_id": "01a09500-e9b1-7de2-b1da-e2d95357783f",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "https://fortemi.com/problems/unauthorized"
+      }
+    },
+    {
+      "check": "missing identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"detail\":\"Authentication required. Provide a valid Bearer token.\",\"request_id\":\"01a09500-e9b2-75f1-865c-9674f134cab5\",\"status\":401,\"title\":\"Unauthorized\",\"type\":\"https://fortemi.com/problems/unauthorized\"}",
+      "method": "POST",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424/restore?revision_mode=none",
+      "requestBody": null,
+      "status": 401,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "3da99e3193402b071eb03cd95c0d2f74d8e81b3308aeff76dbf9f9d15de2aa7b",
+      "body": {
+        "detail": "Authentication required. Provide a valid Bearer token.",
+        "request_id": "01a09500-e9b2-75f1-865c-9674f134cab5",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "https://fortemi.com/problems/unauthorized"
+      }
+    },
+    {
+      "check": "missing identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"updated_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"starred\":false,\"archived\":false,\"last_accessed_at\":\"2026-09-12T09:44:20.165344Z\",\"access_count\":5,\"title\":\"Synthetic selected\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"hash\":\"sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a\",\"user_created_at\":\"2026-09-12T09:44:19.930393Z\",\"user_last_edited_at\":\"2026-09-12T09:44:19.930393Z\"},\"revised\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"last_revision_id\":\"01a09500-e8e6-7d43-916d-0e242b931855\",\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"selected\"],\"concepts\":[{\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"notation\":\"selected\",\"pref_label\":\"selected\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "e57ff0bb6a104355ec52db3dc4af2041ee32b1621385c40785f21f2d1fc25248",
+      "body": {
+        "note": {
+          "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.930653Z",
+          "updated_at_utc": "2026-09-12T09:44:19.930653Z",
+          "starred": false,
+          "archived": false,
+          "last_accessed_at": "2026-09-12T09:44:20.165344Z",
+          "access_count": 5,
+          "title": "Synthetic selected",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "hash": "sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a",
+          "user_created_at": "2026-09-12T09:44:19.930393Z",
+          "user_last_edited_at": "2026-09-12T09:44:19.930393Z"
+        },
+        "revised": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "last_revision_id": "01a09500-e8e6-7d43-916d-0e242b931855",
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "selected"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "notation": "selected",
+            "pref_label": "selected",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "missing identity cannot search or dispatch advertised mutations",
+      "rawBody": "[[{\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false,\"created_at\":\"2026-09-12T09:44:19.953769Z\"},{\"id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"primary_scheme_id\":\"01a09500-e67a-7bd6-9281-dcff30d59400\",\"notation\":\"selected\",\"status\":\"candidate\",\"note_count\":1,\"first_used_at\":\"2026-09-12T09:44:19.946760Z\",\"last_used_at\":\"2026-09-12T09:44:19.946760Z\",\"depth\":0,\"broader_count\":0,\"narrower_count\":0,\"related_count\":0,\"created_at\":\"2026-09-12T09:44:19.953769Z\",\"updated_at\":\"2026-09-12T09:44:19.946760Z\",\"pref_label\":\"selected\",\"label_language\":\"en\",\"scheme_notation\":\"default\",\"scheme_title\":\"Default Tags\"}],[{\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false,\"created_at\":\"2026-09-12T09:44:19.949366Z\"},{\"id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"primary_scheme_id\":\"01a09500-e67a-7bd6-9281-dcff30d59400\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"status\":\"candidate\",\"note_count\":2,\"first_used_at\":\"2026-09-12T09:44:19.946760Z\",\"last_used_at\":\"2026-09-12T09:44:19.993449Z\",\"depth\":0,\"broader_count\":0,\"narrower_count\":0,\"related_count\":0,\"created_at\":\"2026-09-12T09:44:19.949366Z\",\"updated_at\":\"2026-09-12T09:44:19.993449Z\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"label_language\":\"en\",\"scheme_notation\":\"default\",\"scheme_title\":\"Default Tags\"}]]",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424/concepts",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "bee223e7698738b82e66f9ea81349f7c6552c21a2e1f181635c9229f620437f2",
+      "body": [
+        [
+          {
+            "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false,
+            "created_at": "2026-09-12T09:44:19.953769Z"
+          },
+          {
+            "id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "primary_scheme_id": "01a09500-e67a-7bd6-9281-dcff30d59400",
+            "notation": "selected",
+            "status": "candidate",
+            "note_count": 1,
+            "first_used_at": "2026-09-12T09:44:19.946760Z",
+            "last_used_at": "2026-09-12T09:44:19.946760Z",
+            "depth": 0,
+            "broader_count": 0,
+            "narrower_count": 0,
+            "related_count": 0,
+            "created_at": "2026-09-12T09:44:19.953769Z",
+            "updated_at": "2026-09-12T09:44:19.946760Z",
+            "pref_label": "selected",
+            "label_language": "en",
+            "scheme_notation": "default",
+            "scheme_title": "Default Tags"
+          }
+        ],
+        [
+          {
+            "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false,
+            "created_at": "2026-09-12T09:44:19.949366Z"
+          },
+          {
+            "id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "primary_scheme_id": "01a09500-e67a-7bd6-9281-dcff30d59400",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "status": "candidate",
+            "note_count": 2,
+            "first_used_at": "2026-09-12T09:44:19.946760Z",
+            "last_used_at": "2026-09-12T09:44:19.993449Z",
+            "depth": 0,
+            "broader_count": 0,
+            "narrower_count": 0,
+            "related_count": 0,
+            "created_at": "2026-09-12T09:44:19.949366Z",
+            "updated_at": "2026-09-12T09:44:19.993449Z",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "label_language": "en",
+            "scheme_notation": "default",
+            "scheme_title": "Default Tags"
+          }
+        ]
+      ]
+    },
+    {
+      "check": "missing identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"outgoing\":[],\"incoming\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424/links",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "1ac17e0d706df07ae13acef69110ca1bf96e47535ec7835a066d709da338786e",
+      "body": {
+        "outgoing": [],
+        "incoming": []
+      }
+    },
+    {
+      "check": "missing identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"all_activities\":[],\"all_edges\":[],\"current_chain\":{\"activity\":null,\"edges\":[],\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"revision_id\":\"01a09500-e8e6-7d43-916d-0e242b931855\"},\"derived_count\":0,\"derived_notes\":[],\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\"}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424/provenance",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "ed13b0bb788410966527394b59e0734bd7807ec6af2df134d161aa972c829361",
+      "body": {
+        "all_activities": [],
+        "all_edges": [],
+        "current_chain": {
+          "activity": null,
+          "edges": [],
+          "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "revision_id": "01a09500-e8e6-7d43-916d-0e242b931855"
+        },
+        "derived_count": 0,
+        "derived_notes": [],
+        "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424"
+      }
+    },
+    {
+      "check": "invalid identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"detail\":\"Invalid or expired bearer token.\",\"request_id\":\"01a09500-e9d0-78f1-b36d-f1f01e7cbd7e\",\"status\":401,\"title\":\"Unauthorized\",\"type\":\"https://fortemi.com/problems/unauthorized\"}",
+      "method": "GET",
+      "path": "/api/v1/search?q=NEEDLE&mode=fts&limit=20",
+      "requestBody": null,
+      "status": 401,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "1de2385a34ea90727f805c11158e433291d9fe7583ce546b452e3cf086435509",
+      "body": {
+        "detail": "Invalid or expired bearer token.",
+        "request_id": "01a09500-e9d0-78f1-b36d-f1f01e7cbd7e",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "https://fortemi.com/problems/unauthorized"
+      }
+    },
+    {
+      "check": "invalid identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"detail\":\"Invalid or expired bearer token.\",\"request_id\":\"01a09500-e9d1-7f92-8d6d-ab74145c36b4\",\"status\":401,\"title\":\"Unauthorized\",\"type\":\"https://fortemi.com/problems/unauthorized\"}",
+      "method": "GET",
+      "path": "/api/v1/search?q=NEEDLE&mode=semantic&limit=10",
+      "requestBody": null,
+      "status": 401,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "933bbc0e7825a6751b6b29d7ff62959a63b6f587dd03b7614f889f9b69052579",
+      "body": {
+        "detail": "Invalid or expired bearer token.",
+        "request_id": "01a09500-e9d1-7f92-8d6d-ab74145c36b4",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "https://fortemi.com/problems/unauthorized"
+      }
+    },
+    {
+      "check": "invalid identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"detail\":\"Invalid or expired bearer token.\",\"request_id\":\"01a09500-e9d3-7432-98ec-b487899b278d\",\"status\":401,\"title\":\"Unauthorized\",\"type\":\"https://fortemi.com/problems/unauthorized\"}",
+      "method": "POST",
+      "path": "/api/v1/notes",
+      "requestBody": {
+        "content": "MUST NOT BE STORED",
+        "revision_mode": "none",
+        "pipeline": []
+      },
+      "status": 401,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "3e8c26369cab90deaafa3fe3605424f21853b650705883dd5fd888ad3bf3af12",
+      "body": {
+        "detail": "Invalid or expired bearer token.",
+        "request_id": "01a09500-e9d3-7432-98ec-b487899b278d",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "https://fortemi.com/problems/unauthorized"
+      }
+    },
+    {
+      "check": "invalid identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"detail\":\"Invalid or expired bearer token.\",\"request_id\":\"01a09500-e9d5-7e30-92db-80903f0648d6\",\"status\":401,\"title\":\"Unauthorized\",\"type\":\"https://fortemi.com/problems/unauthorized\"}",
+      "method": "PATCH",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": {
+        "content": "MUST NOT BE STORED",
+        "revision_mode": "none"
+      },
+      "status": 401,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "dcc5e82b777ad4723b6ab786ff3c8b93db6e8e24323401ef18315ec3bc6c76f1",
+      "body": {
+        "detail": "Invalid or expired bearer token.",
+        "request_id": "01a09500-e9d5-7e30-92db-80903f0648d6",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "https://fortemi.com/problems/unauthorized"
+      }
+    },
+    {
+      "check": "invalid identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"detail\":\"Invalid or expired bearer token.\",\"request_id\":\"01a09500-e9d6-7c21-a8c8-187a0b3d37c8\",\"status\":401,\"title\":\"Unauthorized\",\"type\":\"https://fortemi.com/problems/unauthorized\"}",
+      "method": "PATCH",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": {
+        "starred": true
+      },
+      "status": 401,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "7bee375f8bdcd3e40f6d22ff8e69b55a550bf785b269e39193e7f43615d23d0e",
+      "body": {
+        "detail": "Invalid or expired bearer token.",
+        "request_id": "01a09500-e9d6-7c21-a8c8-187a0b3d37c8",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "https://fortemi.com/problems/unauthorized"
+      }
+    },
+    {
+      "check": "invalid identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"detail\":\"Invalid or expired bearer token.\",\"request_id\":\"01a09500-e9d8-7bd3-b5d0-ce7fbbaf4d95\",\"status\":401,\"title\":\"Unauthorized\",\"type\":\"https://fortemi.com/problems/unauthorized\"}",
+      "method": "PATCH",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": {
+        "starred": false
+      },
+      "status": 401,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "76b93ac76b7e3eb9814157534f0b0e563ffef2ac62904db5eaccc68327348161",
+      "body": {
+        "detail": "Invalid or expired bearer token.",
+        "request_id": "01a09500-e9d8-7bd3-b5d0-ce7fbbaf4d95",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "https://fortemi.com/problems/unauthorized"
+      }
+    },
+    {
+      "check": "invalid identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"detail\":\"Invalid or expired bearer token.\",\"request_id\":\"01a09500-e9da-7f60-85a2-04e4c55bd729\",\"status\":401,\"title\":\"Unauthorized\",\"type\":\"https://fortemi.com/problems/unauthorized\"}",
+      "method": "PATCH",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": {
+        "archived": true
+      },
+      "status": 401,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "0df4869d9ed5add1c8284cce97bd963706512e00a36635f6e9171326ee7a8ca6",
+      "body": {
+        "detail": "Invalid or expired bearer token.",
+        "request_id": "01a09500-e9da-7f60-85a2-04e4c55bd729",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "https://fortemi.com/problems/unauthorized"
+      }
+    },
+    {
+      "check": "invalid identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"detail\":\"Invalid or expired bearer token.\",\"request_id\":\"01a09500-e9db-7732-b705-c66d82a0cbda\",\"status\":401,\"title\":\"Unauthorized\",\"type\":\"https://fortemi.com/problems/unauthorized\"}",
+      "method": "PATCH",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": {
+        "archived": false
+      },
+      "status": 401,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "8e079b65704c5b9740d45f85f4ed01b8ca660b92062619e2574452ce58a856de",
+      "body": {
+        "detail": "Invalid or expired bearer token.",
+        "request_id": "01a09500-e9db-7732-b705-c66d82a0cbda",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "https://fortemi.com/problems/unauthorized"
+      }
+    },
+    {
+      "check": "invalid identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"detail\":\"Invalid or expired bearer token.\",\"request_id\":\"01a09500-e9dc-7a90-bae2-a6fd51858352\",\"status\":401,\"title\":\"Unauthorized\",\"type\":\"https://fortemi.com/problems/unauthorized\"}",
+      "method": "DELETE",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": null,
+      "status": 401,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "606ea27452da2210fae72f218140cd111fde3b2e61693193e6c09694a8eee458",
+      "body": {
+        "detail": "Invalid or expired bearer token.",
+        "request_id": "01a09500-e9dc-7a90-bae2-a6fd51858352",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "https://fortemi.com/problems/unauthorized"
+      }
+    },
+    {
+      "check": "invalid identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"detail\":\"Invalid or expired bearer token.\",\"request_id\":\"01a09500-e9dd-7a40-ad9e-65032dc5eb47\",\"status\":401,\"title\":\"Unauthorized\",\"type\":\"https://fortemi.com/problems/unauthorized\"}",
+      "method": "POST",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424/restore?revision_mode=none",
+      "requestBody": null,
+      "status": 401,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "fedd90ac16ffa2d9ad35fc3f8c24701f7efd4b485fbb4e96176057a4111939d5",
+      "body": {
+        "detail": "Invalid or expired bearer token.",
+        "request_id": "01a09500-e9dd-7a40-ad9e-65032dc5eb47",
+        "status": 401,
+        "title": "Unauthorized",
+        "type": "https://fortemi.com/problems/unauthorized"
+      }
+    },
+    {
+      "check": "invalid identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"updated_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"starred\":false,\"archived\":false,\"last_accessed_at\":\"2026-09-12T09:44:20.203932Z\",\"access_count\":6,\"title\":\"Synthetic selected\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"hash\":\"sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a\",\"user_created_at\":\"2026-09-12T09:44:19.930393Z\",\"user_last_edited_at\":\"2026-09-12T09:44:19.930393Z\"},\"revised\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"last_revision_id\":\"01a09500-e8e6-7d43-916d-0e242b931855\",\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"selected\"],\"concepts\":[{\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"notation\":\"selected\",\"pref_label\":\"selected\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "354bc019475e9119df017bfc7ee290ec23fd274afd7d58c143b2232ebfcc3d0b",
+      "body": {
+        "note": {
+          "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.930653Z",
+          "updated_at_utc": "2026-09-12T09:44:19.930653Z",
+          "starred": false,
+          "archived": false,
+          "last_accessed_at": "2026-09-12T09:44:20.203932Z",
+          "access_count": 6,
+          "title": "Synthetic selected",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "hash": "sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a",
+          "user_created_at": "2026-09-12T09:44:19.930393Z",
+          "user_last_edited_at": "2026-09-12T09:44:19.930393Z"
+        },
+        "revised": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "last_revision_id": "01a09500-e8e6-7d43-916d-0e242b931855",
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "selected"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "notation": "selected",
+            "pref_label": "selected",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "invalid identity cannot search or dispatch advertised mutations",
+      "rawBody": "[[{\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false,\"created_at\":\"2026-09-12T09:44:19.953769Z\"},{\"id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"primary_scheme_id\":\"01a09500-e67a-7bd6-9281-dcff30d59400\",\"notation\":\"selected\",\"status\":\"candidate\",\"note_count\":1,\"first_used_at\":\"2026-09-12T09:44:19.946760Z\",\"last_used_at\":\"2026-09-12T09:44:19.946760Z\",\"depth\":0,\"broader_count\":0,\"narrower_count\":0,\"related_count\":0,\"created_at\":\"2026-09-12T09:44:19.953769Z\",\"updated_at\":\"2026-09-12T09:44:19.946760Z\",\"pref_label\":\"selected\",\"label_language\":\"en\",\"scheme_notation\":\"default\",\"scheme_title\":\"Default Tags\"}],[{\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false,\"created_at\":\"2026-09-12T09:44:19.949366Z\"},{\"id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"primary_scheme_id\":\"01a09500-e67a-7bd6-9281-dcff30d59400\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"status\":\"candidate\",\"note_count\":2,\"first_used_at\":\"2026-09-12T09:44:19.946760Z\",\"last_used_at\":\"2026-09-12T09:44:19.993449Z\",\"depth\":0,\"broader_count\":0,\"narrower_count\":0,\"related_count\":0,\"created_at\":\"2026-09-12T09:44:19.949366Z\",\"updated_at\":\"2026-09-12T09:44:19.993449Z\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"label_language\":\"en\",\"scheme_notation\":\"default\",\"scheme_title\":\"Default Tags\"}]]",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424/concepts",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "bee223e7698738b82e66f9ea81349f7c6552c21a2e1f181635c9229f620437f2",
+      "body": [
+        [
+          {
+            "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false,
+            "created_at": "2026-09-12T09:44:19.953769Z"
+          },
+          {
+            "id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "primary_scheme_id": "01a09500-e67a-7bd6-9281-dcff30d59400",
+            "notation": "selected",
+            "status": "candidate",
+            "note_count": 1,
+            "first_used_at": "2026-09-12T09:44:19.946760Z",
+            "last_used_at": "2026-09-12T09:44:19.946760Z",
+            "depth": 0,
+            "broader_count": 0,
+            "narrower_count": 0,
+            "related_count": 0,
+            "created_at": "2026-09-12T09:44:19.953769Z",
+            "updated_at": "2026-09-12T09:44:19.946760Z",
+            "pref_label": "selected",
+            "label_language": "en",
+            "scheme_notation": "default",
+            "scheme_title": "Default Tags"
+          }
+        ],
+        [
+          {
+            "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false,
+            "created_at": "2026-09-12T09:44:19.949366Z"
+          },
+          {
+            "id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "primary_scheme_id": "01a09500-e67a-7bd6-9281-dcff30d59400",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "status": "candidate",
+            "note_count": 2,
+            "first_used_at": "2026-09-12T09:44:19.946760Z",
+            "last_used_at": "2026-09-12T09:44:19.993449Z",
+            "depth": 0,
+            "broader_count": 0,
+            "narrower_count": 0,
+            "related_count": 0,
+            "created_at": "2026-09-12T09:44:19.949366Z",
+            "updated_at": "2026-09-12T09:44:19.993449Z",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "label_language": "en",
+            "scheme_notation": "default",
+            "scheme_title": "Default Tags"
+          }
+        ]
+      ]
+    },
+    {
+      "check": "invalid identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"outgoing\":[],\"incoming\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424/links",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "1ac17e0d706df07ae13acef69110ca1bf96e47535ec7835a066d709da338786e",
+      "body": {
+        "outgoing": [],
+        "incoming": []
+      }
+    },
+    {
+      "check": "invalid identity cannot search or dispatch advertised mutations",
+      "rawBody": "{\"all_activities\":[],\"all_edges\":[],\"current_chain\":{\"activity\":null,\"edges\":[],\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"revision_id\":\"01a09500-e8e6-7d43-916d-0e242b931855\"},\"derived_count\":0,\"derived_notes\":[],\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\"}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424/provenance",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "ed13b0bb788410966527394b59e0734bd7807ec6af2df134d161aa972c829361",
+      "body": {
+        "all_activities": [],
+        "all_edges": [],
+        "current_chain": {
+          "activity": null,
+          "edges": [],
+          "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "revision_id": "01a09500-e8e6-7d43-916d-0e242b931855"
+        },
+        "derived_count": 0,
+        "derived_notes": [],
+        "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424"
+      }
+    },
+    {
+      "check": "authenticated star persists expected state",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"updated_at_utc\":\"2026-09-12T09:44:20.218772Z\",\"starred\":true,\"archived\":false,\"last_accessed_at\":\"2026-09-12T09:44:20.219959Z\",\"access_count\":7,\"title\":\"Synthetic selected\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"hash\":\"sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a\",\"user_created_at\":\"2026-09-12T09:44:19.930393Z\",\"user_last_edited_at\":\"2026-09-12T09:44:19.930393Z\"},\"revised\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"last_revision_id\":\"01a09500-e8e6-7d43-916d-0e242b931855\",\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"selected\"],\"concepts\":[{\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"notation\":\"selected\",\"pref_label\":\"selected\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "PATCH",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": {
+        "starred": true
+      },
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "cc24631539b5f6ec4339afa6a1b6bb7ac1ffc089dc47252afa2c850680db3377",
+      "body": {
+        "note": {
+          "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.930653Z",
+          "updated_at_utc": "2026-09-12T09:44:20.218772Z",
+          "starred": true,
+          "archived": false,
+          "last_accessed_at": "2026-09-12T09:44:20.219959Z",
+          "access_count": 7,
+          "title": "Synthetic selected",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "hash": "sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a",
+          "user_created_at": "2026-09-12T09:44:19.930393Z",
+          "user_last_edited_at": "2026-09-12T09:44:19.930393Z"
+        },
+        "revised": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "last_revision_id": "01a09500-e8e6-7d43-916d-0e242b931855",
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "selected"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "notation": "selected",
+            "pref_label": "selected",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "authenticated star persists expected state",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"updated_at_utc\":\"2026-09-12T09:44:20.218772Z\",\"starred\":true,\"archived\":false,\"last_accessed_at\":\"2026-09-12T09:44:20.226204Z\",\"access_count\":8,\"title\":\"Synthetic selected\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"hash\":\"sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a\",\"user_created_at\":\"2026-09-12T09:44:19.930393Z\",\"user_last_edited_at\":\"2026-09-12T09:44:19.930393Z\"},\"revised\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"last_revision_id\":\"01a09500-e8e6-7d43-916d-0e242b931855\",\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"selected\"],\"concepts\":[{\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"notation\":\"selected\",\"pref_label\":\"selected\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "006918645a103893456fa0b3350b41e8fabd88b9e12b17b4f720bdb4b5aab256",
+      "body": {
+        "note": {
+          "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.930653Z",
+          "updated_at_utc": "2026-09-12T09:44:20.218772Z",
+          "starred": true,
+          "archived": false,
+          "last_accessed_at": "2026-09-12T09:44:20.226204Z",
+          "access_count": 8,
+          "title": "Synthetic selected",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "hash": "sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a",
+          "user_created_at": "2026-09-12T09:44:19.930393Z",
+          "user_last_edited_at": "2026-09-12T09:44:19.930393Z"
+        },
+        "revised": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "last_revision_id": "01a09500-e8e6-7d43-916d-0e242b931855",
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "selected"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "notation": "selected",
+            "pref_label": "selected",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "authenticated unstar persists expected state",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"updated_at_utc\":\"2026-09-12T09:44:20.230942Z\",\"starred\":false,\"archived\":false,\"last_accessed_at\":\"2026-09-12T09:44:20.231774Z\",\"access_count\":9,\"title\":\"Synthetic selected\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"hash\":\"sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a\",\"user_created_at\":\"2026-09-12T09:44:19.930393Z\",\"user_last_edited_at\":\"2026-09-12T09:44:19.930393Z\"},\"revised\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"last_revision_id\":\"01a09500-e8e6-7d43-916d-0e242b931855\",\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"selected\"],\"concepts\":[{\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"notation\":\"selected\",\"pref_label\":\"selected\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "PATCH",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": {
+        "starred": false
+      },
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "3ecf4ed543753c237caf1dc37d9f1566b63fbdbbf8aed7cacf390e111603524f",
+      "body": {
+        "note": {
+          "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.930653Z",
+          "updated_at_utc": "2026-09-12T09:44:20.230942Z",
+          "starred": false,
+          "archived": false,
+          "last_accessed_at": "2026-09-12T09:44:20.231774Z",
+          "access_count": 9,
+          "title": "Synthetic selected",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "hash": "sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a",
+          "user_created_at": "2026-09-12T09:44:19.930393Z",
+          "user_last_edited_at": "2026-09-12T09:44:19.930393Z"
+        },
+        "revised": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "last_revision_id": "01a09500-e8e6-7d43-916d-0e242b931855",
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "selected"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "notation": "selected",
+            "pref_label": "selected",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "authenticated unstar persists expected state",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"updated_at_utc\":\"2026-09-12T09:44:20.230942Z\",\"starred\":false,\"archived\":false,\"last_accessed_at\":\"2026-09-12T09:44:20.236028Z\",\"access_count\":10,\"title\":\"Synthetic selected\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"hash\":\"sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a\",\"user_created_at\":\"2026-09-12T09:44:19.930393Z\",\"user_last_edited_at\":\"2026-09-12T09:44:19.930393Z\"},\"revised\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"last_revision_id\":\"01a09500-e8e6-7d43-916d-0e242b931855\",\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"selected\"],\"concepts\":[{\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"notation\":\"selected\",\"pref_label\":\"selected\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "78c12339a3051981dcbada4f7245f6eacb46d37d4a5e906c3f17c3ff25039ecf",
+      "body": {
+        "note": {
+          "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.930653Z",
+          "updated_at_utc": "2026-09-12T09:44:20.230942Z",
+          "starred": false,
+          "archived": false,
+          "last_accessed_at": "2026-09-12T09:44:20.236028Z",
+          "access_count": 10,
+          "title": "Synthetic selected",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "hash": "sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a",
+          "user_created_at": "2026-09-12T09:44:19.930393Z",
+          "user_last_edited_at": "2026-09-12T09:44:19.930393Z"
+        },
+        "revised": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "last_revision_id": "01a09500-e8e6-7d43-916d-0e242b931855",
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "selected"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "notation": "selected",
+            "pref_label": "selected",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "authenticated archive persists expected state",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"updated_at_utc\":\"2026-09-12T09:44:20.240580Z\",\"starred\":false,\"archived\":true,\"last_accessed_at\":\"2026-09-12T09:44:20.241419Z\",\"access_count\":11,\"title\":\"Synthetic selected\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"hash\":\"sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a\",\"user_created_at\":\"2026-09-12T09:44:19.930393Z\",\"user_last_edited_at\":\"2026-09-12T09:44:19.930393Z\"},\"revised\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"last_revision_id\":\"01a09500-e8e6-7d43-916d-0e242b931855\",\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"selected\"],\"concepts\":[{\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"notation\":\"selected\",\"pref_label\":\"selected\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "PATCH",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": {
+        "archived": true
+      },
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "51bd2cbc437e79311918338b36e00ebbd85d2f80670ba943fc03e529472b6f87",
+      "body": {
+        "note": {
+          "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.930653Z",
+          "updated_at_utc": "2026-09-12T09:44:20.240580Z",
+          "starred": false,
+          "archived": true,
+          "last_accessed_at": "2026-09-12T09:44:20.241419Z",
+          "access_count": 11,
+          "title": "Synthetic selected",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "hash": "sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a",
+          "user_created_at": "2026-09-12T09:44:19.930393Z",
+          "user_last_edited_at": "2026-09-12T09:44:19.930393Z"
+        },
+        "revised": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "last_revision_id": "01a09500-e8e6-7d43-916d-0e242b931855",
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "selected"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "notation": "selected",
+            "pref_label": "selected",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "authenticated archive persists expected state",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"updated_at_utc\":\"2026-09-12T09:44:20.240580Z\",\"starred\":false,\"archived\":true,\"last_accessed_at\":\"2026-09-12T09:44:20.245637Z\",\"access_count\":12,\"title\":\"Synthetic selected\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"hash\":\"sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a\",\"user_created_at\":\"2026-09-12T09:44:19.930393Z\",\"user_last_edited_at\":\"2026-09-12T09:44:19.930393Z\"},\"revised\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"last_revision_id\":\"01a09500-e8e6-7d43-916d-0e242b931855\",\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"selected\"],\"concepts\":[{\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"notation\":\"selected\",\"pref_label\":\"selected\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "3a633cf87199d44739d130b40f84c11223a48625463fffe835f37c65078d1af1",
+      "body": {
+        "note": {
+          "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.930653Z",
+          "updated_at_utc": "2026-09-12T09:44:20.240580Z",
+          "starred": false,
+          "archived": true,
+          "last_accessed_at": "2026-09-12T09:44:20.245637Z",
+          "access_count": 12,
+          "title": "Synthetic selected",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "hash": "sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a",
+          "user_created_at": "2026-09-12T09:44:19.930393Z",
+          "user_last_edited_at": "2026-09-12T09:44:19.930393Z"
+        },
+        "revised": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "last_revision_id": "01a09500-e8e6-7d43-916d-0e242b931855",
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "selected"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "notation": "selected",
+            "pref_label": "selected",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "authenticated unarchive persists expected state",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"updated_at_utc\":\"2026-09-12T09:44:20.248924Z\",\"starred\":false,\"archived\":false,\"last_accessed_at\":\"2026-09-12T09:44:20.249523Z\",\"access_count\":13,\"title\":\"Synthetic selected\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"hash\":\"sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a\",\"user_created_at\":\"2026-09-12T09:44:19.930393Z\",\"user_last_edited_at\":\"2026-09-12T09:44:19.930393Z\"},\"revised\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"last_revision_id\":\"01a09500-e8e6-7d43-916d-0e242b931855\",\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"selected\"],\"concepts\":[{\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"notation\":\"selected\",\"pref_label\":\"selected\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "PATCH",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": {
+        "archived": false
+      },
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "4e877b7360d553832691c36d99fd644d8f3eabb81eaf59ca5058045085c09371",
+      "body": {
+        "note": {
+          "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.930653Z",
+          "updated_at_utc": "2026-09-12T09:44:20.248924Z",
+          "starred": false,
+          "archived": false,
+          "last_accessed_at": "2026-09-12T09:44:20.249523Z",
+          "access_count": 13,
+          "title": "Synthetic selected",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "hash": "sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a",
+          "user_created_at": "2026-09-12T09:44:19.930393Z",
+          "user_last_edited_at": "2026-09-12T09:44:19.930393Z"
+        },
+        "revised": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "last_revision_id": "01a09500-e8e6-7d43-916d-0e242b931855",
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "selected"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "notation": "selected",
+            "pref_label": "selected",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "authenticated unarchive persists expected state",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"updated_at_utc\":\"2026-09-12T09:44:20.248924Z\",\"starred\":false,\"archived\":false,\"last_accessed_at\":\"2026-09-12T09:44:20.252487Z\",\"access_count\":14,\"title\":\"Synthetic selected\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"hash\":\"sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a\",\"user_created_at\":\"2026-09-12T09:44:19.930393Z\",\"user_last_edited_at\":\"2026-09-12T09:44:19.930393Z\"},\"revised\":{\"content\":\"PACKAGE REMOTE NEEDLE\",\"last_revision_id\":\"01a09500-e8e6-7d43-916d-0e242b931855\",\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"selected\"],\"concepts\":[{\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"notation\":\"selected\",\"pref_label\":\"selected\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "f81a9ad30f18ec4ca7dff76cbba3dcfd7656d80940ae8604502832ffefcecb9f",
+      "body": {
+        "note": {
+          "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.930653Z",
+          "updated_at_utc": "2026-09-12T09:44:20.248924Z",
+          "starred": false,
+          "archived": false,
+          "last_accessed_at": "2026-09-12T09:44:20.252487Z",
+          "access_count": 14,
+          "title": "Synthetic selected",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "hash": "sha256:519e224f2b42187e8baa0b238bf25351f57fb8ecf5858c06d2e870755c7ea38a",
+          "user_created_at": "2026-09-12T09:44:19.930393Z",
+          "user_last_edited_at": "2026-09-12T09:44:19.930393Z"
+        },
+        "revised": {
+          "content": "PACKAGE REMOTE NEEDLE",
+          "last_revision_id": "01a09500-e8e6-7d43-916d-0e242b931855",
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "selected"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "notation": "selected",
+            "pref_label": "selected",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "authenticated content update persists through composed read",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"updated_at_utc\":\"2026-09-12T09:44:20.255594Z\",\"starred\":false,\"archived\":false,\"last_accessed_at\":\"2026-09-12T09:44:20.271247Z\",\"access_count\":15,\"title\":\"Synthetic selected\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE UPDATED\",\"hash\":\"sha256:197eaf2544ec1718de39ffe365b83492c1c55d15eb09ed50e69bcc777de7ae60\",\"user_created_at\":\"2026-09-12T09:44:19.930393Z\",\"user_last_edited_at\":\"2026-09-12T09:44:20.255510Z\"},\"revised\":{\"content\":\"PACKAGE UPDATED\",\"last_revision_id\":null,\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"selected\"],\"concepts\":[{\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"notation\":\"selected\",\"pref_label\":\"selected\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "PATCH",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": {
+        "content": "PACKAGE UPDATED",
+        "revision_mode": "none"
+      },
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "af5c4618920cac34a2ecfd8b92df8c287b94b2ef9066dea5abb64a321c8558e4",
+      "body": {
+        "note": {
+          "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.930653Z",
+          "updated_at_utc": "2026-09-12T09:44:20.255594Z",
+          "starred": false,
+          "archived": false,
+          "last_accessed_at": "2026-09-12T09:44:20.271247Z",
+          "access_count": 15,
+          "title": "Synthetic selected",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE UPDATED",
+          "hash": "sha256:197eaf2544ec1718de39ffe365b83492c1c55d15eb09ed50e69bcc777de7ae60",
+          "user_created_at": "2026-09-12T09:44:19.930393Z",
+          "user_last_edited_at": "2026-09-12T09:44:20.255510Z"
+        },
+        "revised": {
+          "content": "PACKAGE UPDATED",
+          "last_revision_id": null,
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "selected"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "notation": "selected",
+            "pref_label": "selected",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "authenticated content update persists through composed read",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"updated_at_utc\":\"2026-09-12T09:44:20.255594Z\",\"starred\":false,\"archived\":false,\"last_accessed_at\":\"2026-09-12T09:44:20.274957Z\",\"access_count\":16,\"title\":\"Synthetic selected\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE UPDATED\",\"hash\":\"sha256:197eaf2544ec1718de39ffe365b83492c1c55d15eb09ed50e69bcc777de7ae60\",\"user_created_at\":\"2026-09-12T09:44:19.930393Z\",\"user_last_edited_at\":\"2026-09-12T09:44:20.255510Z\"},\"revised\":{\"content\":\"PACKAGE UPDATED\",\"last_revision_id\":null,\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"selected\"],\"concepts\":[{\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"notation\":\"selected\",\"pref_label\":\"selected\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "cc06a279b4781143e0d1b1a578cafefebb53c24ee4de22ba7dde269d6e76f347",
+      "body": {
+        "note": {
+          "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.930653Z",
+          "updated_at_utc": "2026-09-12T09:44:20.255594Z",
+          "starred": false,
+          "archived": false,
+          "last_accessed_at": "2026-09-12T09:44:20.274957Z",
+          "access_count": 16,
+          "title": "Synthetic selected",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE UPDATED",
+          "hash": "sha256:197eaf2544ec1718de39ffe365b83492c1c55d15eb09ed50e69bcc777de7ae60",
+          "user_created_at": "2026-09-12T09:44:19.930393Z",
+          "user_last_edited_at": "2026-09-12T09:44:20.255510Z"
+        },
+        "revised": {
+          "content": "PACKAGE UPDATED",
+          "last_revision_id": null,
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "selected"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "notation": "selected",
+            "pref_label": "selected",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "authenticated content update persists through composed read",
+      "rawBody": "{\"outgoing\":[],\"incoming\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424/links",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "1ac17e0d706df07ae13acef69110ca1bf96e47535ec7835a066d709da338786e",
+      "body": {
+        "outgoing": [],
+        "incoming": []
+      }
+    },
+    {
+      "check": "authenticated content update persists through composed read",
+      "rawBody": "[[{\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false,\"created_at\":\"2026-09-12T09:44:19.953769Z\"},{\"id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"primary_scheme_id\":\"01a09500-e67a-7bd6-9281-dcff30d59400\",\"notation\":\"selected\",\"status\":\"candidate\",\"note_count\":1,\"first_used_at\":\"2026-09-12T09:44:19.946760Z\",\"last_used_at\":\"2026-09-12T09:44:19.946760Z\",\"depth\":0,\"broader_count\":0,\"narrower_count\":0,\"related_count\":0,\"created_at\":\"2026-09-12T09:44:19.953769Z\",\"updated_at\":\"2026-09-12T09:44:19.946760Z\",\"pref_label\":\"selected\",\"label_language\":\"en\",\"scheme_notation\":\"default\",\"scheme_title\":\"Default Tags\"}],[{\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false,\"created_at\":\"2026-09-12T09:44:19.949366Z\"},{\"id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"primary_scheme_id\":\"01a09500-e67a-7bd6-9281-dcff30d59400\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"status\":\"candidate\",\"note_count\":2,\"first_used_at\":\"2026-09-12T09:44:19.946760Z\",\"last_used_at\":\"2026-09-12T09:44:19.993449Z\",\"depth\":0,\"broader_count\":0,\"narrower_count\":0,\"related_count\":0,\"created_at\":\"2026-09-12T09:44:19.949366Z\",\"updated_at\":\"2026-09-12T09:44:19.993449Z\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"label_language\":\"en\",\"scheme_notation\":\"default\",\"scheme_title\":\"Default Tags\"}]]",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424/concepts",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "bee223e7698738b82e66f9ea81349f7c6552c21a2e1f181635c9229f620437f2",
+      "body": [
+        [
+          {
+            "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false,
+            "created_at": "2026-09-12T09:44:19.953769Z"
+          },
+          {
+            "id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "primary_scheme_id": "01a09500-e67a-7bd6-9281-dcff30d59400",
+            "notation": "selected",
+            "status": "candidate",
+            "note_count": 1,
+            "first_used_at": "2026-09-12T09:44:19.946760Z",
+            "last_used_at": "2026-09-12T09:44:19.946760Z",
+            "depth": 0,
+            "broader_count": 0,
+            "narrower_count": 0,
+            "related_count": 0,
+            "created_at": "2026-09-12T09:44:19.953769Z",
+            "updated_at": "2026-09-12T09:44:19.946760Z",
+            "pref_label": "selected",
+            "label_language": "en",
+            "scheme_notation": "default",
+            "scheme_title": "Default Tags"
+          }
+        ],
+        [
+          {
+            "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false,
+            "created_at": "2026-09-12T09:44:19.949366Z"
+          },
+          {
+            "id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "primary_scheme_id": "01a09500-e67a-7bd6-9281-dcff30d59400",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "status": "candidate",
+            "note_count": 2,
+            "first_used_at": "2026-09-12T09:44:19.946760Z",
+            "last_used_at": "2026-09-12T09:44:19.993449Z",
+            "depth": 0,
+            "broader_count": 0,
+            "narrower_count": 0,
+            "related_count": 0,
+            "created_at": "2026-09-12T09:44:19.949366Z",
+            "updated_at": "2026-09-12T09:44:19.993449Z",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "label_language": "en",
+            "scheme_notation": "default",
+            "scheme_title": "Default Tags"
+          }
+        ]
+      ]
+    },
+    {
+      "check": "authenticated content update persists through composed read",
+      "rawBody": "{\"all_activities\":[],\"all_edges\":[],\"current_chain\":{\"activity\":null,\"edges\":[],\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"revision_id\":\"01a09500-e8e6-7d43-916d-0e242b931855\"},\"derived_count\":0,\"derived_notes\":[],\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\"}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424/provenance",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "ed13b0bb788410966527394b59e0734bd7807ec6af2df134d161aa972c829361",
+      "body": {
+        "all_activities": [],
+        "all_edges": [],
+        "current_chain": {
+          "activity": null,
+          "edges": [],
+          "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "revision_id": "01a09500-e8e6-7d43-916d-0e242b931855"
+        },
+        "derived_count": 0,
+        "derived_notes": [],
+        "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424"
+      }
+    },
+    {
+      "check": "authenticated tag update persists and changes search membership",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"updated_at_utc\":\"2026-09-12T09:44:20.255594Z\",\"starred\":false,\"archived\":false,\"last_accessed_at\":\"2026-09-12T09:44:20.289239Z\",\"access_count\":17,\"title\":\"Synthetic selected\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE UPDATED\",\"hash\":\"sha256:197eaf2544ec1718de39ffe365b83492c1c55d15eb09ed50e69bcc777de7ae60\",\"user_created_at\":\"2026-09-12T09:44:19.930393Z\",\"user_last_edited_at\":\"2026-09-12T09:44:20.255510Z\"},\"revised\":{\"content\":\"PACKAGE UPDATED\",\"last_revision_id\":null,\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"updated\"],\"concepts\":[{\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"notation\":\"selected\",\"pref_label\":\"selected\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "PATCH",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": {
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "updated"
+        ]
+      },
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "cf9315bf8248f6d6f6fac109354717fa237810aa0ff87c398f84634f163f9fbe",
+      "body": {
+        "note": {
+          "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.930653Z",
+          "updated_at_utc": "2026-09-12T09:44:20.255594Z",
+          "starred": false,
+          "archived": false,
+          "last_accessed_at": "2026-09-12T09:44:20.289239Z",
+          "access_count": 17,
+          "title": "Synthetic selected",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE UPDATED",
+          "hash": "sha256:197eaf2544ec1718de39ffe365b83492c1c55d15eb09ed50e69bcc777de7ae60",
+          "user_created_at": "2026-09-12T09:44:19.930393Z",
+          "user_last_edited_at": "2026-09-12T09:44:20.255510Z"
+        },
+        "revised": {
+          "content": "PACKAGE UPDATED",
+          "last_revision_id": null,
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "updated"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "notation": "selected",
+            "pref_label": "selected",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "authenticated tag update persists and changes search membership",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"updated_at_utc\":\"2026-09-12T09:44:20.255594Z\",\"starred\":false,\"archived\":false,\"last_accessed_at\":\"2026-09-12T09:44:20.294726Z\",\"access_count\":18,\"title\":\"Synthetic selected\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE UPDATED\",\"hash\":\"sha256:197eaf2544ec1718de39ffe365b83492c1c55d15eb09ed50e69bcc777de7ae60\",\"user_created_at\":\"2026-09-12T09:44:19.930393Z\",\"user_last_edited_at\":\"2026-09-12T09:44:20.255510Z\"},\"revised\":{\"content\":\"PACKAGE UPDATED\",\"last_revision_id\":null,\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"updated\"],\"concepts\":[{\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"notation\":\"selected\",\"pref_label\":\"selected\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "a484eac540ec714ec73c5f9ee4701a1ce36b8a7d2d4edfc6804e3b7d760c5c4c",
+      "body": {
+        "note": {
+          "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.930653Z",
+          "updated_at_utc": "2026-09-12T09:44:20.255594Z",
+          "starred": false,
+          "archived": false,
+          "last_accessed_at": "2026-09-12T09:44:20.294726Z",
+          "access_count": 18,
+          "title": "Synthetic selected",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE UPDATED",
+          "hash": "sha256:197eaf2544ec1718de39ffe365b83492c1c55d15eb09ed50e69bcc777de7ae60",
+          "user_created_at": "2026-09-12T09:44:19.930393Z",
+          "user_last_edited_at": "2026-09-12T09:44:20.255510Z"
+        },
+        "revised": {
+          "content": "PACKAGE UPDATED",
+          "last_revision_id": null,
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "updated"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "notation": "selected",
+            "pref_label": "selected",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "authenticated tag update persists and changes search membership",
+      "rawBody": "{\"results\":[{\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"score\":1.0,\"snippet\":\"PACKAGE UPDATED\",\"title\":\"Synthetic selected\",\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"updated\"],\"chain_info\":{\"chain_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"original_title\":\"Synthetic selected\",\"chunks_matched\":1,\"best_chunk_sequence\":0,\"total_chunks\":1}}],\"query\":\"UPDATED\",\"total\":1,\"degraded\":false}",
+      "method": "GET",
+      "path": "/api/v1/search?q=UPDATED&mode=fts&limit=10&tags=updated",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "1ffd7dd2525299c8366d54a57fdd866603f2b6c3c27fb6a6a7c456cbf2bb5910",
+      "body": {
+        "results": [
+          {
+            "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+            "score": 1,
+            "snippet": "PACKAGE UPDATED",
+            "title": "Synthetic selected",
+            "tags": [
+              "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+              "updated"
+            ],
+            "chain_info": {
+              "chain_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+              "original_title": "Synthetic selected",
+              "chunks_matched": 1,
+              "best_chunk_sequence": 0,
+              "total_chunks": 1
+            }
+          }
+        ],
+        "query": "UPDATED",
+        "total": 1,
+        "degraded": false
+      }
+    },
+    {
+      "check": "authenticated tag update persists and changes search membership",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"updated_at_utc\":\"2026-09-12T09:44:20.255594Z\",\"starred\":false,\"archived\":false,\"last_accessed_at\":\"2026-09-12T09:44:20.306090Z\",\"access_count\":19,\"title\":\"Synthetic selected\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE UPDATED\",\"hash\":\"sha256:197eaf2544ec1718de39ffe365b83492c1c55d15eb09ed50e69bcc777de7ae60\",\"user_created_at\":\"2026-09-12T09:44:19.930393Z\",\"user_last_edited_at\":\"2026-09-12T09:44:20.255510Z\"},\"revised\":{\"content\":\"PACKAGE UPDATED\",\"last_revision_id\":null,\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"updated\"],\"concepts\":[{\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"notation\":\"selected\",\"pref_label\":\"selected\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "3fb602665782442481736bc798670396bad5d93e98eaa45e54a77d5378417488",
+      "body": {
+        "note": {
+          "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.930653Z",
+          "updated_at_utc": "2026-09-12T09:44:20.255594Z",
+          "starred": false,
+          "archived": false,
+          "last_accessed_at": "2026-09-12T09:44:20.306090Z",
+          "access_count": 19,
+          "title": "Synthetic selected",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE UPDATED",
+          "hash": "sha256:197eaf2544ec1718de39ffe365b83492c1c55d15eb09ed50e69bcc777de7ae60",
+          "user_created_at": "2026-09-12T09:44:19.930393Z",
+          "user_last_edited_at": "2026-09-12T09:44:20.255510Z"
+        },
+        "revised": {
+          "content": "PACKAGE UPDATED",
+          "last_revision_id": null,
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "updated"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "notation": "selected",
+            "pref_label": "selected",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "authenticated tag update persists and changes search membership",
+      "rawBody": "{\"results\":[],\"query\":\"UPDATED\",\"total\":0,\"degraded\":false}",
+      "method": "GET",
+      "path": "/api/v1/search?q=UPDATED&mode=fts&limit=10&tags=selected",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "e73b4fcb6e422881f8fb18b2534b21b72ff80e4369d4b99e7184dbad34e9a8cb",
+      "body": {
+        "results": [],
+        "query": "UPDATED",
+        "total": 0,
+        "degraded": false
+      }
+    },
+    {
+      "check": "authenticated delete yields authoritative absence",
+      "rawBody": "",
+      "method": "DELETE",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": null,
+      "status": 204,
+      "contentType": null,
+      "retryAfter": null,
+      "responseSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "body": ""
+    },
+    {
+      "check": "authenticated delete yields authoritative absence",
+      "rawBody": "{\"detail\":\"Note not found; id_present=1\",\"request_id\":\"01a09500-ea5b-71f2-b168-b1ff539364cd\",\"status\":404,\"title\":\"Not Found\",\"type\":\"https://fortemi.com/problems/not-found\"}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": null,
+      "status": 404,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "433b84823f0d536a7e316e4fdc6254a74cb8d1e46997e1fb03ff10356f8ad95e",
+      "body": {
+        "detail": "Note not found; id_present=1",
+        "request_id": "01a09500-ea5b-71f2-b168-b1ff539364cd",
+        "status": 404,
+        "title": "Not Found",
+        "type": "https://fortemi.com/problems/not-found"
+      }
+    },
+    {
+      "check": "authenticated delete yields authoritative absence",
+      "rawBody": "{\"notes\":[{\"id\":\"01a09500-e914-71a2-8220-1604fc290248\",\"title\":\"Synthetic excluded\",\"snippet\":\"\",\"created_at_utc\":\"2026-09-12T09:44:19.988912Z\",\"updated_at_utc\":\"2026-09-12T09:44:19.988912Z\",\"starred\":false,\"archived\":false,\"tags\":[\"excluded\",\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\"],\"has_revision\":false,\"metadata\":{}}],\"total\":1}",
+      "method": "GET",
+      "path": "/api/v1/notes",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "a20e1c87746a7afeec837cadcace0f2cd53c92da9823cb4a62722b5ca73b97e2",
+      "body": {
+        "notes": [
+          {
+            "id": "01a09500-e914-71a2-8220-1604fc290248",
+            "title": "Synthetic excluded",
+            "snippet": "",
+            "created_at_utc": "2026-09-12T09:44:19.988912Z",
+            "updated_at_utc": "2026-09-12T09:44:19.988912Z",
+            "starred": false,
+            "archived": false,
+            "tags": [
+              "excluded",
+              "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832"
+            ],
+            "has_revision": false,
+            "metadata": {}
+          }
+        ],
+        "total": 1
+      }
+    },
+    {
+      "check": "authenticated restore preserves content and identity",
+      "rawBody": "{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"restored\":true}",
+      "method": "POST",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424/restore?revision_mode=none",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "804e2d515d12abcc3e29f63ed9ffe1f96f5bfa60345fc564aed3bdfd100fe7fb",
+      "body": {
+        "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+        "restored": true
+      }
+    },
+    {
+      "check": "authenticated restore preserves content and identity",
+      "rawBody": "{\"note\":{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"collection_id\":null,\"format\":\"markdown\",\"source\":\"native-package-test\",\"created_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"updated_at_utc\":\"2026-09-12T09:44:20.323982Z\",\"starred\":false,\"archived\":false,\"last_accessed_at\":\"2026-09-12T09:44:20.333431Z\",\"access_count\":20,\"title\":\"Synthetic selected\",\"metadata\":{}},\"original\":{\"content\":\"PACKAGE UPDATED\",\"hash\":\"sha256:197eaf2544ec1718de39ffe365b83492c1c55d15eb09ed50e69bcc777de7ae60\",\"user_created_at\":\"2026-09-12T09:44:19.930393Z\",\"user_last_edited_at\":\"2026-09-12T09:44:20.255510Z\"},\"revised\":{\"content\":\"PACKAGE UPDATED\",\"last_revision_id\":null,\"ai_metadata\":{},\"ai_generated_at\":null,\"user_last_edited_at\":null,\"is_user_edited\":false,\"generation_count\":1,\"model\":null},\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"updated\"],\"concepts\":[{\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"notation\":\"selected\",\"pref_label\":\"selected\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false},{\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false}],\"links\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "57ddd5c587db76ed2c74b42c051f5887cd46d86ff48242bf29004de17881ed09",
+      "body": {
+        "note": {
+          "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "collection_id": null,
+          "format": "markdown",
+          "source": "native-package-test",
+          "created_at_utc": "2026-09-12T09:44:19.930653Z",
+          "updated_at_utc": "2026-09-12T09:44:20.323982Z",
+          "starred": false,
+          "archived": false,
+          "last_accessed_at": "2026-09-12T09:44:20.333431Z",
+          "access_count": 20,
+          "title": "Synthetic selected",
+          "metadata": {}
+        },
+        "original": {
+          "content": "PACKAGE UPDATED",
+          "hash": "sha256:197eaf2544ec1718de39ffe365b83492c1c55d15eb09ed50e69bcc777de7ae60",
+          "user_created_at": "2026-09-12T09:44:19.930393Z",
+          "user_last_edited_at": "2026-09-12T09:44:20.255510Z"
+        },
+        "revised": {
+          "content": "PACKAGE UPDATED",
+          "last_revision_id": null,
+          "ai_metadata": {},
+          "ai_generated_at": null,
+          "user_last_edited_at": null,
+          "is_user_edited": false,
+          "generation_count": 1,
+          "model": null
+        },
+        "tags": [
+          "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+          "updated"
+        ],
+        "concepts": [
+          {
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "notation": "selected",
+            "pref_label": "selected",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          },
+          {
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false
+          }
+        ],
+        "links": []
+      }
+    },
+    {
+      "check": "authenticated restore preserves content and identity",
+      "rawBody": "[[{\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"concept_id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false,\"created_at\":\"2026-09-12T09:44:19.953769Z\"},{\"id\":\"01a09500-e8f1-7d93-9e6b-fb56a8fe6612\",\"primary_scheme_id\":\"01a09500-e67a-7bd6-9281-dcff30d59400\",\"notation\":\"selected\",\"status\":\"candidate\",\"note_count\":1,\"first_used_at\":\"2026-09-12T09:44:19.946760Z\",\"last_used_at\":\"2026-09-12T09:44:19.946760Z\",\"depth\":0,\"broader_count\":0,\"narrower_count\":0,\"related_count\":0,\"created_at\":\"2026-09-12T09:44:19.953769Z\",\"updated_at\":\"2026-09-12T09:44:19.946760Z\",\"pref_label\":\"selected\",\"label_language\":\"en\",\"scheme_notation\":\"default\",\"scheme_title\":\"Default Tags\"}],[{\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"concept_id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"source\":\"user\",\"relevance_score\":1.0,\"is_primary\":false,\"created_at\":\"2026-09-12T09:44:19.949366Z\"},{\"id\":\"01a09500-e8ed-7ce1-934c-6be395bcbb88\",\"primary_scheme_id\":\"01a09500-e67a-7bd6-9281-dcff30d59400\",\"notation\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"status\":\"candidate\",\"note_count\":2,\"first_used_at\":\"2026-09-12T09:44:19.946760Z\",\"last_used_at\":\"2026-09-12T09:44:19.993449Z\",\"depth\":0,\"broader_count\":0,\"narrower_count\":0,\"related_count\":0,\"created_at\":\"2026-09-12T09:44:19.949366Z\",\"updated_at\":\"2026-09-12T09:44:19.993449Z\",\"pref_label\":\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"label_language\":\"en\",\"scheme_notation\":\"default\",\"scheme_title\":\"Default Tags\"}]]",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424/concepts",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "bee223e7698738b82e66f9ea81349f7c6552c21a2e1f181635c9229f620437f2",
+      "body": [
+        [
+          {
+            "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+            "concept_id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false,
+            "created_at": "2026-09-12T09:44:19.953769Z"
+          },
+          {
+            "id": "01a09500-e8f1-7d93-9e6b-fb56a8fe6612",
+            "primary_scheme_id": "01a09500-e67a-7bd6-9281-dcff30d59400",
+            "notation": "selected",
+            "status": "candidate",
+            "note_count": 1,
+            "first_used_at": "2026-09-12T09:44:19.946760Z",
+            "last_used_at": "2026-09-12T09:44:19.946760Z",
+            "depth": 0,
+            "broader_count": 0,
+            "narrower_count": 0,
+            "related_count": 0,
+            "created_at": "2026-09-12T09:44:19.953769Z",
+            "updated_at": "2026-09-12T09:44:19.946760Z",
+            "pref_label": "selected",
+            "label_language": "en",
+            "scheme_notation": "default",
+            "scheme_title": "Default Tags"
+          }
+        ],
+        [
+          {
+            "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+            "concept_id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "source": "user",
+            "relevance_score": 1,
+            "is_primary": false,
+            "created_at": "2026-09-12T09:44:19.949366Z"
+          },
+          {
+            "id": "01a09500-e8ed-7ce1-934c-6be395bcbb88",
+            "primary_scheme_id": "01a09500-e67a-7bd6-9281-dcff30d59400",
+            "notation": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "status": "candidate",
+            "note_count": 2,
+            "first_used_at": "2026-09-12T09:44:19.946760Z",
+            "last_used_at": "2026-09-12T09:44:19.993449Z",
+            "depth": 0,
+            "broader_count": 0,
+            "narrower_count": 0,
+            "related_count": 0,
+            "created_at": "2026-09-12T09:44:19.949366Z",
+            "updated_at": "2026-09-12T09:44:19.993449Z",
+            "pref_label": "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+            "label_language": "en",
+            "scheme_notation": "default",
+            "scheme_title": "Default Tags"
+          }
+        ]
+      ]
+    },
+    {
+      "check": "authenticated restore preserves content and identity",
+      "rawBody": "{\"outgoing\":[],\"incoming\":[]}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424/links",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "1ac17e0d706df07ae13acef69110ca1bf96e47535ec7835a066d709da338786e",
+      "body": {
+        "outgoing": [],
+        "incoming": []
+      }
+    },
+    {
+      "check": "authenticated restore preserves content and identity",
+      "rawBody": "{\"all_activities\":[],\"all_edges\":[],\"current_chain\":{\"activity\":null,\"edges\":[],\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"revision_id\":\"01a09500-e8e6-7d43-916d-0e242b931855\"},\"derived_count\":0,\"derived_notes\":[],\"note_id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\"}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424/provenance",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "ed13b0bb788410966527394b59e0734bd7807ec6af2df134d161aa972c829361",
+      "body": {
+        "all_activities": [],
+        "all_edges": [],
+        "current_chain": {
+          "activity": null,
+          "edges": [],
+          "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+          "revision_id": "01a09500-e8e6-7d43-916d-0e242b931855"
+        },
+        "derived_count": 0,
+        "derived_notes": [],
+        "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424"
+      }
+    },
+    {
+      "check": "authenticated restore preserves content and identity",
+      "rawBody": "{\"notes\":[{\"id\":\"01a09500-e914-71a2-8220-1604fc290248\",\"title\":\"Synthetic excluded\",\"snippet\":\"\",\"created_at_utc\":\"2026-09-12T09:44:19.988912Z\",\"updated_at_utc\":\"2026-09-12T09:44:19.988912Z\",\"starred\":false,\"archived\":false,\"tags\":[\"excluded\",\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\"],\"has_revision\":false,\"metadata\":{}},{\"id\":\"01a09500-e8da-7862-84e0-bf3a0225b424\",\"title\":\"Synthetic selected\",\"snippet\":\"\",\"created_at_utc\":\"2026-09-12T09:44:19.930653Z\",\"updated_at_utc\":\"2026-09-12T09:44:20.323982Z\",\"starred\":false,\"archived\":false,\"tags\":[\"native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832\",\"updated\"],\"has_revision\":false,\"metadata\":{}}],\"total\":2}",
+      "method": "GET",
+      "path": "/api/v1/notes",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "61c3f39081bcf5c48cd337101f8f33165a8dce7f8974fed9325184d88e683f33",
+      "body": {
+        "notes": [
+          {
+            "id": "01a09500-e914-71a2-8220-1604fc290248",
+            "title": "Synthetic excluded",
+            "snippet": "",
+            "created_at_utc": "2026-09-12T09:44:19.988912Z",
+            "updated_at_utc": "2026-09-12T09:44:19.988912Z",
+            "starred": false,
+            "archived": false,
+            "tags": [
+              "excluded",
+              "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832"
+            ],
+            "has_revision": false,
+            "metadata": {}
+          },
+          {
+            "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+            "title": "Synthetic selected",
+            "snippet": "",
+            "created_at_utc": "2026-09-12T09:44:19.930653Z",
+            "updated_at_utc": "2026-09-12T09:44:20.323982Z",
+            "starred": false,
+            "archived": false,
+            "tags": [
+              "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+              "updated"
+            ],
+            "has_revision": false,
+            "metadata": {}
+          }
+        ],
+        "total": 2
+      }
+    },
+    {
+      "check": "mutation404 is typed failure not false success",
+      "rawBody": "{\"detail\":\"Note not found; id_present=1\",\"request_id\":\"01a09500-ea7d-7921-a645-c183ac164ad8\",\"status\":404,\"title\":\"Not Found\",\"type\":\"https://fortemi.com/problems/not-found\"}",
+      "method": "PATCH",
+      "path": "/api/v1/notes/b1307a5e-abd3-4f4b-ae12-27a51bf5423c",
+      "requestBody": {
+        "content": "MISSING",
+        "revision_mode": "none"
+      },
+      "status": 404,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "30abc06cfcfd5964a72646f75d2e20acaa3800a28e1ca2cd1f06aae392e8d73d",
+      "body": {
+        "detail": "Note not found; id_present=1",
+        "request_id": "01a09500-ea7d-7921-a645-c183ac164ad8",
+        "status": 404,
+        "title": "Not Found",
+        "type": "https://fortemi.com/problems/not-found"
+      }
+    },
+    {
+      "check": "synthetic lifecycle cleanup verifies both tombstones and no visible notes",
+      "rawBody": "",
+      "method": "DELETE",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": null,
+      "status": 204,
+      "contentType": null,
+      "retryAfter": null,
+      "responseSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "body": ""
+    },
+    {
+      "check": "synthetic lifecycle cleanup verifies both tombstones and no visible notes",
+      "rawBody": "",
+      "method": "DELETE",
+      "path": "/api/v1/notes/01a09500-e914-71a2-8220-1604fc290248",
+      "requestBody": null,
+      "status": 204,
+      "contentType": null,
+      "retryAfter": null,
+      "responseSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "body": ""
+    },
+    {
+      "check": "synthetic lifecycle cleanup verifies both tombstones and no visible notes",
+      "rawBody": "{\"notes\":[],\"total\":0}",
+      "method": "GET",
+      "path": "/api/v1/notes",
+      "requestBody": null,
+      "status": 200,
+      "contentType": "application/json",
+      "retryAfter": null,
+      "responseSha256": "c103f889fea7af60b02405c29f5f21e97fb9cdd175f770652275feea4f35e535",
+      "body": {
+        "notes": [],
+        "total": 0
+      }
+    },
+    {
+      "check": "synthetic lifecycle cleanup verifies both tombstones and no visible notes",
+      "rawBody": "{\"detail\":\"Note not found; id_present=1\",\"request_id\":\"01a09500-ea88-7960-acea-fda043110f43\",\"status\":404,\"title\":\"Not Found\",\"type\":\"https://fortemi.com/problems/not-found\"}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e8da-7862-84e0-bf3a0225b424",
+      "requestBody": null,
+      "status": 404,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "c76e403913ee2933f881a84b1f5a90373077fe24f4a94b62f141ac99e875a8e1",
+      "body": {
+        "detail": "Note not found; id_present=1",
+        "request_id": "01a09500-ea88-7960-acea-fda043110f43",
+        "status": 404,
+        "title": "Not Found",
+        "type": "https://fortemi.com/problems/not-found"
+      }
+    },
+    {
+      "check": "synthetic lifecycle cleanup verifies both tombstones and no visible notes",
+      "rawBody": "{\"detail\":\"Note not found; id_present=1\",\"request_id\":\"01a09500-ea8a-7192-a6e7-f78d46b36ebd\",\"status\":404,\"title\":\"Not Found\",\"type\":\"https://fortemi.com/problems/not-found\"}",
+      "method": "GET",
+      "path": "/api/v1/notes/01a09500-e914-71a2-8220-1604fc290248",
+      "requestBody": null,
+      "status": 404,
+      "contentType": "application/problem+json",
+      "retryAfter": null,
+      "responseSha256": "21ee90c70adf26cef6ce097e5b005bfd505686a7e033f23e4444c5c3a58ae925",
+      "body": {
+        "detail": "Note not found; id_present=1",
+        "request_id": "01a09500-ea8a-7192-a6e7-f78d46b36ebd",
+        "status": 404,
+        "title": "Not Found",
+        "type": "https://fortemi.com/problems/not-found"
+      }
+    }
+  ],
+  "artifact": {
+    "version": "2026.9.9",
+    "commit": "e91c595a896275f835cb7ed1aef173cb26056206",
+    "name": "matric-api-x86_64-unknown-linux-gnu",
+    "sha256": "19b98d48d7c92e8e9d3d7d514fd60a8817f144926c1a4270adf6e0a052c39bc9",
+    "kind": "published-native-linux-amd64"
+  },
+  "packageVersion": "2026.9.4",
+  "packageCommit": "9f74c0bab0cce5ef8e2433e8944a4efda5575eb4",
+  "packageSha256": "4a126d59bc18af4fb981d5bdbf19a761402e246b7d85cf3e6445de4eacf92897",
+  "scope": "Published native server and clean-installed published Core over real private-loopback HTTP. Required local API identity in personal AllowAllPolicy mode, not note-scope denial or hosted OIDC/multi-tenant qualification. Unavailable inference: explicit semantic/hybrid fallback only, no positive vector retrieval. Suite NO-GO.",
+  "probeSha256": "0cc9a2dc22e10dc78b51831b4d2db63fa3690acbf91402e148bca5b1e1f04b24",
+  "boundedUnit": "fortemi-local-test-1000-9a36ae97-f095-4eb8-bb20-ccfd36629e55.service",
+  "apiPid": 2165084,
+  "health": {
+    "build_date": "unknown",
+    "capabilities": {
+      "attachment_scanning": {
+        "configured": false,
+        "metrics": {
+          "active": 0,
+          "available": false,
+          "bypassed": 0,
+          "clean": 0,
+          "duration_ms_total": 0,
+          "errors": 0,
+          "infected": 0,
+          "total": 0,
+          "unsupported": 0
+        },
+        "mode": "disabled",
+        "queue_depth": 0
+      },
+      "audio_transcription": false,
+      "auth_required": true,
+      "chat": {
+        "available": false,
+        "configured": true,
+        "max_concurrent": 1
+      },
+      "extraction_strategies": [],
+      "inference": {
+        "available": false,
+        "configured": true,
+        "embed_model": "nomic-embed-text",
+        "gen_model": "qwen3.5:9b",
+        "provider_url_configured": true
+      },
+      "ner": false,
+      "speaker_diarization": false,
+      "vision": false
+    },
+    "git_sha": "unknown",
+    "job_processing": "running",
+    "lifecycle": {
+      "draining": false,
+      "ready": true
+    },
+    "sse": {
+      "active_connections": 0,
+      "connections_total": 0,
+      "disconnections_total": 0,
+      "events_coalesced": 0,
+      "events_delivered": 0,
+      "events_emitted": 0,
+      "events_lagged": 0,
+      "replays_expired": 0,
+      "replays_success": 0
+    },
+    "status": "healthy",
+    "version": "2026.9.9"
+  },
+  "executableSha256": "19b98d48d7c92e8e9d3d7d514fd60a8817f144926c1a4270adf6e0a052c39bc9",
+  "healthIdentityBoundary": "Health git_sha is environment-derived and not used as independent source proof; executable digest and released provenance bind source.",
+  "initialPhysicalNotes": 0,
+  "migrations": 139,
+  "producerFixture": {
+    "commit": "9588dea2d20fe16086da26f078723f74c7c51327",
+    "sha256": "c086a4ec2f02fb3e1c12b25c93427dbe720a4527b6eadef6cd3244b568397d52",
+    "historical": true
+  },
+  "searchProjection": {
+    "result": {
+      "hits": [
+        {
+          "note": {
+            "id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+            "title": "Synthetic selected",
+            "tags": [
+              "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+              "selected"
+            ],
+            "createdAt": "2026-09-12T09:44:19.930653Z",
+            "updatedAt": "2026-09-12T09:44:19.930653Z",
+            "source": "native-package-test",
+            "starred": false,
+            "archived": false
+          },
+          "rank": 1,
+          "snippet": "PACKAGE REMOTE NEEDLE",
+          "remoteSearch": {
+            "title": "Synthetic selected",
+            "tags": [
+              "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+              "selected"
+            ],
+            "chain_info": {
+              "chain_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+              "original_title": "Synthetic selected",
+              "chunks_matched": 1,
+              "best_chunk_sequence": 0,
+              "total_chunks": 1
+            }
+          }
+        }
+      ],
+      "total": 1,
+      "totalKind": "returned-hits",
+      "requestedMode": "fts",
+      "effectiveMode": "fts",
+      "degraded": false
+    },
+    "raw": {
+      "note_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+      "score": 1,
+      "snippet": "PACKAGE REMOTE NEEDLE",
+      "title": "Synthetic selected",
+      "tags": [
+        "native-package-0e59f7d3-5b11-4e20-91b2-ee81348fa832",
+        "selected"
+      ],
+      "chain_info": {
+        "chain_id": "01a09500-e8da-7862-84e0-bf3a0225b424",
+        "original_title": "Synthetic selected",
+        "chunks_matched": 1,
+        "best_chunk_sequence": 0,
+        "total_chunks": 1
+      }
+    }
+  },
+  "semanticDegradation": {
+    "code": "embedding_request_failed",
+    "effective_mode": "fts"
+  },
+  "syntheticCleanup": {
+    "visibleNotes": 0,
+    "physicalNotes": 2,
+    "deletedNotes": 2,
+    "ids": [
+      "01a09500-e8da-7862-84e0-bf3a0225b424",
+      "01a09500-e914-71a2-8220-1604fc290248"
+    ]
+  },
+  "syntheticPhysicalNotesBeforeClusterRemoval": 2,
+  "apiExit": {
+    "code": 0,
+    "signal": null
+  },
+  "apiPidAbsent": true,
+  "scratchRemoved": true
+}
