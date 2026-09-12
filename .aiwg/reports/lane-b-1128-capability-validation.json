@@ -1,0 +1,174 @@
+{
+  "status": "PASS",
+  "scope": "MCP source and fresh extracted local package with cached dependencies; not independent installed/live or release acceptance",
+  "sourceBase": "62fc3742bf52c5541ce879b8923e7f2fdcd44b29",
+  "authority": {
+    "contract": "fortemi.dataset-capability-consumer-pin/v1",
+    "revision": "1.0.1",
+    "authority": {
+      "repository": "Fortemi/fortemi-react",
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/422",
+      "commit": "5625215762a8fd06db8fef4ccedd87f3c370ec31",
+      "path": "packages/core/schemas/dataset-execution-capabilities/validation/1.0.1",
+      "manifestSha256": "20b59bb871c3afc9bb972896b2a2da718970c6fe7ef54b49000418f62a5701c0"
+    },
+    "consumer": {
+      "repository": "Fortemi/fortemi",
+      "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1128",
+      "runtime": "fortemi-server-mcp",
+      "packagedSchema": "mcp-server/lib/dataset-capability.schema.json",
+      "implementation": "mcp-server/lib/dataset-capability-validation.js",
+      "test": "mcp-server/tests/dataset-capability-validation.test.js"
+    },
+    "coverage": {
+      "semverVectors": 20,
+      "requestVectorsWithServerDescriptor": [
+        "valid-current",
+        "valid-compatible-revision",
+        "null-request",
+        "unknown-request-field",
+        "invalid-limit",
+        "unavailable-required",
+        "next-contract-major"
+      ],
+      "descriptorVectorsNotApplicable": [
+        "next-schema-major",
+        "unknown-status",
+        "missing-evidence",
+        "null-descriptor"
+      ],
+      "descriptorBoundary": "MCP builds its own alpha descriptor; caller descriptors are not an input. The compatible-revision vector exercises only its request, not its descriptor revision."
+    },
+    "compatibility": {
+      "wireContract": "fortemi.dataset-execution-capabilities/v1",
+      "wireSchemaVersion": "1.0.0",
+      "requestBindingRevision": "1.0.1",
+      "envelopePolicy": "Exact MCP contract/schema revisions remain required. Core descriptor major compatibility does not widen MCP envelope revision acceptance.",
+      "defaults": "The standalone negotiator defaults omitted negotiation, contract and required. Explicit null or malformed values reject. Full preview/execute still requires the complete request schema.",
+      "digestPolicy": "Existing valid decisions and request digests are unchanged; corrected formerly accepted malformed requests now reject before dispatch.",
+      "maturity": "alpha",
+      "suiteAudit": "NO-GO"
+    },
+    "qualification": {
+      "status": "source-consumer-only",
+      "independentAiWG": "https://git.integrolabs.net/roctinam/aiwg/issues/2242",
+      "remaining": [
+        "upstream PR448 delivery",
+        "exact-source CI",
+        "AIWG adoption",
+        "clean installed/live consumer qualification",
+        "release publication and exact artifact readback"
+      ]
+    }
+  },
+  "tests": {
+    "focused": 72,
+    "ciSelection": {
+      "passed": 136,
+      "skipped": 1,
+      "failed": 0
+    },
+    "packaged": 72,
+    "historicalContractVerifier": "PASS"
+  },
+  "packaged": {
+    "status": "PASS",
+    "tests": 72,
+    "package": "@fortemi/mcp",
+    "version": "2026.9.10",
+    "archiveSha256": "301dbaa7d4fc7d9f7377b95060f95e5898721538ebe319b5b265af13f86cbc30",
+    "archiveBytes": 269726,
+    "schemaSha256": "a4e9b427da669a02e83db00d39f48c2e106770d6cd2ec1b717938c57793b754c",
+    "scope": "Fresh extracted local npm pack, cached dependency tree, offline package entry and stdio discovery; not a clean dependency install, released package or live service qualification",
+    "sourceBase": "62fc3742bf52c5541ce879b8923e7f2fdcd44b29"
+  },
+  "cleanup": {
+    "status": "PASS",
+    "jobs": 5,
+    "peakMemoryBytes": 168226816,
+    "vllm": "ActiveState=active\nMainPID=223555\nNRestarts=0\n",
+    "ownedLinkRemoved": "/var/tmp/lane-b-server-1147/mcp-server/node_modules",
+    "boundary": "Only owned package scratch, dependency link and captured failed-unit state removed. Shared services, disabled native runner, worktrees, models and persistent data preserved."
+  },
+  "subjects": [
+    {
+      "path": ".aiwg/architecture/dataset-execution-sad.md",
+      "sha256": "b2e47cb22de54855e89322a3136b558db6596aac98a1fb73252922852e43db74",
+      "bytes": 4797
+    },
+    {
+      "path": ".aiwg/planning/roadmap.md",
+      "sha256": "3eaf61c6cb03095e588f0dd7e43ac5e3a2eb205f68cbd361b7b7cbb0595d8a32",
+      "bytes": 334839
+    },
+    {
+      "path": ".gitea/workflows/ci-builder.yaml",
+      "sha256": "be20bab90df470016559fd744bd173b2c8073c5444fbff10debfbb74a2a659b8",
+      "bytes": 66189
+    },
+    {
+      "path": "contracts/dataset-execution/capability-validation/1.0.1/consumer.json",
+      "sha256": "4fff3185d170c9872b52d62f4dcb8aff1bb42062d6b3fd5ad937724f416b17ab",
+      "bytes": 2483
+    },
+    {
+      "path": "contracts/dataset-execution/capability-validation/1.0.1/manifest.json",
+      "sha256": "20b59bb871c3afc9bb972896b2a2da718970c6fe7ef54b49000418f62a5701c0",
+      "bytes": 945
+    },
+    {
+      "path": "contracts/dataset-execution/capability-validation/1.0.1/negotiation-vectors.json",
+      "sha256": "2793990a842d5969f1f64c90170ab97ca4ffc4b93d1302a2f358fae54631a6dc",
+      "bytes": 2741
+    },
+    {
+      "path": "contracts/dataset-execution/capability-validation/1.0.1/schema.json",
+      "sha256": "a4e9b427da669a02e83db00d39f48c2e106770d6cd2ec1b717938c57793b754c",
+      "bytes": 10658
+    },
+    {
+      "path": "contracts/dataset-execution/capability-validation/1.0.1/wire-vectors.json",
+      "sha256": "c52d32d0b1d0d312cf8b242f11fc116c47d104a74112cbd5d0019e6d39df9744",
+      "bytes": 17669
+    },
+    {
+      "path": "docs/architecture/adr/ADR-107-versioned-mcp-dataset-execution.md",
+      "sha256": "1a6a1061a066ef5e97cc180da337781bd941961e2e1b57adde771e680fbc6970",
+      "bytes": 11682
+    },
+    {
+      "path": "mcp-server/lib/dataset-capability-validation.js",
+      "sha256": "a51b1d68f8d5f21d7faebd30c9cd2d583899fac299bb53db277306998bf970ef",
+      "bytes": 2755
+    },
+    {
+      "path": "mcp-server/lib/dataset-capability.schema.json",
+      "sha256": "a4e9b427da669a02e83db00d39f48c2e106770d6cd2ec1b717938c57793b754c",
+      "bytes": 10658
+    },
+    {
+      "path": "mcp-server/lib/dataset-execution.js",
+      "sha256": "5f03b38fa38641a98eccd8116df771d672cc8889b92f211bad61130216e8c30f",
+      "bytes": 44268
+    },
+    {
+      "path": "mcp-server/tests/dataset-capability-validation.test.js",
+      "sha256": "9b4702103e8b2cdbc79f6cabe7f48aaa615a92e708c5ce2db96cd6725add5e3b",
+      "bytes": 6568
+    },
+    {
+      "path": "scripts/ci/verify-dataset-execution-contract.mjs",
+      "sha256": "335db74b4b4041d795ebc77b94ac51c83777ba14f7ca2ff46580b20499b68104",
+      "bytes": 7955
+    }
+  ],
+  "releaseDisposition": "Unreleased MCP runtime correction for next repository-appropriate release; no version change or release in this increment",
+  "remaining": [
+    "Core PR448 delivery",
+    "exact-source CI",
+    "AIWG2242 adoption",
+    "clean installed/live qualification",
+    "original Lane B acceptance and all-component cleanup/release sweep"
+  ],
+  "suiteAudit": "NO-GO"
+}

@@ -1,0 +1,45 @@
+{
+  "contract": "fortemi.dataset-capability-consumer-pin/v1",
+  "revision": "1.0.1",
+  "authority": {
+    "repository": "Fortemi/fortemi-react",
+    "issue": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/422",
+    "commit": "5625215762a8fd06db8fef4ccedd87f3c370ec31",
+    "path": "packages/core/schemas/dataset-execution-capabilities/validation/1.0.1",
+    "manifestSha256": "20b59bb871c3afc9bb972896b2a2da718970c6fe7ef54b49000418f62a5701c0"
+  },
+  "consumer": {
+    "repository": "Fortemi/fortemi",
+    "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1128",
+    "runtime": "fortemi-server-mcp",
+    "packagedSchema": "mcp-server/lib/dataset-capability.schema.json",
+    "implementation": "mcp-server/lib/dataset-capability-validation.js",
+    "test": "mcp-server/tests/dataset-capability-validation.test.js"
+  },
+  "coverage": {
+    "semverVectors": 20,
+    "requestVectorsWithServerDescriptor": [
+      "valid-current", "valid-compatible-revision", "null-request",
+      "unknown-request-field", "invalid-limit", "unavailable-required", "next-contract-major"
+    ],
+    "descriptorVectorsNotApplicable": [
+      "next-schema-major", "unknown-status", "missing-evidence", "null-descriptor"
+    ],
+    "descriptorBoundary": "MCP builds its own alpha descriptor; caller descriptors are not an input. The compatible-revision vector exercises only its request, not its descriptor revision."
+  },
+  "compatibility": {
+    "wireContract": "fortemi.dataset-execution-capabilities/v1",
+    "wireSchemaVersion": "1.0.0",
+    "requestBindingRevision": "1.0.1",
+    "envelopePolicy": "Exact MCP contract/schema revisions remain required. Core descriptor major compatibility does not widen MCP envelope revision acceptance.",
+    "defaults": "The standalone negotiator defaults omitted negotiation, contract and required. Explicit null or malformed values reject. Full preview/execute still requires the complete request schema.",
+    "digestPolicy": "Existing valid decisions and request digests are unchanged; corrected formerly accepted malformed requests now reject before dispatch.",
+    "maturity": "alpha",
+    "suiteAudit": "NO-GO"
+  },
+  "qualification": {
+    "status": "source-consumer-only",
+    "independentAiWG": "https://git.integrolabs.net/roctinam/aiwg/issues/2242",
+    "remaining": ["upstream PR448 delivery", "exact-source CI", "AIWG adoption", "clean installed/live consumer qualification", "release publication and exact artifact readback"]
+  }
+}

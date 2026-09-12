@@ -2,6 +2,11 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
+import {
+  compareCapabilityVersions,
+  validateCapabilityRequest,
+  validateServerCapabilityDescriptor,
+} from "./dataset-capability-validation.js";
 
 const receiptAjv = new Ajv2020({ strict: true, allErrors: true });
 addFormats(receiptAjv);
@@ -120,20 +125,6 @@ export function sha256Digest(value) {
   return `sha256:${crypto.createHash("sha256").update(bytes, "utf8").digest("hex")}`;
 }
 
-function compareSemver(left, right) {
-  const parse = value => {
-    const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(value || "");
-    return match ? match.slice(1, 4).map(Number) : null;
-  };
-  const a = parse(left);
-  const b = parse(right);
-  if (!a || !b) return null;
-  for (let index = 0; index < 3; index++) {
-    if (a[index] !== b[index]) return a[index] > b[index] ? 1 : -1;
-  }
-  return 0;
-}
-
 function descriptorLimit(id) {
   if (id.startsWith("ingest.") || id === "mutation.upsert" || id === "transaction.atomic-batch") {
     return {
@@ -154,7 +145,7 @@ function descriptorLimit(id) {
 }
 
 export function buildDatasetExecutionDescriptor(runtimeVersion = "0.0.0") {
-  return {
+  const descriptor = {
     contract: DATASET_EXECUTION_CONTRACTS.capability,
     schemaVersion: DATASET_EXECUTION_SCHEMA_VERSIONS.capability,
     runtime: {
@@ -183,6 +174,10 @@ export function buildDatasetExecutionDescriptor(runtimeVersion = "0.0.0") {
       uri: "fortemi://contracts/dataset-execution/1.0.0/conformance",
     }],
   };
+  if (!validateServerCapabilityDescriptor(descriptor)) {
+    throw new DatasetExecutionError("DESCRIPTOR_INVALID", "Server capability descriptor is invalid");
+  }
+  return descriptor;
 }
 
 function diagnostic(code, message, extra = {}) {
@@ -191,6 +186,9 @@ function diagnostic(code, message, extra = {}) {
 
 function checkVersions(input, diagnostics) {
   const requested = input.contractVersions || {};
+  if (Object.keys(requested).some(name => !Object.hasOwn(DATASET_EXECUTION_CONTRACTS, name))) {
+    diagnostics.push(diagnostic("CONTRACT_MAJOR_UNSUPPORTED", "Unknown contract revision key", { path: "/contractVersions" }));
+  }
   for (const [name, contract] of Object.entries(DATASET_EXECUTION_CONTRACTS)) {
     if (requested[name] !== undefined && requested[name] !== contract) {
       diagnostics.push(diagnostic("CONTRACT_MAJOR_UNSUPPORTED", `Unsupported ${name} contract`, { path: `/contractVersions/${name}` }));
@@ -199,7 +197,7 @@ function checkVersions(input, diagnostics) {
   const versions = input.schemaVersions || {};
   for (const [name, version] of Object.entries(versions)) {
     if (!Object.hasOwn(DATASET_EXECUTION_SCHEMA_VERSIONS, name) || version !== DATASET_EXECUTION_SCHEMA_VERSIONS[name]) {
-      diagnostics.push(diagnostic("SCHEMA_VERSION_UNSUPPORTED", `Unsupported ${name} schema version`, { path: `/schemaVersions/${name}` }));
+      diagnostics.push(diagnostic("SCHEMA_VERSION_UNSUPPORTED", "Unsupported schema version", { path: "/schemaVersions" }));
     }
   }
 }
@@ -212,7 +210,8 @@ function checkRequirement(requirement) {
   if (!declaration) {
     return { ok: false, reason: "unsupported", diagnostic: diagnostic("REQUIRED_CAPABILITY_MISSING", `Capability ${requirement.id} is unsupported`, { capability: requirement.id }) };
   }
-  if (requirement.minimumVersion && compareSemver(declaration.version, requirement.minimumVersion) < 0) {
+  const comparison = requirement.minimumVersion === undefined ? 0 : compareCapabilityVersions(declaration.version, requirement.minimumVersion);
+  if (comparison === null || comparison < 0) {
     return { ok: false, reason: "version-insufficient", diagnostic: diagnostic("CAPABILITY_VERSION_INSUFFICIENT", `Capability ${requirement.id} does not satisfy ${requirement.minimumVersion}`, { capability: requirement.id }) };
   }
   const limits = descriptorLimit(requirement.id) || {};
@@ -229,17 +228,27 @@ export function negotiateDatasetExecution(input, runtimeVersion = "0.0.0") {
   const diagnostics = [];
   const selected = [];
   const degradations = [];
-  checkVersions(input, diagnostics);
-  const request = input.negotiation || {};
-  if (request.contract !== undefined && request.contract !== DATASET_EXECUTION_CONTRACTS.capability) {
-    diagnostics.push(diagnostic("CONTRACT_MAJOR_UNSUPPORTED", "Unsupported negotiation contract", { path: "/negotiation/contract" }));
+  const isObject = value => value !== null && typeof value === "object" && !Array.isArray(value);
+  const envelopeValid = isObject(input) && ["contractVersions", "schemaVersions"].every(
+    key => input[key] === undefined || isObject(input[key]),
+  );
+  const rawRequest = envelopeValid && input.negotiation === undefined ? {} : input?.negotiation;
+  // Only omission receives the legacy defaults. Explicit malformed values reject.
+  const request = isObject(rawRequest) ? { contract: DATASET_EXECUTION_CONTRACTS.capability, required: [], ...rawRequest } : rawRequest;
+  const requestValid = envelopeValid && validateCapabilityRequest(request);
+  if (!requestValid) {
+    const wrongContract = isObject(request) && request.contract !== DATASET_EXECUTION_CONTRACTS.capability;
+    diagnostics.push(diagnostic(wrongContract ? "CONTRACT_MAJOR_UNSUPPORTED" : "REQUEST_SCHEMA_INVALID",
+      "Invalid capability negotiation request", { path: "/negotiation" }));
+  } else {
+    checkVersions(input, diagnostics);
   }
-  for (const requirement of request.required || []) {
+  for (const requirement of requestValid ? request.required : []) {
     const result = checkRequirement(requirement);
     if (result.ok) selected.push(requirement.id);
     else diagnostics.push(result.diagnostic);
   }
-  for (const requirement of request.optional || []) {
+  for (const requirement of requestValid ? request.optional || [] : []) {
     const result = checkRequirement(requirement);
     if (result.ok) {
       selected.push(requirement.id);

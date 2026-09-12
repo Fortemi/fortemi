@@ -1,11 +1,23 @@
 # Fortemi Delivery Roadmap
 
 > **Status:** Active — reference until all planned phases are complete.
-> **Created:** 2026-06-24 · **Last updated:** 2026-09-06 (America/New_York; receipts through 2026-09-07 UTC)
+> **Created:** 2026-06-24 · **Last updated:** 2026-09-11 (America/New_York; receipts through 2026-09-12 UTC)
 > **Tracker:** Gitea `Fortemi/fortemi` (authoritative). Issue numbers below are Gitea issues.
 > **Source:** Synthesized from the 2026-06-21→23 open-issue audit sweep (#746–#1006), the milestone structure, the 2026-06-23 interactive product-decision Q&A (31 decisions recorded on-issue), and the 2026-08-23 full-open-backlog rebaseline.
 
 ## How to use this document
+
+- 2026-09-11 Lane B cycle39: #1128 consumes Core #422 validation1.0.1 at
+  exact56252157. Schema-first request validation rejects malformed optional
+  fallback/version data before dispatch; strict SemVer and advertised runtime
+  bounds now match the authority. Historical bundles, valid receipt bytes and
+  exact MCP envelope revisions remain unchanged. The distinct consumer pin names
+  applicable request vectors and inapplicable caller-descriptor vectors. Bounded
+  offline source and packaged-entry evidence is recorded in the cycle39 report;
+  upstream PR448, exact-source CI, AIWG2242 adoption, installed/live acceptance and
+  the full Lane B release sweep remain open. No issue/phase closure or maturity/
+  profile expansion; suite NO-GO remains. Roadmap discovery still missed the local
+  skill; its canonical extension source was loaded directly after the failed show.
 
 - 2026-09-11 Lane B cycle32: CI58454 failed the exact AsyncAPI runtime gate:
   application metadata advanced to2026.9.10 while the artifact remained2026.9.9.

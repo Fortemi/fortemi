@@ -569,6 +569,7 @@ jobs:
           npm ci --ignore-scripts --no-fund --no-audit
           node --test \
             tests/dataset-execution.test.js \
+            tests/dataset-capability-validation.test.js \
             tests/output-sanitizer.test.js \
             tests/schema-validation.test.js \
             tests/inference-requests.test.js \

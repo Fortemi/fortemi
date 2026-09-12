@@ -13,6 +13,7 @@ import {
   sha256Digest,
   verifyDatasetRunReceipt,
 } from "../../mcp-server/lib/dataset-execution.js";
+import { compareCapabilityVersions } from "../../mcp-server/lib/dataset-capability-validation.js";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const contractRoot = path.join(repositoryRoot, "contracts/dataset-execution/1.0.0");
@@ -38,6 +39,30 @@ function applyPatch(document, operations) {
 
 const manifest = load("manifest.json");
 for (const entry of manifest.files) assert.equal(fileDigest(entry.path), entry.sha256, `${entry.path} digest`);
+
+const capabilityRoot = path.join(contractRoot, "../capability-validation/1.0.1");
+const capabilityLoad = name => JSON.parse(fs.readFileSync(path.join(capabilityRoot, name), "utf8"));
+const capabilityPin = capabilityLoad("consumer.json");
+const capabilityManifest = capabilityLoad("manifest.json");
+assert.equal(crypto.createHash("sha256").update(fs.readFileSync(path.join(capabilityRoot, "manifest.json"))).digest("hex"), capabilityPin.authority.manifestSha256);
+assert.equal(capabilityManifest.authority.repository, capabilityPin.authority.repository);
+assert.match(capabilityPin.authority.commit, /^[a-f0-9]{40}$/);
+assert.deepEqual(capabilityManifest.files.map(entry => entry.path).sort(), ["negotiation-vectors.json", "schema.json", "wire-vectors.json"]);
+for (const entry of capabilityManifest.files) {
+  assert.equal(crypto.createHash("sha256").update(fs.readFileSync(path.join(capabilityRoot, entry.path))).digest("hex"), entry.sha256, entry.path);
+}
+assert.ok(fs.readFileSync(path.join(capabilityRoot, "schema.json")).equals(
+  fs.readFileSync(path.join(repositoryRoot, capabilityPin.consumer.packagedSchema))), "packaged capability schema matches Core pin");
+const versionVectors = capabilityLoad("negotiation-vectors.json").versions;
+assert.equal(versionVectors.length, capabilityPin.coverage.semverVectors);
+for (const vector of versionVectors) {
+  const result = compareCapabilityVersions(vector.offered, vector.minimum);
+  assert.equal(result !== null && result >= 0, vector.accepted, vector.id);
+}
+assert.deepEqual([
+  ...capabilityPin.coverage.requestVectorsWithServerDescriptor,
+  ...capabilityPin.coverage.descriptorVectorsNotApplicable,
+].sort(), capabilityLoad("wire-vectors.json").cases.map(vector => vector.id).sort(), "every shared wire vector has an explicit consumer disposition");
 
 const requestSchema = load("request.schema.json");
 const receiptSchema = load("run-receipt.schema.json");

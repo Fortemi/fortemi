@@ -1,0 +1,681 @@
+{
+  "revision": "1.0.1",
+  "authority": "Fortemi/fortemi-react#422",
+  "cases": [
+    {
+      "id": "valid-current",
+      "descriptor": {
+        "contract": "fortemi.dataset-execution-capabilities/v1",
+        "schemaVersion": "1.0.0",
+        "runtime": {
+          "id": "fortemi-server",
+          "version": "0.1.0",
+          "plane": "live-remote-persistence",
+          "dataClass": "remote-persistence",
+          "maturity": "alpha"
+        },
+        "guarantees": {
+          "transaction": "single-record",
+          "isolation": "none",
+          "durability": "replicated",
+          "availability": "remote-service",
+          "ordering": "backend-cursor"
+        },
+        "capabilities": [
+          {
+            "id": "ingest.full",
+            "version": "1.0.0",
+            "status": "experimental",
+            "limits": {
+              "maxBatchRecords": 100
+            },
+            "evidence": [
+              "server-contract"
+            ]
+          },
+          {
+            "id": "identity.record",
+            "version": "1.0.0",
+            "status": "experimental",
+            "evidence": [
+              "server-contract"
+            ]
+          },
+          {
+            "id": "mutation.upsert",
+            "version": "1.0.0",
+            "status": "experimental",
+            "evidence": [
+              "server-contract"
+            ]
+          }
+        ],
+        "evidence": [
+          {
+            "id": "server-contract",
+            "kind": "fixture",
+            "uri": "fixture://remote-alpha"
+          }
+        ]
+      },
+      "request": {
+        "contract": "fortemi.dataset-execution-capabilities/v1",
+        "required": [
+          {
+            "id": "ingest.full",
+            "minimumVersion": "1.0.0"
+          }
+        ]
+      },
+      "valid": true,
+      "accepted": true
+    },
+    {
+      "id": "valid-compatible-revision",
+      "descriptor": {
+        "contract": "fortemi.dataset-execution-capabilities/v1",
+        "schemaVersion": "1.0.1",
+        "runtime": {
+          "id": "fortemi-server",
+          "version": "0.1.0",
+          "plane": "live-remote-persistence",
+          "dataClass": "remote-persistence",
+          "maturity": "alpha"
+        },
+        "guarantees": {
+          "transaction": "single-record",
+          "isolation": "none",
+          "durability": "replicated",
+          "availability": "remote-service",
+          "ordering": "backend-cursor"
+        },
+        "capabilities": [
+          {
+            "id": "ingest.full",
+            "version": "1.0.0",
+            "status": "experimental",
+            "limits": {
+              "maxBatchRecords": 100
+            },
+            "evidence": [
+              "server-contract"
+            ]
+          },
+          {
+            "id": "identity.record",
+            "version": "1.0.0",
+            "status": "experimental",
+            "evidence": [
+              "server-contract"
+            ]
+          },
+          {
+            "id": "mutation.upsert",
+            "version": "1.0.0",
+            "status": "experimental",
+            "evidence": [
+              "server-contract"
+            ]
+          }
+        ],
+        "evidence": [
+          {
+            "id": "server-contract",
+            "kind": "fixture",
+            "uri": "fixture://remote-alpha"
+          }
+        ]
+      },
+      "request": {
+        "contract": "fortemi.dataset-execution-capabilities/v1",
+        "required": [
+          {
+            "id": "ingest.full",
+            "minimumVersion": "1.0.0"
+          }
+        ]
+      },
+      "valid": true,
+      "accepted": true
+    },
+    {
+      "id": "next-schema-major",
+      "descriptor": {
+        "contract": "fortemi.dataset-execution-capabilities/v1",
+        "schemaVersion": "2.0.0",
+        "runtime": {
+          "id": "fortemi-server",
+          "version": "0.1.0",
+          "plane": "live-remote-persistence",
+          "dataClass": "remote-persistence",
+          "maturity": "alpha"
+        },
+        "guarantees": {
+          "transaction": "single-record",
+          "isolation": "none",
+          "durability": "replicated",
+          "availability": "remote-service",
+          "ordering": "backend-cursor"
+        },
+        "capabilities": [
+          {
+            "id": "ingest.full",
+            "version": "1.0.0",
+            "status": "experimental",
+            "limits": {
+              "maxBatchRecords": 100
+            },
+            "evidence": [
+              "server-contract"
+            ]
+          },
+          {
+            "id": "identity.record",
+            "version": "1.0.0",
+            "status": "experimental",
+            "evidence": [
+              "server-contract"
+            ]
+          },
+          {
+            "id": "mutation.upsert",
+            "version": "1.0.0",
+            "status": "experimental",
+            "evidence": [
+              "server-contract"
+            ]
+          }
+        ],
+        "evidence": [
+          {
+            "id": "server-contract",
+            "kind": "fixture",
+            "uri": "fixture://remote-alpha"
+          }
+        ]
+      },
+      "request": {
+        "contract": "fortemi.dataset-execution-capabilities/v1",
+        "required": [
+          {
+            "id": "ingest.full",
+            "minimumVersion": "1.0.0"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "unknown-status",
+      "descriptor": {
+        "contract": "fortemi.dataset-execution-capabilities/v1",
+        "schemaVersion": "1.0.0",
+        "runtime": {
+          "id": "fortemi-server",
+          "version": "0.1.0",
+          "plane": "live-remote-persistence",
+          "dataClass": "remote-persistence",
+          "maturity": "alpha"
+        },
+        "guarantees": {
+          "transaction": "single-record",
+          "isolation": "none",
+          "durability": "replicated",
+          "availability": "remote-service",
+          "ordering": "backend-cursor"
+        },
+        "capabilities": [
+          {
+            "id": "ingest.full",
+            "version": "1.0.0",
+            "status": "not-a-valid-state",
+            "limits": {
+              "maxBatchRecords": 100
+            },
+            "evidence": [
+              "server-contract"
+            ]
+          },
+          {
+            "id": "identity.record",
+            "version": "1.0.0",
+            "status": "experimental",
+            "evidence": [
+              "server-contract"
+            ]
+          },
+          {
+            "id": "mutation.upsert",
+            "version": "1.0.0",
+            "status": "experimental",
+            "evidence": [
+              "server-contract"
+            ]
+          }
+        ],
+        "evidence": [
+          {
+            "id": "server-contract",
+            "kind": "fixture",
+            "uri": "fixture://remote-alpha"
+          }
+        ]
+      },
+      "request": {
+        "contract": "fortemi.dataset-execution-capabilities/v1",
+        "required": [
+          {
+            "id": "ingest.full",
+            "minimumVersion": "1.0.0"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "missing-evidence",
+      "descriptor": {
+        "contract": "fortemi.dataset-execution-capabilities/v1",
+        "schemaVersion": "1.0.0",
+        "runtime": {
+          "id": "fortemi-server",
+          "version": "0.1.0",
+          "plane": "live-remote-persistence",
+          "dataClass": "remote-persistence",
+          "maturity": "alpha"
+        },
+        "guarantees": {
+          "transaction": "single-record",
+          "isolation": "none",
+          "durability": "replicated",
+          "availability": "remote-service",
+          "ordering": "backend-cursor"
+        },
+        "capabilities": [
+          {
+            "id": "ingest.full",
+            "version": "1.0.0",
+            "status": "experimental",
+            "limits": {
+              "maxBatchRecords": 100
+            },
+            "evidence": [
+              "server-contract"
+            ]
+          },
+          {
+            "id": "identity.record",
+            "version": "1.0.0",
+            "status": "experimental",
+            "evidence": [
+              "server-contract"
+            ]
+          },
+          {
+            "id": "mutation.upsert",
+            "version": "1.0.0",
+            "status": "experimental",
+            "evidence": [
+              "server-contract"
+            ]
+          }
+        ],
+        "evidence": []
+      },
+      "request": {
+        "contract": "fortemi.dataset-execution-capabilities/v1",
+        "required": [
+          {
+            "id": "ingest.full",
+            "minimumVersion": "1.0.0"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "null-descriptor",
+      "descriptor": null,
+      "request": {
+        "contract": "fortemi.dataset-execution-capabilities/v1",
+        "required": [
+          {
+            "id": "ingest.full",
+            "minimumVersion": "1.0.0"
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "null-request",
+      "descriptor": {
+        "contract": "fortemi.dataset-execution-capabilities/v1",
+        "schemaVersion": "1.0.0",
+        "runtime": {
+          "id": "fortemi-server",
+          "version": "0.1.0",
+          "plane": "live-remote-persistence",
+          "dataClass": "remote-persistence",
+          "maturity": "alpha"
+        },
+        "guarantees": {
+          "transaction": "single-record",
+          "isolation": "none",
+          "durability": "replicated",
+          "availability": "remote-service",
+          "ordering": "backend-cursor"
+        },
+        "capabilities": [
+          {
+            "id": "ingest.full",
+            "version": "1.0.0",
+            "status": "experimental",
+            "limits": {
+              "maxBatchRecords": 100
+            },
+            "evidence": [
+              "server-contract"
+            ]
+          },
+          {
+            "id": "identity.record",
+            "version": "1.0.0",
+            "status": "experimental",
+            "evidence": [
+              "server-contract"
+            ]
+          },
+          {
+            "id": "mutation.upsert",
+            "version": "1.0.0",
+            "status": "experimental",
+            "evidence": [
+              "server-contract"
+            ]
+          }
+        ],
+        "evidence": [
+          {
+            "id": "server-contract",
+            "kind": "fixture",
+            "uri": "fixture://remote-alpha"
+          }
+        ]
+      },
+      "request": null,
+      "valid": false
+    },
+    {
+      "id": "unknown-request-field",
+      "descriptor": {
+        "contract": "fortemi.dataset-execution-capabilities/v1",
+        "schemaVersion": "1.0.0",
+        "runtime": {
+          "id": "fortemi-server",
+          "version": "0.1.0",
+          "plane": "live-remote-persistence",
+          "dataClass": "remote-persistence",
+          "maturity": "alpha"
+        },
+        "guarantees": {
+          "transaction": "single-record",
+          "isolation": "none",
+          "durability": "replicated",
+          "availability": "remote-service",
+          "ordering": "backend-cursor"
+        },
+        "capabilities": [
+          {
+            "id": "ingest.full",
+            "version": "1.0.0",
+            "status": "experimental",
+            "limits": {
+              "maxBatchRecords": 100
+            },
+            "evidence": [
+              "server-contract"
+            ]
+          },
+          {
+            "id": "identity.record",
+            "version": "1.0.0",
+            "status": "experimental",
+            "evidence": [
+              "server-contract"
+            ]
+          },
+          {
+            "id": "mutation.upsert",
+            "version": "1.0.0",
+            "status": "experimental",
+            "evidence": [
+              "server-contract"
+            ]
+          }
+        ],
+        "evidence": [
+          {
+            "id": "server-contract",
+            "kind": "fixture",
+            "uri": "fixture://remote-alpha"
+          }
+        ]
+      },
+      "request": {
+        "contract": "fortemi.dataset-execution-capabilities/v1",
+        "required": [
+          {
+            "id": "ingest.full",
+            "minimumVersion": "1.0.0"
+          }
+        ],
+        "unknown": true
+      },
+      "valid": false
+    },
+    {
+      "id": "invalid-limit",
+      "descriptor": {
+        "contract": "fortemi.dataset-execution-capabilities/v1",
+        "schemaVersion": "1.0.0",
+        "runtime": {
+          "id": "fortemi-server",
+          "version": "0.1.0",
+          "plane": "live-remote-persistence",
+          "dataClass": "remote-persistence",
+          "maturity": "alpha"
+        },
+        "guarantees": {
+          "transaction": "single-record",
+          "isolation": "none",
+          "durability": "replicated",
+          "availability": "remote-service",
+          "ordering": "backend-cursor"
+        },
+        "capabilities": [
+          {
+            "id": "ingest.full",
+            "version": "1.0.0",
+            "status": "experimental",
+            "limits": {
+              "maxBatchRecords": 100
+            },
+            "evidence": [
+              "server-contract"
+            ]
+          },
+          {
+            "id": "identity.record",
+            "version": "1.0.0",
+            "status": "experimental",
+            "evidence": [
+              "server-contract"
+            ]
+          },
+          {
+            "id": "mutation.upsert",
+            "version": "1.0.0",
+            "status": "experimental",
+            "evidence": [
+              "server-contract"
+            ]
+          }
+        ],
+        "evidence": [
+          {
+            "id": "server-contract",
+            "kind": "fixture",
+            "uri": "fixture://remote-alpha"
+          }
+        ]
+      },
+      "request": {
+        "contract": "fortemi.dataset-execution-capabilities/v1",
+        "required": [
+          {
+            "id": "ingest.full",
+            "minimumLimits": {
+              "maxConcurrency": -1
+            }
+          }
+        ]
+      },
+      "valid": false
+    },
+    {
+      "id": "unavailable-required",
+      "descriptor": {
+        "contract": "fortemi.dataset-execution-capabilities/v1",
+        "schemaVersion": "1.0.0",
+        "runtime": {
+          "id": "fortemi-server",
+          "version": "0.1.0",
+          "plane": "live-remote-persistence",
+          "dataClass": "remote-persistence",
+          "maturity": "alpha"
+        },
+        "guarantees": {
+          "transaction": "single-record",
+          "isolation": "none",
+          "durability": "replicated",
+          "availability": "remote-service",
+          "ordering": "backend-cursor"
+        },
+        "capabilities": [
+          {
+            "id": "ingest.full",
+            "version": "1.0.0",
+            "status": "experimental",
+            "limits": {
+              "maxBatchRecords": 100
+            },
+            "evidence": [
+              "server-contract"
+            ]
+          },
+          {
+            "id": "identity.record",
+            "version": "1.0.0",
+            "status": "experimental",
+            "evidence": [
+              "server-contract"
+            ]
+          },
+          {
+            "id": "mutation.upsert",
+            "version": "1.0.0",
+            "status": "experimental",
+            "evidence": [
+              "server-contract"
+            ]
+          }
+        ],
+        "evidence": [
+          {
+            "id": "server-contract",
+            "kind": "fixture",
+            "uri": "fixture://remote-alpha"
+          }
+        ]
+      },
+      "request": {
+        "contract": "fortemi.dataset-execution-capabilities/v1",
+        "required": [
+          {
+            "id": "index.graph"
+          }
+        ]
+      },
+      "valid": true,
+      "accepted": false
+    },
+    {
+      "id": "next-contract-major",
+      "descriptor": {
+        "contract": "fortemi.dataset-execution-capabilities/v1",
+        "schemaVersion": "1.0.0",
+        "runtime": {
+          "id": "fortemi-server",
+          "version": "0.1.0",
+          "plane": "live-remote-persistence",
+          "dataClass": "remote-persistence",
+          "maturity": "alpha"
+        },
+        "guarantees": {
+          "transaction": "single-record",
+          "isolation": "none",
+          "durability": "replicated",
+          "availability": "remote-service",
+          "ordering": "backend-cursor"
+        },
+        "capabilities": [
+          {
+            "id": "ingest.full",
+            "version": "1.0.0",
+            "status": "experimental",
+            "limits": {
+              "maxBatchRecords": 100
+            },
+            "evidence": [
+              "server-contract"
+            ]
+          },
+          {
+            "id": "identity.record",
+            "version": "1.0.0",
+            "status": "experimental",
+            "evidence": [
+              "server-contract"
+            ]
+          },
+          {
+            "id": "mutation.upsert",
+            "version": "1.0.0",
+            "status": "experimental",
+            "evidence": [
+              "server-contract"
+            ]
+          }
+        ],
+        "evidence": [
+          {
+            "id": "server-contract",
+            "kind": "fixture",
+            "uri": "fixture://remote-alpha"
+          }
+        ]
+      },
+      "request": {
+        "contract": "fortemi.dataset-execution-capabilities/v2",
+        "required": [
+          {
+            "id": "ingest.full",
+            "minimumVersion": "1.0.0"
+          }
+        ]
+      },
+      "valid": false
+    }
+  ]
+}

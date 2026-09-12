@@ -1,0 +1,127 @@
+{
+  "revision": "1.0.1",
+  "authority": "Fortemi/fortemi-react#422",
+  "scope": "Capability SemVer negotiation, not runtime qualification",
+  "versions": [
+    {
+      "id": "prerelease-stable",
+      "offered": "1.0.0-alpha",
+      "minimum": "1.0.0",
+      "accepted": false
+    },
+    {
+      "id": "numeric-prerelease",
+      "offered": "1.0.0-beta.2",
+      "minimum": "1.0.0-beta.11",
+      "accepted": false
+    },
+    {
+      "id": "numeric-before-text",
+      "offered": "1.0.0-9",
+      "minimum": "1.0.0-alpha",
+      "accepted": false
+    },
+    {
+      "id": "shorter-prerelease",
+      "offered": "1.0.0-alpha",
+      "minimum": "1.0.0-alpha.1",
+      "accepted": false
+    },
+    {
+      "id": "stable-prerelease",
+      "offered": "1.0.0",
+      "minimum": "1.0.0-rc.1",
+      "accepted": true
+    },
+    {
+      "id": "build-ignored",
+      "offered": "1.0.0+001",
+      "minimum": "1.0.0+999",
+      "accepted": true
+    },
+    {
+      "id": "prerelease-and-build",
+      "offered": "1.0.0-alpha+001",
+      "minimum": "1.0.0-alpha+999",
+      "accepted": true
+    },
+    {
+      "id": "multi-digit",
+      "offered": "1.10.0",
+      "minimum": "1.9.0",
+      "accepted": true
+    },
+    {
+      "id": "ascii-order",
+      "offered": "1.0.0-Z",
+      "minimum": "1.0.0-a",
+      "accepted": false
+    },
+    {
+      "id": "large-numeric-prerelease",
+      "offered": "1.0.0-9007199254740992",
+      "minimum": "1.0.0-9007199254740993",
+      "accepted": false
+    },
+    {
+      "id": "leading-zero-core",
+      "offered": "01.0.0",
+      "minimum": "1.0.0",
+      "accepted": false
+    },
+    {
+      "id": "leading-zero-pre",
+      "offered": "1.0.0-01",
+      "minimum": "1.0.0",
+      "accepted": false
+    },
+    {
+      "id": "empty-build",
+      "offered": "1.0.0+",
+      "minimum": "1.0.0",
+      "accepted": false
+    },
+    {
+      "id": "empty-pre-segment",
+      "offered": "1.0.0-a..b",
+      "minimum": "1.0.0",
+      "accepted": false
+    },
+    {
+      "id": "unsafe-core",
+      "offered": "9007199254740992.0.0",
+      "minimum": "1.0.0",
+      "accepted": false
+    },
+    {
+      "id": "unsafe-request",
+      "offered": "1.0.0",
+      "minimum": "9007199254740992.0.0",
+      "accepted": false
+    },
+    {
+      "id": "empty-minimum",
+      "offered": "1.0.0",
+      "minimum": "",
+      "accepted": false
+    },
+    {
+      "id": "malformed-minimum",
+      "offered": "1.0.0",
+      "minimum": "broken",
+      "accepted": false
+    },
+    {
+      "id": "trailing-newline",
+      "offered": "1.0.0\n",
+      "minimum": "1.0.0",
+      "accepted": false
+    },
+    {
+      "id": "maximum-safe-core",
+      "offered": "9007199254740991.0.0",
+      "minimum": "1.0.0",
+      "accepted": true
+    }
+  ]
+}

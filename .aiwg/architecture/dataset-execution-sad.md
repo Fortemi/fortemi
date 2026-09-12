@@ -17,6 +17,16 @@ legacy cross-revision idempotent replay is not qualified.
 
 ## Execution and verification
 
+Capability validation follows Core #422, not the receipt authority. The distinct
+`contracts/dataset-execution/capability-validation/1.0.1/consumer.json` pins Core
+56252157 and its schema/vectors; MCP packages those exact schema bytes and rejects
+malformed negotiation before traversal or dispatch. Full SemVer prerelease order
+and safe numeric bounds apply. MCP owns its alpha descriptor and still requires
+exact envelope revisions, while Core has a compatible descriptor-major policy.
+The consumer receipt explicitly separates20 version vectors, seven request
+projections and four inapplicable caller-descriptor vectors. Historical receipts
+are unchanged and do not qualify this new source, AIWG or a released/live runtime.
+
 The AIWG consumer discovers `manage_dataset_execution`, negotiates the exact
 validation/request binding revisions, independently computes the request digest,
 and requires approval of that digest before execution. Fortemi previews schema,

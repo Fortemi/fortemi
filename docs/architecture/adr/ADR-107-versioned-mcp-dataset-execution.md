@@ -43,6 +43,30 @@ The exact authority commits and schema digests are recorded in
 
 ### Negotiation and preview
 
+Core #422 validation revision 1.0.1 is consumed from exact commit
+`5625215762a8fd06db8fef4ccedd87f3c370ec31`, pinned with the original manifest,
+schema and vectors in `contracts/dataset-execution/capability-validation/1.0.1`.
+The packaged MCP schema is byte-checked against that pin. Structure validation
+precedes requirement/fallback traversal; malformed optional data rejects instead
+of degrading. Strict SemVer compares prereleases by numeric/text/ASCII order,
+ignores build metadata, rejects unsafe core numbers and limits versions to256
+characters. Server-owned descriptor versions are also validated before discovery.
+
+MCP does not negotiate caller-supplied descriptors. Its seven applicable shared
+request vectors use the server's actual descriptor; four descriptor-only vectors
+are explicitly not applicable. All20 shared version vectors exercise the actual
+production comparator. Core-compatible descriptor minors do not widen the MCP
+envelope's exact-version policy. Standalone negotiation defaults only omitted
+fields; complete preview/execute request requirements remain unchanged. Existing
+valid fixture decisions, request identities and receipts retain their bytes.
+
+This is a validation correction, not a wire/maturity/profile expansion. The
+historical1.0.0 and receipt-validation1.0.1 bundles remain immutable. Upstream
+[PR448](https://git.integrolabs.net/Fortemi/fortemi-react/pulls/448), downstream
+[AIWG #2242](https://git.integrolabs.net/roctinam/aiwg/issues/2242), exact-source CI,
+clean installed/live qualification and release publication remain separate gates.
+This source pin does not imply that the upstream candidate is released.
+
 `capabilities` and `preview` are pure and make no REST request. Preview checks
 the exact supported contract/schema revisions, required and optional capabilities, the caller's
 resource envelope, UUID dataset namespace, checkpoint scope/sequence, record

@@ -1,0 +1,469 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fortemi.dev/schemas/dataset-execution-capabilities/validation/1.0.1.schema.json",
+  "title": "Dataset Capability Validation Revision 1.0.1 (v1 wire)",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/descriptor"
+    },
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/result"
+    }
+  ],
+  "$defs": {
+    "capabilityId": {
+      "enum": [
+        "ingest.full",
+        "ingest.snapshot",
+        "ingest.incremental",
+        "ingest.stream",
+        "schema.inspect",
+        "identity.stable-revision",
+        "identity.record",
+        "mutation.upsert",
+        "mutation.tombstone",
+        "mutation.reconcile",
+        "checkpoint.read",
+        "checkpoint.write",
+        "execution.cancel",
+        "rejection.record",
+        "index.lexical",
+        "index.chunk",
+        "index.vector",
+        "index.hybrid",
+        "index.rerank",
+        "index.graph",
+        "index.community",
+        "lineage.dataset",
+        "lineage.record",
+        "lineage.field",
+        "lineage.relationship-evidence",
+        "transaction.atomic-batch",
+        "privacy.pre-materialization-filter",
+        "pagination.cursor",
+        "ordering.deterministic"
+      ]
+    },
+    "semver": {
+      "type": "string",
+      "maxLength": 256,
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?:-((?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)(?:\\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\\+([0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*))?$(?![\\s\\S])"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+:[a-f0-9]+$"
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxInputBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "maxRecordBytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "maxBatchRecords": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "maxConcurrency": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "maxPageSize": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "maxTraversalDepth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "uri"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "fixture",
+            "conformance-report",
+            "live-qualification"
+          ]
+        },
+        "uri": {
+          "type": "string",
+          "minLength": 1
+        },
+        "digest": {
+          "$ref": "#/$defs/digest"
+        }
+      }
+    },
+    "capability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "status",
+        "evidence"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/capabilityId"
+        },
+        "version": {
+          "$ref": "#/$defs/semver"
+        },
+        "status": {
+          "enum": [
+            "supported",
+            "experimental",
+            "unsupported"
+          ]
+        },
+        "limits": {
+          "$ref": "#/$defs/limits"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "version",
+        "plane",
+        "dataClass",
+        "maturity"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "$ref": "#/$defs/semver"
+        },
+        "plane": {
+          "enum": [
+            "browser-local-archive",
+            "static-cache",
+            "portable-shard",
+            "server-process",
+            "live-remote-persistence"
+          ]
+        },
+        "dataClass": {
+          "enum": [
+            "canonical",
+            "regenerable-index",
+            "static-cache",
+            "portable-projection",
+            "remote-persistence"
+          ]
+        },
+        "maturity": {
+          "enum": [
+            "experimental",
+            "alpha",
+            "beta",
+            "stable"
+          ]
+        }
+      }
+    },
+    "guarantees": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "transaction",
+        "isolation",
+        "durability",
+        "availability",
+        "ordering"
+      ],
+      "properties": {
+        "transaction": {
+          "enum": [
+            "none",
+            "single-record",
+            "atomic-batch"
+          ]
+        },
+        "isolation": {
+          "enum": [
+            "none",
+            "snapshot",
+            "serializable"
+          ]
+        },
+        "durability": {
+          "enum": [
+            "process",
+            "memory",
+            "filesystem",
+            "wal",
+            "replicated"
+          ]
+        },
+        "availability": {
+          "enum": [
+            "local-process",
+            "single-host",
+            "remote-service"
+          ]
+        },
+        "ordering": {
+          "enum": [
+            "unspecified",
+            "stable-identity",
+            "backend-cursor"
+          ]
+        }
+      }
+    },
+    "descriptor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "schemaVersion",
+        "runtime",
+        "guarantees",
+        "capabilities",
+        "evidence"
+      ],
+      "properties": {
+        "contract": {
+          "const": "fortemi.dataset-execution-capabilities/v1"
+        },
+        "schemaVersion": {
+          "$ref": "#/$defs/semver"
+        },
+        "runtime": {
+          "$ref": "#/$defs/runtime"
+        },
+        "guarantees": {
+          "$ref": "#/$defs/guarantees"
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/capability"
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        }
+      }
+    },
+    "requirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/capabilityId"
+        },
+        "minimumVersion": {
+          "$ref": "#/$defs/semver"
+        },
+        "minimumLimits": {
+          "$ref": "#/$defs/limits"
+        }
+      }
+    },
+    "optionalRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/capabilityId"
+        },
+        "minimumVersion": {
+          "$ref": "#/$defs/semver"
+        },
+        "minimumLimits": {
+          "$ref": "#/$defs/limits"
+        },
+        "fallback": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/capabilityId"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "required"
+      ],
+      "properties": {
+        "contract": {
+          "const": "fortemi.dataset-execution-capabilities/v1"
+        },
+        "required": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/requirement"
+          }
+        },
+        "optional": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/optionalRequirement"
+          }
+        }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "CONTRACT_MAJOR_UNSUPPORTED",
+            "SCHEMA_VERSION_UNSUPPORTED",
+            "DESCRIPTOR_INVALID",
+            "CAPABILITY_DUPLICATE",
+            "CAPABILITY_INCONSISTENT",
+            "REQUIRED_CAPABILITY_MISSING",
+            "CAPABILITY_VERSION_INSUFFICIENT",
+            "CAPABILITY_LIMIT_INSUFFICIENT"
+          ]
+        },
+        "capability": {
+          "$ref": "#/$defs/capabilityId"
+        },
+        "path": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "degradation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requested",
+        "reason",
+        "changedGuarantees"
+      ],
+      "properties": {
+        "requested": {
+          "$ref": "#/$defs/capabilityId"
+        },
+        "selected": {
+          "$ref": "#/$defs/capabilityId"
+        },
+        "reason": {
+          "enum": [
+            "unsupported",
+            "version-insufficient",
+            "limit-insufficient"
+          ]
+        },
+        "changedGuarantees": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "accepted",
+        "runtime",
+        "selected",
+        "degradations",
+        "diagnostics"
+      ],
+      "properties": {
+        "contract": {
+          "const": "fortemi.dataset-execution-capabilities/v1"
+        },
+        "accepted": {
+          "type": "boolean"
+        },
+        "runtime": {
+          "$ref": "#/$defs/runtime"
+        },
+        "selected": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/capabilityId"
+          },
+          "uniqueItems": true
+        },
+        "degradations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/degradation"
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/diagnostic"
+          }
+        }
+      }
+    }
+  }
+}

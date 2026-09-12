@@ -1,0 +1,29 @@
+{
+  "contract": "fortemi.dataset-capability-validation/v1",
+  "revision": "1.0.1",
+  "wireContract": "fortemi.dataset-execution-capabilities/v1",
+  "authority": {
+    "repository": "Fortemi/fortemi-react",
+    "issue": 422
+  },
+  "files": [
+    {
+      "path": "schema.json",
+      "sha256": "a4e9b427da669a02e83db00d39f48c2e106770d6cd2ec1b717938c57793b754c"
+    },
+    {
+      "path": "negotiation-vectors.json",
+      "sha256": "2793990a842d5969f1f64c90170ab97ca4ffc4b93d1302a2f358fae54631a6dc"
+    },
+    {
+      "path": "wire-vectors.json",
+      "sha256": "c52d32d0b1d0d312cf8b242f11fc116c47d104a74112cbd5d0019e6d39df9744"
+    }
+  ],
+  "consumers": [
+    "Fortemi/fortemi-react Core and materialization negotiation",
+    "Fortemi/fortemi MCP dataset execution",
+    "roctinam/aiwg dataset execution"
+  ],
+  "qualification": "Core source and local built entry only; exact consumer pins and clean installed/live acceptance remain required"
+}

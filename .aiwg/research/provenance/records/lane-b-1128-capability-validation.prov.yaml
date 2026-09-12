@@ -1,0 +1,115 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-12T03:40:31.039Z",
+    "description": "MCP consumption of Core capability validation revision 1.0.1"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-1128-capability-validation.json",
+    "type": "data",
+    "created_at": "2026-09-12T03:40:31.039Z",
+    "checksum": "sha256:bebdfb7a41b21f91d0769b321a643e4824a2435e0a8fae36fd136b3b2c1b9962",
+    "size_bytes": 7165,
+    "attributes": {
+      "subjects": [
+        {
+          "path": ".aiwg/architecture/dataset-execution-sad.md",
+          "sha256": "b2e47cb22de54855e89322a3136b558db6596aac98a1fb73252922852e43db74",
+          "bytes": 4797
+        },
+        {
+          "path": ".aiwg/planning/roadmap.md",
+          "sha256": "3eaf61c6cb03095e588f0dd7e43ac5e3a2eb205f68cbd361b7b7cbb0595d8a32",
+          "bytes": 334839
+        },
+        {
+          "path": ".gitea/workflows/ci-builder.yaml",
+          "sha256": "be20bab90df470016559fd744bd173b2c8073c5444fbff10debfbb74a2a659b8",
+          "bytes": 66189
+        },
+        {
+          "path": "contracts/dataset-execution/capability-validation/1.0.1/consumer.json",
+          "sha256": "4fff3185d170c9872b52d62f4dcb8aff1bb42062d6b3fd5ad937724f416b17ab",
+          "bytes": 2483
+        },
+        {
+          "path": "contracts/dataset-execution/capability-validation/1.0.1/manifest.json",
+          "sha256": "20b59bb871c3afc9bb972896b2a2da718970c6fe7ef54b49000418f62a5701c0",
+          "bytes": 945
+        },
+        {
+          "path": "contracts/dataset-execution/capability-validation/1.0.1/negotiation-vectors.json",
+          "sha256": "2793990a842d5969f1f64c90170ab97ca4ffc4b93d1302a2f358fae54631a6dc",
+          "bytes": 2741
+        },
+        {
+          "path": "contracts/dataset-execution/capability-validation/1.0.1/schema.json",
+          "sha256": "a4e9b427da669a02e83db00d39f48c2e106770d6cd2ec1b717938c57793b754c",
+          "bytes": 10658
+        },
+        {
+          "path": "contracts/dataset-execution/capability-validation/1.0.1/wire-vectors.json",
+          "sha256": "c52d32d0b1d0d312cf8b242f11fc116c47d104a74112cbd5d0019e6d39df9744",
+          "bytes": 17669
+        },
+        {
+          "path": "docs/architecture/adr/ADR-107-versioned-mcp-dataset-execution.md",
+          "sha256": "1a6a1061a066ef5e97cc180da337781bd941961e2e1b57adde771e680fbc6970",
+          "bytes": 11682
+        },
+        {
+          "path": "mcp-server/lib/dataset-capability-validation.js",
+          "sha256": "a51b1d68f8d5f21d7faebd30c9cd2d583899fac299bb53db277306998bf970ef",
+          "bytes": 2755
+        },
+        {
+          "path": "mcp-server/lib/dataset-capability.schema.json",
+          "sha256": "a4e9b427da669a02e83db00d39f48c2e106770d6cd2ec1b717938c57793b754c",
+          "bytes": 10658
+        },
+        {
+          "path": "mcp-server/lib/dataset-execution.js",
+          "sha256": "5f03b38fa38641a98eccd8116df771d672cc8889b92f211bad61130216e8c30f",
+          "bytes": 44268
+        },
+        {
+          "path": "mcp-server/tests/dataset-capability-validation.test.js",
+          "sha256": "9b4702103e8b2cdbc79f6cabe7f48aaa615a92e708c5ce2db96cd6725add5e3b",
+          "bytes": 6568
+        },
+        {
+          "path": "scripts/ci/verify-dataset-execution-contract.mjs",
+          "sha256": "335db74b4b4041d795ebc77b94ac51c83777ba14f7ca2ff46580b20499b68104",
+          "bytes": 7955
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:modification:lane-b-1128-capability-validation:001",
+    "type": "modification",
+    "started_at": "2026-09-12T03:28:00Z",
+    "ended_at": "2026-09-12T03:40:31.039Z",
+    "description": "Reproduce malformed negotiation, consume pinned Core schema and vectors, verify source and fresh extracted package offline with unchanged historical receipt bytes."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex-gpt-5",
+    "type": "ai_assistant",
+    "name": "Codex",
+    "version": "gpt-5"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1128-capability-validation.json",
+      "activity": "urn:aiwg:activity:modification:lane-b-1128-capability-validation:001"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:modification:lane-b-1128-capability-validation:001",
+      "agent": "urn:aiwg:agent:codex-gpt-5"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1128-capability-validation.json",
+      "agent": "urn:aiwg:agent:codex-gpt-5"
+    }
+  }
+}
