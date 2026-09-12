@@ -8,6 +8,22 @@
 
 ## Context
 
+### Supplemental Native Remote Read Evidence (#1146, 2026-09-12)
+
+The live REST plane now has a producer-owned native Linux AMD64 capture of
+published Core2026.9.4 against published server2026.9.9:13 checks/86 real HTTP
+calls, exact artifact/script/response digests, and terminal private-resource
+cleanup. Required personal authentication, note/relationship/provenance reads,
+401/404/429/500 and operator-only403 are covered. Personal AllowAllPolicy is not
+hosted denied-note or tenant-isolation evidence. The public binary excludes the
+internal hosted-auth feature; that runtime remains a separate qualification.
+See `contracts/openapi/fixtures/README.md` and the adjacent native receipt.
+
+This supplements producer1146 and consumer417/418/421 without changing wire
+semantics, schema/profile authority, historical fixtures or Knowledge Shard
+matrix claims. Consumer pin delivery and remaining negative/operation gates
+are still required. Suite NO-GO and release acceptance boundaries remain.
+
 ### Release 2026.9.10 Preparation (#1145, #1146, #1147)
 
 Main58399 and comprehensive58416 pass at4676d6fa after the runtime corrections

@@ -148,3 +148,71 @@ fn remote_operations_capture_preserves_search_degradation_and_mutation_contracts
     );
     assert_eq!(fixture["cleanup"]["remainingVisibleNotes"], 0);
 }
+
+#[test]
+fn native_remote_capture_preserves_producer_read_models() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../contracts/openapi/fixtures/native-remote-auth.json"
+    ))
+    .unwrap();
+    let mut notes = 0;
+    for call in fixture["calls"].as_array().unwrap() {
+        if call["status"] != 200 {
+            continue;
+        }
+        let body = &call["body"];
+        if body.get("note").is_some() {
+            let note: matric_core::NoteFull = serde_json::from_value(body.clone()).unwrap();
+            assert!(!note.note.id.is_nil());
+            notes += 1;
+        } else if body.get("notes").is_some() {
+            let list: matric_core::ListNotesResponse =
+                serde_json::from_value(body.clone()).unwrap();
+            assert_eq!(list.notes.len() as i64, list.total);
+        } else if body.get("outgoing").is_some() {
+            for direction in ["outgoing", "incoming"] {
+                let _: Vec<matric_core::Link> =
+                    serde_json::from_value(body[direction].clone()).unwrap();
+            }
+        } else if body.get("all_activities").is_some() {
+            let _: Vec<matric_core::ProvenanceActivity> =
+                serde_json::from_value(body["all_activities"].clone()).unwrap();
+            let _: Vec<matric_core::ProvenanceEdge> =
+                serde_json::from_value(body["all_edges"].clone()).unwrap();
+        }
+    }
+    assert!(notes >= 10);
+}
+
+#[test]
+fn native_remote_problem_capture_matches_producer_serializer() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../contracts/openapi/fixtures/native-remote-auth.json"
+    ))
+    .unwrap();
+    let mut statuses = std::collections::BTreeSet::new();
+    for call in fixture["calls"].as_array().unwrap() {
+        let status = call["status"].as_u64().unwrap() as u16;
+        let kind = match status {
+            401 => super::ProblemType::Unauthorized,
+            403 => super::ProblemType::Forbidden,
+            404 => super::ProblemType::NotFound,
+            429 => super::ProblemType::RateLimit,
+            500 => super::ProblemType::Internal,
+            _ => continue,
+        };
+        let body = &call["body"];
+        let mut problem = super::ProblemDetails::new(
+            kind,
+            axum::http::StatusCode::from_u16(status).unwrap(),
+            body["detail"].as_str().unwrap().to_owned(),
+        );
+        problem.request_id = Some(body["request_id"].as_str().unwrap().to_owned());
+        assert_eq!(serde_json::to_value(problem).unwrap(), *body);
+        if status == 403 {
+            assert_eq!(call["path"], "/api/v1/operator/openapi.yaml");
+        }
+        statuses.insert(status);
+    }
+    assert_eq!(statuses, [401, 403, 404, 429, 500].into_iter().collect());
+}

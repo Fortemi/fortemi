@@ -7,6 +7,15 @@
 
 ## How to use this document
 
+- 2026-09-12 Lane B cycle52: #1146 adds a producer-owned native capture for
+  published Core2026.9.4/server2026.9.9, with13 real-HTTP checks/86 calls and
+  verified private-resource cleanup. Personal authentication and operator-only
+  403 remain distinct from hosted denied-note behavior. Existing25/37-case
+  fixtures and wire/schema/profile authority are unchanged. Consumer417/418/421
+  pin delivery, remaining negative/operation gates and release sweep stay open.
+  No phase/issue closure, hosted qualification or suite NO-GO change follows.
+  Evidence: `contracts/openapi/fixtures/native-remote-auth.receipt.json`.
+
 - 2026-09-11 Lane B cycle39: #1128 consumes Core #422 validation1.0.1 at
   exact56252157. Schema-first request validation rejects malformed optional
   fallback/version data before dispatch; strict SemVer and advertised runtime

@@ -1,0 +1,105 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-12T08:27:47.814Z",
+    "description": "Supplemental native published-server to published-Core HTTP qualification"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-1146-native-remote.json",
+    "type": "data",
+    "created_at": "2026-09-12T08:27:47.814Z",
+    "checksum": "sha256:af41ed6fedc8d2e6c0310ab8fbf775e59e9e7a7752e8d93a26fe64f45a7202b3",
+    "size_bytes": 5057,
+    "attributes": {
+      "subjects": [
+        {
+          "path": "scripts/ci/capture-native-remote-fixture.mjs",
+          "sha256": "61efc8abcf70dc97856f96528dad92d65286bd8290df20fc0f05e8a2bcda5816",
+          "bytes": 15201
+        },
+        {
+          "path": "scripts/ci/verify-native-remote-fixture.mjs",
+          "sha256": "a04a54eac5111e38da51d8d1dbc0f20627ef738e5a3c59f09889d3118143ec83",
+          "bytes": 6587
+        },
+        {
+          "path": "scripts/ci/verify-native-remote-fixture.test.mjs",
+          "sha256": "b6d8f3a5fa23fe1179f8288a4cfacefcf211c13d688942498e7b19209139fc5b",
+          "bytes": 3846
+        },
+        {
+          "path": "contracts/openapi/fixtures/native-remote-auth.json",
+          "sha256": "96a4955315108cd83473d66c8b9a7626e0b97ab9784e761375707c1da3f5efb3",
+          "bytes": 264726
+        },
+        {
+          "path": "contracts/openapi/fixtures/native-remote-auth.receipt.json",
+          "sha256": "0250216e84a9d32ce89ec375f15410bd32c0eac25c88658bb114857ed93263f8",
+          "bytes": 2169
+        },
+        {
+          "path": "crates/matric-api/src/remote_adapter_fixture_tests.rs",
+          "sha256": "da965b1ed5c88429c597a1e140c0bd868b7d5d793a636b9b75ccbd1391c770d7",
+          "bytes": 8626
+        },
+        {
+          "path": ".gitea/workflows/ci-builder.yaml",
+          "sha256": "c4238221dd0c8e9a927854f2b889b5613f9edf1970fb551dc3a30001c9e07583",
+          "bytes": 66319
+        },
+        {
+          "path": "contracts/openapi/README.md",
+          "sha256": "e6a23befab06205b3c8ba2f48b46b5de1e650e9910c99f6070dd4123fada8508",
+          "bytes": 1851
+        },
+        {
+          "path": "contracts/openapi/fixtures/README.md",
+          "sha256": "c15aa2360741073206b43483395fe6df69a72681152eebdc4e1235da6ca38ad4",
+          "bytes": 5940
+        },
+        {
+          "path": "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md",
+          "sha256": "e2caf45006950881e8a0c90e86c7941f9c3a27fe45ed3dd5e526683b2dfe0473",
+          "bytes": 78193
+        },
+        {
+          "path": ".aiwg/planning/roadmap.md",
+          "sha256": "fa73051ba9a8ebc01ef11deb8f9d40c0dc8d3845435a5b425240b81223d4abf8",
+          "bytes": 335460
+        },
+        {
+          "path": ".aiwg/activity.log",
+          "sha256": "8db7b2455fb44482f5ade1b7d23e0b4f07844cda2155b7581ae1761e80278344",
+          "bytes": 663
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:modification:lane-b-1146-native-remote:001",
+    "type": "modification",
+    "started_at": "2026-09-12T08:12:00Z",
+    "ended_at": "2026-09-12T08:27:47.814Z",
+    "description": "Capture real private HTTP, verify published identities, producer serialization and bounded cleanup; preserve personal-mode and suite boundaries."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex-gpt-5",
+    "type": "ai_assistant",
+    "name": "Codex",
+    "version": "gpt-5"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1146-native-remote.json",
+      "activity": "urn:aiwg:activity:modification:lane-b-1146-native-remote:001"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:modification:lane-b-1146-native-remote:001",
+      "agent": "urn:aiwg:agent:codex-gpt-5"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1146-native-remote.json",
+      "agent": "urn:aiwg:agent:codex-gpt-5"
+    }
+  }
+}

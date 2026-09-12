@@ -1,0 +1,139 @@
+{
+  "observedAt": "2026-09-12T08:27:47.814Z",
+  "status": "LOCAL_VERIFIED_CI_PENDING",
+  "baseCommit": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+  "nativeChecks": 13,
+  "realHttpCalls": 86,
+  "verifierTests": 25,
+  "producerModelTests": 5,
+  "jobs": [
+    {
+      "unit": "fortemi-local-test-1000-c5f4927a-8d15-4019-8780-7c8cd6fbdf22.service",
+      "terminal": {
+        "unit": "fortemi-local-test-1000-c5f4927a-8d15-4019-8780-7c8cd6fbdf22.service",
+        "observedAt": "2026-09-12T08:22:35.057Z",
+        "LoadState": "loaded",
+        "ActiveState": "inactive",
+        "SubState": "dead",
+        "RuntimeMaxUSec": "2min",
+        "Result": "success",
+        "ExecMainCode": "1",
+        "ExecMainStatus": "0",
+        "ControlGroup": "/system.slice/fortemi-local-test-1000-c5f4927a-8d15-4019-8780-7c8cd6fbdf22.service",
+        "MemoryPeak": "59842560",
+        "CPUUsageNSec": "248040000",
+        "CPUQuotaPerSecUSec": "2s",
+        "MemoryHigh": "6442450944",
+        "MemoryMax": "8589934592",
+        "MemorySwapMax": "0",
+        "TasksMax": "256",
+        "exitCode": "exited",
+        "exitStatus": "0",
+        "finishedAt": "2026-09-12T08:22:35.057Z"
+      },
+      "logSha256": "18dc38a742876870e808fd3afa9c2158c1853c7180c2176bedbe9a7915d9855b",
+      "cgroupAbsent": true
+    },
+    {
+      "unit": "fortemi-local-test-1000-eec28477-7618-4ce3-be7a-c840861b6d6e.service",
+      "terminal": {
+        "unit": "fortemi-local-test-1000-eec28477-7618-4ce3-be7a-c840861b6d6e.service",
+        "observedAt": "2026-09-12T08:25:44.336Z",
+        "LoadState": "loaded",
+        "ActiveState": "inactive",
+        "SubState": "dead",
+        "RuntimeMaxUSec": "10min",
+        "Result": "success",
+        "ExecMainCode": "1",
+        "ExecMainStatus": "0",
+        "ControlGroup": "/system.slice/fortemi-local-test-1000-eec28477-7618-4ce3-be7a-c840861b6d6e.service",
+        "MemoryPeak": "5488386048",
+        "CPUUsageNSec": "90711902000",
+        "CPUQuotaPerSecUSec": "2s",
+        "MemoryHigh": "6442450944",
+        "MemoryMax": "8589934592",
+        "MemorySwapMax": "0",
+        "TasksMax": "256",
+        "exitCode": "exited",
+        "exitStatus": "0",
+        "finishedAt": "2026-09-12T08:25:44.337Z"
+      },
+      "logSha256": "bbc1e17aa1e0523cf7e4649d9ea56847d64b83cef4cf8eb1b9651520bec5514d",
+      "cgroupAbsent": true
+    }
+  ],
+  "historicalInputsUnchanged": [
+    "contracts/openapi/fixtures/remote-adapter.json",
+    "contracts/openapi/fixtures/remote-operations.json",
+    "contracts/openapi/openapi.yaml",
+    "contracts/openapi/openapi.sha256"
+  ],
+  "subjects": [
+    {
+      "path": "scripts/ci/capture-native-remote-fixture.mjs",
+      "sha256": "61efc8abcf70dc97856f96528dad92d65286bd8290df20fc0f05e8a2bcda5816",
+      "bytes": 15201
+    },
+    {
+      "path": "scripts/ci/verify-native-remote-fixture.mjs",
+      "sha256": "a04a54eac5111e38da51d8d1dbc0f20627ef738e5a3c59f09889d3118143ec83",
+      "bytes": 6587
+    },
+    {
+      "path": "scripts/ci/verify-native-remote-fixture.test.mjs",
+      "sha256": "b6d8f3a5fa23fe1179f8288a4cfacefcf211c13d688942498e7b19209139fc5b",
+      "bytes": 3846
+    },
+    {
+      "path": "contracts/openapi/fixtures/native-remote-auth.json",
+      "sha256": "96a4955315108cd83473d66c8b9a7626e0b97ab9784e761375707c1da3f5efb3",
+      "bytes": 264726
+    },
+    {
+      "path": "contracts/openapi/fixtures/native-remote-auth.receipt.json",
+      "sha256": "0250216e84a9d32ce89ec375f15410bd32c0eac25c88658bb114857ed93263f8",
+      "bytes": 2169
+    },
+    {
+      "path": "crates/matric-api/src/remote_adapter_fixture_tests.rs",
+      "sha256": "da965b1ed5c88429c597a1e140c0bd868b7d5d793a636b9b75ccbd1391c770d7",
+      "bytes": 8626
+    },
+    {
+      "path": ".gitea/workflows/ci-builder.yaml",
+      "sha256": "c4238221dd0c8e9a927854f2b889b5613f9edf1970fb551dc3a30001c9e07583",
+      "bytes": 66319
+    },
+    {
+      "path": "contracts/openapi/README.md",
+      "sha256": "e6a23befab06205b3c8ba2f48b46b5de1e650e9910c99f6070dd4123fada8508",
+      "bytes": 1851
+    },
+    {
+      "path": "contracts/openapi/fixtures/README.md",
+      "sha256": "c15aa2360741073206b43483395fe6df69a72681152eebdc4e1235da6ca38ad4",
+      "bytes": 5940
+    },
+    {
+      "path": "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md",
+      "sha256": "e2caf45006950881e8a0c90e86c7941f9c3a27fe45ed3dd5e526683b2dfe0473",
+      "bytes": 78193
+    },
+    {
+      "path": ".aiwg/planning/roadmap.md",
+      "sha256": "fa73051ba9a8ebc01ef11deb8f9d40c0dc8d3845435a5b425240b81223d4abf8",
+      "bytes": 335460
+    },
+    {
+      "path": ".aiwg/activity.log",
+      "sha256": "8db7b2455fb44482f5ade1b7d23e0b4f07844cda2155b7581ae1761e80278344",
+      "bytes": 663
+    }
+  ],
+  "fullLane": "ACTIVE",
+  "suite": "NO-GO",
+  "sourceDelivery": "PENDING",
+  "releaseDisposition": "No new release: remaining lane acceptance and consumer pins still pending",
+  "hostedDeniedNote": false,
+  "discoveryDiagnostic": "fortemi-roadmap-skill not found by discover/show in clean worktree; roadmap order retained"
+}

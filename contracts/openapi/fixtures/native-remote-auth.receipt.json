@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "fortemi.native-remote-receipt.v1",
+  "observedAt": "2026-09-12T08:22:34.544Z",
+  "fixturePath": "contracts/openapi/fixtures/native-remote-auth.json",
+  "fixtureSha256": "96a4955315108cd83473d66c8b9a7626e0b97ab9784e761375707c1da3f5efb3",
+  "captureScriptSha256": "61efc8abcf70dc97856f96528dad92d65286bd8290df20fc0f05e8a2bcda5816",
+  "unit": "fortemi-local-test-1000-00881ef0-9a0d-4724-8539-3266d37fcd6b.service",
+  "terminal": {
+    "unit": "fortemi-local-test-1000-00881ef0-9a0d-4724-8539-3266d37fcd6b.service",
+    "observedAt": "2026-09-12T08:19:12.458Z",
+    "LoadState": "loaded",
+    "ActiveState": "inactive",
+    "SubState": "dead",
+    "RuntimeMaxUSec": "5min",
+    "Result": "success",
+    "ExecMainCode": "1",
+    "ExecMainStatus": "0",
+    "ControlGroup": "/system.slice/fortemi-local-test-1000-00881ef0-9a0d-4724-8539-3266d37fcd6b.service",
+    "MemoryPeak": "369881088",
+    "CPUUsageNSec": "2748038000",
+    "CPUQuotaPerSecUSec": "2s",
+    "MemoryHigh": "6442450944",
+    "MemoryMax": "8589934592",
+    "MemorySwapMax": "0",
+    "TasksMax": "256",
+    "exitCode": "exited",
+    "exitStatus": "0",
+    "finishedAt": "2026-09-12T08:19:12.459Z"
+  },
+  "cleanup": {
+    "cgroupAbsent": true,
+    "apiPidAbsent": true,
+    "postmasterPidAbsent": true,
+    "postgresStopped": true,
+    "postgresRemoved": true
+  },
+  "producerIssue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1146",
+  "consumers": [
+    "https://git.integrolabs.net/Fortemi/fortemi-react/issues/417",
+    "https://git.integrolabs.net/Fortemi/fortemi-react/issues/418",
+    "https://git.integrolabs.net/Fortemi/fortemi-react/issues/421"
+  ],
+  "claims": {
+    "realHttp": true,
+    "publishedConsumer": true,
+    "personalRequiredAuthentication": true,
+    "operator403": true,
+    "hostedDeniedNote": false,
+    "inference": false,
+    "suiteParity": false
+  },
+  "qualificationBoundary": "Historical Linux AMD64 native capture. Operator403 is not a note-route denial. PostgreSQL/provenance are synthetic. This receipt supplements, not replaces, the immutable25/37-case producer fixtures and generated OpenAPI. No hosted/JWT/GPU/full-operation qualification."
+}

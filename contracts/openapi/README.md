@@ -30,3 +30,9 @@ Producer-model tests validate the capture independently of consumer projections.
 This supplements handlers whose generated success schema is not yet typed; it
 does not replace OpenAPI authority, expand the contract, or qualify a released
 consumer. Historical #1060 artifacts and receipts remain unchanged.
+
+The supplemental native authenticated-read capture also binds actual published
+Core2026.9.4 execution and owned-resource cleanup. Its operator403 is explicitly
+not a hosted denied-note result; read the fixture's mode and operation boundaries
+before reusing it. The25/37-case historical captures and generated schema stay
+unchanged.
