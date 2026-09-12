@@ -197,8 +197,13 @@ mod tests {
     fn serialized_spec_matches_published_contract() {
         let published = include_str!("../../../contracts/asyncapi/asyncapi.yaml");
         let contract: Value = serde_yaml::from_str(published).unwrap();
-        let spec = build_asyncapi_spec(
+        assert_eq!(
             contract["info"]["version"].as_str().unwrap(),
+            env!("CARGO_PKG_VERSION"),
+            "published AsyncAPI version must match the runtime package version"
+        );
+        let spec = build_asyncapi_spec(
+            env!("CARGO_PKG_VERSION"),
             contract["servers"]["production"]["host"].as_str().unwrap(),
         );
 

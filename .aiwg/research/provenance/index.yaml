@@ -1,7 +1,9 @@
 metadata:
   schema_version: "1.0.0"
-  updated_at: "2026-09-11T13:49:44.087Z"
+  updated_at: "2026-09-12T01:21:00Z"
 records:
+  - entity: "urn:aiwg:artifact:.aiwg/releases/evidence/v2026.9.10-asyncapi-correction.json"
+    record: "records/asyncapi-release-correction-2026-9-10.prov.yaml"
   - entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard"
     record: "records/release-docs-shard-2026.9.10.prov.yaml"
   - entity: "urn:aiwg:artifact:docs/releases/v2026.9.10-announcement.md"

@@ -202,6 +202,9 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      - name: Test shared-host GPU capacity guard
+        run: python3 -m unittest discover -s scripts/ci -p test_check_gpu_test_capacity.py -v
+
       - name: Check realtime provider import boundaries
         run: bash scripts/ci/forbid-provider-imports.sh .
 
@@ -1034,6 +1037,7 @@ jobs:
     timeout-minutes: 30
     env:
       INFERENCE_BACKEND: ollama
+      CARGO_BUILD_JOBS: '2'
       # Use smaller model for CI — the default qwen3.5:27b (22GB) doesn't fit
       # alongside GPU sidecars (Whisper ~4GB, pyannote ~2.5GB). Tests verify
       # generation works, not model quality.
@@ -1050,6 +1054,9 @@ jobs:
 
       - name: Verify GPU Access
         run: nvidia-smi
+
+      - name: Require shared-host GPU test capacity
+        run: python3 scripts/ci/check-gpu-test-capacity.py
 
       - name: Verify Ollama
         run: |
@@ -1070,7 +1077,11 @@ jobs:
 
       - name: Run integration tests
         run: |
+          set -euo pipefail
           source ~/.cargo/env
+          # Capacity can change while earlier steps run. Refuse, never evict a
+          # personal vLLM/Ollama model or silently count an unavailable GPU as PASS.
+          python3 scripts/ci/check-gpu-test-capacity.py
           # Serial execution: parallel GPU requests can cause empty responses
           # when Ollama can't serve concurrent chat completions
           cargo test \

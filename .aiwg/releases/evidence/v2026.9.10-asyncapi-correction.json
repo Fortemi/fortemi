@@ -1,0 +1,105 @@
+{
+  "status": "LOCAL_PASS_RUNTIME_PENDING",
+  "verifiedAt": "2026-09-12T01:21:00Z",
+  "sourceBase": "1f57c2640ed4833de7eb5fa91907e5695fd96727",
+  "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1147",
+  "failedCi": "https://git.integrolabs.net/Fortemi/fortemi/actions/runs/58454",
+  "checks": {
+    "versionRegression": {
+      "before": "FAIL: 2026.9.9 != 2026.9.10",
+      "after": "PASS"
+    },
+    "coreLibrary": {
+      "passed": 631,
+      "failed": 0,
+      "ignored": 0
+    },
+    "producerFixtures": {
+      "passed": 48,
+      "corpusSha256": "ee09b909863b868b57c3bf95daa47d3e24f84eb7eb487c1d64c0ef40ef4dc6ad",
+      "payloadBytesChanged": false
+    },
+    "formatting": "PASS",
+    "gpuCapacityGuard": {
+      "unitTests": 4,
+      "live": "REFUSED: 5073 MiB free < 16384 MiB required; no model load"
+    },
+    "containment": {
+      "cpuQuota": "200%",
+      "memoryMaxBytes": 8589934592,
+      "swapMaxBytes": 0,
+      "network": "private",
+      "gpu": "hidden"
+    }
+  },
+  "consumerDisposition": {
+    "repository": "Fortemi/HotM",
+    "source": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4",
+    "existingProducerPin": "c3bfd40b275decd5a24c4e9a656d830a383b3de2",
+    "result": "Full parsed document excluding info remains equivalent; existing historical pin retained, not repinned or runtime-qualified."
+  },
+  "remaining": [
+    "Exact-head hosted container/runtime CI",
+    "Coordinated GPU capacity window and real inference acceptance",
+    "Signed release-tag authority and actual publication",
+    "Original full Lane B producer/consumer and platform qualification"
+  ],
+  "suiteGate": "NO-GO",
+  "subjects": [
+    {
+      "path": ".aiwg/planning/roadmap.md",
+      "sha256": "00459d3696689f2775ea42e09421f02a0f9a4ac0c8567ecabf19168d2afe2cfd",
+      "bytes": 333960
+    },
+    {
+      "path": ".gitea/workflows/ci-builder.yaml",
+      "sha256": "f4fc59330ae7c97caba26f28be5969037af1db641142712a278a530dd0065795",
+      "bytes": 66131
+    },
+    {
+      "path": ".aiwg/testing/local-gpu-test-capacity.md",
+      "sha256": "d3db0bdc802ca4f670a4636983aae638f3042e1816b8c8b82c8577686ab54333",
+      "bytes": 1730
+    },
+    {
+      "path": "contracts/asyncapi/README.md",
+      "sha256": "9cee1d974213efbc7d9a9d07a387974d2a44f88aa59b7d6ae1db4ad4c9cfd57b",
+      "bytes": 2301
+    },
+    {
+      "path": "contracts/asyncapi/asyncapi.yaml",
+      "sha256": "75c18f19f41f4598c71b5aefa446d8c675a630be9fa9d1b39c7ac2f177522209",
+      "bytes": 45160
+    },
+    {
+      "path": "contracts/asyncapi/asyncapi.sha256",
+      "sha256": "654314634651b3a452efd8170bed38fa67e857ecf64e4b5b3839c31c9f5a51a4",
+      "bytes": 80
+    },
+    {
+      "path": "contracts/asyncapi/fixtures/manifest.json",
+      "sha256": "283e533fb67cac7c488bcbf4febf07621ff523a681ebfb1d4b7e31e0cf140496",
+      "bytes": 20021
+    },
+    {
+      "path": "contracts/asyncapi/producer-event-fixture-receipt.json",
+      "sha256": "214d9168fcd1b18e7dc9da037765b8ce21dba9ffa194f7fa96c05daef9041291",
+      "bytes": 869
+    },
+    {
+      "path": "crates/matric-core/src/asyncapi.rs",
+      "sha256": "1ef10c80a1574cbd081559c96919f48e6c873eebcd53df30fa2d723524f23c8c",
+      "bytes": 11984
+    },
+    {
+      "path": "scripts/ci/check-gpu-test-capacity.py",
+      "sha256": "79dbf559a6bf97db1b465cccf450e00c7d1cea3006c6048e118711596229a127",
+      "bytes": 1982
+    },
+    {
+      "path": "scripts/ci/test_check_gpu_test_capacity.py",
+      "sha256": "507f8e79092569c9dbd436b4ecbe6549f36ce5a51d2c067c27aa2d6ccde90bcb",
+      "bytes": 1339
+    }
+  ]
+}

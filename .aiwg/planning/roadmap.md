@@ -7,6 +7,20 @@
 
 ## How to use this document
 
+- 2026-09-11 Lane B cycle32: CI58454 failed the exact AsyncAPI runtime gate:
+  application metadata advanced to2026.9.10 while the artifact remained2026.9.9.
+  The core serialized-contract test now checks the compiled package version and
+  reproduces that mismatch before artifact correction. Updated YAML/checksum and
+  regenerated producer manifest/receipt pass631 core library tests, all48 fixture
+  checks and formatting under a detached2-CPU/8-GiB offline service on Titan.
+  Event payload bytes and full wire document are unchanged; delivered HotM2b0b4a7
+  retains its historical c3bfd40 producer pin, not a claim of2026.9.10 acceptance.
+  Exact-head CI, release authority/publication and original Lane B qualification
+  remain required. Main CI also reaches a Titan/Ollama GPU job; a new fail-closed
+  capacity guard and four offline tests prevent automatic model loading when
+  headroom is unavailable. The live guard refuses at5073MiB free without changing
+  shared vLLM. GPU acceptance needs a coordinated window; suite NO-GO remains.
+
 - 2026-09-11 Lane B cycle31: CI58437 rejected the2026.9.10 preparation because
   its committed documentation seed still named2026.9.9. Preserve the failure.
   Build the canonical hosted-auth API image from d8e791f and regenerate through

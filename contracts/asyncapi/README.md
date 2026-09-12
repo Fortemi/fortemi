@@ -33,3 +33,18 @@ pin the Fortemi commit they integrated with plus
 The in-repository receipt uses `external-delivery-pin` for commit fields so the
 byte drift check remains stable after commit; release and issue handoff notes
 bind those receipt digests to the exact delivered Fortemi Git commit.
+
+## Application Release Versions
+
+`info.version` identifies the generating application release, independently of
+the envelope and payload revisions. Every package-version bump must refresh the
+AsyncAPI artifact, checksum, fixture manifest and producer receipt together, even
+when all event payload bytes remain unchanged. The core serialized-contract test
+compares this field with the compiled package version before checking exact YAML
+bytes, so a stale artifact fails before the runtime container gate.
+
+A metadata-only update does not invalidate an older consumer's immutable pin.
+Prove full wire-document equivalence and unchanged payload corpus before recording
+a no-change consumer disposition; advancing a consumer pin still requires its
+normal exact-source and released-artifact qualification. Neither unit tests nor a
+metadata comparison replaces the runtime endpoint gate or broadens suite claims.

@@ -3,15 +3,15 @@
   "producer_repository": "Fortemi/fortemi",
   "producer_commit": "external-delivery-pin",
   "manifest_path": "contracts/asyncapi/fixtures/manifest.json",
-  "manifest_sha256": "1d93308d8ac29539cd572afba6f8f208aeb1a50baf1d66d04703e904dcb7633d",
+  "manifest_sha256": "283e533fb67cac7c488bcbf4febf07621ff523a681ebfb1d4b7e31e0cf140496",
   "asyncapi_path": "contracts/asyncapi/asyncapi.yaml",
-  "asyncapi_sha256": "1eb6f5ba30a1e6bc8213115fbe003d4da7b8c5ebb76171a3ac0785ed52d537c9",
+  "asyncapi_sha256": "75c18f19f41f4598c71b5aefa446d8c675a630be9fa9d1b39c7ac2f177522209",
   "corpus_root": "contracts/asyncapi/fixtures/events",
   "corpus_sha256": "ee09b909863b868b57c3bf95daa47d3e24f84eb7eb487c1d64c0ef40ef4dc6ad",
   "event_count": 48,
   "consumer_pin": {
     "fortemi_commit": "external-delivery-pin",
-    "manifest_sha256": "1d93308d8ac29539cd572afba6f8f208aeb1a50baf1d66d04703e904dcb7633d",
+    "manifest_sha256": "283e533fb67cac7c488bcbf4febf07621ff523a681ebfb1d4b7e31e0cf140496",
     "corpus_sha256": "ee09b909863b868b57c3bf95daa47d3e24f84eb7eb487c1d64c0ef40ef4dc6ad"
   }
 }
