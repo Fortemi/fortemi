@@ -1,0 +1,49 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-13T22:32:20.823Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:crates/matric-core/src/models.rs",
+    "type": "file",
+    "checksum": "sha256:9c48aa725b96febb69ec6380dfaa09dbabb4a1c9940700e9902eccb7655b014e"
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:lane-b-clippy-correction:109",
+    "type": "modification",
+    "started_at": "2026-09-13T22:32:20.823Z",
+    "ended_at": "2026-09-13T22:32:20.823Z",
+    "description": "Remove redundant clone of Copy embedding status in SearchHit serialization; no wire or policy changes."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:crates/matric-core/src/models.rs",
+      "activity": "urn:aiwg:activity:lane-b-clippy-correction:109"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:lane-b-clippy-correction:109",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:crates/matric-core/src/models.rs",
+      "agent": "urn:aiwg:agent:codex"
+    }
+  },
+  "verification": {
+    "unit": "fortemi-local-test-1000-ef207fab-7455-420a-ab19-82433200e01b.service",
+    "toolchain": "Rust1.92.0",
+    "clippy": "core all-targets/all-features -D warnings PASS",
+    "unitTests": {
+      "passed": 640,
+      "failed": 0,
+      "ignored": 0
+    },
+    "evidence": "fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260913-cycle109/core192-verification.json",
+    "limitation": "Full workspace remote CI and publication remain required; original parent runtime receipts are not relabeled."
+  }
+}

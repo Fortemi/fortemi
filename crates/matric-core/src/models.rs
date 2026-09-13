@@ -409,7 +409,7 @@ impl Serialize for SearchHit {
             snippet: self.snippet.clone(),
             title: self.title.clone(),
             tags: self.tags.clone(),
-            embedding_status: self.embedding_status.clone(),
+            embedding_status: self.embedding_status,
             evidence,
         }
         .serialize(serializer)
