@@ -1,0 +1,71 @@
+{
+  "at": "2026-09-12T16:10:58.402Z",
+  "status": "BINDING_PRIMITIVES_PASS_SEARCH_INTEGRATION_PENDING",
+  "issues": [
+    "Fortemi/fortemi#1091",
+    "Fortemi/fortemi-react#405"
+  ],
+  "priorTurn": "Interrupted after implementation and test launch; progress. Exact existing job polled terminal before any new launch.",
+  "authority": {
+    "repository": "Fortemi/fortemi",
+    "issue": 1091,
+    "baseCommit": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+    "sourceState": "uncommitted candidate; base is not the contract revision",
+    "path": "contracts/metadata-search/candidate/1.0.0/",
+    "files": {
+      "predicates.schema.json": "e325707ce20abb88ef3a8f4bbb0d02ab09501b1ffe9b48b0c92a96e97dda00c3",
+      "predicate-vectors.json": "df9e129cab4708db71c3e22f87efd252fbcac144daa45a53ee1716f4a1a05ae7",
+      "sql-scope-vectors.json": "dcd35298a3bc485a6f1c87c6c87f136ee98121dad3f2b1c8b590b2e5381aa4d5",
+      "evidence-locator.schema.json": "cd8427c507bca1a08bdb68da0a5d2759d1d7805401db3c00372ab249652efb7a",
+      "evidence-vectors.json": "b532a4fa7697bdfc87e8541575fcee7c94a5b5ac53e4a6472438c49247e6b266"
+    }
+  },
+  "verification": {
+    "sharedCorpusCases": 55,
+    "validCreationAndResolutionCases": 11,
+    "typescriptTests": 153,
+    "rustCoreTests": 638,
+    "rustEvidenceTests": 3,
+    "coreTypecheck": true,
+    "focusedLint": true,
+    "exactConsumerAuthorityBytes": true
+  },
+  "semantics": [
+    "Native note/text-unit identity; current/title unit ID must equal note ID.",
+    "Half-open UTF-8 byte spans, both ends at code-point boundaries, bounded to16MiB.",
+    "SHA-256 binds full raw text without BOM/Unicode/line-ending normalization.",
+    "Changed/missing/mismatched source produces uniform unavailable; wire shape produces invalid.",
+    "Immutable validated copies/private wrapper fields, no values in errors or Rust Debug."
+  ],
+  "failuresRetained": [
+    "Initial148/151: three fixture cases shared locator/snapshot unit reference; generator corrected, assertions unchanged.",
+    "Typecheck exposed untyped Ajv schema inference; compile<SearchEvidenceLocator> fixed without weakening runtime validation.",
+    "Diagnostic require hit pre-existing invalid home package config; switched to ESM fs JSON read, no home file edits."
+  ],
+  "remaining": [
+    "Authority-owned complete result-envelope schema and response bounds/order.",
+    "Producer SearchHit/query projection/fusion/MMR/dedup and HTTP integration.",
+    "PGlite matched-unit projection and scoped database resolution; six Cycle71 actual-query failures remain source-bound and unfixed.",
+    "Verified hosted authorization, cache/deletion/purge and clean-installed/released every-consumer matrix.",
+    "Exact-source CI/review/merge and full lane release sweep; unpublished candidate is not an immutable authority revision."
+  ],
+  "claims": {
+    "searchCitationAcceptance": false,
+    "completeEvidenceLocators": false,
+    "hostedAuthorization": false,
+    "promotedContract": false,
+    "suiteParity": false
+  },
+  "scope": "Pure binding contract and runtime helpers. No database resolver, access grant, search-result field, existing locator type replacement or backend capability promotion.",
+  "repository": "server",
+  "parent": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+  "sourceState": "Uncommitted candidate including prior WIP; no new commit or release.",
+  "source": {
+    "crates/matric-core/src/search_evidence.rs": "1f7e6f72609a66546c52c9583dfdcd1f79a7680be73a683962edf095553248f3",
+    "crates/matric-core/src/lib.rs": "6018fc4d744ee7502c7ff77812a6e7dd31e0b96a1566b3b54d872c21c9125abe",
+    "contracts/metadata-search/candidate/1.0.0/evidence-locator.schema.json": "cd8427c507bca1a08bdb68da0a5d2759d1d7805401db3c00372ab249652efb7a",
+    "contracts/metadata-search/candidate/1.0.0/evidence-vectors.json": "b532a4fa7697bdfc87e8541575fcee7c94a5b5ac53e4a6472438c49247e6b266",
+    "contracts/metadata-search/candidate/1.0.0/EVIDENCE.md": "64286dacb0effaa9461aac428c8e3b2f48c01295a3bb7131758f3c99a351fde6",
+    ".aiwg/architecture/impact/typed-metadata-search.md": "f6cc886be07d2691046cdad98e97dfc40b4a8b9574945ba658e3f9c94b895ce1"
+  }
+}

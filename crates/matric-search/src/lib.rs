@@ -36,6 +36,7 @@ pub mod adaptive_rrf;
 pub mod adaptive_weights;
 pub mod colbert;
 pub mod deduplication;
+mod evidence;
 pub mod fts_flags;
 pub mod hnsw_tuning;
 pub mod hybrid;

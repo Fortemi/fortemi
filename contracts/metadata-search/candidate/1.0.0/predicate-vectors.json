@@ -1,0 +1,919 @@
+{
+  "contract": "fortemi.metadata-search/v1",
+  "status": "candidate",
+  "rows": [
+    {
+      "id": "n2",
+      "metadata": {
+        "model": 2
+      }
+    },
+    {
+      "id": "n10",
+      "metadata": {
+        "model": 10
+      }
+    },
+    {
+      "id": "s2",
+      "metadata": {
+        "model": "2"
+      }
+    },
+    {
+      "id": "s10",
+      "metadata": {
+        "model": "10"
+      }
+    },
+    {
+      "id": "text",
+      "metadata": {
+        "model": "apple",
+        "provider": "local",
+        "role": "user",
+        "event_kind": "message",
+        "sensitivity": "internal"
+      },
+      "importRunId": "run-1"
+    },
+    {
+      "id": "true",
+      "metadata": {
+        "model": true
+      }
+    },
+    {
+      "id": "false",
+      "metadata": {
+        "model": false
+      }
+    },
+    {
+      "id": "null",
+      "metadata": {
+        "model": null
+      }
+    },
+    {
+      "id": "missing",
+      "metadata": {}
+    },
+    {
+      "id": "object",
+      "metadata": {
+        "model": {
+          "nested": 1
+        }
+      }
+    },
+    {
+      "id": "array",
+      "metadata": {
+        "model": [
+          2
+        ]
+      }
+    },
+    {
+      "id": "bmp",
+      "metadata": {
+        "model": ""
+      }
+    },
+    {
+      "id": "astral",
+      "metadata": {
+        "model": "𐀀"
+      }
+    }
+  ],
+  "cases": [
+    {
+      "id": "empty-conjunction",
+      "predicates": [],
+      "valid": true,
+      "expectedIds": [
+        "n2",
+        "n10",
+        "s2",
+        "s10",
+        "text",
+        "true",
+        "false",
+        "null",
+        "missing",
+        "object",
+        "array",
+        "bmp",
+        "astral"
+      ]
+    },
+    {
+      "id": "numeric-equality",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "eq",
+          "value": 2
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "n2"
+      ]
+    },
+    {
+      "id": "string-equality",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "eq",
+          "value": "2"
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "s2"
+      ]
+    },
+    {
+      "id": "numeric-range",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "range",
+          "gte": 9
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "n10"
+      ]
+    },
+    {
+      "id": "numeric-both-bounds",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "range",
+          "gte": 2,
+          "lte": 10
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "n2",
+        "n10"
+      ]
+    },
+    {
+      "id": "string-range",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "range",
+          "gte": "10",
+          "lte": "2"
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "s2",
+        "s10"
+      ]
+    },
+    {
+      "id": "unicode-scalar-order",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "range",
+          "gte": "𐀀"
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "astral"
+      ]
+    },
+    {
+      "id": "boolean-equality",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "eq",
+          "value": true
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "true"
+      ]
+    },
+    {
+      "id": "null-is-not-missing",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "eq",
+          "value": null
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "null"
+      ]
+    },
+    {
+      "id": "mixed-membership",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "in",
+          "value": [
+            2,
+            "10",
+            false,
+            null
+          ]
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "n2",
+        "s10",
+        "false",
+        "null"
+      ]
+    },
+    {
+      "id": "empty-membership",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "in",
+          "value": []
+        }
+      ],
+      "valid": true,
+      "expectedIds": []
+    },
+    {
+      "id": "exists-default",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "exists"
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "n2",
+        "n10",
+        "s2",
+        "s10",
+        "text",
+        "true",
+        "false",
+        "null",
+        "object",
+        "array",
+        "bmp",
+        "astral"
+      ]
+    },
+    {
+      "id": "exists-false",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "exists",
+          "value": false
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "missing"
+      ]
+    },
+    {
+      "id": "import-run-equality",
+      "predicates": [
+        {
+          "path": "import_run_id",
+          "op": "eq",
+          "value": "run-1"
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "text"
+      ]
+    },
+    {
+      "id": "import-run-exists",
+      "predicates": [
+        {
+          "path": "import_run_id",
+          "op": "exists"
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "text"
+      ]
+    },
+    {
+      "id": "import-run-missing",
+      "predicates": [
+        {
+          "path": "import_run_id",
+          "op": "exists",
+          "value": false
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "n2",
+        "n10",
+        "s2",
+        "s10",
+        "true",
+        "false",
+        "null",
+        "missing",
+        "object",
+        "array",
+        "bmp",
+        "astral"
+      ]
+    },
+    {
+      "id": "registered-provider",
+      "predicates": [
+        {
+          "path": "provider",
+          "op": "eq",
+          "value": "local"
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "text"
+      ]
+    },
+    {
+      "id": "registered-role",
+      "predicates": [
+        {
+          "path": "role",
+          "op": "eq",
+          "value": "user"
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "text"
+      ]
+    },
+    {
+      "id": "registered-event_kind",
+      "predicates": [
+        {
+          "path": "event_kind",
+          "op": "eq",
+          "value": "message"
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "text"
+      ]
+    },
+    {
+      "id": "registered-sensitivity",
+      "predicates": [
+        {
+          "path": "sensitivity",
+          "op": "eq",
+          "value": "internal"
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "text"
+      ]
+    },
+    {
+      "id": "conjunction",
+      "predicates": [
+        {
+          "path": "provider",
+          "op": "eq",
+          "value": "local"
+        },
+        {
+          "path": "event_kind",
+          "op": "eq",
+          "value": "message"
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "text"
+      ]
+    },
+    {
+      "id": "max-string",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "eq",
+          "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "valid": true,
+      "expectedIds": []
+    },
+    {
+      "id": "max-unicode",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "eq",
+          "value": "𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀𐀀"
+        }
+      ],
+      "valid": true,
+      "expectedIds": []
+    },
+    {
+      "id": "max-count",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "exists"
+        },
+        {
+          "path": "model",
+          "op": "exists"
+        },
+        {
+          "path": "model",
+          "op": "exists"
+        },
+        {
+          "path": "model",
+          "op": "exists"
+        },
+        {
+          "path": "model",
+          "op": "exists"
+        },
+        {
+          "path": "model",
+          "op": "exists"
+        },
+        {
+          "path": "model",
+          "op": "exists"
+        },
+        {
+          "path": "model",
+          "op": "exists"
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "n2",
+        "n10",
+        "s2",
+        "s10",
+        "text",
+        "true",
+        "false",
+        "null",
+        "object",
+        "array",
+        "bmp",
+        "astral"
+      ]
+    },
+    {
+      "id": "max-membership",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "in",
+          "value": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31
+          ]
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "n2",
+        "n10"
+      ]
+    },
+    {
+      "id": "null-root",
+      "predicates": null,
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "object-root",
+      "predicates": {},
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "null-predicate",
+      "predicates": [
+        null
+      ],
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "unknown-path",
+      "predicates": [
+        {
+          "path": "unindexed",
+          "op": "eq",
+          "value": "x"
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "nested-path",
+      "predicates": [
+        {
+          "path": "model.name",
+          "op": "eq",
+          "value": "x"
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "unknown-operator",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "bogus"
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "object-value",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "eq",
+          "value": {
+            "nested": 1
+          }
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "array-value",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "eq",
+          "value": [
+            2
+          ]
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "missing-value",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "eq"
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "too-many",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "exists"
+        },
+        {
+          "path": "model",
+          "op": "exists"
+        },
+        {
+          "path": "model",
+          "op": "exists"
+        },
+        {
+          "path": "model",
+          "op": "exists"
+        },
+        {
+          "path": "model",
+          "op": "exists"
+        },
+        {
+          "path": "model",
+          "op": "exists"
+        },
+        {
+          "path": "model",
+          "op": "exists"
+        },
+        {
+          "path": "model",
+          "op": "exists"
+        },
+        {
+          "path": "model",
+          "op": "exists"
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "long-string",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "eq",
+          "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "long-membership",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "in",
+          "value": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16,
+            17,
+            18,
+            19,
+            20,
+            21,
+            22,
+            23,
+            24,
+            25,
+            26,
+            27,
+            28,
+            29,
+            30,
+            31,
+            32
+          ]
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "empty-range",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "range"
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "mixed-range",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "range",
+          "gte": 1,
+          "lte": "2"
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "null-range",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "range",
+          "gte": null,
+          "lte": 2
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "reversed-range",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "range",
+          "gte": 10,
+          "lte": 2
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_RANGE_INVALID"
+    },
+    {
+      "id": "reversed-string-range",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "range",
+          "gte": "z",
+          "lte": "a"
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_RANGE_INVALID"
+    },
+    {
+      "id": "boolean-range",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "range",
+          "gte": true
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "exists-nonboolean",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "exists",
+          "value": "false"
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "unknown-field",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "eq",
+          "value": 2,
+          "unknown": true
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "unsafe-number",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "eq",
+          "value": 9007199254740992
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "null-byte",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "eq",
+          "value": "a\u0000b"
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "numeric-import-run",
+      "predicates": [
+        {
+          "path": "import_run_id",
+          "op": "eq",
+          "value": 2
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "null-import-run",
+      "predicates": [
+        {
+          "path": "import_run_id",
+          "op": "eq",
+          "value": null
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "empty-import-run",
+      "predicates": [
+        {
+          "path": "import_run_id",
+          "op": "eq",
+          "value": ""
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    },
+    {
+      "id": "long-import-run",
+      "predicates": [
+        {
+          "path": "import_run_id",
+          "op": "eq",
+          "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ],
+      "valid": false,
+      "code": "METADATA_PREDICATES_INVALID"
+    }
+  ]
+}

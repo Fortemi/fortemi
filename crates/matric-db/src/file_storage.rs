@@ -146,6 +146,7 @@ fn storage_io_error_kind(error: &std::io::Error) -> &'static str {
 fn storage_error_class(error: &Error) -> &'static str {
     match error {
         Error::Database(_) => "database",
+        Error::DeadlineExceeded => "deadline_exceeded",
         Error::NotFound(_) | Error::NoteNotFound(_) | Error::CollectionNotFound(_) => "not_found",
         Error::Embedding(_) => "embedding",
         Error::Inference(_) => "inference",

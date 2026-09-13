@@ -1,0 +1,28 @@
+{
+  "schemaVersion": "fortemi.search-rest-vectors.candidate.v1",
+  "boundary": "Synthetic schema and actual Rust wire checks, not fresh live HTTP, authorization or released-consumer qualification. Cross-field and evidence-binding semantic negatives also run in search_contract::tests.",
+  "requests": [
+    {"id":"empty-text-defaults","valid":true,"value":{"q":""}},
+    {"id":"legacy-unknown-mode","valid":true,"value":{"q":"x","mode":"legacy-unknown","limit":0,"since":"ignored-invalid"}},
+    {"id":"upper-limit-and-clamped-diversity","valid":true,"value":{"q":"x","limit":1000,"diversity":2}},
+    {"id":"decoded-json-content","valid":true,"value":{"q":"x","metadata_predicates":[],"strict_filter":{"min_tag_count":null,"unknown_ignored":true}}},
+    {"id":"missing-query","valid":false,"value":{"limit":1}},
+    {"id":"negative-limit","valid":false,"value":{"q":"x","limit":-1}},
+    {"id":"over-limit","valid":false,"value":{"q":"x","limit":1001}},
+    {"id":"non-integer-limit","valid":false,"value":{"q":"x","limit":1.5}},
+    {"id":"invalid-date","valid":false,"value":{"q":"x","created_after":"invalid"}},
+    {"id":"outside-f32","valid":false,"value":{"q":"x","diversity":1e100}},
+    {"id":"bad-strict-boolean","valid":false,"value":{"q":"x","strict_filter":{"include_untagged":0}}},
+    {"id":"unknown-metadata-field","valid":false,"value":{"q":"x","metadata_predicates":[{"field":"unknown","op":"eq","value":"x"}]}}
+  ],
+  "responses": [
+    {"id":"legacy-empty","valid":true,"value":{"results":[],"query":"","total":0,"degraded":false}},
+    {"id":"legacy-hit","valid":true,"value":{"results":[{"note_id":"00000000-0000-0000-0000-000000000001","score":0.5,"snippet":null}],"query":"x","total":1,"degraded":false}},
+    {"id":"explicit-degradation","valid":true,"value":{"results":[],"query":"x","total":0,"degraded":true,"degradation":{"code":"embedding_unavailable","effective_mode":"fts"}}},
+    {"id":"missing-query","valid":false,"value":{"results":[],"total":0,"degraded":false}},
+    {"id":"missing-degradation","valid":false,"value":{"results":[],"query":"x","total":0,"degraded":true}},
+    {"id":"null-is-not-absent","valid":false,"value":{"results":[],"query":"x","total":0,"degraded":false,"degradation":null}},
+    {"id":"wrong-effective-mode","valid":false,"value":{"results":[],"query":"x","total":0,"degraded":true,"degradation":{"code":"embedding_unavailable","effective_mode":"semantic"}}},
+    {"id":"null-evidence","valid":false,"value":{"results":[{"note_id":"00000000-0000-0000-0000-000000000001","score":0.5,"snippet":"display","evidence":null}],"query":"x","total":1,"degraded":false}}
+  ]
+}

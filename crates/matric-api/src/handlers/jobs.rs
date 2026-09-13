@@ -9330,6 +9330,7 @@ Quick note about the meeting discussion and action items."#;
 
     fn make_hit(note_id: uuid::Uuid, score: f32) -> matric_core::SearchHit {
         matric_core::SearchHit {
+            evidence: None,
             note_id,
             score,
             snippet: Some(String::new()),

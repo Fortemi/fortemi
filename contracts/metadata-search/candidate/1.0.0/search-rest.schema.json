@@ -1,0 +1,318 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fortemi.com/contracts/metadata-search/candidate/1.0.0/search-rest.schema.json",
+  "title": "Candidate canonical GET search request and response",
+  "description": "Producer authority candidate. Schema validation is supplemented by same-note/canonical evidence binding, exact returned totals, strict-filter aggregate count and metadata range semantics. No auth grant or complete capability promotion.",
+  "$defs": {
+    "StrictSearchFilterInput": {
+      "type": "object",
+      "description": "Decoded strict_filter JSON. Unknown keys retain legacy ignored behavior. Sum of the five list lengths must not exceed 1000; name resolution still requires current authorized storage.",
+      "additionalProperties": true,
+      "properties": {
+        "required_tags": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "any_tags": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "excluded_tags": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "required_schemes": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "excluded_schemes": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "min_tag_count": {
+          "type": ["integer", "null"],
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "include_untagged": {
+          "type": "boolean",
+          "default": true
+        }
+      }
+    },
+    "SearchRestRequest": {
+      "type": "object",
+      "description": "Decoded GET query parameters. JSON-content parameters are decoded to JSON values before this schema is applied. This is not a POST request body. Unknown query keys retain legacy ignored behavior and cannot grant tenant/archive authorization.",
+      "required": [
+        "q"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "q": {
+          "type": "string",
+          "description": "Search expression. Empty text remains accepted."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "default": 20
+        },
+        "filters": {
+          "type": "string",
+          "description": "Legacy filter expression; combined with comma-separated tags."
+        },
+        "mode": {
+          "type": "string",
+          "default": "hybrid",
+          "description": "fts selects lexical search, semantic selects vector search. hybrid, absent and other legacy values select hybrid; failures have explicit FTS degradation."
+        },
+        "set": {
+          "type": "string",
+          "description": "Embedding-set slug resolved within the authorized memory and tenant."
+        },
+        "created_after": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "created_before": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_after": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updated_before": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "since": {
+          "type": "string",
+          "description": "Relative created-after time; explicit created_after wins. Unrecognized relative text retains legacy ignored behavior."
+        },
+        "tags": {
+          "type": "string",
+          "description": "Comma-separated tags; trimmed nonempty entries are AND requirements."
+        },
+        "strict_filter": {
+          "$ref": "#/$defs/StrictSearchFilterInput",
+          "x-fortemi-query-content": "application/json"
+        },
+        "metadata_predicates": {
+          "$ref": "predicates.schema.json",
+          "x-fortemi-query-content": "application/json",
+          "x-fortemi-max-encoded-utf8-bytes": 1048576
+        },
+        "diversity": {
+          "type": "number",
+          "minimum": -3.4028234663852886e38,
+          "maximum": 3.4028234663852886e38,
+          "description": "Finite f32 input, clamped to [0,1] before MMR; zero is pure relevance."
+        }
+      }
+    },
+    "SearchHitFields": {
+      "type": "object",
+      "required": [
+        "note_id",
+        "score",
+        "snippet"
+      ],
+      "properties": {
+        "note_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "score": {
+          "type": "number",
+          "description": "Finite retrieval/fusion score, not a probability."
+        },
+        "snippet": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Display only; not citation text or coordinates."
+        },
+        "title": {
+          "type": "string"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "embedding_status": {
+          "enum": [
+            "ready",
+            "pending",
+            "failed",
+            "none"
+          ]
+        },
+        "evidence": {
+          "$ref": "evidence-set.schema.json"
+        }
+      }
+    },
+    "SearchHit": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/SearchHitFields"
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "ChainSearchInfo": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "chain_id",
+        "original_title",
+        "chunks_matched",
+        "best_chunk_sequence",
+        "total_chunks"
+      ],
+      "description": "Legacy display aggregation. Index/count fields are currently heuristic, not native citation coordinates; use evidence for exact unit identity.",
+      "properties": {
+        "chain_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "original_title": {
+          "type": "string"
+        },
+        "chunks_matched": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "best_chunk_sequence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "total_chunks": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        }
+      }
+    },
+    "EnhancedSearchHit": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/$defs/SearchHitFields"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "chain_info": {
+              "$ref": "#/$defs/ChainSearchInfo"
+            }
+          }
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "SearchDegradation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "effective_mode"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        },
+        "effective_mode": {
+          "const": "fts"
+        }
+      }
+    },
+    "SearchRestResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "results",
+        "query",
+        "total",
+        "degraded"
+      ],
+      "properties": {
+        "results": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "$ref": "#/$defs/EnhancedSearchHit"
+          }
+        },
+        "query": {
+          "type": "string"
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000,
+          "description": "Returned hit count, exactly results.length; not total matches in storage."
+        },
+        "degraded": {
+          "type": "boolean"
+        },
+        "degradation": {
+          "$ref": "#/$defs/SearchDegradation"
+        }
+      },
+      "if": {
+        "properties": {
+          "degraded": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "degradation": {}
+        },
+        "required": [
+          "degradation"
+        ]
+      },
+      "else": {
+        "not": {
+          "properties": {
+            "degradation": {}
+          },
+          "required": [
+            "degradation"
+          ]
+        }
+      }
+    }
+  }
+}

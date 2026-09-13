@@ -91,6 +91,7 @@ impl PgFtsSearch {
                     tags_str.split(',').map(String::from).collect()
                 };
                 SearchHit {
+                    evidence: None,
                     note_id: row.get("note_id"),
                     score: row.get::<Option<f32>, _>("score").unwrap_or(0.0),
                     snippet: row.get("snippet"),
@@ -211,6 +212,7 @@ impl PgFtsSearch {
                     tags_str.split(',').map(String::from).collect()
                 };
                 SearchHit {
+                    evidence: None,
                     note_id: row.get("note_id"),
                     score: row.get::<Option<f32>, _>("score").unwrap_or(0.0),
                     snippet: row.get("snippet"),
@@ -343,6 +345,7 @@ impl PgFtsSearch {
                     tags_str.split(',').map(String::from).collect()
                 };
                 SearchHit {
+                    evidence: None,
                     note_id: row.get("note_id"),
                     score: row.get::<Option<f32>, _>("score").unwrap_or(0.0),
                     snippet: row.get("snippet"),
@@ -454,6 +457,7 @@ impl PgFtsSearch {
                     tags_str.split(',').map(String::from).collect()
                 };
                 SearchHit {
+                    evidence: None,
                     note_id: row.get("note_id"),
                     score: row.get::<Option<f32>, _>("score").unwrap_or(0.0),
                     snippet: row.get("snippet"),
@@ -531,6 +535,7 @@ impl PgFtsSearch {
                     tags_str.split(',').map(String::from).collect()
                 };
                 SearchHit {
+                    evidence: None,
                     note_id: row.get("note_id"),
                     score: row.get::<Option<f32>, _>("score").unwrap_or(0.0),
                     snippet: row.get("snippet"),
@@ -641,6 +646,7 @@ impl PgFtsSearch {
                     tags_str.split(',').map(String::from).collect()
                 };
                 SearchHit {
+                    evidence: None,
                     note_id: row.get("note_id"),
                     score: row.get::<Option<f32>, _>("score").unwrap_or(0.0),
                     snippet: row.get("snippet"),
@@ -738,6 +744,7 @@ impl PgFtsSearch {
                     tags_str.split(',').map(String::from).collect()
                 };
                 SearchHit {
+                    evidence: None,
                     note_id: row.get("note_id"),
                     score: row.get::<Option<f32>, _>("score").unwrap_or(0.0),
                     snippet: row.get("snippet"),

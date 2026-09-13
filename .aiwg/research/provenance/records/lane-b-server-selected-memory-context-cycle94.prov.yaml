@@ -1,0 +1,82 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-13T05:36:54.087Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-selected-memory-context-cycle94.json",
+    "type": "artifact_bundle",
+    "created_at": "2026-09-13T05:36:54.087Z",
+    "checksum": "sha256:406bbc67a4c78838ff913640f39132430560c0c561a9f63e7e9a8a2834d2aed1",
+    "size_bytes": 7925,
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "crates/matric-api/src/scoped_search_tests/worker-sse-consumer.mjs",
+          "bytes": 10937,
+          "sha256": "5e416fe3c6e36b4cfbbb36b23d9bcd02b996e337b5c4f2ea912bec2ae0e01feb"
+        },
+        {
+          "path": ".aiwg/architecture/impact/selected-memory-context.md",
+          "bytes": 4954,
+          "sha256": "11f0a1a8dd07d0fdceb8c393f04b1be56cddb7e47a33249876df1794a52de158"
+        },
+        {
+          "path": ".aiwg/planning/roadmap.md",
+          "bytes": 346825,
+          "sha256": "c73fea20eb4182ec49bfd956a1326b8d62341e5548e1067fa5010dba950ecf51"
+        },
+        {
+          "path": ".aiwg/activity.log",
+          "bytes": 10357,
+          "sha256": "30e85c0a9a48f7731460eccfcdadae97ef44032806e43747ea79c53260f1f49e"
+        },
+        {
+          "path": ".aiwg/reports/lane-b-server-selected-memory-context-cycle94.json",
+          "bytes": 7925,
+          "sha256": "406bbc67a4c78838ff913640f39132430560c0c561a9f63e7e9a8a2834d2aed1"
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:selected-memory-context:lane-b:094:server",
+    "type": "modification",
+    "started_at": "2026-09-13T05:21:27.817Z",
+    "ended_at": "2026-09-13T05:36:54.087Z",
+    "description": "HotM reads only selected-memory endpoint through bounded4096byte real HTTP client and exact JSON decoder. Preserves name/schema separation, server-returned public/default semantics and generation/session/selection fencing. No inventory, retry, guessed schema or failed-lookup fallback. Producer harness uses current real consumer without translation. HotM bounded consumer and actual server metadata/SSE tests PASS; full scope and delivery gates remain. Full scope retained."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-selected-memory-context-cycle94.json",
+      "activity": "urn:aiwg:activity:selected-memory-context:lane-b:094:server"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:selected-memory-context:lane-b:094:server",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-selected-memory-context-cycle94.json",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-selected-memory-context-cycle94.json",
+        "source": "urn:gitea:Fortemi:HotM:issue:1"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-selected-memory-context-cycle94.json",
+        "source": "urn:gitea:Fortemi:fortemi:issue:1091"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-selected-memory-context-cycle94.json",
+        "source": "urn:gitea:Fortemi:fortemi-react:issue:405"
+      }
+    ]
+  }
+}

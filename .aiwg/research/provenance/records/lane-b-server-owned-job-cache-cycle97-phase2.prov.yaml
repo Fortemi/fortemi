@@ -1,0 +1,92 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-13T13:30:01.418Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-owned-job-cache-cycle97-phase2.json",
+    "type": "artifact_bundle",
+    "created_at": "2026-09-13T13:30:01.418Z",
+    "checksum": "sha256:0e7ef9da325a9645762cc1f96040d08c457ec178b9e4f3e9dd70cd5ff5b59cb9",
+    "size_bytes": 20060,
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "crates/matric-api/src/scoped_search_tests/binary_http.rs",
+          "bytes": 28529,
+          "sha256": "48f92d3d62f1a38d32dc0bcc237590464c2a8cd0d5d839db9a1a9c7b91591d2d"
+        },
+        {
+          "path": "crates/matric-api/src/scoped_search_tests/installed_http.rs",
+          "bytes": 14980,
+          "sha256": "e6d9095094a7ec2c304921b130114d77fdac94ffb017c7f37d4f549aa3ffb543"
+        },
+        {
+          "path": "crates/matric-api/src/scoped_search_tests/worker-sse-consumer.mjs",
+          "bytes": 10943,
+          "sha256": "74c39bed8695c6228a44338225b807b2ed63256387b0143a97eebbb6c34472c0"
+        },
+        {
+          "path": ".aiwg/architecture/impact/selected-memory-context.md",
+          "bytes": 7349,
+          "sha256": "607f90d3fb4395056ab423d83534f9c81f1dfaa966e2dcd6837be10918b5cd8c"
+        },
+        {
+          "path": ".aiwg/planning/roadmap.md",
+          "bytes": 349306,
+          "sha256": "862c41f4423bc2d16acf6f632a3f76bcdb18c0b2df783f4e51aca6b6d535b5c7"
+        },
+        {
+          "path": ".aiwg/activity.log",
+          "bytes": 12410,
+          "sha256": "a53f9c121aadcb5c8cac3606a3334bf45a22ad00ef7c0b6f315e716aa2534557"
+        },
+        {
+          "path": ".aiwg/reports/lane-b-server-owned-job-cache-cycle97-phase2.json",
+          "bytes": 20060,
+          "sha256": "0e7ef9da325a9645762cc1f96040d08c457ec178b9e4f3e9dd70cd5ff5b59cb9"
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:owned-job-cache:cycle97:phase2:server",
+    "type": "modification",
+    "started_at": "2026-09-13T07:13:19.923Z",
+    "ended_at": "2026-09-13T13:30:01.418Z",
+    "description": "Strict bounded owner-qualified v2 job cache, live admission before hydration, endpoint context invalidation, buffered event and reentrant subscriber fencing. Legacy/foreign bytes retained, never guessed as current. Duplicate runner options reject before cache/deadline replacement."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-owned-job-cache-cycle97-phase2.json",
+      "activity": "urn:aiwg:activity:owned-job-cache:cycle97:phase2:server"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:owned-job-cache:cycle97:phase2:server",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-owned-job-cache-cycle97-phase2.json",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-owned-job-cache-cycle97-phase2.json",
+        "source": "urn:gitea:Fortemi:HotM:issue:1"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-owned-job-cache-cycle97-phase2.json",
+        "source": "urn:gitea:Fortemi:fortemi:issue:1091"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-owned-job-cache-cycle97-phase2.json",
+        "source": "urn:gitea:Fortemi:fortemi-react:issue:405"
+      }
+    ]
+  }
+}

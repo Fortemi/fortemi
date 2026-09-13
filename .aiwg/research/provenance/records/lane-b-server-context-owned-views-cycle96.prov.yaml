@@ -1,0 +1,87 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-13T06:50:23.500Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-context-owned-views-cycle96.json",
+    "type": "artifact_bundle",
+    "created_at": "2026-09-13T06:50:23.500Z",
+    "checksum": "sha256:b7e3c4263e2ac3695f41307c80b370656da9241485c1999af60d2e7db4c91e13",
+    "size_bytes": 10018,
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "crates/matric-api/src/scoped_search_tests/installed_http.rs",
+          "bytes": 14975,
+          "sha256": "bd2327aecc713cc22347495ea8aabbdcd9f376d89ff46ac3370b97cc5567fc7a"
+        },
+        {
+          "path": "crates/matric-api/src/scoped_search_tests/worker-sse-consumer.mjs",
+          "bytes": 10941,
+          "sha256": "8a73138c67c1613c2747f8ce0b43e4655b37fb86c032447b330a95ddc78640a9"
+        },
+        {
+          "path": ".aiwg/architecture/impact/selected-memory-context.md",
+          "bytes": 6240,
+          "sha256": "7ee8893ee6816d6b2f7919c88763b4066d90bccb48303f03753a4f3aff232bbc"
+        },
+        {
+          "path": ".aiwg/planning/roadmap.md",
+          "bytes": 348197,
+          "sha256": "7ad55416cd2cf8f35558ae777c3c55c3add240010b1a4c0f4aeb9aa3abb296e8"
+        },
+        {
+          "path": ".aiwg/activity.log",
+          "bytes": 11767,
+          "sha256": "925773b2ecce90837d0a423ffb56a69b71adbf2d7545d6c7471865ae4354f904"
+        },
+        {
+          "path": ".aiwg/reports/lane-b-server-context-owned-views-cycle96.json",
+          "bytes": 10018,
+          "sha256": "b7e3c4263e2ac3695f41307c80b370656da9241485c1999af60d2e7db4c91e13"
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:context-owned-views:lane-b:096:server",
+    "type": "modification",
+    "started_at": "2026-09-13T06:20:43.836Z",
+    "ended_at": "2026-09-13T06:50:23.500Z",
+    "description": "Opaque effective-context revision keys desktop/mobile React subtree and media provider. Owned HTTP scopes abort and fence admission/retries/fetch/decode; ContextChangedError is terminal. Compatibility cache/reset and pending completions have independent generation fencing. No credentials in React keys/events; no persistent data removed. Already-dispatched mutations are not rolled back. Browser stream checks pass; application session isolation remains incomplete. Full scope and delivery gates retained."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-context-owned-views-cycle96.json",
+      "activity": "urn:aiwg:activity:context-owned-views:lane-b:096:server"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:context-owned-views:lane-b:096:server",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-context-owned-views-cycle96.json",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-context-owned-views-cycle96.json",
+        "source": "urn:gitea:Fortemi:HotM:issue:1"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-context-owned-views-cycle96.json",
+        "source": "urn:gitea:Fortemi:fortemi:issue:1091"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-context-owned-views-cycle96.json",
+        "source": "urn:gitea:Fortemi:fortemi-react:issue:405"
+      }
+    ]
+  }
+}

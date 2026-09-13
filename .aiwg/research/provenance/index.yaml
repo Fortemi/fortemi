@@ -1,1164 +1,1904 @@
 metadata:
-  schema_version: "1.0.0"
-  updated_at: "2026-09-12T09:50:00Z"
+  schema_version: 1.0.0
+  updated_at: '2026-09-13T16:59:57.743Z'
 records:
-  - entity: "urn:aiwg:artifact:.aiwg/reports/lane-b-1146-native-operations.json"
-    record: "records/lane-b-1146-native-operations.prov.yaml"
-  - entity: "urn:aiwg:artifact:.aiwg/reports/lane-b-1146-remote-negative.json"
-    record: "records/lane-b-1146-remote-negative.prov.yaml"
-  - entity: "urn:aiwg:artifact:.aiwg/reports/lane-b-1146-native-remote.json"
-    record: "records/lane-b-1146-native-remote.prov.yaml"
-  - entity: "urn:aiwg:artifact:.aiwg/reports/lane-b-1128-capability-validation.json"
-    record: "records/lane-b-1128-capability-validation.prov.yaml"
-  - entity: "urn:aiwg:artifact:.aiwg/releases/evidence/v2026.9.10-asyncapi-correction.json"
-    record: "records/asyncapi-release-correction-2026-9-10.prov.yaml"
-  - entity: "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard"
-    record: "records/release-docs-shard-2026.9.10.prov.yaml"
-  - entity: "urn:aiwg:artifact:docs/releases/v2026.9.10-announcement.md"
-    record: "records/release-preparation-2026.9.10.prov.yaml"
-  - entity: "urn:aiwg:artifact:migrations/20260911020900_tenant_scoped_auto_membership.sql"
-    record: "records/lane-b-1147-tenant-auto-membership.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-ci-observer.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-db/examples/ci_database_bootstrap.rs"
-    record: "records/lane-b-1147-ci-bootstrap.prov.yaml"
-  - entity: "urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
-    record: "records/lane-b-1147-source-delivery.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-skos-concept-coordinates.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-skos-partial-status.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-skos-concurrent-writers.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-skos-atomic-batches.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-skos-prospective-hierarchy.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-skos-retained-limits.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-partial-note-history.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-skos-note-lifecycle.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-skos-native-effects.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-skos-bootstrap.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-skos-retained.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-graph-retained.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-vector-note-owner.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-vector-preview-reparent.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-vector-identity.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-membership-scope.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-reference-preview.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-history-provenance.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-selected-renames.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-wipe-isolation.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-bootstrap-custody.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-member-ownership.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-config-declarations.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-skip-ownership.prov.yaml"
-  - entity: "urn:aiwg:artifact:crates/matric-api/src/main.rs"
-    record: "records/lane-b-1147-owner-identity.prov.yaml"
-  - entity: "urn:aiwg:artifact:tests/fixtures/shards/full-v1-reference-conformance.json"
-    record: "records/lane-b-424-reference-preflight.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard"
-    record: "records/release-docs-shard-2026-9-2.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"
-    record: "records/release-docs-shard-2026-9-2.prov.yaml"
-  - entity: "docker-compose.bundle.yml"
-    record: "records/docker-compose-bundle-inference-allowlist-2026-09-04.prov.yaml"
-  - entity: "docs/content/architecture.md"
-    record: "records/docsite-adr106-link-fix-2026-9-4.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard"
-    record: "records/release-docs-shard-2026-9-1.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"
-    record: "records/release-docs-shard-2026-9-1.prov.yaml"
-  - entity: ".aiwg/gates/suite-1081-independent-final-audit-2026-09-03.md"
-    record: "records/suite-1081-independent-final-audit.prov.yaml"
-  - entity: "docs/releases/v2026.9.1-announcement.md"
-    record: "records/release-preparation-2026-9-1-1090.prov.yaml"
-  - entity: "CHANGELOG.md"
-    record: "records/release-preparation-2026-9-1-1090.prov.yaml"
-  - entity: "Cargo.toml"
-    record: "records/release-preparation-2026-9-1-1090.prov.yaml"
-  - entity: "Cargo.lock"
-    record: "records/release-preparation-2026-9-1-1090.prov.yaml"
-  - entity: "mcp-server/package.json"
-    record: "records/release-preparation-2026-9-1-1090.prov.yaml"
-  - entity: "mcp-server/package-lock.json"
-    record: "records/release-preparation-2026-9-1-1090.prov.yaml"
-  - entity: ".aiwg/reports/doc-sync-20260903T200433-0400.md"
-    record: "records/release-preparation-2026-9-1-1090.prov.yaml"
-  - entity: ".aiwg/reports/doc-sync-last-run.json"
-    record: "records/release-preparation-2026-9-1-1090.prov.yaml"
-  - entity: ".aiwg/.last-doc-sync"
-    record: "records/release-preparation-2026-9-1-1090.prov.yaml"
-  - entity: ".aiwg/releases/v2026.9.1-threat-assessment.json"
-    record: "records/release-preparation-2026-9-1-1090.prov.yaml"
-  - entity: "contracts/asyncapi/asyncapi.yaml"
-    record: "records/release-preparation-2026-9-1-1090.prov.yaml"
-  - entity: "contracts/asyncapi/asyncapi.sha256"
-    record: "records/release-preparation-2026-9-1-1090.prov.yaml"
-  - entity: "contracts/asyncapi/fixtures/manifest.json"
-    record: "records/release-preparation-2026-9-1-1090.prov.yaml"
-  - entity: "contracts/asyncapi/producer-event-fixture-receipt.json"
-    record: "records/release-preparation-2026-9-1-1090.prov.yaml"
-  - entity: "mcp-server/package.json"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "mcp-server/package-lock.json"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "mcp-server/tests/schema-validation.test.js"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "mcp-server/tests/uat-core-coverage.test.js"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "mcp-server/README.md"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "tests/uat/phases/README.md"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "tests/uat/phases/phase-0-preflight.md"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "tests/uat/phases/phase-14-mcp-operations.md"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "docs/content/mcp-rest-parity.md"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "AIWG.md"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "CLAUDE.md"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "contracts/source-note-upsert/contract.json"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "contracts/source-note-upsert/1.0.0/request.schema.json"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "contracts/source-note-upsert/1.0.0/response.schema.json"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "contracts/source-note-upsert/conformance/v1.json"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "crates/matric-core/src/source_upsert.rs"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "crates/matric-db/src/source_upsert.rs"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "crates/matric-db/tests/source_upsert_contract_test.rs"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "migrations/20260903010000_source_addressed_note_upsert.sql"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "crates/matric-api/src/route_policy.rs"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "mcp-server/index.js"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "mcp-server/tools.js"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "docs/architecture/adr/ADR-106-source-addressed-note-upsert.md"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "docs/content/architecture.md"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "docs/content/mcp.md"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "README.md"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "contracts/openapi/openapi.yaml"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "contracts/openapi/openapi.sha256"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "contracts/source-note-upsert/README.md"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "crates/matric-core/src/lib.rs"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "crates/matric-db/Cargo.toml"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "crates/matric-db/src/lib.rs"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "crates/matric-db/src/tenancy.rs"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "docs/architecture/adr/README.md"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "mcp-server/constants/core-tools.js"
-    record: "records/source-note-upsert-1090.prov.yaml"
-  - entity: "Cargo.lock"
-    record: "records/chacha20-yank-remediation-2026-08.prov.yaml"
-  - entity: ".aiwg/reports/snn-retention-hotm-consumer-receipt-2026-08.md"
-    record: "records/snn-retention-hotm-consumer-receipt-2026-08.prov.yaml"
-  - entity: "crates/matric-api/src/handlers/jobs.rs"
-    record: "records/address-issues-1101-1103.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/address-issues-1101-1103.prov.yaml"
-  - entity: "crates/matric-core/src/defaults.rs"
-    record: "records/address-issues-1101-1103.prov.yaml"
-  - entity: "crates/matric-core/src/models.rs"
-    record: "records/address-issues-1101-1103.prov.yaml"
-  - entity: "crates/matric-db/src/file_storage.rs"
-    record: "records/address-issues-1101-1103.prov.yaml"
-  - entity: "crates/matric-db/src/lib.rs"
-    record: "records/address-issues-1101-1103.prov.yaml"
-  - entity: "crates/matric-db/src/links.rs"
-    record: "records/address-issues-1101-1103.prov.yaml"
-  - entity: "crates/matric-db/src/notes.rs"
-    record: "records/address-issues-1101-1103.prov.yaml"
-  - entity: "crates/matric-db/tests/extraction_strategy_migration_test.rs"
-    record: "records/address-issues-1101-1103.prov.yaml"
-  - entity: "crates/matric-db/tests/knowledge_health_counts_test.rs"
-    record: "records/address-issues-1101-1103.prov.yaml"
-  - entity: "crates/matric-db/tests/snn_retention_safety_test.rs"
-    record: "records/address-issues-1101-1103.prov.yaml"
-  - entity: "migrations/20260828190000_add_attachment_extraction_strategy_values.sql"
-    record: "records/address-issues-1101-1103.prov.yaml"
-  - entity: "contracts/openapi/openapi.yaml"
-    record: "records/address-issues-1101-1103.prov.yaml"
-  - entity: "contracts/openapi/openapi.sha256"
-    record: "records/address-issues-1101-1103.prov.yaml"
-  - entity: "docs/architecture/adr/ADR-078-snn-sparse-graph-guard.md"
-    record: "records/address-issues-1101-1103.prov.yaml"
-  - entity: "docs/content/configuration.md"
-    record: "records/address-issues-1101-1103.prov.yaml"
-  - entity: "docs/content/knowledge-graph-guide.md"
-    record: "records/address-issues-1101-1103.prov.yaml"
-  - entity: "docs/content/operators-guide.md"
-    record: "records/address-issues-1101-1103.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard"
-    record: "records/fortemi-docs-shard-release-2026-8-0-1098-1100.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"
-    record: "records/fortemi-docs-shard-receipt-release-2026-8-0-1098-1100.prov.yaml"
-  - entity: ".gitea/workflows/build-builder.yaml"
-    record: "records/release-workflow-qualified-ref-handoff-1098.prov.yaml"
-  - entity: ".gitea/workflows/ci-builder.yaml"
-    record: "records/release-workflow-qualified-ref-handoff-1098.prov.yaml"
-  - entity: ".gitea/workflows/test.yml"
-    record: "records/release-workflow-qualified-ref-handoff-1098.prov.yaml"
-  - entity: ".gitea/workflows/publish-sidecar.yml"
-    record: "records/release-workflow-qualified-ref-handoff-1098.prov.yaml"
-  - entity: ".gitea/workflows/suite-platform-contract.yml"
-    record: "records/release-workflow-qualified-ref-handoff-1098.prov.yaml"
-  - entity: "scripts/ci/verify-mutsu-build-serialization.sh"
-    record: "records/release-workflow-qualified-ref-handoff-1098.prov.yaml"
-  - entity: "Cargo.toml"
-    record: "records/release-preparation-2026-8-0-1098-1100.prov.yaml"
-  - entity: "Cargo.lock"
-    record: "records/release-preparation-2026-8-0-1098-1100.prov.yaml"
-  - entity: "mcp-server/package.json"
-    record: "records/release-preparation-2026-8-0-1098-1100.prov.yaml"
-  - entity: "mcp-server/package-lock.json"
-    record: "records/release-preparation-2026-8-0-1098-1100.prov.yaml"
-  - entity: "CHANGELOG.md"
-    record: "records/release-preparation-2026-8-0-1098-1100.prov.yaml"
-  - entity: "docs/releases/v2026.8.0-announcement.md"
-    record: "records/release-preparation-2026-8-0-1098-1100.prov.yaml"
-  - entity: "contracts/asyncapi/asyncapi.yaml"
-    record: "records/release-preparation-2026-8-0-1098-1100.prov.yaml"
-  - entity: "contracts/asyncapi/asyncapi.sha256"
-    record: "records/release-preparation-2026-8-0-1098-1100.prov.yaml"
-  - entity: ".aiwg/releases/evidence/v2026.8.0-release-note-threat-assessment.json"
-    record: "records/v2026-8-0-release-note-threat-assessment.prov.yaml"
-  - entity: ".aiwg/releases/evidence/v2026.8.1-release-note-threat-assessment.json"
-    record: "records/v2026-8-1-release-note-threat-assessment.prov.yaml"
-  - entity: "Cargo.toml"
-    record: "records/release-preparation-2026-8-1-1122-1124.prov.yaml"
-  - entity: "Cargo.lock"
-    record: "records/release-preparation-2026-8-1-1122-1124.prov.yaml"
-  - entity: "mcp-server/package.json"
-    record: "records/release-preparation-2026-8-1-1122-1124.prov.yaml"
-  - entity: "mcp-server/package-lock.json"
-    record: "records/release-preparation-2026-8-1-1122-1124.prov.yaml"
-  - entity: "CHANGELOG.md"
-    record: "records/release-preparation-2026-8-1-1122-1124.prov.yaml"
-  - entity: "docs/releases/v2026.8.1-announcement.md"
-    record: "records/release-preparation-2026-8-1-1122-1124.prov.yaml"
-  - entity: "contracts/asyncapi/asyncapi.yaml"
-    record: "records/release-preparation-2026-8-1-1122-1124.prov.yaml"
-  - entity: "contracts/asyncapi/asyncapi.sha256"
-    record: "records/release-preparation-2026-8-1-1122-1124.prov.yaml"
-  - entity: ".aiwg/.last-doc-sync"
-    record: "records/doc-sync-release-2026-8-1.prov.yaml"
-  - entity: ".aiwg/working/doc-sync/release-v2026.8.1-dry-run-20260831.md"
-    record: "records/doc-sync-release-2026-8-1.prov.yaml"
-  - entity: ".aiwg/reports/doc-sync-audit-2026-08-31.md"
-    record: "records/doc-sync-release-2026-8-1.prov.yaml"
-  - entity: ".aiwg/releases/evidence/v2026.8.2-release-note-threat-assessment.json"
-    record: "records/v2026-8-2-release-note-threat-assessment.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard"
-    record: "records/release-shard-corrective-2026-8-2.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"
-    record: "records/release-shard-corrective-2026-8-2.prov.yaml"
-  - entity: ".aiwg/releases/evidence/v2026.8.2-shard-corrective-verification.json"
-    record: "records/release-shard-corrective-2026-8-2.prov.yaml"
-  - entity: "scripts/ci/verify-sidecar-publication.py"
-    record: "records/sidecar-publication-dispatch-policy-1098.prov.yaml"
-  - entity: "Dockerfile"
-    record: "records/rust-stack-release-128m-1098.prov.yaml"
-  - entity: "Dockerfile.bundle"
-    record: "records/rust-stack-release-128m-1098.prov.yaml"
-  - entity: "scripts/ci/verify-container-release-evidence.py"
-    record: "records/rust-stack-release-128m-1098.prov.yaml"
-  - entity: "tests/test_verify_container_release_evidence.py"
-    record: "records/rust-stack-release-128m-1098.prov.yaml"
-  - entity: "CHANGELOG.md"
-    record: "records/rust-stack-release-128m-1098.prov.yaml"
-  - entity: "docs/releases/v2026.7.26-announcement.md"
-    record: "records/rust-stack-release-128m-1098.prov.yaml"
-  - entity: ".gitea/workflows/build-builder.yaml"
-    record: "records/release-workflow-capacity-handoff-1098.prov.yaml"
-  - entity: ".gitea/workflows/ci-builder.yaml"
-    record: "records/release-workflow-capacity-handoff-1098.prov.yaml"
-  - entity: ".gitea/workflows/test.yml"
-    record: "records/release-workflow-capacity-handoff-1098.prov.yaml"
-  - entity: ".gitea/workflows/publish-sidecar.yml"
-    record: "records/release-workflow-capacity-handoff-1098.prov.yaml"
-  - entity: ".gitea/workflows/suite-platform-contract.yml"
-    record: "records/release-workflow-capacity-handoff-1098.prov.yaml"
-  - entity: ".gitea/workflows/docsite-build.yml"
-    record: "records/release-workflow-capacity-handoff-1098.prov.yaml"
-  - entity: ".gitea/workflows/docsite-deploy.yml"
-    record: "records/release-workflow-capacity-handoff-1098.prov.yaml"
-  - entity: "scripts/ci/verify-mutsu-build-serialization.sh"
-    record: "records/release-workflow-capacity-handoff-1098.prov.yaml"
-  - entity: "scripts/ci/verify-release-asset-mirror.py"
-    record: "records/release-workflow-capacity-handoff-1098.prov.yaml"
-  - entity: "scripts/ci/verify-release-job-guards.py"
-    record: "records/release-workflow-capacity-handoff-1098.prov.yaml"
-  - entity: "CHANGELOG.md"
-    record: "records/release-workflow-capacity-handoff-1098.prov.yaml"
-  - entity: "docs/releases/v2026.7.26-announcement.md"
-    record: "records/release-workflow-capacity-handoff-1098.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard"
-    record: "records/fortemi-docs-shard-release-2026-7-26-1098-1100.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"
-    record: "records/fortemi-docs-shard-receipt-release-2026-7-26-1098-1100.prov.yaml"
-  - entity: ".gitea/workflows/build-builder.yaml"
-    record: "records/release-workflow-capacity-serialization-1098.prov.yaml"
-  - entity: ".gitea/workflows/ci-builder.yaml"
-    record: "records/release-workflow-capacity-serialization-1098.prov.yaml"
-  - entity: ".gitea/workflows/publish-sidecar.yml"
-    record: "records/release-workflow-capacity-serialization-1098.prov.yaml"
-  - entity: ".gitea/workflows/suite-platform-contract.yml"
-    record: "records/release-workflow-capacity-serialization-1098.prov.yaml"
-  - entity: ".gitea/workflows/test.yml"
-    record: "records/release-workflow-capacity-serialization-1098.prov.yaml"
-  - entity: "scripts/ci/verify-mutsu-build-serialization.sh"
-    record: "records/release-workflow-capacity-serialization-1098.prov.yaml"
-  - entity: "Cargo.toml"
-    record: "records/release-preparation-2026-7-26-1098-1100.prov.yaml"
-  - entity: "Cargo.lock"
-    record: "records/release-preparation-2026-7-26-1098-1100.prov.yaml"
-  - entity: "mcp-server/package.json"
-    record: "records/release-preparation-2026-7-26-1098-1100.prov.yaml"
-  - entity: "mcp-server/package-lock.json"
-    record: "records/release-preparation-2026-7-26-1098-1100.prov.yaml"
-  - entity: "CHANGELOG.md"
-    record: "records/release-preparation-2026-7-26-1098-1100.prov.yaml"
-  - entity: "docs/releases/v2026.7.26-announcement.md"
-    record: "records/release-preparation-2026-7-26-1098-1100.prov.yaml"
-  - entity: "contracts/asyncapi/asyncapi.yaml"
-    record: "records/release-preparation-2026-7-26-1098-1100.prov.yaml"
-  - entity: "contracts/asyncapi/asyncapi.sha256"
-    record: "records/release-preparation-2026-7-26-1098-1100.prov.yaml"
-  - entity: ".aiwg/releases/evidence/v2026.7.26-release-note-threat-assessment.json"
-    record: "records/release-preparation-2026-7-26-1098-1100.prov.yaml"
-  - entity: ".gitea/workflows/test.yml"
-    record: "records/protected-slow-tests-redis-fixture-714.prov.yaml"
-  - entity: "crates/matric-db/tests/archive_schema_test.rs"
-    record: "records/archive-schema-test-ddl-serialization-729.prov.yaml"
-  - entity: ".gitea/workflows/ci-builder.yaml"
-    record: "records/ci-builder-isolated-api-key-tenant-scope-729.prov.yaml"
-  - entity: "crates/matric-api/tests/user_secret_storage_test.rs"
-    record: "records/user-secret-storage-role-setup-concurrency-731.prov.yaml"
-  - entity: "Dockerfile"
-    record: "records/dockerfile-rust-1-92-builder-714.prov.yaml"
-  - entity: "Dockerfile.bundle"
-    record: "records/dockerfile-bundle-rust-1-92-builder-714.prov.yaml"
-  - entity: "docker/third-party-dependencies.json"
-    record: "records/third-party-rust-1-92-builder-authority-990.prov.yaml"
-  - entity: "crates/matric-api/tests/user_secret_storage_test.rs"
-    record: "records/user-secret-storage-provisioned-schema-731.prov.yaml"
-  - entity: "crates/matric-db/tests/tenant_isolation_test.rs"
-    record: "records/tenant-isolation-provisioned-schema-728.prov.yaml"
-  - entity: "crates/matric-db/tests/audit_sink_test.rs"
-    record: "records/audit-sink-provisioned-schema-714.prov.yaml"
-  - entity: ".gitea/workflows/ci-builder.yaml"
-    record: "records/ci-builder-cargo-audit-bootstrap-714.prov.yaml"
-  - entity: "crates/matric-db/tests/tenant_isolation_matrix_test.rs"
-    record: "records/tenant-isolation-matrix-provisioned-schema-728.prov.yaml"
-  - entity: "crates/matric-crypto/Cargo.toml"
-    record: "records/matric-crypto-aws-sdk-rust-1-92-734.prov.yaml"
-  - entity: "Cargo.lock"
-    record: "records/cargo-lock-aws-sdk-rust-1-92-734.prov.yaml"
-  - entity: "docs/deployment/hosted-postgresql-role.md"
-    record: "records/hosted-postgresql-role-docs-contract-1001.prov.yaml"
-  - entity: "docs/architecture/adr/ADR-094-fail-closed-authentication-default.md"
-    record: "records/adr-094-checkpoint-history-restoration-1017.prov.yaml"
-  - entity: "docs/architecture/adr/ADR-098-per-tenant-rate-limits-quotas.md"
-    record: "records/adr-098-checkpoint-history-restoration-714.prov.yaml"
-  - entity: "crates/matric-db/src/call_sessions.rs"
-    record: "records/matric-db-call-sessions-personal-tenant-pool-728.prov.yaml"
-  - entity: "crates/matric-db/src/tests/oauth_token_lifetime_tests.rs"
-    record: "records/production-auth-tenancy-gates-99b53438f6ea.prov.yaml"
-  - entity: "crates/matric-db/src/usage_ledger.rs"
-    record: "records/production-auth-tenancy-gates-75d5e1f6b5bb.prov.yaml"
-  - entity: "crates/matric-db/tests/archive_schema_test.rs"
-    record: "records/production-auth-tenancy-gates-40327bd487cf.prov.yaml"
-  - entity: "crates/matric-db/tests/chunking_integration_test.rs"
-    record: "records/production-auth-tenancy-gates-5b1e66bebd52.prov.yaml"
-  - entity: "crates/matric-db/tests/embedding_set_crud_test.rs"
-    record: "records/production-auth-tenancy-gates-c28a0d82c0a9.prov.yaml"
-  - entity: "crates/matric-db/tests/file_storage_blob_refcount_test.rs"
-    record: "records/production-auth-tenancy-gates-1b5c713bd061.prov.yaml"
-  - entity: "crates/matric-db/tests/job_retry_lifecycle_test.rs"
-    record: "records/production-auth-tenancy-gates-19713f81dcce.prov.yaml"
-  - entity: "crates/matric-db/tests/job_strict_parsing_test.rs"
-    record: "records/production-auth-tenancy-gates-0eed5f23f25d.prov.yaml"
-  - entity: "crates/matric-db/tests/memory_search_test.rs"
-    record: "records/production-auth-tenancy-gates-c1bb6e99c1de.prov.yaml"
-  - entity: "crates/matric-db/tests/tag_soft_delete_test.rs"
-    record: "records/production-auth-tenancy-gates-98ef484739a3.prov.yaml"
-  - entity: "crates/matric-jobs/tests/attachment_scan_handler_test.rs"
-    record: "records/production-auth-tenancy-gates-6966194f4feb.prov.yaml"
-  - entity: "crates/matric-jobs/tests/worker_integration_test.rs"
-    record: "records/production-auth-tenancy-gates-cb5bf6fc9459.prov.yaml"
-  - entity: ".aiwg/architecture/api-compatibility-discovery-contract-2026-07.md"
-    record: "records/production-auth-tenancy-gates-77726211b7e6.prov.yaml"
-  - entity: ".aiwg/reports/fortemi-auth-rust-consumer-smoke-receipt-2026-07-26.md"
-    record: "records/production-auth-tenancy-gates-d8ebcfb058ad.prov.yaml"
-  - entity: ".gitea/workflows/test.yml"
-    record: "records/production-auth-tenancy-gates-6db2ec9e8e4e.prov.yaml"
-  - entity: "Cargo.lock"
-    record: "records/production-auth-tenancy-gates-13ee4b2252c9.prov.yaml"
-  - entity: "Cargo.toml"
-    record: "records/production-auth-tenancy-gates-2e9d962a0832.prov.yaml"
-  - entity: "crates/matric-api/src/handlers/inference_complete.rs"
-    record: "records/production-auth-tenancy-gates-42d042d2ef8b.prov.yaml"
-  - entity: "crates/matric-api/src/handlers/user_secrets.rs"
-    record: "records/production-auth-tenancy-gates-fdd91e32ac5a.prov.yaml"
-  - entity: "crates/matric-api/src/hosted_auth.rs"
-    record: "records/production-auth-tenancy-gates-9474092257b0.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/production-auth-tenancy-gates-dfd8defd161b.prov.yaml"
-  - entity: "crates/matric-api/src/route_policy.rs"
-    record: "records/production-auth-tenancy-gates-6c4a3ea90b1b.prov.yaml"
-  - entity: "crates/matric-api/src/services/mod.rs"
-    record: "records/production-auth-tenancy-gates-e07782fc48fa.prov.yaml"
-  - entity: "crates/matric-api/src/services/quota.rs"
-    record: "records/production-auth-tenancy-gates-651dc8d1b166.prov.yaml"
-  - entity: "crates/matric-api/tests/user_secret_storage_test.rs"
-    record: "records/production-auth-tenancy-gates-853615366656.prov.yaml"
-  - entity: "crates/matric-core/src/tags.rs"
-    record: "records/production-auth-tenancy-gates-c004a8b531c4.prov.yaml"
-  - entity: "crates/matric-core/src/traits.rs"
-    record: "records/production-auth-tenancy-gates-062327ece6fe.prov.yaml"
-  - entity: "crates/matric-crypto/Cargo.toml"
-    record: "records/production-auth-tenancy-gates-32ed1b00c56c.prov.yaml"
-  - entity: "crates/matric-crypto/src/pke/format.rs"
-    record: "records/production-auth-tenancy-gates-c7c19705dcd8.prov.yaml"
-  - entity: "crates/matric-crypto/src/provider/aws_kms/tests.rs"
-    record: "records/production-auth-tenancy-gates-112b941dc36e.prov.yaml"
-  - entity: "crates/matric-db/Cargo.toml"
-    record: "records/production-auth-tenancy-gates-b85a0bed15f2.prov.yaml"
-  - entity: "crates/matric-db/src/archives.rs"
-    record: "records/production-auth-tenancy-gates-fb02649411d5.prov.yaml"
-  - entity: "crates/matric-db/src/audit.rs"
-    record: "records/production-auth-tenancy-gates-a4f7d6b07340.prov.yaml"
-  - entity: "crates/matric-db/src/collections.rs"
-    record: "records/production-auth-tenancy-gates-277672b10795.prov.yaml"
-  - entity: "crates/matric-db/src/incoming_webhooks.rs"
-    record: "records/production-auth-tenancy-gates-64b8701b4c3a.prov.yaml"
-  - entity: "crates/matric-db/src/lib.rs"
-    record: "records/production-auth-tenancy-gates-1789e73aad2d.prov.yaml"
-  - entity: "crates/matric-db/src/tags.rs"
-    record: "records/production-auth-tenancy-gates-982c7e32d9af.prov.yaml"
-  - entity: "crates/matric-db/src/tenancy.rs"
-    record: "records/production-auth-tenancy-gates-80f19448872d.prov.yaml"
-  - entity: "crates/matric-db/src/user_secrets.rs"
-    record: "records/production-auth-tenancy-gates-8eb1fa383146.prov.yaml"
-  - entity: "crates/matric-inference/src/circuit_breaker.rs"
-    record: "records/production-auth-tenancy-gates-b03eebb3be1b.prov.yaml"
-  - entity: "crates/matric-inference/src/eval.rs"
-    record: "records/production-auth-tenancy-gates-7497a87a12e0.prov.yaml"
-  - entity: "crates/matric-inference/src/link_types.rs"
-    record: "records/production-auth-tenancy-gates-9e84f06b2903.prov.yaml"
-  - entity: "crates/matric-inference/src/ollama.rs"
-    record: "records/production-auth-tenancy-gates-10649b847ec7.prov.yaml"
-  - entity: "crates/matric-inference/src/provider.rs"
-    record: "records/production-auth-tenancy-gates-8a6457c6f516.prov.yaml"
-  - entity: "crates/matric-jobs/src/extraction.rs"
-    record: "records/production-auth-tenancy-gates-e117b0afc4ee.prov.yaml"
-  - entity: "crates/matric-search/src/rsf.rs"
-    record: "records/production-auth-tenancy-gates-987c7823df34.prov.yaml"
-  - entity: "docs/architecture/adr/ADR-090-multi-tenancy-model.md"
-    record: "records/production-auth-tenancy-gates-9bcd64ddfbee.prov.yaml"
-  - entity: "docs/architecture/adr/ADR-093-key-provider-trait.md"
-    record: "records/production-auth-tenancy-gates-d6af26c81e9e.prov.yaml"
-  - entity: "docs/architecture/adr/ADR-098-per-tenant-rate-limits-quotas.md"
-    record: "records/production-auth-tenancy-gates-a4900cbac3e1.prov.yaml"
-  - entity: "docs/architecture/audit-event-mapping.md"
-    record: "records/production-auth-tenancy-gates-0595fcef635e.prov.yaml"
-  - entity: "docs/architecture/cryptographic-decisions.md"
-    record: "records/production-auth-tenancy-gates-e46de6bf9518.prov.yaml"
-  - entity: "docs/architecture/hosted-secret-inventory.md"
-    record: "records/production-auth-tenancy-gates-4ab4ac45460f.prov.yaml"
-  - entity: "docs/content/api.md"
-    record: "records/production-auth-tenancy-gates-15108efcf187.prov.yaml"
-  - entity: "docs/content/configuration.md"
-    record: "records/production-auth-tenancy-gates-f7ffce2005a7.prov.yaml"
-  - entity: "docs/content/operators-guide.md"
-    record: "records/production-auth-tenancy-gates-abc043478b62.prov.yaml"
-  - entity: "docs/operations/hosted-user-credentials.md"
-    record: "records/production-auth-tenancy-gates-61852b14668d.prov.yaml"
-  - entity: "docs/operations/key-rotation.md"
-    record: "records/production-auth-tenancy-gates-84c57800a6df.prov.yaml"
-  - entity: "migrations/20260824010000_tenant_registry_and_forced_rls.sql"
-    record: "records/production-auth-tenancy-gates-8182927aadec.prov.yaml"
-  - entity: "migrations/20260824010100_tenant_qualified_note_collection.sql"
-    record: "records/production-auth-tenancy-gates-a3ffe0757969.prov.yaml"
-  - entity: "tests/fortemi-auth-consumer/Cargo.lock"
-    record: "records/production-auth-tenancy-gates-db62a304ec36.prov.yaml"
-  - entity: "tests/fortemi-auth-consumer/Cargo.toml"
-    record: "records/production-auth-tenancy-gates-d10676d9ce82.prov.yaml"
-  - entity: "tests/fortemi-auth-consumer/fixtures/fortemi-auth-release-policy-v1.json"
-    record: "records/production-auth-tenancy-gates-ff6d8190c068.prov.yaml"
-  - entity: "tests/fortemi-auth-consumer/fixtures/fortemi-auth-v1.json"
-    record: "records/production-auth-tenancy-gates-5a11b0a9476c.prov.yaml"
-  - entity: "tests/fortemi-auth-consumer/tests/consumer_smoke.rs"
-    record: "records/production-auth-tenancy-gates-7fed9f9073e3.prov.yaml"
-  - entity: "crates/matric-api/src/audit_policy.rs"
-    record: "records/production-auth-tenancy-gates-3ea642db87b1.prov.yaml"
-  - entity: "crates/matric-api/src/services/inference_breaker.rs"
-    record: "records/production-auth-tenancy-gates-d6d02ca78d4d.prov.yaml"
-  - entity: "crates/matric-api/src/services/user_secret_dsar.rs"
-    record: "records/production-auth-tenancy-gates-b08482d284e2.prov.yaml"
-  - entity: "crates/matric-api/src/services/user_secret_rotation.rs"
-    record: "records/production-auth-tenancy-gates-eb82eabc2c06.prov.yaml"
-  - entity: "crates/matric-db/tests/tenant_isolation_matrix_test.rs"
-    record: "records/production-auth-tenancy-gates-0ac7a1a2f7c0.prov.yaml"
-  - entity: "docs/operations/hosted-inference-resilience.md"
-    record: "records/production-auth-tenancy-gates-ae5b6748d496.prov.yaml"
-  - entity: "migrations/20260824010500_user_secret_rotation_lifecycle.sql"
-    record: "records/production-auth-tenancy-gates-f42823ac9431.prov.yaml"
-  - entity: "crates/matric-api/src/services/inference_breaker.rs"
-    record: "records/inference-breaker-registry-1099.prov.yaml"
-  - entity: "crates/matric-api/src/handlers/inference_complete.rs"
-    record: "records/inference-complete-breaker-integration-1099.prov.yaml"
-  - entity: "crates/matric-inference/src/circuit_breaker.rs"
-    record: "records/inference-circuit-breaker-half-open-1099.prov.yaml"
-  - entity: "crates/matric-api/src/services/user_secret_rotation.rs"
-    record: "records/user-secret-rewrap-service-730.prov.yaml"
-  - entity: "crates/matric-api/src/services/user_secret_dsar.rs"
-    record: "records/user-secret-dsar-service-730.prov.yaml"
-  - entity: "crates/matric-db/src/user_secrets.rs"
-    record: "records/user-secret-rewrap-repository-730.prov.yaml"
-  - entity: "migrations/20260824010500_user_secret_rotation_lifecycle.sql"
-    record: "records/user-secret-rotation-lifecycle-migration-730.prov.yaml"
-  - entity: "crates/matric-crypto/src/provider/aws_kms/tests.rs"
-    record: "records/aws-kms-outage-rotation-receipts-734.prov.yaml"
-  - entity: "crates/matric-api/src/handlers/inference_complete.rs"
-    record: "records/matric-api-hosted-stored-inference-731.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-hosted-inference-routes-731.prov.yaml"
-  - entity: "crates/matric-api/src/middleware/tenant_scope.rs"
-    record: "records/tenant-scope-stream-release-731.prov.yaml"
-  - entity: "crates/matric-api/src/route_policy.rs"
-    record: "records/hosted-inference-route-policy-731.prov.yaml"
-  - entity: "crates/matric-inference/src/provider.rs"
-    record: "records/matric-inference-stored-embedding-731.prov.yaml"
-  - entity: "crates/matric-inference/src/openai/backend.rs"
-    record: "records/openai-backend-key-zeroize-731.prov.yaml"
-  - entity: "crates/matric-inference/src/destination_policy.rs"
-    record: "records/matric-inference-destination-policy-920.prov.yaml"
-  - entity: "crates/matric-inference/src/provider.rs"
-    record: "records/matric-inference-provider-destination-client-920.prov.yaml"
-  - entity: "crates/matric-inference/src/openai/backend.rs"
-    record: "records/matric-inference-openai-client-policy-920.prov.yaml"
-  - entity: "crates/matric-inference/src/ollama.rs"
-    record: "records/matric-inference-ollama-client-policy-920.prov.yaml"
-  - entity: "crates/matric-api/src/handlers/inference_complete.rs"
-    record: "records/matric-api-inference-complete-destination-policy-920.prov.yaml"
-  - entity: "crates/matric-api/src/handlers/inference_config.rs"
-    record: "records/matric-api-inference-config-destination-policy-920.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-destination-policy-state-920.prov.yaml"
-  - entity: "docs/operations/inference-destination-policy.md"
-    record: "records/inference-destination-policy-runbook-920.prov.yaml"
-  - entity: ".aiwg/security/multi-tenant-threat-model.md"
-    record: "records/multi-tenant-threat-model-user-secrets-730.prov.yaml"
-  - entity: "docs/operations/hosted-user-credentials.md"
-    record: "records/hosted-user-credentials-runbook-730.prov.yaml"
-  - entity: "crates/matric-api/tests/user_secret_storage_test.rs"
-    record: "records/user-secret-storage-rewrap-test-730.prov.yaml"
-  - entity: "crates/matric-api/src/handlers/user_secrets.rs"
-    record: "records/matric-api-user-secret-handlers-730.prov.yaml"
-  - entity: "crates/matric-api/src/services/user_secrets.rs"
-    record: "records/matric-api-user-secret-service-730.prov.yaml"
-  - entity: "crates/matric-db/src/user_secrets.rs"
-    record: "records/matric-db-user-secrets-730.prov.yaml"
-  - entity: "migrations/20260824010400_tenant_user_secrets.sql"
-    record: "records/tenant-user-secrets-migration-730.prov.yaml"
-  - entity: "docs/architecture/adr/ADR-098-per-tenant-rate-limits-quotas.md"
-    record: "records/adr-098-request-quota-checkpoint-714.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-hosted-request-quota-714.prov.yaml"
-  - entity: "crates/matric-api/src/services/quota.rs"
-    record: "records/matric-api-redis-request-quota-714.prov.yaml"
-  - entity: ".aiwg/architecture/api-compatibility-discovery-contract-2026-07.md"
-    record: "records/api-compatibility-hosted-auth-kms-728-734.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-hosted-kms-startup-734.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-durable-authz-audit-711.prov.yaml"
-  - entity: ".aiwg/architecture/tenant-table-inventory-2026-08.md"
-    record: "records/tenant-table-inventory-auth-tenancy-726.prov.yaml"
-  - entity: ".aiwg/security/multi-tenant-threat-model.md"
-    record: "records/multi-tenant-threat-model-auth-tenancy-729.prov.yaml"
-  - entity: "crates/matric-api/src/hosted_auth.rs"
-    record: "records/matric-api-hosted-auth-728.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-hosted-auth-728.prov.yaml"
-  - entity: "crates/matric-api/src/middleware/tenant_scope.rs"
-    record: "records/matric-api-tenant-scope-728.prov.yaml"
-  - entity: "crates/matric-db/src/notes.rs"
-    record: "records/matric-db-notes-tenant-connection-728.prov.yaml"
-  - entity: "crates/matric-crypto/src/provider.rs"
-    record: "records/matric-crypto-provider-734.prov.yaml"
-  - entity: "crates/matric-crypto/src/provider/aws_kms.rs"
-    record: "records/matric-crypto-aws-kms-provider-734.prov.yaml"
-  - entity: "crates/matric-crypto/src/provider/aws_kms/tests.rs"
-    record: "records/matric-crypto-aws-kms-tests-734.prov.yaml"
-  - entity: "crates/matric-crypto/src/provider/env.rs"
-    record: "records/matric-crypto-env-provider-734.prov.yaml"
-  - entity: "crates/matric-crypto/src/provider/tests.rs"
-    record: "records/matric-crypto-provider-tests-734.prov.yaml"
-  - entity: "crates/matric-db/src/tenancy.rs"
-    record: "records/matric-db-tenancy-726.prov.yaml"
-  - entity: "crates/matric-db/src/archives.rs"
-    record: "records/matric-db-archives-rls-726.prov.yaml"
-  - entity: "crates/matric-db/src/pool.rs"
-    record: "records/matric-db-pool-hosted-role-727.prov.yaml"
-  - entity: ".aiwg/planning/issue-roadmap-audit-2026-08-23.md"
-    record: "records/issue-roadmap-audit-fortemi-react-v2026-8-0-reconciliation.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard"
-    record: "records/fortemi-docs-shard-release-2026-7-22-1098.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"
-    record: "records/fortemi-docs-shard-receipt-release-2026-7-22-1098.prov.yaml"
-  - entity: "contracts/asyncapi/asyncapi.yaml"
-    record: "records/asyncapi-contract-release-2026-7-22-1098.prov.yaml"
-  - entity: "contracts/asyncapi/asyncapi.sha256"
-    record: "records/asyncapi-checksum-release-2026-7-22-1098.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard"
-    record: "records/fortemi-docs-shard-release-2026-7-21-1098.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"
-    record: "records/fortemi-docs-shard-receipt-release-2026-7-21-1098.prov.yaml"
-  - entity: "docker/python-sidecar-locks.json"
-    record: "records/python-sidecar-locks-review-renewal-1098.prov.yaml"
-  - entity: "docker/third-party-dependencies.json"
-    record: "records/third-party-dependencies-review-renewal-1098.prov.yaml"
-  - entity: "crates/matric-jobs/src/worker.rs"
-    record: "records/matric-jobs-worker-bounded-recovery-1098.prov.yaml"
-  - entity: "crates/matric-jobs/src/lib.rs"
-    record: "records/matric-jobs-lib-bounded-recovery-1098.prov.yaml"
-  - entity: "crates/matric-core/src/models.rs"
-    record: "records/matric-core-models-retry-partition-1098.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-jobs-diagnostic-profile-1098.prov.yaml"
-  - entity: "crates/matric-api/src/handlers/jobs.rs"
-    record: "records/matric-api-jobs-embedding-diagnostics-1098.prov.yaml"
-  - entity: "crates/matric-inference/src/ollama.rs"
-    record: "records/matric-inference-ollama-embedding-diagnostics-1098.prov.yaml"
-  - entity: ".aiwg/planning/roadmap.md"
-    record: "records/fortemi-delivery-roadmap-fortemi-react-v2026-8-0-reconciliation.prov.yaml"
-  - entity: ".aiwg/release.config"
-    record: "records/fortemi-release-config-ghcr-publication-64.prov.yaml"
-  - entity: ".gitea/workflows/publish-sidecar.yml"
-    record: "records/publish-sidecar-workflow-linux-arm64-1095.prov.yaml"
-  - entity: "scripts/ci/publish-sidecar-release.sh"
-    record: "records/publish-sidecar-release-linux-arm64-1095.prov.yaml"
-  - entity: "scripts/ci/mirror-release-assets-to-github.sh"
-    record: "records/mirror-release-assets-linux-arm64-1095.prov.yaml"
-  - entity: "scripts/ci/verify-sidecar-publication.py"
-    record: "records/verify-sidecar-publication-linux-arm64-1095.prov.yaml"
-  - entity: "scripts/ci/run-suite-platform-contract.sh"
-    record: "records/run-suite-platform-contract-toolchain-1095.prov.yaml"
-  - entity: "tests/test_verify_suite_platform_matrix.py"
-    record: "records/test-suite-platform-toolchain-1095.prov.yaml"
-  - entity: ".gitea/workflows/suite-platform-contract.yml"
-    record: "records/suite-platform-contract-workflow-1095.prov.yaml"
-  - entity: "contracts/suite-conformance/platform-matrix.json"
-    record: "records/suite-platform-matrix-1095.prov.yaml"
-  - entity: "contracts/suite-conformance/platform-matrix.schema.json"
-    record: "records/suite-platform-matrix-schema-1095.prov.yaml"
-  - entity: "scripts/ci/verify-suite-platform-matrix.py"
-    record: "records/suite-platform-matrix-verifier-1095.prov.yaml"
-  - entity: "contracts/suite-conformance/README.md"
-    record: "records/suite-conformance-readme-1095.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-suite-platform-memory-lock-1095.prov.yaml"
-  - entity: "docs/architecture/adr/ADR-104-supported-platform-suite-conformance.md"
-    record: "records/adr-104-supported-platform-suite-conformance-1095.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-al-perf01-monotonic-high-water-1094.prov.yaml"
-  - entity: "crates/matric-db/src/file_storage.rs"
-    record: "records/matric-db-file-storage-journal-temp-flush-1093.prov.yaml"
-  - entity: ".aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md"
-    record: "records/bidirectional-asset-lifecycle-audit-plan-hotm-283-closeout.prov.yaml"
-  - entity: "crates/matric-db/src/file_storage.rs"
-    record: "records/matric-db-file-storage-copy-abort-flush-1093.prov.yaml"
-  - entity: ".aiwg/testing/asset-lifecycle-performance-policy-v1.json"
-    record: "records/asset-lifecycle-performance-policy-v1-1094.prov.yaml"
-  - entity: ".aiwg/testing/receipts/al-perf01-baseline-0ef4eccc.json"
-    record: "records/al-perf01-baseline-0ef4eccc-1094.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-al-perf01-phase-policy-1094.prov.yaml"
-  - entity: "scripts/ci/verify-al-perf01-receipt-bundle.py"
-    record: "records/verify-al-perf01-policy-bundle-1094.prov.yaml"
-  - entity: ".aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md"
-    record: "records/bidirectional-asset-lifecycle-audit-plan-policy-1094.prov.yaml"
-  - entity: "scripts/ci/verify-asset-lifecycle-system-receipt.py"
-    record: "records/verify-asset-lifecycle-system-receipt-1093.prov.yaml"
-  - entity: "scripts/ci/verify-asset-lifecycle-system-receipt.sh"
-    record: "records/run-asset-lifecycle-system-receipt-1093.prov.yaml"
-  - entity: "tests/test_verify_asset_lifecycle_system_receipt.py"
-    record: "records/test-verify-asset-lifecycle-system-receipt-1093.prov.yaml"
-  - entity: ".gitea/workflows/ci-builder.yaml"
-    record: "records/ci-builder-al-sys-receipt-1093.prov.yaml"
-  - entity: ".aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md"
-    record: "records/bidirectional-asset-lifecycle-audit-plan-al-sys-receipt-1093.prov.yaml"
-  - entity: "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
-    record: "records/adr-102-al-sys-receipt-1093.prov.yaml"
-  - entity: "scripts/ci/verify-tus-bounded-memory-receipt.sh"
-    record: "records/verify-tus-bounded-memory-receipt-1094.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-bounded-io-1094.prov.yaml"
-  - entity: "crates/matric-db/src/file_storage.rs"
-    record: "records/matric-db-file-storage-bounded-io-1094.prov.yaml"
-  - entity: "crates/matric-db/src/lib.rs"
-    record: "records/matric-db-lib-bounded-io-1094.prov.yaml"
-  - entity: "scripts/ci/verify-asset-lifecycle-perf-receipt.sh"
-    record: "records/verify-asset-lifecycle-perf-receipt-1094.prov.yaml"
-  - entity: "scripts/ci/verify-al-perf01-receipt-bundle.py"
-    record: "records/verify-al-perf01-receipt-bundle-1094.prov.yaml"
-  - entity: "tests/test_verify_al_perf01_receipt_bundle.py"
-    record: "records/test-verify-al-perf01-receipt-bundle-1094.prov.yaml"
-  - entity: ".gitea/workflows/ci-builder.yaml"
-    record: "records/ci-builder-al-perf01-bounded-io-1094.prov.yaml"
-  - entity: "scripts/ci/verify-bidirectional-asset-lifecycle.sh"
-    record: "records/verify-bidirectional-asset-lifecycle-bounded-io-1094.prov.yaml"
-  - entity: "docs/architecture/adr/ADR-033-file-storage-architecture.md"
-    record: "records/adr-033-bounded-file-io-1094.prov.yaml"
-  - entity: ".aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md"
-    record: "records/bidirectional-asset-lifecycle-audit-plan-perf-1094.prov.yaml"
-  - entity: "scripts/ci/verify-bidirectional-asset-lifecycle.sh"
-    record: "records/verify-bidirectional-asset-lifecycle-process-recovery-1093.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-shard-process-recovery-1093.prov.yaml"
-  - entity: "crates/matric-db/src/file_storage.rs"
-    record: "records/matric-db-file-storage-shard-process-recovery-1093.prov.yaml"
-  - entity: "crates/matric-db/src/lib.rs"
-    record: "records/matric-db-lib-shard-process-recovery-1093.prov.yaml"
-  - entity: ".aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md"
-    record: "records/bidirectional-asset-lifecycle-audit-plan-process-recovery-1093.prov.yaml"
-  - entity: "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
-    record: "records/adr-102-sidecar-process-recovery-1093.prov.yaml"
-  - entity: "docs/architecture/adr/ADR-103-lossless-knowledge-shard-presence-semantics.md"
-    record: "records/adr-103-sidecar-process-recovery-1093.prov.yaml"
-  - entity: "tests/fixtures/shards/external/schema-2-advertisement.receipt.json"
-    record: "records/schema-2-advertisement-receipt-1081.prov.yaml"
-  - entity: "contracts/knowledge-shard/conformance/matrix.json"
-    record: "records/knowledge-shard-conformance-matrix-aiwg-complete-1089.prov.yaml"
-  - entity: "contracts/knowledge-shard/conformance/README.md"
-    record: "records/knowledge-shard-conformance-readme-aiwg-complete-1089.prov.yaml"
-  - entity: "contracts/knowledge-shard/conformance/matrix.schema.json"
-    record: "records/knowledge-shard-conformance-schema-claim-scope-1089.prov.yaml"
-  - entity: "scripts/ci/verify-knowledge-shard-matrix.py"
-    record: "records/verify-knowledge-shard-matrix-claim-scope-1089.prov.yaml"
-  - entity: "tests/test_verify_knowledge_shard_matrix.py"
-    record: "records/test-verify-knowledge-shard-matrix-aiwg-complete-1089.prov.yaml"
-  - entity: "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
-    record: "records/adr-102-aiwg-complete-1089.prov.yaml"
-  - entity: "tests/fixtures/shards/README.md"
-    record: "records/shard-fixtures-readme-aiwg-complete-1089.prov.yaml"
-  - entity: ".gitea/workflows/ci-builder.yaml"
-    record: "records/ci-builder-aiwg-receipts-1089.prov.yaml"
-  - entity: "tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard.cell-receipt.json"
-    record: "records/aiwg-core-v1-2026.7.20-cell-receipt-1089.prov.yaml"
-  - entity: "tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard.producer-receipt.json"
-    record: "records/aiwg-core-v1-2026.7.20-producer-receipt-1089.prov.yaml"
-  - entity: "tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard"
-    record: "records/aiwg-core-v1-2026.7.20-consumer-fixture-1089.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/aiwg-core-v1-fortemi-consumer-tests-1089.prov.yaml"
-  - entity: "tests/fixtures/shards/README.md"
-    record: "records/shard-fixtures-readme-aiwg-core-v1-1089.prov.yaml"
-  - entity: "tests/fixtures/shards/recordstore-record-v1-2026.7.13.shard.cell-receipt.json"
-    record: "records/recordstore-record-v1-2026.7.13-cell-receipt-1059.prov.yaml"
-  - entity: "contracts/knowledge-shard/conformance/matrix.json"
-    record: "records/knowledge-shard-conformance-matrix-recordstore-to-fortemi-1059.prov.yaml"
-  - entity: "contracts/knowledge-shard/conformance/README.md"
-    record: "records/knowledge-shard-conformance-readme-recordstore-to-fortemi-1059.prov.yaml"
-  - entity: "tests/fixtures/shards/README.md"
-    record: "records/shard-fixtures-readme-recordstore-cell-receipt-1059.prov.yaml"
-  - entity: "tests/test_verify_knowledge_shard_matrix.py"
-    record: "records/test-verify-knowledge-shard-matrix-recordstore-to-fortemi-1059.prov.yaml"
-  - entity: "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
-    record: "records/adr-102-recordstore-to-fortemi-cell-1059.prov.yaml"
-  - entity: ".gitea/workflows/ci-builder.yaml"
-    record: "records/ci-builder-recordstore-cell-receipt-artifact-1059.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-recordstore-record-v1-consumer-1059.prov.yaml"
-  - entity: "tests/fixtures/shards/recordstore-record-v1-2026.7.13.shard"
-    record: "records/recordstore-record-v1-2026.7.13-consumer-fixture-1059.prov.yaml"
-  - entity: "tests/fixtures/shards/recordstore-record-v1-2026.7.13.shard.producer-receipt.json"
-    record: "records/recordstore-record-v1-2026.7.13-producer-receipt-1059.prov.yaml"
-  - entity: "tests/fixtures/shards/README.md"
-    record: "records/shard-fixtures-readme-recordstore-to-fortemi-1059.prov.yaml"
-  - entity: ".gitea/workflows/ci-builder.yaml"
-    record: "records/ci-builder-lightweight-knowledge-shard-matrix-1059.prov.yaml"
-  - entity: "contracts/knowledge-shard/conformance/matrix.json"
-    record: "records/knowledge-shard-conformance-matrix-fortemi-to-pglite-1059.prov.yaml"
-  - entity: "contracts/knowledge-shard/conformance/README.md"
-    record: "records/knowledge-shard-conformance-readme-fortemi-to-pglite-1059.prov.yaml"
-  - entity: "tests/test_verify_knowledge_shard_matrix.py"
-    record: "records/test-verify-knowledge-shard-matrix-fortemi-to-pglite-1059.prov.yaml"
-  - entity: "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
-    record: "records/adr-102-fortemi-to-pglite-cell-1059.prov.yaml"
-  - entity: "contracts/knowledge-shard/conformance/matrix.json"
-    record: "records/knowledge-shard-conformance-matrix-pglite-to-fortemi-1059.prov.yaml"
-  - entity: "contracts/knowledge-shard/conformance/README.md"
-    record: "records/knowledge-shard-conformance-readme-pglite-to-fortemi-1059.prov.yaml"
-  - entity: "tests/test_verify_knowledge_shard_matrix.py"
-    record: "records/test-verify-knowledge-shard-matrix-pglite-to-fortemi-1059.prov.yaml"
-  - entity: "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
-    record: "records/adr-102-pglite-to-fortemi-cell-1059.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-pglite-core-v1-consumer-1059.prov.yaml"
-  - entity: "tests/fixtures/shards/pglite-core-v1-2026.7.13.shard"
-    record: "records/pglite-core-v1-2026.7.13-consumer-fixture-1059.prov.yaml"
-  - entity: "contracts/knowledge-shard/conformance/matrix.json"
-    record: "records/knowledge-shard-conformance-matrix-pglite-self-1059.prov.yaml"
-  - entity: "contracts/knowledge-shard/conformance/README.md"
-    record: "records/knowledge-shard-conformance-readme-pglite-self-1059.prov.yaml"
-  - entity: "tests/test_verify_knowledge_shard_matrix.py"
-    record: "records/test-verify-knowledge-shard-matrix-pglite-self-1059.prov.yaml"
-  - entity: "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
-    record: "records/adr-102-pglite-self-cell-1059.prov.yaml"
-  - entity: "tests/fixtures/shards/fortemi-core-v1-2026.7.12.shard.cell-receipt.json"
-    record: "records/fortemi-core-v1-2026.7.12-cell-receipt-1059.prov.yaml"
-  - entity: "contracts/knowledge-shard/conformance/matrix.json"
-    record: "records/knowledge-shard-conformance-matrix-core-v1-self-1059.prov.yaml"
-  - entity: "contracts/knowledge-shard/conformance/README.md"
-    record: "records/knowledge-shard-conformance-readme-core-v1-self-1059.prov.yaml"
-  - entity: "tests/fixtures/shards/README.md"
-    record: "records/knowledge-shard-fixture-readme-core-v1-self-1059.prov.yaml"
-  - entity: "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
-    record: "records/adr-102-core-v1-self-cell-1059.prov.yaml"
-  - entity: "tests/test_verify_knowledge_shard_matrix.py"
-    record: "records/test-verify-knowledge-shard-matrix-core-v1-self-1059.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-core-v1-self-cell-1059.prov.yaml"
-  - entity: "tests/fixtures/shards/fortemi-core-v1-2026.7.12.shard"
-    record: "records/fortemi-core-v1-2026.7.12-shard-1059.prov.yaml"
-  - entity: ".aiwg/security/working/ci-workflow-audit.md"
-    record: "records/ci-workflow-audit-server-build-remediation.prov.yaml"
-  - entity: "build/Dockerfile.builder"
-    record: "records/builder-https-package-source-1088.prov.yaml"
-  - entity: ".gitea/workflows/build-builder.yaml"
-    record: "records/build-builder-tool-verification-1088.prov.yaml"
-  - entity: ".gitea/workflows/ci-builder.yaml"
-    record: "records/ci-builder-preinstalled-jsonschema-1088.prov.yaml"
-  - entity: ".gitea/workflows/docsite-deploy.yml"
-    record: "records/docsite-https-package-source-1088.prov.yaml"
-  - entity: "tests/fixtures/shards/external/schema-2-runtime.implementation-receipt.json"
-    record: "records/schema-2-runtime-signing-receipt-1088.prov.yaml"
-  - entity: "crates/matric-api/tests/shard_schema_2_receipt_test.rs"
-    record: "records/shard-schema-2-runtime-signing-receipt-test-1088.prov.yaml"
-  - entity: "tests/fixtures/shards/README.md"
-    record: "records/knowledge-shard-fixture-readme-hotm-272.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-signed-full-v1-export-1088.prov.yaml"
-  - entity: "crates/matric-api/src/shard_signature.rs"
-    record: "records/matric-api-shard-signature-production-key-boundary-1088.prov.yaml"
-  - entity: "tests/fixtures/shards/external/schema-2-full-v1.interop-receipt.json"
-    record: "records/schema-2-full-v1-interop-receipt-1084.prov.yaml"
-  - entity: "crates/matric-api/tests/shard_schema_2_interop_receipt_test.rs"
-    record: "records/shard-schema-2-interop-receipt-test-1084.prov.yaml"
-  - entity: "contracts/knowledge-shard/contract.json"
-    record: "records/knowledge-shard-contract-full-v1-provenance-1057.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-full-v1-provenance-1057.prov.yaml"
-  - entity: "contracts/knowledge-shard/contract.json"
-    record: "records/knowledge-shard-contract-1057.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-knowledge-shard-1057.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-openapi-contract-1060.prov.yaml"
-  - entity: "crates/matric-api/src/handlers/inference_complete.rs"
-    record: "records/inference-complete-openapi-contract-1060.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-shard-roundtrip-1056.prov.yaml"
-  - entity: "crates/matric-db/src/collections.rs"
-    record: "records/matric-db-collections-shard-roundtrip-1056.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-shard-bounds-923.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-shard-atomic-apply-923.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-shard-atomic-swap-923.prov.yaml"
-  - entity: "crates/matric-db/src/file_storage.rs"
-    record: "records/matric-db-file-storage-shard-staging-1058.prov.yaml"
-  - entity: "crates/matric-db/src/lib.rs"
-    record: "records/matric-db-lib-shard-staging-1058.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-shard-staging-sweep-1058.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-shard-attachment-projections-1057.prov.yaml"
-  - entity: ".aiwg/architecture/binary-attachment-projection-contract-2026-07.md"
-    record: "records/binary-attachment-projection-contract-shard-reference-import-1057.prov.yaml"
-  - entity: ".aiwg/testing/binary-attachment-projection-contract-test-plan-2026-07.md"
-    record: "records/binary-attachment-projection-test-plan-shard-reference-import-1057.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-shard-sidecar-routes-1058.prov.yaml"
-  - entity: "crates/matric-db/src/file_storage.rs"
-    record: "records/matric-db-file-storage-shard-promotion-compensation-1058.prov.yaml"
-  - entity: "crates/matric-db/src/lib.rs"
-    record: "records/matric-db-lib-shard-backend-access-1058.prov.yaml"
-  - entity: ".aiwg/architecture/binary-attachment-projection-contract-2026-07.md"
-    record: "records/binary-attachment-projection-contract-shard-sidecar-routes-1058.prov.yaml"
-  - entity: ".aiwg/testing/binary-attachment-projection-contract-test-plan-2026-07.md"
-    record: "records/binary-attachment-projection-test-plan-shard-sidecar-routes-1058.prov.yaml"
-  - entity: "crates/matric-api/src/main.rs"
-    record: "records/matric-api-main-shard-tombstones-1057.prov.yaml"
-  - entity: "crates/matric-core/src/shard/version.rs"
-    record: "records/matric-core-shard-version-1057.prov.yaml"
-  - entity: "crates/matric-core/src/shard/compatibility.rs"
-    record: "records/matric-core-shard-compatibility-1057.prov.yaml"
-  - entity: "crates/matric-core/src/shard/migrations/mod.rs"
-    record: "records/matric-core-shard-migration-registry-1057.prov.yaml"
-  - entity: "crates/matric-core/src/shard/migrations/v1_0_to_v1_1.rs"
-    record: "records/matric-core-shard-v1-0-to-v1-1-1057.prov.yaml"
-  - entity: "crates/matric-core/src/shard/tests.rs"
-    record: "records/matric-core-shard-tests-tombstones-1057.prov.yaml"
-  - entity: "tests/fortemi-auth-consumer/tests/consumer_smoke.rs"
-    record: "records/fortemi-auth-consumer-smoke-test-707.prov.yaml"
-  - entity: ".aiwg/reports/fortemi-auth-rust-consumer-smoke-receipt-2026-07-26.md"
-    record: "records/fortemi-auth-rust-consumer-smoke-receipt-707.prov.yaml"
-  - entity: "tests/fortemi-auth-consumer/fixtures/fortemi-auth-v1.json"
-    record: "records/fortemi-auth-v1-fixture-707.prov.yaml"
-  - entity: "tests/fortemi-auth-consumer/fixtures/fortemi-auth-release-policy-v1.json"
-    record: "records/fortemi-auth-release-policy-v1-fixture-1081.prov.yaml"
-  - entity: "contracts/knowledge-shard/contract.json"
-    record: "records/knowledge-shard-contract-v1-1-1057.prov.yaml"
-  - entity: ".aiwg/requirements/bidirectional-asset-lifecycle-requirements-2026-07.md"
-    record: "records/bidirectional-asset-lifecycle-requirements-1081.prov.yaml"
-  - entity: ".aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md"
-    record: "records/bidirectional-asset-lifecycle-audit-plan-1081.prov.yaml"
-  - entity: "scripts/ci/verify-bidirectional-asset-lifecycle.sh"
-    record: "records/verify-bidirectional-asset-lifecycle-1081.prov.yaml"
-  - entity: ".gitea/workflows/publish-sidecar.yml"
-    record: "records/publish-sidecar-system-git-auth-fetch-728.prov.yaml"
-  - entity: "crates/matric-db/src/chunking.rs"
-    record: "records/matric-db-semantic-chunking-1100.prov.yaml"
-  - entity: "crates/matric-api/src/handlers/jobs.rs"
-    record: "records/matric-api-embedding-chunking-1100.prov.yaml"
-  - entity: ".aiwg/aiwg.config"
-    record: "records/aiwg-repo-access-config-1098-1100.prov.yaml"
-  - entity: ".aiwg/security/repo-access.manifest.yaml"
-    record: "records/repo-access-manifest-1098-1100.prov.yaml"
-  - entity: "Dockerfile"
-    record: "records/dockerfile-rust-stack-ci-1098-1100.prov.yaml"
-  - entity: "Dockerfile.bundle"
-    record: "records/dockerfile-bundle-rust-stack-ci-1098-1100.prov.yaml"
-  - entity: ".env.example"
-    record: "records/env-example-doc-sync-1098-1100.prov.yaml"
-  - entity: "README.md"
-    record: "records/readme-doc-sync-1098-1100.prov.yaml"
-  - entity: "docs/content/api.md"
-    record: "records/api-doc-sync-1098-1100.prov.yaml"
-  - entity: "docs/content/authentication.md"
-    record: "records/authentication-doc-sync-1098-1100.prov.yaml"
-  - entity: "docs/content/configuration.md"
-    record: "records/configuration-doc-sync-1098-1100.prov.yaml"
-  - entity: "docs/content/container-release-evidence.md"
-    record: "records/container-release-evidence-doc-sync-1098-1100.prov.yaml"
-  - entity: "docs/content/embedding-pipeline.md"
-    record: "records/embedding-pipeline-doc-sync-1098-1100.prov.yaml"
-  - entity: "docs/content/mcp-deployment.md"
-    record: "records/mcp-deployment-doc-sync-1098-1100.prov.yaml"
-  - entity: "docs/content/troubleshooting.md"
-    record: "records/troubleshooting-doc-sync-1098-1100.prov.yaml"
-  - entity: "scripts/ci/docs-contract-rules/998-rate-limit-contract.cjs"
-    record: "records/rate-limit-doc-contract-current-hosted-714.prov.yaml"
-  - entity: ".aiwg/reports/doc-sync-audit-2026-08-25.md"
-    record: "records/doc-sync-audit-2026-08-25-1098-1100.prov.yaml"
-  - entity: ".aiwg/.last-doc-sync"
-    record: "records/last-doc-sync-2026-08-25-1098-1100.prov.yaml"
-  - entity: ".aiwg/working/doc-sync/product-docs-audit-v2026.7.22-to-9a43c755-2026-08-25.md"
-    record: "records/product-docs-audit-2026-08-25-1098-1100.prov.yaml"
-  - entity: ".aiwg/working/doc-sync/release-docs-v2026.7.23-dry-run-20260825.md"
-    record: "records/release-docs-audit-2026-08-25-1098-1100.prov.yaml"
-  - entity: "Cargo.toml"
-    record: "records/cargo-manifest-release-2026-7-23-1098-1100.prov.yaml"
-  - entity: "Cargo.lock"
-    record: "records/cargo-lock-release-2026-7-23-1098-1100.prov.yaml"
-  - entity: "mcp-server/package.json"
-    record: "records/mcp-package-release-2026-7-23-1098-1100.prov.yaml"
-  - entity: "mcp-server/package-lock.json"
-    record: "records/mcp-package-lock-release-2026-7-23-1098-1100.prov.yaml"
-  - entity: "CHANGELOG.md"
-    record: "records/changelog-release-2026-7-23-1098-1100.prov.yaml"
-  - entity: "docs/releases/v2026.7.23-announcement.md"
-    record: "records/announcement-release-2026-7-23-1098-1100.prov.yaml"
-  - entity: "contracts/asyncapi/asyncapi.yaml"
-    record: "records/asyncapi-contract-release-2026-7-23-1098-1100.prov.yaml"
-  - entity: "contracts/asyncapi/asyncapi.sha256"
-    record: "records/asyncapi-checksum-release-2026-7-23-1098-1100.prov.yaml"
-  - entity: ".aiwg/releases/evidence/v2026.7.23-release-note-threat-assessment.json"
-    record: "records/release-note-threat-assessment-2026-7-23-1098-1100.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard"
-    record: "records/fortemi-docs-shard-release-2026-7-23-1098-1100.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"
-    record: "records/fortemi-docs-shard-receipt-release-2026-7-23-1098-1100.prov.yaml"
-  - entity: "tools/ci/verify-signed-tag.sh"
-    record: "records/verify-signed-tag-isolated-keyring-1098.prov.yaml"
-  - entity: "tests/test_verify_signed_tag.py"
-    record: "records/test-verify-signed-tag-isolated-keyring-1098.prov.yaml"
-  - entity: "Dockerfile"
-    record: "records/dockerfile-rust-stack-release-32m-1098.prov.yaml"
-  - entity: "Dockerfile.bundle"
-    record: "records/dockerfile-bundle-rust-stack-release-32m-1098.prov.yaml"
-  - entity: "scripts/ci/verify-container-release-evidence.py"
-    record: "records/verify-container-release-evidence-rust-stack-1098.prov.yaml"
-  - entity: "tests/test_verify_container_release_evidence.py"
-    record: "records/test-verify-container-release-evidence-rust-stack-1098.prov.yaml"
-  - entity: "Cargo.toml"
-    record: "records/cargo-manifest-release-2026-7-24-1098-1100.prov.yaml"
-  - entity: "Cargo.lock"
-    record: "records/cargo-lock-release-2026-7-24-1098-1100.prov.yaml"
-  - entity: "mcp-server/package.json"
-    record: "records/mcp-package-release-2026-7-24-1098-1100.prov.yaml"
-  - entity: "mcp-server/package-lock.json"
-    record: "records/mcp-package-lock-release-2026-7-24-1098-1100.prov.yaml"
-  - entity: "CHANGELOG.md"
-    record: "records/changelog-release-2026-7-24-1098-1100.prov.yaml"
-  - entity: "docs/releases/v2026.7.24-announcement.md"
-    record: "records/announcement-release-2026-7-24-1098-1100.prov.yaml"
-  - entity: "contracts/asyncapi/asyncapi.yaml"
-    record: "records/asyncapi-contract-release-2026-7-24-1098-1100.prov.yaml"
-  - entity: "contracts/asyncapi/asyncapi.sha256"
-    record: "records/asyncapi-checksum-release-2026-7-24-1098-1100.prov.yaml"
-  - entity: ".aiwg/releases/evidence/v2026.7.24-release-note-threat-assessment.json"
-    record: "records/release-note-threat-assessment-2026-7-24-1098-1100.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard"
-    record: "records/fortemi-docs-shard-release-2026-7-24-1098-1100.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"
-    record: "records/fortemi-docs-shard-receipt-release-2026-7-24-1098-1100.prov.yaml"
-  - entity: "Dockerfile"
-    record: "records/dockerfile-rust-stack-release-64m-1098.prov.yaml"
-  - entity: "Dockerfile.bundle"
-    record: "records/dockerfile-bundle-rust-stack-release-64m-1098.prov.yaml"
-  - entity: "scripts/ci/verify-container-release-evidence.py"
-    record: "records/verify-container-release-evidence-rust-stack-64m-1098.prov.yaml"
-  - entity: "tests/test_verify_container_release_evidence.py"
-    record: "records/test-verify-container-release-evidence-rust-stack-64m-1098.prov.yaml"
-  - entity: "Cargo.toml"
-    record: "records/cargo-manifest-release-2026-7-25-1098-1100.prov.yaml"
-  - entity: "Cargo.lock"
-    record: "records/cargo-lock-release-2026-7-25-1098-1100.prov.yaml"
-  - entity: "mcp-server/package.json"
-    record: "records/mcp-package-release-2026-7-25-1098-1100.prov.yaml"
-  - entity: "mcp-server/package-lock.json"
-    record: "records/mcp-package-lock-release-2026-7-25-1098-1100.prov.yaml"
-  - entity: "CHANGELOG.md"
-    record: "records/changelog-release-2026-7-25-1098-1100.prov.yaml"
-  - entity: "docs/releases/v2026.7.25-announcement.md"
-    record: "records/announcement-release-2026-7-25-1098-1100.prov.yaml"
-  - entity: "contracts/asyncapi/asyncapi.yaml"
-    record: "records/asyncapi-contract-release-2026-7-25-1098-1100.prov.yaml"
-  - entity: "contracts/asyncapi/asyncapi.sha256"
-    record: "records/asyncapi-checksum-release-2026-7-25-1098-1100.prov.yaml"
-  - entity: ".aiwg/releases/evidence/v2026.7.25-release-note-threat-assessment.json"
-    record: "records/release-note-threat-assessment-2026-7-25-1098-1100.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard"
-    record: "records/fortemi-docs-shard-release-2026-7-25-1098-1100.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"
-    record: "records/fortemi-docs-shard-receipt-release-2026-7-25-1098-1100.prov.yaml"
-  - entity: ".aiwg/testing/uat/results/fortemi-v2026.8.2-mcp-uat-2026-08-31.md"
-    record: "records/fortemi-v2026-8-2-mcp-uat-2026-08-31.prov.yaml"
-  - entity: "Cargo.toml"
-    record: "records/release-preparation-2026-8-3-56-1100.prov.yaml"
-  - entity: "Cargo.lock"
-    record: "records/release-preparation-2026-8-3-56-1100.prov.yaml"
-  - entity: "mcp-server/package.json"
-    record: "records/release-preparation-2026-8-3-56-1100.prov.yaml"
-  - entity: "mcp-server/package-lock.json"
-    record: "records/release-preparation-2026-8-3-56-1100.prov.yaml"
-  - entity: "CHANGELOG.md"
-    record: "records/release-preparation-2026-8-3-56-1100.prov.yaml"
-  - entity: "docs/releases/v2026.8.3-announcement.md"
-    record: "records/release-preparation-2026-8-3-56-1100.prov.yaml"
-  - entity: "contracts/asyncapi/asyncapi.yaml"
-    record: "records/release-preparation-2026-8-3-56-1100.prov.yaml"
-  - entity: "contracts/asyncapi/asyncapi.sha256"
-    record: "records/release-preparation-2026-8-3-56-1100.prov.yaml"
-  - entity: ".aiwg/releases/evidence/v2026.8.3-release-note-threat-assessment.json"
-    record: "records/v2026-8-3-release-note-threat-assessment.prov.yaml"
-  - entity: ".aiwg/.last-doc-sync"
-    record: "records/doc-sync-release-2026-8-3.prov.yaml"
-  - entity: ".aiwg/working/doc-sync/release-v2026.8.3-dry-run-20260831.md"
-    record: "records/doc-sync-release-2026-8-3.prov.yaml"
-  - entity: ".aiwg/reports/doc-sync-audit-v2026.8.3-2026-08-31.md"
-    record: "records/doc-sync-release-2026-8-3.prov.yaml"
-  - entity: "scripts/rebuild-docs-shard.sh"
-    record: "records/release-shard-tracked-source-2026-8-3-1125.prov.yaml"
-  - entity: "tests/test_rebuild_docs_shard.py"
-    record: "records/release-shard-tracked-source-2026-8-3-1125.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard"
-    record: "records/release-shard-tracked-source-2026-8-3-1125.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"
-    record: "records/release-shard-tracked-source-2026-8-3-1125.prov.yaml"
-  - entity: ".aiwg/releases/evidence/v2026.8.3-shard-tracked-source-verification.json"
-    record: "records/release-shard-tracked-source-2026-8-3-1125.prov.yaml"
-  - entity: ".aiwg/testing/uat/results/fortemi-v2026.8.3-mcp-uat-2026-08-31.md"
-    record: "records/fortemi-v2026-8-3-mcp-uat-2026-08-31.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard"
-    record: "records/release-shard-tracked-source-2026-9-0-65.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"
-    record: "records/release-shard-tracked-source-2026-9-0-65.prov.yaml"
-  - entity: ".aiwg/releases/evidence/v2026.9.0-shard-tracked-source-verification.json"
-    record: "records/release-shard-tracked-source-2026-9-0-65.prov.yaml"
-  - entity: "contracts/asyncapi/asyncapi.yaml"
-    record: "records/asyncapi-release-correction-2026-9-0-66.prov.yaml"
-  - entity: "contracts/asyncapi/asyncapi.sha256"
-    record: "records/asyncapi-release-correction-2026-9-0-66.prov.yaml"
-  - entity: "contracts/asyncapi/fixtures/manifest.json"
-    record: "records/asyncapi-release-correction-2026-9-0-66.prov.yaml"
-  - entity: "contracts/asyncapi/producer-event-fixture-receipt.json"
-    record: "records/asyncapi-release-correction-2026-9-0-66.prov.yaml"
-  - entity: ".aiwg/releases/evidence/v2026.9.0-asyncapi-contract-verification.json"
-    record: "records/asyncapi-release-correction-2026-9-0-66.prov.yaml"
-  - entity: ".aiwg/testing/uat/results/fortemi-v2026.9.0-mcp-uat-2026-09-02.md"
-    record: "records/fortemi-v2026-9-0-mcp-uat-2026-09-02.prov.yaml"
-  - entity: "docs/releases/v2026.9.2-announcement.md"
-    record: "records/release-preparation-2026-9-2-1128.prov.yaml"
-  - entity: ".aiwg/releases/v2026.9.2-threat-assessment.json"
-    record: "records/release-preparation-2026-9-2-1128.prov.yaml"
-  - entity: ".aiwg/reports/doc-sync-audit-2026-09-04.md"
-    record: "records/release-preparation-2026-9-2-1128.prov.yaml"
-  - entity: "docs/releases/v2026.9.3-announcement.md"
-    record: "records/release-preparation-2026-9-3-1128.prov.yaml"
-  - entity: ".aiwg/releases/v2026.9.3-threat-assessment.json"
-    record: "records/release-preparation-2026-9-3-1128.prov.yaml"
-  - entity: ".aiwg/reports/doc-sync-audit-v2026.9.3-2026-09-04.md"
-    record: "records/release-preparation-2026-9-3-1128.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard"
-    record: "records/release-docs-shard-2026-9-3.prov.yaml"
-  - entity: "docker/seed-data/fortemi-docs.shard.receipt.json"
-    record: "records/release-docs-shard-2026-9-3.prov.yaml"
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1146-native-operations.json
+    record: records/lane-b-1146-native-operations.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1146-remote-negative.json
+    record: records/lane-b-1146-remote-negative.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1146-native-remote.json
+    record: records/lane-b-1146-native-remote.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/binary_http.rs
+    record: records/lane-b-server-owned-job-cache-cycle97-phase2.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/installed_http.rs
+    record: records/lane-b-server-owned-job-cache-cycle97-phase2.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/worker-sse-consumer.mjs
+    record: records/lane-b-server-owned-job-cache-cycle97-phase2.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/selected-memory-context.md
+    record: records/lane-b-server-owned-job-cache-cycle97-phase2.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/planning/roadmap.md
+    record: records/lane-b-server-owned-job-cache-cycle97-phase2.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/activity.log
+    record: records/lane-b-server-owned-job-cache-cycle97-phase2.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-server-owned-job-cache-cycle97-phase2.json
+    record: records/lane-b-server-owned-job-cache-cycle97-phase2.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/installed_http.rs
+    record: records/lane-b-server-context-owned-views-cycle96.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/worker-sse-consumer.mjs
+    record: records/lane-b-server-context-owned-views-cycle96.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/selected-memory-context.md
+    record: records/lane-b-server-context-owned-views-cycle96.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/planning/roadmap.md
+    record: records/lane-b-server-context-owned-views-cycle96.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/activity.log
+    record: records/lane-b-server-context-owned-views-cycle96.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-server-context-owned-views-cycle96.json
+    record: records/lane-b-server-context-owned-views-cycle96.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/binary_http.rs
+    record: records/lane-b-server-session-browser-cycle95.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/installed_http.rs
+    record: records/lane-b-server-session-browser-cycle95.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/worker-sse-consumer.mjs
+    record: records/lane-b-server-session-browser-cycle95.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/selected-memory-context.md
+    record: records/lane-b-server-session-browser-cycle95.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/planning/roadmap.md
+    record: records/lane-b-server-session-browser-cycle95.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/activity.log
+    record: records/lane-b-server-session-browser-cycle95.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-server-session-browser-cycle95.json
+    record: records/lane-b-server-session-browser-cycle95.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/worker-sse-consumer.mjs
+    record: records/lane-b-server-selected-memory-context-cycle94.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/selected-memory-context.md
+    record: records/lane-b-server-selected-memory-context-cycle94.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/planning/roadmap.md
+    record: records/lane-b-server-selected-memory-context-cycle94.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/activity.log
+    record: records/lane-b-server-selected-memory-context-cycle94.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-server-selected-memory-context-cycle94.json
+    record: records/lane-b-server-selected-memory-context-cycle94.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/openapi/openapi.sha256
+    record: records/lane-b-server-selected-memory-context-cycle93.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/openapi/openapi.yaml
+    record: records/lane-b-server-selected-memory-context-cycle93.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/handlers/archives.rs
+    record: records/lane-b-server-selected-memory-context-cycle93.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-server-selected-memory-context-cycle93.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/route_policy.rs
+    record: records/lane-b-server-selected-memory-context-cycle93.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests.rs
+    record: records/lane-b-server-selected-memory-context-cycle93.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/memory_context.rs
+    record: records/lane-b-server-selected-memory-context-cycle93.prov.yaml
+  - entity: urn:aiwg:artifact:migrations/20260913000100_tenant_archive_default.sql
+    record: records/lane-b-server-selected-memory-context-cycle93.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/selected-memory-context.md
+    record: records/lane-b-server-selected-memory-context-cycle93.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/typed-metadata-search.md
+    record: records/lane-b-server-selected-memory-context-cycle93.prov.yaml
+  - entity: urn:aiwg:artifact:docs/architecture/adr/ADR-090-multi-tenancy-model.md
+    record: records/lane-b-server-selected-memory-context-cycle93.prov.yaml
+  - entity: urn:aiwg:artifact:docs/content/authentication.md
+    record: records/lane-b-server-selected-memory-context-cycle93.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/planning/roadmap.md
+    record: records/lane-b-server-selected-memory-context-cycle93.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/activity.log
+    record: records/lane-b-server-selected-memory-context-cycle93.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-server-selected-memory-context-cycle93.json
+    record: records/lane-b-server-selected-memory-context-cycle93.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/worker-sse-consumer.mjs
+    record: records/lane-b-server-realtime-context-cycle92.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/planning/roadmap.md
+    record: records/lane-b-server-realtime-context-cycle92.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/activity.log
+    record: records/lane-b-server-realtime-context-cycle92.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-server-realtime-context-cycle92.json
+    record: records/lane-b-server-realtime-context-cycle92.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/hosted_auth.rs
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/hosted_jobs.rs
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests.rs
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/binary_http.rs
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/worker-sse-consumer.mjs
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/tests/hosted_document_type_test.rs
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/tests/hosted_document_type_test/completion.rs
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-core/src/error.rs
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/file_storage.rs
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/notes.rs
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/notes/hosted.rs
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/handler.rs
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/handler/hosted.rs
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/worker/dispatch.rs
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/worker/execution.rs
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/tests/hosted_execution_test.rs
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/typed-metadata-search.md
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/hosted-worker-transactions.md
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:docs/architecture/adr/ADR-090-multi-tenancy-model.md
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:docs/content/authentication.md
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/planning/roadmap.md
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/activity.log
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-execution-cycle91.json
+    record: records/lane-b-1091-hosted-execution-cycle91.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/hosted_jobs.rs
+    record: records/lane-b-1091-hosted-execution-cycle90.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1091-hosted-execution-cycle90.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/binary_http.rs
+    record: records/lane-b-1091-hosted-execution-cycle90.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/installed_http.rs
+    record: records/lane-b-1091-hosted-execution-cycle90.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/tests/hosted_document_type_test.rs
+    record: records/lane-b-1091-hosted-execution-cycle90.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/handler/hosted.rs
+    record: records/lane-b-1091-hosted-execution-cycle90.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/worker.rs
+    record: records/lane-b-1091-hosted-execution-cycle90.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/worker/execution.rs
+    record: records/lane-b-1091-hosted-execution-cycle90.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/tests/hosted_execution_test.rs
+    record: records/lane-b-1091-hosted-execution-cycle90.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/typed-metadata-search.md
+    record: records/lane-b-1091-hosted-execution-cycle90.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/hosted-worker-transactions.md
+    record: records/lane-b-1091-hosted-execution-cycle90.prov.yaml
+  - entity: urn:aiwg:artifact:docs/architecture/adr/ADR-090-multi-tenancy-model.md
+    record: records/lane-b-1091-hosted-execution-cycle90.prov.yaml
+  - entity: urn:aiwg:artifact:docs/content/authentication.md
+    record: records/lane-b-1091-hosted-execution-cycle90.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/planning/roadmap.md
+    record: records/lane-b-1091-hosted-execution-cycle90.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/activity.log
+    record: records/lane-b-1091-hosted-execution-cycle90.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-execution-cycle90.json
+    record: records/lane-b-1091-hosted-execution-cycle90.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/hosted_jobs.rs
+    record: records/lane-b-1091-hosted-document-type-cycle89.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/lib.rs
+    record: records/lane-b-1091-hosted-document-type-cycle89.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/tests/hosted_document_type_test.rs
+    record: records/lane-b-1091-hosted-document-type-cycle89.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/document_types.rs
+    record: records/lane-b-1091-hosted-document-type-cycle89.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/document_types/scoped.rs
+    record: records/lane-b-1091-hosted-document-type-cycle89.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/handler/hosted.rs
+    record: records/lane-b-1091-hosted-document-type-cycle89.prov.yaml
+  - entity: urn:aiwg:artifact:migrations/20260913000000_scoped_embedding_member_jobs.sql
+    record: records/lane-b-1091-hosted-document-type-cycle89.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/typed-metadata-search.md
+    record: records/lane-b-1091-hosted-document-type-cycle89.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/hosted-worker-transactions.md
+    record: records/lane-b-1091-hosted-document-type-cycle89.prov.yaml
+  - entity: urn:aiwg:artifact:docs/architecture/adr/ADR-090-multi-tenancy-model.md
+    record: records/lane-b-1091-hosted-document-type-cycle89.prov.yaml
+  - entity: urn:aiwg:artifact:docs/content/authentication.md
+    record: records/lane-b-1091-hosted-document-type-cycle89.prov.yaml
+  - entity: urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md
+    record: records/lane-b-1091-hosted-document-type-cycle89.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/planning/roadmap.md
+    record: records/lane-b-1091-hosted-document-type-cycle89.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/activity.log
+    record: records/lane-b-1091-hosted-document-type-cycle89.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-document-type-cycle89.json
+    record: records/lane-b-1091-hosted-document-type-cycle89.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/jobs/scoped.rs
+    record: records/lane-b-1091-hosted-content-cycle88.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/handler.rs
+    record: records/lane-b-1091-hosted-content-cycle88.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/handler/hosted.rs
+    record: records/lane-b-1091-hosted-content-cycle88.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/lib.rs
+    record: records/lane-b-1091-hosted-content-cycle88.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/worker/dispatch.rs
+    record: records/lane-b-1091-hosted-content-cycle88.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/tests/hosted_content_test.rs
+    record: records/lane-b-1091-hosted-content-cycle88.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/typed-metadata-search.md
+    record: records/lane-b-1091-hosted-content-cycle88.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/hosted-worker-transactions.md
+    record: records/lane-b-1091-hosted-content-cycle88.prov.yaml
+  - entity: urn:aiwg:artifact:docs/architecture/adr/ADR-090-multi-tenancy-model.md
+    record: records/lane-b-1091-hosted-content-cycle88.prov.yaml
+  - entity: urn:aiwg:artifact:docs/content/authentication.md
+    record: records/lane-b-1091-hosted-content-cycle88.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-content-cycle88.json
+    record: records/lane-b-1091-hosted-content-cycle88.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/worker.rs
+    record: records/lane-b-1091-hosted-dispatch-cycle87.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/worker/dispatch.rs
+    record: records/lane-b-1091-hosted-dispatch-cycle87.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/worker/recovery.rs
+    record: records/lane-b-1091-hosted-dispatch-cycle87.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/worker/registry.rs
+    record: records/lane-b-1091-hosted-dispatch-cycle87.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/tests/hosted_dispatch_test.rs
+    record: records/lane-b-1091-hosted-dispatch-cycle87.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/typed-metadata-search.md
+    record: records/lane-b-1091-hosted-dispatch-cycle87.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/hosted-worker-transactions.md
+    record: records/lane-b-1091-hosted-dispatch-cycle87.prov.yaml
+  - entity: urn:aiwg:artifact:docs/architecture/adr/ADR-090-multi-tenancy-model.md
+    record: records/lane-b-1091-hosted-dispatch-cycle87.prov.yaml
+  - entity: urn:aiwg:artifact:docs/content/authentication.md
+    record: records/lane-b-1091-hosted-dispatch-cycle87.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-dispatch-cycle87.json
+    record: records/lane-b-1091-hosted-dispatch-cycle87.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1091-hosted-recovery-cycle86.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/binary_http.rs
+    record: records/lane-b-1091-hosted-recovery-cycle86.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/jobs.rs
+    record: records/lane-b-1091-hosted-recovery-cycle86.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/jobs/scoped.rs
+    record: records/lane-b-1091-hosted-recovery-cycle86.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/Cargo.toml
+    record: records/lane-b-1091-hosted-recovery-cycle86.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/worker.rs
+    record: records/lane-b-1091-hosted-recovery-cycle86.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/worker/recovery.rs
+    record: records/lane-b-1091-hosted-recovery-cycle86.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/tests/hosted_recovery_test.rs
+    record: records/lane-b-1091-hosted-recovery-cycle86.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/typed-metadata-search.md
+    record: records/lane-b-1091-hosted-recovery-cycle86.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/hosted-worker-transactions.md
+    record: records/lane-b-1091-hosted-recovery-cycle86.prov.yaml
+  - entity: urn:aiwg:artifact:docs/architecture/adr/ADR-090-multi-tenancy-model.md
+    record: records/lane-b-1091-hosted-recovery-cycle86.prov.yaml
+  - entity: urn:aiwg:artifact:docs/content/authentication.md
+    record: records/lane-b-1091-hosted-recovery-cycle86.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-recovery-cycle86.json
+    record: records/lane-b-1091-hosted-recovery-cycle86.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/jobs.rs
+    record: records/lane-b-1091-scoped-jobs-cycle85.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/jobs/scoped.rs
+    record: records/lane-b-1091-scoped-jobs-cycle85.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/lib.rs
+    record: records/lane-b-1091-scoped-jobs-cycle85.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/tests/scoped_jobs_test.rs
+    record: records/lane-b-1091-scoped-jobs-cycle85.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/typed-metadata-search.md
+    record: records/lane-b-1091-scoped-jobs-cycle85.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/hosted-worker-transactions.md
+    record: records/lane-b-1091-scoped-jobs-cycle85.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-scoped-jobs-cycle85.json
+    record: records/lane-b-1091-scoped-jobs-cycle85.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests.rs
+    record: records/lane-b-1091-binary-http-cycle84.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/installed_http.rs
+    record: records/lane-b-1091-binary-http-cycle84.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/binary_http.rs
+    record: records/lane-b-1091-binary-http-cycle84.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/typed-metadata-search.md
+    record: records/lane-b-1091-binary-http-cycle84.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-binary-http-cycle84.json
+    record: records/lane-b-1091-binary-http-cycle84.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests.rs
+    record: records/lane-b-1091-jwt-http-cycle82.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/installed_http.rs
+    record: records/lane-b-1091-jwt-http-cycle82.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/installed-http-consumer.mjs
+    record: records/lane-b-1091-jwt-http-cycle82.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/fixture-issuer.mjs
+    record: records/lane-b-1091-jwt-http-cycle82.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/fixture-issuer-client.mjs
+    record: records/lane-b-1091-jwt-http-cycle82.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/EVIDENCE.md
+    record: records/lane-b-1091-jwt-http-cycle82.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/typed-metadata-search.md
+    record: records/lane-b-1091-jwt-http-cycle82.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-jwt-http-cycle82.json
+    record: records/lane-b-1091-jwt-http-cycle82.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests.rs
+    record: records/lane-b-1091-installed-http-cycle81.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/installed_http.rs
+    record: records/lane-b-1091-installed-http-cycle81.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/installed-http-consumer.mjs
+    record: records/lane-b-1091-installed-http-cycle81.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/EVIDENCE.md
+    record: records/lane-b-1091-installed-http-cycle81.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/typed-metadata-search.md
+    record: records/lane-b-1091-installed-http-cycle81.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-installed-http-cycle81.json
+    record: records/lane-b-1091-installed-http-cycle81.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/EVIDENCE.md
+    record: records/lane-b-1091-remote-resolution-cycle80.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/README.md
+    record: records/lane-b-1091-remote-resolution-cycle80.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/typed-metadata-search.md
+    record: records/lane-b-1091-remote-resolution-cycle80.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-remote-resolution-cycle80.json
+    record: records/lane-b-1091-remote-resolution-cycle80.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-core/src/search_evidence.rs
+    record: records/lane-b-1091-current-storage-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/lib.rs
+    record: records/lane-b-1091-current-storage-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/search_candidates.rs
+    record: records/lane-b-1091-current-storage-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/search_evidence_projection.rs
+    record: records/lane-b-1091-current-storage-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/search_evidence_resolution.rs
+    record: records/lane-b-1091-current-storage-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1091-current-storage-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/evidence_resolution.rs
+    record: records/lane-b-1091-current-storage-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/route_policy.rs
+    record: records/lane-b-1091-current-storage-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests.rs
+    record: records/lane-b-1091-current-storage-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/resolution_checks.rs
+    record: records/lane-b-1091-current-storage-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/search_contract.rs
+    record: records/lane-b-1091-current-storage-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/search_contract/tests.rs
+    record: records/lane-b-1091-current-storage-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/evidence-resolution.schema.json
+    record: records/lane-b-1091-current-storage-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/evidence-resolution-vectors.json
+    record: records/lane-b-1091-current-storage-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/openapi/openapi.yaml
+    record: records/lane-b-1091-current-storage-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/openapi/openapi.sha256
+    record: records/lane-b-1091-current-storage-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/README.md
+    record: records/lane-b-1091-current-storage-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/EVIDENCE.md
+    record: records/lane-b-1091-current-storage-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/typed-metadata-search.md
+    record: records/lane-b-1091-current-storage-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/planning/roadmap.md
+    record: records/lane-b-1091-current-storage-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/activity.log
+    record: records/lane-b-1091-current-storage-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-current-storage-resolution.json
+    record: records/lane-b-1091-current-storage-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/search-rest.schema.json
+    record: records/lane-b-1091-rest-adoption.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/openapi/openapi.yaml
+    record: records/lane-b-1091-rest-adoption.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/openapi/openapi.sha256
+    record: records/lane-b-1091-rest-adoption.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/README.md
+    record: records/lane-b-1091-rest-adoption.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/EVIDENCE.md
+    record: records/lane-b-1091-rest-adoption.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/typed-metadata-search.md
+    record: records/lane-b-1091-rest-adoption.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/planning/roadmap.md
+    record: records/lane-b-1091-rest-adoption.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/activity.log
+    record: records/lane-b-1091-rest-adoption.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-rest-adoption.json
+    record: records/lane-b-1091-rest-adoption.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/search-rest.schema.json
+    record: records/lane-b-1091-rest-authority.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/search-rest-vectors.json
+    record: records/lane-b-1091-rest-authority.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/search_contract.rs
+    record: records/lane-b-1091-rest-authority.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/search_contract/tests.rs
+    record: records/lane-b-1091-rest-authority.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1091-rest-authority.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-core/src/models.rs
+    record: records/lane-b-1091-rest-authority.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-core/tests/search_hit_evidence_test.rs
+    record: records/lane-b-1091-rest-authority.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests.rs
+    record: records/lane-b-1091-rest-authority.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/openapi/openapi.yaml
+    record: records/lane-b-1091-rest-authority.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/openapi/openapi.sha256
+    record: records/lane-b-1091-rest-authority.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/README.md
+    record: records/lane-b-1091-rest-authority.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/EVIDENCE.md
+    record: records/lane-b-1091-rest-authority.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/typed-metadata-search.md
+    record: records/lane-b-1091-rest-authority.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/planning/roadmap.md
+    record: records/lane-b-1091-rest-authority.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/activity.log
+    record: records/lane-b-1091-rest-authority.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-rest-authority.json
+    record: records/lane-b-1091-rest-authority.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/EVIDENCE.md
+    record: records/lane-b-1091-remote-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/planning/roadmap.md
+    record: records/lane-b-1091-remote-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/activity.log
+    record: records/lane-b-1091-remote-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-remote-evidence.json
+    record: records/lane-b-1091-remote-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-core/src/models.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-core/src/search_evidence.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-core/tests/search_hit_evidence_test.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/lib.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/search_candidates.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/metadata_predicates.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/search_evidence_projection.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/search.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/embeddings.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/tests/search_evidence_projection_test.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-search/src/lib.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-search/src/evidence.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-search/src/rrf.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-search/src/rsf.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-search/src/mmr.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-search/src/deduplication.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-search/src/hybrid.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-search/tests/search_evidence_test.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-search/tests/scoped_retrieval_test.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/handlers/jobs.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/search_dedup.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests.rs
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/EVIDENCE.md
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/typed-metadata-search.md
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/planning/roadmap.md
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/activity.log
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-producer-evidence.json
+    record: records/lane-b-1091-producer-evidence.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-evidence-projection.json
+    record: records/lane-b-1091-evidence-projection.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-evidence-resolution.json
+    record: records/lane-b-1091-evidence-resolution.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-evidence-binding.json
+    record: records/lane-b-1091-evidence-binding.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/README.md
+    record: records/lane-b-1091-search-candidate.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1128-capability-validation.json
+    record: records/lane-b-1128-capability-validation.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/releases/evidence/v2026.9.10-asyncapi-correction.json
+    record: records/asyncapi-release-correction-2026-9-10.prov.yaml
+  - entity: urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard
+    record: records/release-docs-shard-2026.9.10.prov.yaml
+  - entity: urn:aiwg:artifact:docs/releases/v2026.9.10-announcement.md
+    record: records/release-preparation-2026.9.10.prov.yaml
+  - entity: urn:aiwg:artifact:migrations/20260911020900_tenant_scoped_auto_membership.sql
+    record: records/lane-b-1147-tenant-auto-membership.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-ci-observer.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/examples/ci_database_bootstrap.rs
+    record: records/lane-b-1147-ci-bootstrap.prov.yaml
+  - entity: urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md
+    record: records/lane-b-1147-source-delivery.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-skos-concept-coordinates.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-skos-partial-status.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-skos-concurrent-writers.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-skos-atomic-batches.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-skos-prospective-hierarchy.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-skos-retained-limits.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-partial-note-history.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-skos-note-lifecycle.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-skos-native-effects.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-skos-bootstrap.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-skos-retained.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-graph-retained.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-vector-note-owner.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-vector-preview-reparent.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-vector-identity.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-membership-scope.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-reference-preview.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-history-provenance.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-selected-renames.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-wipe-isolation.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-bootstrap-custody.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-member-ownership.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-config-declarations.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-skip-ownership.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-1147-owner-identity.prov.yaml
+  - entity: urn:aiwg:artifact:tests/fixtures/shards/full-v1-reference-conformance.json
+    record: records/lane-b-424-reference-preflight.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard
+    record: records/release-docs-shard-2026-9-2.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard.receipt.json
+    record: records/release-docs-shard-2026-9-2.prov.yaml
+  - entity: docker-compose.bundle.yml
+    record: records/docker-compose-bundle-inference-allowlist-2026-09-04.prov.yaml
+  - entity: docs/content/architecture.md
+    record: records/docsite-adr106-link-fix-2026-9-4.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard
+    record: records/release-docs-shard-2026-9-1.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard.receipt.json
+    record: records/release-docs-shard-2026-9-1.prov.yaml
+  - entity: .aiwg/gates/suite-1081-independent-final-audit-2026-09-03.md
+    record: records/suite-1081-independent-final-audit.prov.yaml
+  - entity: docs/releases/v2026.9.1-announcement.md
+    record: records/release-preparation-2026-9-1-1090.prov.yaml
+  - entity: CHANGELOG.md
+    record: records/release-preparation-2026-9-1-1090.prov.yaml
+  - entity: Cargo.toml
+    record: records/release-preparation-2026-9-1-1090.prov.yaml
+  - entity: Cargo.lock
+    record: records/release-preparation-2026-9-1-1090.prov.yaml
+  - entity: mcp-server/package.json
+    record: records/release-preparation-2026-9-1-1090.prov.yaml
+  - entity: mcp-server/package-lock.json
+    record: records/release-preparation-2026-9-1-1090.prov.yaml
+  - entity: .aiwg/reports/doc-sync-20260903T200433-0400.md
+    record: records/release-preparation-2026-9-1-1090.prov.yaml
+  - entity: .aiwg/reports/doc-sync-last-run.json
+    record: records/release-preparation-2026-9-1-1090.prov.yaml
+  - entity: .aiwg/.last-doc-sync
+    record: records/release-preparation-2026-9-1-1090.prov.yaml
+  - entity: .aiwg/releases/v2026.9.1-threat-assessment.json
+    record: records/release-preparation-2026-9-1-1090.prov.yaml
+  - entity: contracts/asyncapi/asyncapi.yaml
+    record: records/release-preparation-2026-9-1-1090.prov.yaml
+  - entity: contracts/asyncapi/asyncapi.sha256
+    record: records/release-preparation-2026-9-1-1090.prov.yaml
+  - entity: contracts/asyncapi/fixtures/manifest.json
+    record: records/release-preparation-2026-9-1-1090.prov.yaml
+  - entity: contracts/asyncapi/producer-event-fixture-receipt.json
+    record: records/release-preparation-2026-9-1-1090.prov.yaml
+  - entity: mcp-server/package.json
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: mcp-server/package-lock.json
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: mcp-server/tests/schema-validation.test.js
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: mcp-server/tests/uat-core-coverage.test.js
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: mcp-server/README.md
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: tests/uat/phases/README.md
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: tests/uat/phases/phase-0-preflight.md
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: tests/uat/phases/phase-14-mcp-operations.md
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: docs/content/mcp-rest-parity.md
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: AIWG.md
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: CLAUDE.md
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: contracts/source-note-upsert/contract.json
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: contracts/source-note-upsert/1.0.0/request.schema.json
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: contracts/source-note-upsert/1.0.0/response.schema.json
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: contracts/source-note-upsert/conformance/v1.json
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: crates/matric-core/src/source_upsert.rs
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: crates/matric-db/src/source_upsert.rs
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: crates/matric-db/tests/source_upsert_contract_test.rs
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: migrations/20260903010000_source_addressed_note_upsert.sql
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: crates/matric-api/src/route_policy.rs
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: mcp-server/index.js
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: mcp-server/tools.js
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: docs/architecture/adr/ADR-106-source-addressed-note-upsert.md
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: docs/content/architecture.md
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: docs/content/mcp.md
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: README.md
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: contracts/openapi/openapi.yaml
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: contracts/openapi/openapi.sha256
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: contracts/source-note-upsert/README.md
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: crates/matric-core/src/lib.rs
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: crates/matric-db/Cargo.toml
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: crates/matric-db/src/lib.rs
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: crates/matric-db/src/tenancy.rs
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: docs/architecture/adr/README.md
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: mcp-server/constants/core-tools.js
+    record: records/source-note-upsert-1090.prov.yaml
+  - entity: Cargo.lock
+    record: records/chacha20-yank-remediation-2026-08.prov.yaml
+  - entity: .aiwg/reports/snn-retention-hotm-consumer-receipt-2026-08.md
+    record: records/snn-retention-hotm-consumer-receipt-2026-08.prov.yaml
+  - entity: crates/matric-api/src/handlers/jobs.rs
+    record: records/address-issues-1101-1103.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/address-issues-1101-1103.prov.yaml
+  - entity: crates/matric-core/src/defaults.rs
+    record: records/address-issues-1101-1103.prov.yaml
+  - entity: crates/matric-core/src/models.rs
+    record: records/address-issues-1101-1103.prov.yaml
+  - entity: crates/matric-db/src/file_storage.rs
+    record: records/address-issues-1101-1103.prov.yaml
+  - entity: crates/matric-db/src/lib.rs
+    record: records/address-issues-1101-1103.prov.yaml
+  - entity: crates/matric-db/src/links.rs
+    record: records/address-issues-1101-1103.prov.yaml
+  - entity: crates/matric-db/src/notes.rs
+    record: records/address-issues-1101-1103.prov.yaml
+  - entity: crates/matric-db/tests/extraction_strategy_migration_test.rs
+    record: records/address-issues-1101-1103.prov.yaml
+  - entity: crates/matric-db/tests/knowledge_health_counts_test.rs
+    record: records/address-issues-1101-1103.prov.yaml
+  - entity: crates/matric-db/tests/snn_retention_safety_test.rs
+    record: records/address-issues-1101-1103.prov.yaml
+  - entity: migrations/20260828190000_add_attachment_extraction_strategy_values.sql
+    record: records/address-issues-1101-1103.prov.yaml
+  - entity: contracts/openapi/openapi.yaml
+    record: records/address-issues-1101-1103.prov.yaml
+  - entity: contracts/openapi/openapi.sha256
+    record: records/address-issues-1101-1103.prov.yaml
+  - entity: docs/architecture/adr/ADR-078-snn-sparse-graph-guard.md
+    record: records/address-issues-1101-1103.prov.yaml
+  - entity: docs/content/configuration.md
+    record: records/address-issues-1101-1103.prov.yaml
+  - entity: docs/content/knowledge-graph-guide.md
+    record: records/address-issues-1101-1103.prov.yaml
+  - entity: docs/content/operators-guide.md
+    record: records/address-issues-1101-1103.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard
+    record: records/fortemi-docs-shard-release-2026-8-0-1098-1100.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard.receipt.json
+    record: records/fortemi-docs-shard-receipt-release-2026-8-0-1098-1100.prov.yaml
+  - entity: .gitea/workflows/build-builder.yaml
+    record: records/release-workflow-qualified-ref-handoff-1098.prov.yaml
+  - entity: .gitea/workflows/ci-builder.yaml
+    record: records/release-workflow-qualified-ref-handoff-1098.prov.yaml
+  - entity: .gitea/workflows/test.yml
+    record: records/release-workflow-qualified-ref-handoff-1098.prov.yaml
+  - entity: .gitea/workflows/publish-sidecar.yml
+    record: records/release-workflow-qualified-ref-handoff-1098.prov.yaml
+  - entity: .gitea/workflows/suite-platform-contract.yml
+    record: records/release-workflow-qualified-ref-handoff-1098.prov.yaml
+  - entity: scripts/ci/verify-mutsu-build-serialization.sh
+    record: records/release-workflow-qualified-ref-handoff-1098.prov.yaml
+  - entity: Cargo.toml
+    record: records/release-preparation-2026-8-0-1098-1100.prov.yaml
+  - entity: Cargo.lock
+    record: records/release-preparation-2026-8-0-1098-1100.prov.yaml
+  - entity: mcp-server/package.json
+    record: records/release-preparation-2026-8-0-1098-1100.prov.yaml
+  - entity: mcp-server/package-lock.json
+    record: records/release-preparation-2026-8-0-1098-1100.prov.yaml
+  - entity: CHANGELOG.md
+    record: records/release-preparation-2026-8-0-1098-1100.prov.yaml
+  - entity: docs/releases/v2026.8.0-announcement.md
+    record: records/release-preparation-2026-8-0-1098-1100.prov.yaml
+  - entity: contracts/asyncapi/asyncapi.yaml
+    record: records/release-preparation-2026-8-0-1098-1100.prov.yaml
+  - entity: contracts/asyncapi/asyncapi.sha256
+    record: records/release-preparation-2026-8-0-1098-1100.prov.yaml
+  - entity: .aiwg/releases/evidence/v2026.8.0-release-note-threat-assessment.json
+    record: records/v2026-8-0-release-note-threat-assessment.prov.yaml
+  - entity: .aiwg/releases/evidence/v2026.8.1-release-note-threat-assessment.json
+    record: records/v2026-8-1-release-note-threat-assessment.prov.yaml
+  - entity: Cargo.toml
+    record: records/release-preparation-2026-8-1-1122-1124.prov.yaml
+  - entity: Cargo.lock
+    record: records/release-preparation-2026-8-1-1122-1124.prov.yaml
+  - entity: mcp-server/package.json
+    record: records/release-preparation-2026-8-1-1122-1124.prov.yaml
+  - entity: mcp-server/package-lock.json
+    record: records/release-preparation-2026-8-1-1122-1124.prov.yaml
+  - entity: CHANGELOG.md
+    record: records/release-preparation-2026-8-1-1122-1124.prov.yaml
+  - entity: docs/releases/v2026.8.1-announcement.md
+    record: records/release-preparation-2026-8-1-1122-1124.prov.yaml
+  - entity: contracts/asyncapi/asyncapi.yaml
+    record: records/release-preparation-2026-8-1-1122-1124.prov.yaml
+  - entity: contracts/asyncapi/asyncapi.sha256
+    record: records/release-preparation-2026-8-1-1122-1124.prov.yaml
+  - entity: .aiwg/.last-doc-sync
+    record: records/doc-sync-release-2026-8-1.prov.yaml
+  - entity: .aiwg/working/doc-sync/release-v2026.8.1-dry-run-20260831.md
+    record: records/doc-sync-release-2026-8-1.prov.yaml
+  - entity: .aiwg/reports/doc-sync-audit-2026-08-31.md
+    record: records/doc-sync-release-2026-8-1.prov.yaml
+  - entity: .aiwg/releases/evidence/v2026.8.2-release-note-threat-assessment.json
+    record: records/v2026-8-2-release-note-threat-assessment.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard
+    record: records/release-shard-corrective-2026-8-2.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard.receipt.json
+    record: records/release-shard-corrective-2026-8-2.prov.yaml
+  - entity: .aiwg/releases/evidence/v2026.8.2-shard-corrective-verification.json
+    record: records/release-shard-corrective-2026-8-2.prov.yaml
+  - entity: scripts/ci/verify-sidecar-publication.py
+    record: records/sidecar-publication-dispatch-policy-1098.prov.yaml
+  - entity: Dockerfile
+    record: records/rust-stack-release-128m-1098.prov.yaml
+  - entity: Dockerfile.bundle
+    record: records/rust-stack-release-128m-1098.prov.yaml
+  - entity: scripts/ci/verify-container-release-evidence.py
+    record: records/rust-stack-release-128m-1098.prov.yaml
+  - entity: tests/test_verify_container_release_evidence.py
+    record: records/rust-stack-release-128m-1098.prov.yaml
+  - entity: CHANGELOG.md
+    record: records/rust-stack-release-128m-1098.prov.yaml
+  - entity: docs/releases/v2026.7.26-announcement.md
+    record: records/rust-stack-release-128m-1098.prov.yaml
+  - entity: .gitea/workflows/build-builder.yaml
+    record: records/release-workflow-capacity-handoff-1098.prov.yaml
+  - entity: .gitea/workflows/ci-builder.yaml
+    record: records/release-workflow-capacity-handoff-1098.prov.yaml
+  - entity: .gitea/workflows/test.yml
+    record: records/release-workflow-capacity-handoff-1098.prov.yaml
+  - entity: .gitea/workflows/publish-sidecar.yml
+    record: records/release-workflow-capacity-handoff-1098.prov.yaml
+  - entity: .gitea/workflows/suite-platform-contract.yml
+    record: records/release-workflow-capacity-handoff-1098.prov.yaml
+  - entity: .gitea/workflows/docsite-build.yml
+    record: records/release-workflow-capacity-handoff-1098.prov.yaml
+  - entity: .gitea/workflows/docsite-deploy.yml
+    record: records/release-workflow-capacity-handoff-1098.prov.yaml
+  - entity: scripts/ci/verify-mutsu-build-serialization.sh
+    record: records/release-workflow-capacity-handoff-1098.prov.yaml
+  - entity: scripts/ci/verify-release-asset-mirror.py
+    record: records/release-workflow-capacity-handoff-1098.prov.yaml
+  - entity: scripts/ci/verify-release-job-guards.py
+    record: records/release-workflow-capacity-handoff-1098.prov.yaml
+  - entity: CHANGELOG.md
+    record: records/release-workflow-capacity-handoff-1098.prov.yaml
+  - entity: docs/releases/v2026.7.26-announcement.md
+    record: records/release-workflow-capacity-handoff-1098.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard
+    record: records/fortemi-docs-shard-release-2026-7-26-1098-1100.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard.receipt.json
+    record: records/fortemi-docs-shard-receipt-release-2026-7-26-1098-1100.prov.yaml
+  - entity: .gitea/workflows/build-builder.yaml
+    record: records/release-workflow-capacity-serialization-1098.prov.yaml
+  - entity: .gitea/workflows/ci-builder.yaml
+    record: records/release-workflow-capacity-serialization-1098.prov.yaml
+  - entity: .gitea/workflows/publish-sidecar.yml
+    record: records/release-workflow-capacity-serialization-1098.prov.yaml
+  - entity: .gitea/workflows/suite-platform-contract.yml
+    record: records/release-workflow-capacity-serialization-1098.prov.yaml
+  - entity: .gitea/workflows/test.yml
+    record: records/release-workflow-capacity-serialization-1098.prov.yaml
+  - entity: scripts/ci/verify-mutsu-build-serialization.sh
+    record: records/release-workflow-capacity-serialization-1098.prov.yaml
+  - entity: Cargo.toml
+    record: records/release-preparation-2026-7-26-1098-1100.prov.yaml
+  - entity: Cargo.lock
+    record: records/release-preparation-2026-7-26-1098-1100.prov.yaml
+  - entity: mcp-server/package.json
+    record: records/release-preparation-2026-7-26-1098-1100.prov.yaml
+  - entity: mcp-server/package-lock.json
+    record: records/release-preparation-2026-7-26-1098-1100.prov.yaml
+  - entity: CHANGELOG.md
+    record: records/release-preparation-2026-7-26-1098-1100.prov.yaml
+  - entity: docs/releases/v2026.7.26-announcement.md
+    record: records/release-preparation-2026-7-26-1098-1100.prov.yaml
+  - entity: contracts/asyncapi/asyncapi.yaml
+    record: records/release-preparation-2026-7-26-1098-1100.prov.yaml
+  - entity: contracts/asyncapi/asyncapi.sha256
+    record: records/release-preparation-2026-7-26-1098-1100.prov.yaml
+  - entity: .aiwg/releases/evidence/v2026.7.26-release-note-threat-assessment.json
+    record: records/release-preparation-2026-7-26-1098-1100.prov.yaml
+  - entity: .gitea/workflows/test.yml
+    record: records/protected-slow-tests-redis-fixture-714.prov.yaml
+  - entity: crates/matric-db/tests/archive_schema_test.rs
+    record: records/archive-schema-test-ddl-serialization-729.prov.yaml
+  - entity: .gitea/workflows/ci-builder.yaml
+    record: records/ci-builder-isolated-api-key-tenant-scope-729.prov.yaml
+  - entity: crates/matric-api/tests/user_secret_storage_test.rs
+    record: records/user-secret-storage-role-setup-concurrency-731.prov.yaml
+  - entity: Dockerfile
+    record: records/dockerfile-rust-1-92-builder-714.prov.yaml
+  - entity: Dockerfile.bundle
+    record: records/dockerfile-bundle-rust-1-92-builder-714.prov.yaml
+  - entity: docker/third-party-dependencies.json
+    record: records/third-party-rust-1-92-builder-authority-990.prov.yaml
+  - entity: crates/matric-api/tests/user_secret_storage_test.rs
+    record: records/user-secret-storage-provisioned-schema-731.prov.yaml
+  - entity: crates/matric-db/tests/tenant_isolation_test.rs
+    record: records/tenant-isolation-provisioned-schema-728.prov.yaml
+  - entity: crates/matric-db/tests/audit_sink_test.rs
+    record: records/audit-sink-provisioned-schema-714.prov.yaml
+  - entity: .gitea/workflows/ci-builder.yaml
+    record: records/ci-builder-cargo-audit-bootstrap-714.prov.yaml
+  - entity: crates/matric-db/tests/tenant_isolation_matrix_test.rs
+    record: records/tenant-isolation-matrix-provisioned-schema-728.prov.yaml
+  - entity: crates/matric-crypto/Cargo.toml
+    record: records/matric-crypto-aws-sdk-rust-1-92-734.prov.yaml
+  - entity: Cargo.lock
+    record: records/cargo-lock-aws-sdk-rust-1-92-734.prov.yaml
+  - entity: docs/deployment/hosted-postgresql-role.md
+    record: records/hosted-postgresql-role-docs-contract-1001.prov.yaml
+  - entity: docs/architecture/adr/ADR-094-fail-closed-authentication-default.md
+    record: records/adr-094-checkpoint-history-restoration-1017.prov.yaml
+  - entity: docs/architecture/adr/ADR-098-per-tenant-rate-limits-quotas.md
+    record: records/adr-098-checkpoint-history-restoration-714.prov.yaml
+  - entity: crates/matric-db/src/call_sessions.rs
+    record: records/matric-db-call-sessions-personal-tenant-pool-728.prov.yaml
+  - entity: crates/matric-db/src/tests/oauth_token_lifetime_tests.rs
+    record: records/production-auth-tenancy-gates-99b53438f6ea.prov.yaml
+  - entity: crates/matric-db/src/usage_ledger.rs
+    record: records/production-auth-tenancy-gates-75d5e1f6b5bb.prov.yaml
+  - entity: crates/matric-db/tests/archive_schema_test.rs
+    record: records/production-auth-tenancy-gates-40327bd487cf.prov.yaml
+  - entity: crates/matric-db/tests/chunking_integration_test.rs
+    record: records/production-auth-tenancy-gates-5b1e66bebd52.prov.yaml
+  - entity: crates/matric-db/tests/embedding_set_crud_test.rs
+    record: records/production-auth-tenancy-gates-c28a0d82c0a9.prov.yaml
+  - entity: crates/matric-db/tests/file_storage_blob_refcount_test.rs
+    record: records/production-auth-tenancy-gates-1b5c713bd061.prov.yaml
+  - entity: crates/matric-db/tests/job_retry_lifecycle_test.rs
+    record: records/production-auth-tenancy-gates-19713f81dcce.prov.yaml
+  - entity: crates/matric-db/tests/job_strict_parsing_test.rs
+    record: records/production-auth-tenancy-gates-0eed5f23f25d.prov.yaml
+  - entity: crates/matric-db/tests/memory_search_test.rs
+    record: records/production-auth-tenancy-gates-c1bb6e99c1de.prov.yaml
+  - entity: crates/matric-db/tests/tag_soft_delete_test.rs
+    record: records/production-auth-tenancy-gates-98ef484739a3.prov.yaml
+  - entity: crates/matric-jobs/tests/attachment_scan_handler_test.rs
+    record: records/production-auth-tenancy-gates-6966194f4feb.prov.yaml
+  - entity: crates/matric-jobs/tests/worker_integration_test.rs
+    record: records/production-auth-tenancy-gates-cb5bf6fc9459.prov.yaml
+  - entity: .aiwg/architecture/api-compatibility-discovery-contract-2026-07.md
+    record: records/production-auth-tenancy-gates-77726211b7e6.prov.yaml
+  - entity: .aiwg/reports/fortemi-auth-rust-consumer-smoke-receipt-2026-07-26.md
+    record: records/production-auth-tenancy-gates-d8ebcfb058ad.prov.yaml
+  - entity: .gitea/workflows/test.yml
+    record: records/production-auth-tenancy-gates-6db2ec9e8e4e.prov.yaml
+  - entity: Cargo.lock
+    record: records/production-auth-tenancy-gates-13ee4b2252c9.prov.yaml
+  - entity: Cargo.toml
+    record: records/production-auth-tenancy-gates-2e9d962a0832.prov.yaml
+  - entity: crates/matric-api/src/handlers/inference_complete.rs
+    record: records/production-auth-tenancy-gates-42d042d2ef8b.prov.yaml
+  - entity: crates/matric-api/src/handlers/user_secrets.rs
+    record: records/production-auth-tenancy-gates-fdd91e32ac5a.prov.yaml
+  - entity: crates/matric-api/src/hosted_auth.rs
+    record: records/production-auth-tenancy-gates-9474092257b0.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/production-auth-tenancy-gates-dfd8defd161b.prov.yaml
+  - entity: crates/matric-api/src/route_policy.rs
+    record: records/production-auth-tenancy-gates-6c4a3ea90b1b.prov.yaml
+  - entity: crates/matric-api/src/services/mod.rs
+    record: records/production-auth-tenancy-gates-e07782fc48fa.prov.yaml
+  - entity: crates/matric-api/src/services/quota.rs
+    record: records/production-auth-tenancy-gates-651dc8d1b166.prov.yaml
+  - entity: crates/matric-api/tests/user_secret_storage_test.rs
+    record: records/production-auth-tenancy-gates-853615366656.prov.yaml
+  - entity: crates/matric-core/src/tags.rs
+    record: records/production-auth-tenancy-gates-c004a8b531c4.prov.yaml
+  - entity: crates/matric-core/src/traits.rs
+    record: records/production-auth-tenancy-gates-062327ece6fe.prov.yaml
+  - entity: crates/matric-crypto/Cargo.toml
+    record: records/production-auth-tenancy-gates-32ed1b00c56c.prov.yaml
+  - entity: crates/matric-crypto/src/pke/format.rs
+    record: records/production-auth-tenancy-gates-c7c19705dcd8.prov.yaml
+  - entity: crates/matric-crypto/src/provider/aws_kms/tests.rs
+    record: records/production-auth-tenancy-gates-112b941dc36e.prov.yaml
+  - entity: crates/matric-db/Cargo.toml
+    record: records/production-auth-tenancy-gates-b85a0bed15f2.prov.yaml
+  - entity: crates/matric-db/src/archives.rs
+    record: records/production-auth-tenancy-gates-fb02649411d5.prov.yaml
+  - entity: crates/matric-db/src/audit.rs
+    record: records/production-auth-tenancy-gates-a4f7d6b07340.prov.yaml
+  - entity: crates/matric-db/src/collections.rs
+    record: records/production-auth-tenancy-gates-277672b10795.prov.yaml
+  - entity: crates/matric-db/src/incoming_webhooks.rs
+    record: records/production-auth-tenancy-gates-64b8701b4c3a.prov.yaml
+  - entity: crates/matric-db/src/lib.rs
+    record: records/production-auth-tenancy-gates-1789e73aad2d.prov.yaml
+  - entity: crates/matric-db/src/tags.rs
+    record: records/production-auth-tenancy-gates-982c7e32d9af.prov.yaml
+  - entity: crates/matric-db/src/tenancy.rs
+    record: records/production-auth-tenancy-gates-80f19448872d.prov.yaml
+  - entity: crates/matric-db/src/user_secrets.rs
+    record: records/production-auth-tenancy-gates-8eb1fa383146.prov.yaml
+  - entity: crates/matric-inference/src/circuit_breaker.rs
+    record: records/production-auth-tenancy-gates-b03eebb3be1b.prov.yaml
+  - entity: crates/matric-inference/src/eval.rs
+    record: records/production-auth-tenancy-gates-7497a87a12e0.prov.yaml
+  - entity: crates/matric-inference/src/link_types.rs
+    record: records/production-auth-tenancy-gates-9e84f06b2903.prov.yaml
+  - entity: crates/matric-inference/src/ollama.rs
+    record: records/production-auth-tenancy-gates-10649b847ec7.prov.yaml
+  - entity: crates/matric-inference/src/provider.rs
+    record: records/production-auth-tenancy-gates-8a6457c6f516.prov.yaml
+  - entity: crates/matric-jobs/src/extraction.rs
+    record: records/production-auth-tenancy-gates-e117b0afc4ee.prov.yaml
+  - entity: crates/matric-search/src/rsf.rs
+    record: records/production-auth-tenancy-gates-987c7823df34.prov.yaml
+  - entity: docs/architecture/adr/ADR-090-multi-tenancy-model.md
+    record: records/production-auth-tenancy-gates-9bcd64ddfbee.prov.yaml
+  - entity: docs/architecture/adr/ADR-093-key-provider-trait.md
+    record: records/production-auth-tenancy-gates-d6af26c81e9e.prov.yaml
+  - entity: docs/architecture/adr/ADR-098-per-tenant-rate-limits-quotas.md
+    record: records/production-auth-tenancy-gates-a4900cbac3e1.prov.yaml
+  - entity: docs/architecture/audit-event-mapping.md
+    record: records/production-auth-tenancy-gates-0595fcef635e.prov.yaml
+  - entity: docs/architecture/cryptographic-decisions.md
+    record: records/production-auth-tenancy-gates-e46de6bf9518.prov.yaml
+  - entity: docs/architecture/hosted-secret-inventory.md
+    record: records/production-auth-tenancy-gates-4ab4ac45460f.prov.yaml
+  - entity: docs/content/api.md
+    record: records/production-auth-tenancy-gates-15108efcf187.prov.yaml
+  - entity: docs/content/configuration.md
+    record: records/production-auth-tenancy-gates-f7ffce2005a7.prov.yaml
+  - entity: docs/content/operators-guide.md
+    record: records/production-auth-tenancy-gates-abc043478b62.prov.yaml
+  - entity: docs/operations/hosted-user-credentials.md
+    record: records/production-auth-tenancy-gates-61852b14668d.prov.yaml
+  - entity: docs/operations/key-rotation.md
+    record: records/production-auth-tenancy-gates-84c57800a6df.prov.yaml
+  - entity: migrations/20260824010000_tenant_registry_and_forced_rls.sql
+    record: records/production-auth-tenancy-gates-8182927aadec.prov.yaml
+  - entity: migrations/20260824010100_tenant_qualified_note_collection.sql
+    record: records/production-auth-tenancy-gates-a3ffe0757969.prov.yaml
+  - entity: tests/fortemi-auth-consumer/Cargo.lock
+    record: records/production-auth-tenancy-gates-db62a304ec36.prov.yaml
+  - entity: tests/fortemi-auth-consumer/Cargo.toml
+    record: records/production-auth-tenancy-gates-d10676d9ce82.prov.yaml
+  - entity: tests/fortemi-auth-consumer/fixtures/fortemi-auth-release-policy-v1.json
+    record: records/production-auth-tenancy-gates-ff6d8190c068.prov.yaml
+  - entity: tests/fortemi-auth-consumer/fixtures/fortemi-auth-v1.json
+    record: records/production-auth-tenancy-gates-5a11b0a9476c.prov.yaml
+  - entity: tests/fortemi-auth-consumer/tests/consumer_smoke.rs
+    record: records/production-auth-tenancy-gates-7fed9f9073e3.prov.yaml
+  - entity: crates/matric-api/src/audit_policy.rs
+    record: records/production-auth-tenancy-gates-3ea642db87b1.prov.yaml
+  - entity: crates/matric-api/src/services/inference_breaker.rs
+    record: records/production-auth-tenancy-gates-d6d02ca78d4d.prov.yaml
+  - entity: crates/matric-api/src/services/user_secret_dsar.rs
+    record: records/production-auth-tenancy-gates-b08482d284e2.prov.yaml
+  - entity: crates/matric-api/src/services/user_secret_rotation.rs
+    record: records/production-auth-tenancy-gates-eb82eabc2c06.prov.yaml
+  - entity: crates/matric-db/tests/tenant_isolation_matrix_test.rs
+    record: records/production-auth-tenancy-gates-0ac7a1a2f7c0.prov.yaml
+  - entity: docs/operations/hosted-inference-resilience.md
+    record: records/production-auth-tenancy-gates-ae5b6748d496.prov.yaml
+  - entity: migrations/20260824010500_user_secret_rotation_lifecycle.sql
+    record: records/production-auth-tenancy-gates-f42823ac9431.prov.yaml
+  - entity: crates/matric-api/src/services/inference_breaker.rs
+    record: records/inference-breaker-registry-1099.prov.yaml
+  - entity: crates/matric-api/src/handlers/inference_complete.rs
+    record: records/inference-complete-breaker-integration-1099.prov.yaml
+  - entity: crates/matric-inference/src/circuit_breaker.rs
+    record: records/inference-circuit-breaker-half-open-1099.prov.yaml
+  - entity: crates/matric-api/src/services/user_secret_rotation.rs
+    record: records/user-secret-rewrap-service-730.prov.yaml
+  - entity: crates/matric-api/src/services/user_secret_dsar.rs
+    record: records/user-secret-dsar-service-730.prov.yaml
+  - entity: crates/matric-db/src/user_secrets.rs
+    record: records/user-secret-rewrap-repository-730.prov.yaml
+  - entity: migrations/20260824010500_user_secret_rotation_lifecycle.sql
+    record: records/user-secret-rotation-lifecycle-migration-730.prov.yaml
+  - entity: crates/matric-crypto/src/provider/aws_kms/tests.rs
+    record: records/aws-kms-outage-rotation-receipts-734.prov.yaml
+  - entity: crates/matric-api/src/handlers/inference_complete.rs
+    record: records/matric-api-hosted-stored-inference-731.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-hosted-inference-routes-731.prov.yaml
+  - entity: crates/matric-api/src/middleware/tenant_scope.rs
+    record: records/tenant-scope-stream-release-731.prov.yaml
+  - entity: crates/matric-api/src/route_policy.rs
+    record: records/hosted-inference-route-policy-731.prov.yaml
+  - entity: crates/matric-inference/src/provider.rs
+    record: records/matric-inference-stored-embedding-731.prov.yaml
+  - entity: crates/matric-inference/src/openai/backend.rs
+    record: records/openai-backend-key-zeroize-731.prov.yaml
+  - entity: crates/matric-inference/src/destination_policy.rs
+    record: records/matric-inference-destination-policy-920.prov.yaml
+  - entity: crates/matric-inference/src/provider.rs
+    record: records/matric-inference-provider-destination-client-920.prov.yaml
+  - entity: crates/matric-inference/src/openai/backend.rs
+    record: records/matric-inference-openai-client-policy-920.prov.yaml
+  - entity: crates/matric-inference/src/ollama.rs
+    record: records/matric-inference-ollama-client-policy-920.prov.yaml
+  - entity: crates/matric-api/src/handlers/inference_complete.rs
+    record: records/matric-api-inference-complete-destination-policy-920.prov.yaml
+  - entity: crates/matric-api/src/handlers/inference_config.rs
+    record: records/matric-api-inference-config-destination-policy-920.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-destination-policy-state-920.prov.yaml
+  - entity: docs/operations/inference-destination-policy.md
+    record: records/inference-destination-policy-runbook-920.prov.yaml
+  - entity: .aiwg/security/multi-tenant-threat-model.md
+    record: records/multi-tenant-threat-model-user-secrets-730.prov.yaml
+  - entity: docs/operations/hosted-user-credentials.md
+    record: records/hosted-user-credentials-runbook-730.prov.yaml
+  - entity: crates/matric-api/tests/user_secret_storage_test.rs
+    record: records/user-secret-storage-rewrap-test-730.prov.yaml
+  - entity: crates/matric-api/src/handlers/user_secrets.rs
+    record: records/matric-api-user-secret-handlers-730.prov.yaml
+  - entity: crates/matric-api/src/services/user_secrets.rs
+    record: records/matric-api-user-secret-service-730.prov.yaml
+  - entity: crates/matric-db/src/user_secrets.rs
+    record: records/matric-db-user-secrets-730.prov.yaml
+  - entity: migrations/20260824010400_tenant_user_secrets.sql
+    record: records/tenant-user-secrets-migration-730.prov.yaml
+  - entity: docs/architecture/adr/ADR-098-per-tenant-rate-limits-quotas.md
+    record: records/adr-098-request-quota-checkpoint-714.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-hosted-request-quota-714.prov.yaml
+  - entity: crates/matric-api/src/services/quota.rs
+    record: records/matric-api-redis-request-quota-714.prov.yaml
+  - entity: .aiwg/architecture/api-compatibility-discovery-contract-2026-07.md
+    record: records/api-compatibility-hosted-auth-kms-728-734.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-hosted-kms-startup-734.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-durable-authz-audit-711.prov.yaml
+  - entity: .aiwg/architecture/tenant-table-inventory-2026-08.md
+    record: records/tenant-table-inventory-auth-tenancy-726.prov.yaml
+  - entity: .aiwg/security/multi-tenant-threat-model.md
+    record: records/multi-tenant-threat-model-auth-tenancy-729.prov.yaml
+  - entity: crates/matric-api/src/hosted_auth.rs
+    record: records/matric-api-hosted-auth-728.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-hosted-auth-728.prov.yaml
+  - entity: crates/matric-api/src/middleware/tenant_scope.rs
+    record: records/matric-api-tenant-scope-728.prov.yaml
+  - entity: crates/matric-db/src/notes.rs
+    record: records/matric-db-notes-tenant-connection-728.prov.yaml
+  - entity: crates/matric-crypto/src/provider.rs
+    record: records/matric-crypto-provider-734.prov.yaml
+  - entity: crates/matric-crypto/src/provider/aws_kms.rs
+    record: records/matric-crypto-aws-kms-provider-734.prov.yaml
+  - entity: crates/matric-crypto/src/provider/aws_kms/tests.rs
+    record: records/matric-crypto-aws-kms-tests-734.prov.yaml
+  - entity: crates/matric-crypto/src/provider/env.rs
+    record: records/matric-crypto-env-provider-734.prov.yaml
+  - entity: crates/matric-crypto/src/provider/tests.rs
+    record: records/matric-crypto-provider-tests-734.prov.yaml
+  - entity: crates/matric-db/src/tenancy.rs
+    record: records/matric-db-tenancy-726.prov.yaml
+  - entity: crates/matric-db/src/archives.rs
+    record: records/matric-db-archives-rls-726.prov.yaml
+  - entity: crates/matric-db/src/pool.rs
+    record: records/matric-db-pool-hosted-role-727.prov.yaml
+  - entity: .aiwg/planning/issue-roadmap-audit-2026-08-23.md
+    record: records/issue-roadmap-audit-fortemi-react-v2026-8-0-reconciliation.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard
+    record: records/fortemi-docs-shard-release-2026-7-22-1098.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard.receipt.json
+    record: records/fortemi-docs-shard-receipt-release-2026-7-22-1098.prov.yaml
+  - entity: contracts/asyncapi/asyncapi.yaml
+    record: records/asyncapi-contract-release-2026-7-22-1098.prov.yaml
+  - entity: contracts/asyncapi/asyncapi.sha256
+    record: records/asyncapi-checksum-release-2026-7-22-1098.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard
+    record: records/fortemi-docs-shard-release-2026-7-21-1098.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard.receipt.json
+    record: records/fortemi-docs-shard-receipt-release-2026-7-21-1098.prov.yaml
+  - entity: docker/python-sidecar-locks.json
+    record: records/python-sidecar-locks-review-renewal-1098.prov.yaml
+  - entity: docker/third-party-dependencies.json
+    record: records/third-party-dependencies-review-renewal-1098.prov.yaml
+  - entity: crates/matric-jobs/src/worker.rs
+    record: records/matric-jobs-worker-bounded-recovery-1098.prov.yaml
+  - entity: crates/matric-jobs/src/lib.rs
+    record: records/matric-jobs-lib-bounded-recovery-1098.prov.yaml
+  - entity: crates/matric-core/src/models.rs
+    record: records/matric-core-models-retry-partition-1098.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-jobs-diagnostic-profile-1098.prov.yaml
+  - entity: crates/matric-api/src/handlers/jobs.rs
+    record: records/matric-api-jobs-embedding-diagnostics-1098.prov.yaml
+  - entity: crates/matric-inference/src/ollama.rs
+    record: records/matric-inference-ollama-embedding-diagnostics-1098.prov.yaml
+  - entity: .aiwg/planning/roadmap.md
+    record: records/fortemi-delivery-roadmap-fortemi-react-v2026-8-0-reconciliation.prov.yaml
+  - entity: .aiwg/release.config
+    record: records/fortemi-release-config-ghcr-publication-64.prov.yaml
+  - entity: .gitea/workflows/publish-sidecar.yml
+    record: records/publish-sidecar-workflow-linux-arm64-1095.prov.yaml
+  - entity: scripts/ci/publish-sidecar-release.sh
+    record: records/publish-sidecar-release-linux-arm64-1095.prov.yaml
+  - entity: scripts/ci/mirror-release-assets-to-github.sh
+    record: records/mirror-release-assets-linux-arm64-1095.prov.yaml
+  - entity: scripts/ci/verify-sidecar-publication.py
+    record: records/verify-sidecar-publication-linux-arm64-1095.prov.yaml
+  - entity: scripts/ci/run-suite-platform-contract.sh
+    record: records/run-suite-platform-contract-toolchain-1095.prov.yaml
+  - entity: tests/test_verify_suite_platform_matrix.py
+    record: records/test-suite-platform-toolchain-1095.prov.yaml
+  - entity: .gitea/workflows/suite-platform-contract.yml
+    record: records/suite-platform-contract-workflow-1095.prov.yaml
+  - entity: contracts/suite-conformance/platform-matrix.json
+    record: records/suite-platform-matrix-1095.prov.yaml
+  - entity: contracts/suite-conformance/platform-matrix.schema.json
+    record: records/suite-platform-matrix-schema-1095.prov.yaml
+  - entity: scripts/ci/verify-suite-platform-matrix.py
+    record: records/suite-platform-matrix-verifier-1095.prov.yaml
+  - entity: contracts/suite-conformance/README.md
+    record: records/suite-conformance-readme-1095.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-suite-platform-memory-lock-1095.prov.yaml
+  - entity: docs/architecture/adr/ADR-104-supported-platform-suite-conformance.md
+    record: records/adr-104-supported-platform-suite-conformance-1095.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-al-perf01-monotonic-high-water-1094.prov.yaml
+  - entity: crates/matric-db/src/file_storage.rs
+    record: records/matric-db-file-storage-journal-temp-flush-1093.prov.yaml
+  - entity: .aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md
+    record: records/bidirectional-asset-lifecycle-audit-plan-hotm-283-closeout.prov.yaml
+  - entity: crates/matric-db/src/file_storage.rs
+    record: records/matric-db-file-storage-copy-abort-flush-1093.prov.yaml
+  - entity: .aiwg/testing/asset-lifecycle-performance-policy-v1.json
+    record: records/asset-lifecycle-performance-policy-v1-1094.prov.yaml
+  - entity: .aiwg/testing/receipts/al-perf01-baseline-0ef4eccc.json
+    record: records/al-perf01-baseline-0ef4eccc-1094.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-al-perf01-phase-policy-1094.prov.yaml
+  - entity: scripts/ci/verify-al-perf01-receipt-bundle.py
+    record: records/verify-al-perf01-policy-bundle-1094.prov.yaml
+  - entity: .aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md
+    record: records/bidirectional-asset-lifecycle-audit-plan-policy-1094.prov.yaml
+  - entity: scripts/ci/verify-asset-lifecycle-system-receipt.py
+    record: records/verify-asset-lifecycle-system-receipt-1093.prov.yaml
+  - entity: scripts/ci/verify-asset-lifecycle-system-receipt.sh
+    record: records/run-asset-lifecycle-system-receipt-1093.prov.yaml
+  - entity: tests/test_verify_asset_lifecycle_system_receipt.py
+    record: records/test-verify-asset-lifecycle-system-receipt-1093.prov.yaml
+  - entity: .gitea/workflows/ci-builder.yaml
+    record: records/ci-builder-al-sys-receipt-1093.prov.yaml
+  - entity: .aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md
+    record: records/bidirectional-asset-lifecycle-audit-plan-al-sys-receipt-1093.prov.yaml
+  - entity: docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md
+    record: records/adr-102-al-sys-receipt-1093.prov.yaml
+  - entity: scripts/ci/verify-tus-bounded-memory-receipt.sh
+    record: records/verify-tus-bounded-memory-receipt-1094.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-bounded-io-1094.prov.yaml
+  - entity: crates/matric-db/src/file_storage.rs
+    record: records/matric-db-file-storage-bounded-io-1094.prov.yaml
+  - entity: crates/matric-db/src/lib.rs
+    record: records/matric-db-lib-bounded-io-1094.prov.yaml
+  - entity: scripts/ci/verify-asset-lifecycle-perf-receipt.sh
+    record: records/verify-asset-lifecycle-perf-receipt-1094.prov.yaml
+  - entity: scripts/ci/verify-al-perf01-receipt-bundle.py
+    record: records/verify-al-perf01-receipt-bundle-1094.prov.yaml
+  - entity: tests/test_verify_al_perf01_receipt_bundle.py
+    record: records/test-verify-al-perf01-receipt-bundle-1094.prov.yaml
+  - entity: .gitea/workflows/ci-builder.yaml
+    record: records/ci-builder-al-perf01-bounded-io-1094.prov.yaml
+  - entity: scripts/ci/verify-bidirectional-asset-lifecycle.sh
+    record: records/verify-bidirectional-asset-lifecycle-bounded-io-1094.prov.yaml
+  - entity: docs/architecture/adr/ADR-033-file-storage-architecture.md
+    record: records/adr-033-bounded-file-io-1094.prov.yaml
+  - entity: .aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md
+    record: records/bidirectional-asset-lifecycle-audit-plan-perf-1094.prov.yaml
+  - entity: scripts/ci/verify-bidirectional-asset-lifecycle.sh
+    record: records/verify-bidirectional-asset-lifecycle-process-recovery-1093.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-shard-process-recovery-1093.prov.yaml
+  - entity: crates/matric-db/src/file_storage.rs
+    record: records/matric-db-file-storage-shard-process-recovery-1093.prov.yaml
+  - entity: crates/matric-db/src/lib.rs
+    record: records/matric-db-lib-shard-process-recovery-1093.prov.yaml
+  - entity: .aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md
+    record: records/bidirectional-asset-lifecycle-audit-plan-process-recovery-1093.prov.yaml
+  - entity: docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md
+    record: records/adr-102-sidecar-process-recovery-1093.prov.yaml
+  - entity: docs/architecture/adr/ADR-103-lossless-knowledge-shard-presence-semantics.md
+    record: records/adr-103-sidecar-process-recovery-1093.prov.yaml
+  - entity: tests/fixtures/shards/external/schema-2-advertisement.receipt.json
+    record: records/schema-2-advertisement-receipt-1081.prov.yaml
+  - entity: contracts/knowledge-shard/conformance/matrix.json
+    record: records/knowledge-shard-conformance-matrix-aiwg-complete-1089.prov.yaml
+  - entity: contracts/knowledge-shard/conformance/README.md
+    record: records/knowledge-shard-conformance-readme-aiwg-complete-1089.prov.yaml
+  - entity: contracts/knowledge-shard/conformance/matrix.schema.json
+    record: records/knowledge-shard-conformance-schema-claim-scope-1089.prov.yaml
+  - entity: scripts/ci/verify-knowledge-shard-matrix.py
+    record: records/verify-knowledge-shard-matrix-claim-scope-1089.prov.yaml
+  - entity: tests/test_verify_knowledge_shard_matrix.py
+    record: records/test-verify-knowledge-shard-matrix-aiwg-complete-1089.prov.yaml
+  - entity: docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md
+    record: records/adr-102-aiwg-complete-1089.prov.yaml
+  - entity: tests/fixtures/shards/README.md
+    record: records/shard-fixtures-readme-aiwg-complete-1089.prov.yaml
+  - entity: .gitea/workflows/ci-builder.yaml
+    record: records/ci-builder-aiwg-receipts-1089.prov.yaml
+  - entity: tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard.cell-receipt.json
+    record: records/aiwg-core-v1-2026.7.20-cell-receipt-1089.prov.yaml
+  - entity: tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard.producer-receipt.json
+    record: records/aiwg-core-v1-2026.7.20-producer-receipt-1089.prov.yaml
+  - entity: tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard
+    record: records/aiwg-core-v1-2026.7.20-consumer-fixture-1089.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/aiwg-core-v1-fortemi-consumer-tests-1089.prov.yaml
+  - entity: tests/fixtures/shards/README.md
+    record: records/shard-fixtures-readme-aiwg-core-v1-1089.prov.yaml
+  - entity: tests/fixtures/shards/recordstore-record-v1-2026.7.13.shard.cell-receipt.json
+    record: records/recordstore-record-v1-2026.7.13-cell-receipt-1059.prov.yaml
+  - entity: contracts/knowledge-shard/conformance/matrix.json
+    record: records/knowledge-shard-conformance-matrix-recordstore-to-fortemi-1059.prov.yaml
+  - entity: contracts/knowledge-shard/conformance/README.md
+    record: records/knowledge-shard-conformance-readme-recordstore-to-fortemi-1059.prov.yaml
+  - entity: tests/fixtures/shards/README.md
+    record: records/shard-fixtures-readme-recordstore-cell-receipt-1059.prov.yaml
+  - entity: tests/test_verify_knowledge_shard_matrix.py
+    record: records/test-verify-knowledge-shard-matrix-recordstore-to-fortemi-1059.prov.yaml
+  - entity: docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md
+    record: records/adr-102-recordstore-to-fortemi-cell-1059.prov.yaml
+  - entity: .gitea/workflows/ci-builder.yaml
+    record: records/ci-builder-recordstore-cell-receipt-artifact-1059.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-recordstore-record-v1-consumer-1059.prov.yaml
+  - entity: tests/fixtures/shards/recordstore-record-v1-2026.7.13.shard
+    record: records/recordstore-record-v1-2026.7.13-consumer-fixture-1059.prov.yaml
+  - entity: tests/fixtures/shards/recordstore-record-v1-2026.7.13.shard.producer-receipt.json
+    record: records/recordstore-record-v1-2026.7.13-producer-receipt-1059.prov.yaml
+  - entity: tests/fixtures/shards/README.md
+    record: records/shard-fixtures-readme-recordstore-to-fortemi-1059.prov.yaml
+  - entity: .gitea/workflows/ci-builder.yaml
+    record: records/ci-builder-lightweight-knowledge-shard-matrix-1059.prov.yaml
+  - entity: contracts/knowledge-shard/conformance/matrix.json
+    record: records/knowledge-shard-conformance-matrix-fortemi-to-pglite-1059.prov.yaml
+  - entity: contracts/knowledge-shard/conformance/README.md
+    record: records/knowledge-shard-conformance-readme-fortemi-to-pglite-1059.prov.yaml
+  - entity: tests/test_verify_knowledge_shard_matrix.py
+    record: records/test-verify-knowledge-shard-matrix-fortemi-to-pglite-1059.prov.yaml
+  - entity: docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md
+    record: records/adr-102-fortemi-to-pglite-cell-1059.prov.yaml
+  - entity: contracts/knowledge-shard/conformance/matrix.json
+    record: records/knowledge-shard-conformance-matrix-pglite-to-fortemi-1059.prov.yaml
+  - entity: contracts/knowledge-shard/conformance/README.md
+    record: records/knowledge-shard-conformance-readme-pglite-to-fortemi-1059.prov.yaml
+  - entity: tests/test_verify_knowledge_shard_matrix.py
+    record: records/test-verify-knowledge-shard-matrix-pglite-to-fortemi-1059.prov.yaml
+  - entity: docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md
+    record: records/adr-102-pglite-to-fortemi-cell-1059.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-pglite-core-v1-consumer-1059.prov.yaml
+  - entity: tests/fixtures/shards/pglite-core-v1-2026.7.13.shard
+    record: records/pglite-core-v1-2026.7.13-consumer-fixture-1059.prov.yaml
+  - entity: contracts/knowledge-shard/conformance/matrix.json
+    record: records/knowledge-shard-conformance-matrix-pglite-self-1059.prov.yaml
+  - entity: contracts/knowledge-shard/conformance/README.md
+    record: records/knowledge-shard-conformance-readme-pglite-self-1059.prov.yaml
+  - entity: tests/test_verify_knowledge_shard_matrix.py
+    record: records/test-verify-knowledge-shard-matrix-pglite-self-1059.prov.yaml
+  - entity: docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md
+    record: records/adr-102-pglite-self-cell-1059.prov.yaml
+  - entity: tests/fixtures/shards/fortemi-core-v1-2026.7.12.shard.cell-receipt.json
+    record: records/fortemi-core-v1-2026.7.12-cell-receipt-1059.prov.yaml
+  - entity: contracts/knowledge-shard/conformance/matrix.json
+    record: records/knowledge-shard-conformance-matrix-core-v1-self-1059.prov.yaml
+  - entity: contracts/knowledge-shard/conformance/README.md
+    record: records/knowledge-shard-conformance-readme-core-v1-self-1059.prov.yaml
+  - entity: tests/fixtures/shards/README.md
+    record: records/knowledge-shard-fixture-readme-core-v1-self-1059.prov.yaml
+  - entity: docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md
+    record: records/adr-102-core-v1-self-cell-1059.prov.yaml
+  - entity: tests/test_verify_knowledge_shard_matrix.py
+    record: records/test-verify-knowledge-shard-matrix-core-v1-self-1059.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-core-v1-self-cell-1059.prov.yaml
+  - entity: tests/fixtures/shards/fortemi-core-v1-2026.7.12.shard
+    record: records/fortemi-core-v1-2026.7.12-shard-1059.prov.yaml
+  - entity: .aiwg/security/working/ci-workflow-audit.md
+    record: records/ci-workflow-audit-server-build-remediation.prov.yaml
+  - entity: build/Dockerfile.builder
+    record: records/builder-https-package-source-1088.prov.yaml
+  - entity: .gitea/workflows/build-builder.yaml
+    record: records/build-builder-tool-verification-1088.prov.yaml
+  - entity: .gitea/workflows/ci-builder.yaml
+    record: records/ci-builder-preinstalled-jsonschema-1088.prov.yaml
+  - entity: .gitea/workflows/docsite-deploy.yml
+    record: records/docsite-https-package-source-1088.prov.yaml
+  - entity: tests/fixtures/shards/external/schema-2-runtime.implementation-receipt.json
+    record: records/schema-2-runtime-signing-receipt-1088.prov.yaml
+  - entity: crates/matric-api/tests/shard_schema_2_receipt_test.rs
+    record: records/shard-schema-2-runtime-signing-receipt-test-1088.prov.yaml
+  - entity: tests/fixtures/shards/README.md
+    record: records/knowledge-shard-fixture-readme-hotm-272.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-signed-full-v1-export-1088.prov.yaml
+  - entity: crates/matric-api/src/shard_signature.rs
+    record: records/matric-api-shard-signature-production-key-boundary-1088.prov.yaml
+  - entity: tests/fixtures/shards/external/schema-2-full-v1.interop-receipt.json
+    record: records/schema-2-full-v1-interop-receipt-1084.prov.yaml
+  - entity: crates/matric-api/tests/shard_schema_2_interop_receipt_test.rs
+    record: records/shard-schema-2-interop-receipt-test-1084.prov.yaml
+  - entity: contracts/knowledge-shard/contract.json
+    record: records/knowledge-shard-contract-full-v1-provenance-1057.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-full-v1-provenance-1057.prov.yaml
+  - entity: contracts/knowledge-shard/contract.json
+    record: records/knowledge-shard-contract-1057.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-knowledge-shard-1057.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-openapi-contract-1060.prov.yaml
+  - entity: crates/matric-api/src/handlers/inference_complete.rs
+    record: records/inference-complete-openapi-contract-1060.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-shard-roundtrip-1056.prov.yaml
+  - entity: crates/matric-db/src/collections.rs
+    record: records/matric-db-collections-shard-roundtrip-1056.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-shard-bounds-923.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-shard-atomic-apply-923.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-shard-atomic-swap-923.prov.yaml
+  - entity: crates/matric-db/src/file_storage.rs
+    record: records/matric-db-file-storage-shard-staging-1058.prov.yaml
+  - entity: crates/matric-db/src/lib.rs
+    record: records/matric-db-lib-shard-staging-1058.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-shard-staging-sweep-1058.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-shard-attachment-projections-1057.prov.yaml
+  - entity: .aiwg/architecture/binary-attachment-projection-contract-2026-07.md
+    record: records/binary-attachment-projection-contract-shard-reference-import-1057.prov.yaml
+  - entity: .aiwg/testing/binary-attachment-projection-contract-test-plan-2026-07.md
+    record: records/binary-attachment-projection-test-plan-shard-reference-import-1057.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-shard-sidecar-routes-1058.prov.yaml
+  - entity: crates/matric-db/src/file_storage.rs
+    record: records/matric-db-file-storage-shard-promotion-compensation-1058.prov.yaml
+  - entity: crates/matric-db/src/lib.rs
+    record: records/matric-db-lib-shard-backend-access-1058.prov.yaml
+  - entity: .aiwg/architecture/binary-attachment-projection-contract-2026-07.md
+    record: records/binary-attachment-projection-contract-shard-sidecar-routes-1058.prov.yaml
+  - entity: .aiwg/testing/binary-attachment-projection-contract-test-plan-2026-07.md
+    record: records/binary-attachment-projection-test-plan-shard-sidecar-routes-1058.prov.yaml
+  - entity: crates/matric-api/src/main.rs
+    record: records/matric-api-main-shard-tombstones-1057.prov.yaml
+  - entity: crates/matric-core/src/shard/version.rs
+    record: records/matric-core-shard-version-1057.prov.yaml
+  - entity: crates/matric-core/src/shard/compatibility.rs
+    record: records/matric-core-shard-compatibility-1057.prov.yaml
+  - entity: crates/matric-core/src/shard/migrations/mod.rs
+    record: records/matric-core-shard-migration-registry-1057.prov.yaml
+  - entity: crates/matric-core/src/shard/migrations/v1_0_to_v1_1.rs
+    record: records/matric-core-shard-v1-0-to-v1-1-1057.prov.yaml
+  - entity: crates/matric-core/src/shard/tests.rs
+    record: records/matric-core-shard-tests-tombstones-1057.prov.yaml
+  - entity: tests/fortemi-auth-consumer/tests/consumer_smoke.rs
+    record: records/fortemi-auth-consumer-smoke-test-707.prov.yaml
+  - entity: .aiwg/reports/fortemi-auth-rust-consumer-smoke-receipt-2026-07-26.md
+    record: records/fortemi-auth-rust-consumer-smoke-receipt-707.prov.yaml
+  - entity: tests/fortemi-auth-consumer/fixtures/fortemi-auth-v1.json
+    record: records/fortemi-auth-v1-fixture-707.prov.yaml
+  - entity: tests/fortemi-auth-consumer/fixtures/fortemi-auth-release-policy-v1.json
+    record: records/fortemi-auth-release-policy-v1-fixture-1081.prov.yaml
+  - entity: contracts/knowledge-shard/contract.json
+    record: records/knowledge-shard-contract-v1-1-1057.prov.yaml
+  - entity: .aiwg/requirements/bidirectional-asset-lifecycle-requirements-2026-07.md
+    record: records/bidirectional-asset-lifecycle-requirements-1081.prov.yaml
+  - entity: .aiwg/testing/bidirectional-asset-lifecycle-audit-plan-2026-07.md
+    record: records/bidirectional-asset-lifecycle-audit-plan-1081.prov.yaml
+  - entity: scripts/ci/verify-bidirectional-asset-lifecycle.sh
+    record: records/verify-bidirectional-asset-lifecycle-1081.prov.yaml
+  - entity: .gitea/workflows/publish-sidecar.yml
+    record: records/publish-sidecar-system-git-auth-fetch-728.prov.yaml
+  - entity: crates/matric-db/src/chunking.rs
+    record: records/matric-db-semantic-chunking-1100.prov.yaml
+  - entity: crates/matric-api/src/handlers/jobs.rs
+    record: records/matric-api-embedding-chunking-1100.prov.yaml
+  - entity: .aiwg/aiwg.config
+    record: records/aiwg-repo-access-config-1098-1100.prov.yaml
+  - entity: .aiwg/security/repo-access.manifest.yaml
+    record: records/repo-access-manifest-1098-1100.prov.yaml
+  - entity: Dockerfile
+    record: records/dockerfile-rust-stack-ci-1098-1100.prov.yaml
+  - entity: Dockerfile.bundle
+    record: records/dockerfile-bundle-rust-stack-ci-1098-1100.prov.yaml
+  - entity: .env.example
+    record: records/env-example-doc-sync-1098-1100.prov.yaml
+  - entity: README.md
+    record: records/readme-doc-sync-1098-1100.prov.yaml
+  - entity: docs/content/api.md
+    record: records/api-doc-sync-1098-1100.prov.yaml
+  - entity: docs/content/authentication.md
+    record: records/authentication-doc-sync-1098-1100.prov.yaml
+  - entity: docs/content/configuration.md
+    record: records/configuration-doc-sync-1098-1100.prov.yaml
+  - entity: docs/content/container-release-evidence.md
+    record: records/container-release-evidence-doc-sync-1098-1100.prov.yaml
+  - entity: docs/content/embedding-pipeline.md
+    record: records/embedding-pipeline-doc-sync-1098-1100.prov.yaml
+  - entity: docs/content/mcp-deployment.md
+    record: records/mcp-deployment-doc-sync-1098-1100.prov.yaml
+  - entity: docs/content/troubleshooting.md
+    record: records/troubleshooting-doc-sync-1098-1100.prov.yaml
+  - entity: scripts/ci/docs-contract-rules/998-rate-limit-contract.cjs
+    record: records/rate-limit-doc-contract-current-hosted-714.prov.yaml
+  - entity: .aiwg/reports/doc-sync-audit-2026-08-25.md
+    record: records/doc-sync-audit-2026-08-25-1098-1100.prov.yaml
+  - entity: .aiwg/.last-doc-sync
+    record: records/last-doc-sync-2026-08-25-1098-1100.prov.yaml
+  - entity: .aiwg/working/doc-sync/product-docs-audit-v2026.7.22-to-9a43c755-2026-08-25.md
+    record: records/product-docs-audit-2026-08-25-1098-1100.prov.yaml
+  - entity: .aiwg/working/doc-sync/release-docs-v2026.7.23-dry-run-20260825.md
+    record: records/release-docs-audit-2026-08-25-1098-1100.prov.yaml
+  - entity: Cargo.toml
+    record: records/cargo-manifest-release-2026-7-23-1098-1100.prov.yaml
+  - entity: Cargo.lock
+    record: records/cargo-lock-release-2026-7-23-1098-1100.prov.yaml
+  - entity: mcp-server/package.json
+    record: records/mcp-package-release-2026-7-23-1098-1100.prov.yaml
+  - entity: mcp-server/package-lock.json
+    record: records/mcp-package-lock-release-2026-7-23-1098-1100.prov.yaml
+  - entity: CHANGELOG.md
+    record: records/changelog-release-2026-7-23-1098-1100.prov.yaml
+  - entity: docs/releases/v2026.7.23-announcement.md
+    record: records/announcement-release-2026-7-23-1098-1100.prov.yaml
+  - entity: contracts/asyncapi/asyncapi.yaml
+    record: records/asyncapi-contract-release-2026-7-23-1098-1100.prov.yaml
+  - entity: contracts/asyncapi/asyncapi.sha256
+    record: records/asyncapi-checksum-release-2026-7-23-1098-1100.prov.yaml
+  - entity: .aiwg/releases/evidence/v2026.7.23-release-note-threat-assessment.json
+    record: records/release-note-threat-assessment-2026-7-23-1098-1100.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard
+    record: records/fortemi-docs-shard-release-2026-7-23-1098-1100.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard.receipt.json
+    record: records/fortemi-docs-shard-receipt-release-2026-7-23-1098-1100.prov.yaml
+  - entity: tools/ci/verify-signed-tag.sh
+    record: records/verify-signed-tag-isolated-keyring-1098.prov.yaml
+  - entity: tests/test_verify_signed_tag.py
+    record: records/test-verify-signed-tag-isolated-keyring-1098.prov.yaml
+  - entity: Dockerfile
+    record: records/dockerfile-rust-stack-release-32m-1098.prov.yaml
+  - entity: Dockerfile.bundle
+    record: records/dockerfile-bundle-rust-stack-release-32m-1098.prov.yaml
+  - entity: scripts/ci/verify-container-release-evidence.py
+    record: records/verify-container-release-evidence-rust-stack-1098.prov.yaml
+  - entity: tests/test_verify_container_release_evidence.py
+    record: records/test-verify-container-release-evidence-rust-stack-1098.prov.yaml
+  - entity: Cargo.toml
+    record: records/cargo-manifest-release-2026-7-24-1098-1100.prov.yaml
+  - entity: Cargo.lock
+    record: records/cargo-lock-release-2026-7-24-1098-1100.prov.yaml
+  - entity: mcp-server/package.json
+    record: records/mcp-package-release-2026-7-24-1098-1100.prov.yaml
+  - entity: mcp-server/package-lock.json
+    record: records/mcp-package-lock-release-2026-7-24-1098-1100.prov.yaml
+  - entity: CHANGELOG.md
+    record: records/changelog-release-2026-7-24-1098-1100.prov.yaml
+  - entity: docs/releases/v2026.7.24-announcement.md
+    record: records/announcement-release-2026-7-24-1098-1100.prov.yaml
+  - entity: contracts/asyncapi/asyncapi.yaml
+    record: records/asyncapi-contract-release-2026-7-24-1098-1100.prov.yaml
+  - entity: contracts/asyncapi/asyncapi.sha256
+    record: records/asyncapi-checksum-release-2026-7-24-1098-1100.prov.yaml
+  - entity: .aiwg/releases/evidence/v2026.7.24-release-note-threat-assessment.json
+    record: records/release-note-threat-assessment-2026-7-24-1098-1100.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard
+    record: records/fortemi-docs-shard-release-2026-7-24-1098-1100.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard.receipt.json
+    record: records/fortemi-docs-shard-receipt-release-2026-7-24-1098-1100.prov.yaml
+  - entity: Dockerfile
+    record: records/dockerfile-rust-stack-release-64m-1098.prov.yaml
+  - entity: Dockerfile.bundle
+    record: records/dockerfile-bundle-rust-stack-release-64m-1098.prov.yaml
+  - entity: scripts/ci/verify-container-release-evidence.py
+    record: records/verify-container-release-evidence-rust-stack-64m-1098.prov.yaml
+  - entity: tests/test_verify_container_release_evidence.py
+    record: records/test-verify-container-release-evidence-rust-stack-64m-1098.prov.yaml
+  - entity: Cargo.toml
+    record: records/cargo-manifest-release-2026-7-25-1098-1100.prov.yaml
+  - entity: Cargo.lock
+    record: records/cargo-lock-release-2026-7-25-1098-1100.prov.yaml
+  - entity: mcp-server/package.json
+    record: records/mcp-package-release-2026-7-25-1098-1100.prov.yaml
+  - entity: mcp-server/package-lock.json
+    record: records/mcp-package-lock-release-2026-7-25-1098-1100.prov.yaml
+  - entity: CHANGELOG.md
+    record: records/changelog-release-2026-7-25-1098-1100.prov.yaml
+  - entity: docs/releases/v2026.7.25-announcement.md
+    record: records/announcement-release-2026-7-25-1098-1100.prov.yaml
+  - entity: contracts/asyncapi/asyncapi.yaml
+    record: records/asyncapi-contract-release-2026-7-25-1098-1100.prov.yaml
+  - entity: contracts/asyncapi/asyncapi.sha256
+    record: records/asyncapi-checksum-release-2026-7-25-1098-1100.prov.yaml
+  - entity: .aiwg/releases/evidence/v2026.7.25-release-note-threat-assessment.json
+    record: records/release-note-threat-assessment-2026-7-25-1098-1100.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard
+    record: records/fortemi-docs-shard-release-2026-7-25-1098-1100.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard.receipt.json
+    record: records/fortemi-docs-shard-receipt-release-2026-7-25-1098-1100.prov.yaml
+  - entity: .aiwg/testing/uat/results/fortemi-v2026.8.2-mcp-uat-2026-08-31.md
+    record: records/fortemi-v2026-8-2-mcp-uat-2026-08-31.prov.yaml
+  - entity: Cargo.toml
+    record: records/release-preparation-2026-8-3-56-1100.prov.yaml
+  - entity: Cargo.lock
+    record: records/release-preparation-2026-8-3-56-1100.prov.yaml
+  - entity: mcp-server/package.json
+    record: records/release-preparation-2026-8-3-56-1100.prov.yaml
+  - entity: mcp-server/package-lock.json
+    record: records/release-preparation-2026-8-3-56-1100.prov.yaml
+  - entity: CHANGELOG.md
+    record: records/release-preparation-2026-8-3-56-1100.prov.yaml
+  - entity: docs/releases/v2026.8.3-announcement.md
+    record: records/release-preparation-2026-8-3-56-1100.prov.yaml
+  - entity: contracts/asyncapi/asyncapi.yaml
+    record: records/release-preparation-2026-8-3-56-1100.prov.yaml
+  - entity: contracts/asyncapi/asyncapi.sha256
+    record: records/release-preparation-2026-8-3-56-1100.prov.yaml
+  - entity: .aiwg/releases/evidence/v2026.8.3-release-note-threat-assessment.json
+    record: records/v2026-8-3-release-note-threat-assessment.prov.yaml
+  - entity: .aiwg/.last-doc-sync
+    record: records/doc-sync-release-2026-8-3.prov.yaml
+  - entity: .aiwg/working/doc-sync/release-v2026.8.3-dry-run-20260831.md
+    record: records/doc-sync-release-2026-8-3.prov.yaml
+  - entity: .aiwg/reports/doc-sync-audit-v2026.8.3-2026-08-31.md
+    record: records/doc-sync-release-2026-8-3.prov.yaml
+  - entity: scripts/rebuild-docs-shard.sh
+    record: records/release-shard-tracked-source-2026-8-3-1125.prov.yaml
+  - entity: tests/test_rebuild_docs_shard.py
+    record: records/release-shard-tracked-source-2026-8-3-1125.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard
+    record: records/release-shard-tracked-source-2026-8-3-1125.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard.receipt.json
+    record: records/release-shard-tracked-source-2026-8-3-1125.prov.yaml
+  - entity: .aiwg/releases/evidence/v2026.8.3-shard-tracked-source-verification.json
+    record: records/release-shard-tracked-source-2026-8-3-1125.prov.yaml
+  - entity: .aiwg/testing/uat/results/fortemi-v2026.8.3-mcp-uat-2026-08-31.md
+    record: records/fortemi-v2026-8-3-mcp-uat-2026-08-31.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard
+    record: records/release-shard-tracked-source-2026-9-0-65.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard.receipt.json
+    record: records/release-shard-tracked-source-2026-9-0-65.prov.yaml
+  - entity: .aiwg/releases/evidence/v2026.9.0-shard-tracked-source-verification.json
+    record: records/release-shard-tracked-source-2026-9-0-65.prov.yaml
+  - entity: contracts/asyncapi/asyncapi.yaml
+    record: records/asyncapi-release-correction-2026-9-0-66.prov.yaml
+  - entity: contracts/asyncapi/asyncapi.sha256
+    record: records/asyncapi-release-correction-2026-9-0-66.prov.yaml
+  - entity: contracts/asyncapi/fixtures/manifest.json
+    record: records/asyncapi-release-correction-2026-9-0-66.prov.yaml
+  - entity: contracts/asyncapi/producer-event-fixture-receipt.json
+    record: records/asyncapi-release-correction-2026-9-0-66.prov.yaml
+  - entity: .aiwg/releases/evidence/v2026.9.0-asyncapi-contract-verification.json
+    record: records/asyncapi-release-correction-2026-9-0-66.prov.yaml
+  - entity: .aiwg/testing/uat/results/fortemi-v2026.9.0-mcp-uat-2026-09-02.md
+    record: records/fortemi-v2026-9-0-mcp-uat-2026-09-02.prov.yaml
+  - entity: docs/releases/v2026.9.2-announcement.md
+    record: records/release-preparation-2026-9-2-1128.prov.yaml
+  - entity: .aiwg/releases/v2026.9.2-threat-assessment.json
+    record: records/release-preparation-2026-9-2-1128.prov.yaml
+  - entity: .aiwg/reports/doc-sync-audit-2026-09-04.md
+    record: records/release-preparation-2026-9-2-1128.prov.yaml
+  - entity: docs/releases/v2026.9.3-announcement.md
+    record: records/release-preparation-2026-9-3-1128.prov.yaml
+  - entity: .aiwg/releases/v2026.9.3-threat-assessment.json
+    record: records/release-preparation-2026-9-3-1128.prov.yaml
+  - entity: .aiwg/reports/doc-sync-audit-v2026.9.3-2026-09-04.md
+    record: records/release-preparation-2026-9-3-1128.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard
+    record: records/release-docs-shard-2026-9-3.prov.yaml
+  - entity: docker/seed-data/fortemi-docs.shard.receipt.json
+    record: records/release-docs-shard-2026-9-3.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/hosted-worker-transactions.md
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/selected-memory-context.md
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/impact/typed-metadata-search.md
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/planning/roadmap.md
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-binary-http-cycle84.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-current-storage-resolution.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-evidence-binding.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-evidence-projection.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-evidence-resolution.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-content-cycle88.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-dispatch-cycle87.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-document-type-cycle89.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-execution-cycle90.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-execution-cycle91.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-recovery-cycle86.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-installed-http-cycle81.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-jwt-http-cycle82.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-producer-evidence.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-remote-evidence.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-remote-resolution-cycle80.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-rest-adoption.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-rest-authority.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1091-scoped-jobs-cycle85.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-server-context-owned-views-cycle96.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-server-owned-job-cache-cycle97-phase2.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-server-realtime-context-cycle92.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-server-selected-memory-context-cycle93.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-server-selected-memory-context-cycle94.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-server-session-browser-cycle95.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/EVIDENCE.md
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/README.md
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/evidence-locator.schema.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/evidence-resolution-vectors.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/evidence-resolution.schema.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/evidence-set-vectors.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/evidence-set.schema.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/evidence-vectors.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/predicate-vectors.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/predicates.schema.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/search-rest-vectors.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/search-rest.schema.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/sql-scope-vectors.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/openapi/openapi.sha256
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/openapi/openapi.yaml
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/evidence_resolution.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/handlers/archives.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/handlers/jobs.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/hosted_auth.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/hosted_jobs.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/lib.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/route_policy.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/binary_http.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/fixture-issuer-client.mjs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/fixture-issuer.mjs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/installed-http-consumer.mjs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/installed_http.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/memory_context.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/resolution_checks.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/worker-sse-consumer.mjs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/search_contract.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/search_contract/tests.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/search_dedup.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/services/tag_resolver.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/tests/hosted_document_type_test.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/tests/hosted_document_type_test/completion.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-core/src/error.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-core/src/lib.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-core/src/metadata_search.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-core/src/models.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-core/src/search_evidence.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-core/tests/search_hit_evidence_test.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/examples/metadata_predicate_vectors.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/document_types.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/document_types/scoped.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/embedding_sets.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/embeddings.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/file_storage.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/jobs.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/jobs/scoped.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/lib.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/metadata_predicates.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/notes.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/notes/hosted.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/search.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/search_candidates.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/search_evidence_projection.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/search_evidence_resolution.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/tests/metadata_predicates_sql_test.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/tests/scoped_jobs_test.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/tests/search_evidence_projection_test.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/tests/tenant_embedding_names_test.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/Cargo.toml
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/handler.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/handler/hosted.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/lib.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/worker.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/worker/dispatch.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/worker/execution.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/worker/recovery.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/worker/registry.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/tests/hosted_content_test.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/tests/hosted_dispatch_test.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/tests/hosted_execution_test.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/tests/hosted_recovery_test.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-search/Cargo.toml
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-search/src/deduplication.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-search/src/evidence.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-search/src/hybrid.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-search/src/lib.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-search/src/mmr.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-search/src/rrf.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-search/src/rsf.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-search/tests/scoped_retrieval_test.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-search/tests/search_evidence_test.rs
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:docs/architecture/adr/ADR-090-multi-tenancy-model.md
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:docs/content/authentication.md
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:migrations/20260912000000_typed_metadata_search_indexes.sql
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:migrations/20260912000100_tenant_embedding_names.sql
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:migrations/20260913000000_scoped_embedding_member_jobs.sql
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:migrations/20260913000100_tenant_archive_default.sql
+    record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-source-delivery-cycle99.json
+    record: records/lane-b-source-delivery-cycle99.prov.yaml

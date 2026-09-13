@@ -1,0 +1,287 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fortemi.dev/schemas/metadata-search/candidate/1.0.0/predicates.schema.json",
+  "title": "Candidate typed metadata predicates",
+  "type": "array",
+  "maxItems": 8,
+  "items": {
+    "$ref": "#/$defs/predicate"
+  },
+  "$defs": {
+    "scalar": {
+      "oneOf": [
+        {
+          "type": "string",
+          "maxLength": 256,
+          "pattern": "^[^\\u0000]*$"
+        },
+        {
+          "type": "number",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "bound": {
+      "oneOf": [
+        {
+          "type": "string",
+          "maxLength": 256,
+          "pattern": "^[^\\u0000]*$"
+        },
+        {
+          "type": "number",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      ]
+    },
+    "predicate": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "op",
+            "value"
+          ],
+          "properties": {
+            "path": {
+              "enum": [
+                "provider",
+                "model",
+                "role",
+                "event_kind",
+                "sensitivity",
+                "import_run_id"
+              ]
+            },
+            "op": {
+              "const": "eq"
+            },
+            "value": {
+              "$ref": "#/$defs/scalar"
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "path": {
+                    "const": "import_run_id"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "pattern": "^[^\\u0000]*$",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "op",
+            "value"
+          ],
+          "properties": {
+            "path": {
+              "enum": [
+                "provider",
+                "model",
+                "role",
+                "event_kind",
+                "sensitivity",
+                "import_run_id"
+              ]
+            },
+            "op": {
+              "const": "in"
+            },
+            "value": {
+              "type": "array",
+              "maxItems": 32,
+              "items": {
+                "$ref": "#/$defs/scalar"
+              }
+            }
+          },
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "path": {
+                    "const": "import_run_id"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "value": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 200,
+                      "pattern": "^[^\\u0000]*$",
+                      "minLength": 1
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "op"
+          ],
+          "properties": {
+            "path": {
+              "enum": [
+                "provider",
+                "model",
+                "role",
+                "event_kind",
+                "sensitivity",
+                "import_run_id"
+              ]
+            },
+            "op": {
+              "const": "range"
+            },
+            "gte": {
+              "$ref": "#/$defs/bound"
+            },
+            "lte": {
+              "$ref": "#/$defs/bound"
+            }
+          },
+          "anyOf": [
+            {
+              "properties": {
+                "gte": {
+                  "$ref": "#/$defs/bound"
+                }
+              },
+              "required": [
+                "gte"
+              ]
+            },
+            {
+              "properties": {
+                "lte": {
+                  "$ref": "#/$defs/bound"
+                }
+              },
+              "required": [
+                "lte"
+              ]
+            }
+          ],
+          "oneOf": [
+            {
+              "properties": {
+                "gte": {
+                  "type": "string",
+                  "maxLength": 256,
+                  "pattern": "^[^\\u0000]*$"
+                },
+                "lte": {
+                  "type": "string",
+                  "maxLength": 256,
+                  "pattern": "^[^\\u0000]*$"
+                }
+              }
+            },
+            {
+              "properties": {
+                "gte": {
+                  "type": "number",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "lte": {
+                  "type": "number",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              }
+            }
+          ],
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "path": {
+                    "const": "import_run_id"
+                  }
+                }
+              },
+              "then": {
+                "properties": {
+                  "gte": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "pattern": "^[^\\u0000]*$",
+                    "minLength": 1
+                  },
+                  "lte": {
+                    "type": "string",
+                    "maxLength": 200,
+                    "pattern": "^[^\\u0000]*$",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "op"
+          ],
+          "properties": {
+            "path": {
+              "enum": [
+                "provider",
+                "model",
+                "role",
+                "event_kind",
+                "sensitivity",
+                "import_run_id"
+              ]
+            },
+            "op": {
+              "const": "exists"
+            },
+            "value": {
+              "type": "boolean"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,161 @@
+{
+  "at": "2026-09-13T04:46:06.855Z",
+  "cycle": 92,
+  "status": "PROGRESS_LOCAL_REALTIME_CONTEXT_PASS_HOSTED_METADATA_NOT_PASS",
+  "overallAcceptance": "NOT_PASS",
+  "producerFiles": 845,
+  "hotmFiles": 513,
+  "coreFiles": 580,
+  "changedProducerSource": [
+    "crates/matric-api/src/scoped_search_tests/worker-sse-consumer.mjs"
+  ],
+  "changedHotmSource": [
+    "ui/src/api/__tests__/events.test.ts",
+    "ui/src/api/events.ts",
+    "ui/src/services/realtimeEventBus.ts",
+    "ui/src/services/websocket.ts",
+    "ui/src/api/__tests__/realtime-context.test.ts",
+    "ui/src/api/realtime-context.ts",
+    "ui/src/services/__tests__/websocket-archive-context.test.ts",
+    "ui/src/services/__tests__/websocket-archive-view.test.ts"
+  ],
+  "coreSourceUnchanged": true,
+  "sourceHeads": {
+    "server": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+    "core": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7",
+    "hotm": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4"
+  },
+  "verification": {
+    "tests": {
+      "vitest.json": {
+        "passed": 279,
+        "failed": 0,
+        "skipped": 0,
+        "todo": 0
+      },
+      "full-vitest.json": {
+        "passed": 2066,
+        "failed": 0,
+        "skipped": 0,
+        "todo": 0
+      }
+    },
+    "producerFixtureTests": 17,
+    "transportTests": 246,
+    "events": 48,
+    "mockedTransports": 4,
+    "typecheck": "PASS",
+    "build": "PASS",
+    "allJobsTerminal": true,
+    "jobs": 6,
+    "passes": 3,
+    "preservedFailures": 3,
+    "peakBytes": 2330513408
+  },
+  "bundle": {
+    "status": "PASS",
+    "source": {
+      "src/api/events.ts": "55b86a18cfa350c80d76b04e3f03bc9fb311368c9671c089c6f55e589a8db922",
+      "src/api/errors.ts": "c282e128554e20dd1cace1d6e18d02262dd9a567e406bb3dc7141fdfe4697874",
+      "src/api/realtime-context.ts": "e4fb047f992bdc506d615c359241a247214cf5ef0a80a0ccaf9fa2a66974491c",
+      "src/api/memory-context.ts": "1a5e1c84725b10c22fe1b15f5aa777725abcb7e0571d51edf87c4306fc8c4fdc",
+      "src/api/archives.ts": "bff17cada14fd21773d74f29554c4cee4b82925090273fa946545398036c41b9",
+      "src/lib/runtime-config.ts": "3f0d24c2407339409493e623b05242326e25ccfd515b1002596e7a2f101f9eee",
+      "src/api/auth-context.ts": "dfd5baa65af99a545c03813b28c1f5d5bbb3660a1dcf324aad784faf675077b1",
+      "src/api/client.ts": "5d051f585baa371868deacd688b794e72947ed088b94972dbc7b8d3003069fe7"
+    },
+    "virtualInputs": [
+      "owned:platform",
+      "owned-realtime-entry.ts",
+      "<define:import.meta.env>"
+    ],
+    "sha256": "9b4e5097634084f11bacfd9df6659305a0114a35d5a6661df6c3f2eeec940612",
+    "bytes": 28786,
+    "esbuildVersion": "0.28.1",
+    "esbuildSha256": "8331fe1d8b3a07381f33cc425fcfaa94776e263113653f80ec3ba433e9657e73",
+    "esbuildBinarySha256": "0c6588b092a2c291a72bab90659f3c9e0e25e0fe59c9ac12b4dae4d945e5548c",
+    "scope": "Real candidate archive resolver, HTTP client and SSE parser; only platform fetch bridge and entrypoint are fixture adapters. No archive-name rewrite, metadata or event decoder replacement."
+  },
+  "failure": {
+    "reason": "Network request failed: archive metadata admission\n\n503 !== 200\n",
+    "streams": [
+      {
+        "schema": "public",
+        "status": "initial",
+        "requests": 0,
+        "types": [],
+        "bytes": 0
+      },
+      {
+        "schema": "public",
+        "status": "initial",
+        "requests": 0,
+        "types": [],
+        "bytes": 0
+      },
+      {
+        "schema": "archive_search_fixture",
+        "status": "initial",
+        "requests": 0,
+        "types": [],
+        "bytes": 0
+      }
+    ]
+  },
+  "actualBinary": {
+    "pid": 325350,
+    "url": "http://127.0.0.1:42459",
+    "sha256": "19a6f442f36cc86f8c11a74967d83deebdb9958a0a773a76a9b63f4bdc921c8d",
+    "started": true,
+    "ready": false,
+    "scanning": "required",
+    "workerEnabled": true,
+    "rateLimitEnabled": true
+  },
+  "implementation": "HotM request-name/event-schema separation, real metadata resolver, generation-fenced archive selection replacement, cursor and pending-event reset, queue view reset, strict scoped queue/control filtering. Producer harness consumes real candidate resolver/client/parser without name rewrite. Producer runtime and Core package unchanged this cycle.",
+  "hostedGap": "Actual GET /api/v1/archives returns503 at the hosted route-migration gate before SSE. Archive handlers use raw pool repositories. Listing also requires admin while the reader has mcp read; that additional policy dependency is source-confirmed, not an observed403 after migration. No guard/policy weakening or metadata stub.",
+  "releases": {
+    "fortemi": {
+      "tag": "v2026.9.9",
+      "main": "36c1b8779166af712afd588dd00dec871a6a9e30",
+      "released": "e91c595a896275f835cb7ed1aef173cb26056206",
+      "tagObject": "312897944bac30b36e1a215afe34178610ae48f6",
+      "mergedUnreleased": 16,
+      "refs": "36c1b8779166af712afd588dd00dec871a6a9e30\trefs/heads/main\n312897944bac30b36e1a215afe34178610ae48f6\trefs/tags/v2026.9.9\ne91c595a896275f835cb7ed1aef173cb26056206\trefs/tags/v2026.9.9^{}\n",
+      "disposition": "UNRELEASED_PENDING_FULL_ACCEPTANCE_DELIVERY",
+      "releaseId": 2324
+    },
+    "fortemi-react": {
+      "tag": "v2026.9.5",
+      "main": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7",
+      "released": "01b4a9c923af9cde24dc6a2d293d96194b6a6d7d",
+      "tagObject": "4e588d8bdb3e6e455e2d35ef9e49498542917de0",
+      "mergedUnreleased": 3,
+      "refs": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7\trefs/heads/main\n4e588d8bdb3e6e455e2d35ef9e49498542917de0\trefs/tags/v2026.9.5\n01b4a9c923af9cde24dc6a2d293d96194b6a6d7d\trefs/tags/v2026.9.5^{}\n",
+      "disposition": "UNRELEASED_PENDING_FULL_ACCEPTANCE_DELIVERY",
+      "releaseId": 2333
+    },
+    "HotM": {
+      "tag": "v2026.9.5",
+      "main": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4",
+      "released": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4",
+      "tagObject": "8d4f756ed55afcf12120c9edffb76e70bc2b0a62",
+      "mergedUnreleased": 0,
+      "refs": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4\trefs/heads/main\n8d4f756ed55afcf12120c9edffb76e70bc2b0a62\trefs/tags/v2026.9.5\n2b0b4a7aa283a91aa1026521b3a41faa4e834ad4\trefs/tags/v2026.9.5^{}\n",
+      "disposition": "CANDIDATE_UNRELEASED_HOSTED_ACCEPTANCE_NOT_PASS",
+      "releaseId": 2331
+    }
+  },
+  "releaseQualification": "Fresh metadata and source refs/ancestry only. No asset-byte or mirror revalidation, signing, commit, PR, tag, release, closure, pin or readiness promotion. HotM candidate not deliverable until scoped metadata/default reader acceptance passes.",
+  "remaining": [
+    "producer-owned tenant-scoped archive read/default-resolution contract under current reader authority",
+    "actual-server HotM metadata/SSE acceptance and launched browser/native lifecycle qualification",
+    "remaining hosted handlers/follow-ups/index/queue events and durable outbox/crash/restart/cancellation/purge/restore/revocation",
+    "all declared consumers, cache/EE/performance/named-profile/CI/delivery and full lane release sweep"
+  ],
+  "scope": "Original20 Lane B issues and every prior hold/escalation retained. HotM human92284 requires separate immutable delivered receipts per axis. C82 held draft remains HELD_NOT_POSTED and unchanged. Suite NO-GO, public readiness false and goalACTIVE remain. Static index, named-profile shard transfer and live persistence are separate.",
+  "safety": "Six serial detached bounded jobs; owned PG20 fixture has zero slot refusals and is removed. Offline defaults and resource/device/network guards unchanged. Shared inference unchanged. No model/GPU/Docker/production vault or signing; original model release must be within six calendar months when used.",
+  "evidenceBoundary": "Local application-service and rendered-hook tests mock network/metadata. Pinned corpus uses mocked transports. Real-server resolver/client/parser fails before streaming and is not end-to-end PASS. No claim of full suite, browser, supported-platform, auth parity or release qualification.",
+  "owner": "server",
+  "evidence": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260913-cycle92"
+}

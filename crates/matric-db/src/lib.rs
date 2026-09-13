@@ -47,6 +47,7 @@ pub mod incoming_webhooks;
 pub mod jobs;
 pub mod links;
 pub mod memory_search;
+pub mod metadata_predicates;
 pub mod notes;
 pub mod oauth;
 pub mod outbox;
@@ -57,6 +58,9 @@ pub mod provenance;
 pub mod schema_context;
 pub mod schema_validation;
 pub mod search;
+pub mod search_candidates;
+mod search_evidence_projection;
+pub mod search_evidence_resolution;
 pub mod skos_tags;
 mod skos_tags_tx;
 pub mod source_upsert;
@@ -125,7 +129,7 @@ pub use file_storage::{
     ShardImportJournalBlobState, ShardImportJournalLease, StagedShardBlob,
     StagedShardBlobPromotion, StorageBackend, FILE_COPY_BUFFER_BYTES,
 };
-pub use jobs::{get_extraction_stats, PgJobRepository};
+pub use jobs::{get_extraction_stats, PgJobRepository, ScopedClaimedJob, ScopedJobRepository};
 pub use links::{
     CoarseCommunityResult, DiagnosticsComparison, DiagnosticsSnapshot, GraphDiagnostics, GraphEdge,
     GraphMeta, GraphNode, GraphResult, LinkCreateResult, PfnetResult, PgLinkRepository, SnnResult,

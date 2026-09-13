@@ -1,0 +1,299 @@
+{
+  "at": "2026-09-13T02:22:32.797Z",
+  "cycle": 89,
+  "status": "PARTIAL_HOSTED_DOCUMENT_TYPE_IMPLEMENTED",
+  "overallAcceptance": "NOT_PASS",
+  "handlerAcceptance": "PASS",
+  "recoveryAcceptance": "PASS",
+  "dispatchAcceptance": "PASS",
+  "binaryBootstrapAndInstalledHttpAcceptance": "PASS",
+  "fullWorkerExecution": "NOT_QUALIFIED",
+  "producerFiles": 840,
+  "coreFiles": 580,
+  "changedProducerSource": [
+    "crates/matric-api/src/hosted_jobs.rs",
+    "crates/matric-api/src/lib.rs",
+    "crates/matric-api/tests/hosted_document_type_test.rs",
+    "crates/matric-db/src/document_types.rs",
+    "crates/matric-db/src/document_types/scoped.rs",
+    "crates/matric-jobs/src/handler/hosted.rs",
+    "migrations/20260913000000_scoped_embedding_member_jobs.sql"
+  ],
+  "coreSourceUnchanged": true,
+  "sourceHeads": {
+    "server": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+    "core": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7"
+  },
+  "verification": {
+    "unitTests": 48,
+    "databaseTestFunctions": 11,
+    "apiHandlerTestFunctions": 1,
+    "apiHttpTestFunctions": 3,
+    "focusedRustFunctions": 63,
+    "finalHandlerLabel": "seventh",
+    "finalHttpLabel": "http",
+    "allJobsTerminal": true,
+    "jobPasses": 4,
+    "preservedFailures": 4,
+    "peakBytes": 6444646400,
+    "runnerAndBootstrapLifecycleRegressions": "Inherited Cycle84; not rerun"
+  },
+  "handlerBoundary": {
+    "transactionMs": 2000,
+    "lockMs": 100,
+    "implementation": "Pool-free HostedDocumentTypeInferenceHandler, shared detector precedence, explicit public tenant registry lookup with active hosted fallback, note/original/revised locks and 1000-character preview",
+    "atomicEffects": "Assignment, access accounting, native membership/statistics/follow-up jobs and completed revision provenance",
+    "replay": "Globally unique job ID identifies completed activity; replacement attempt replays result without repeating effects; stale attempt rejected; incomplete/conflicting receipt denied",
+    "limits": "Production registry/claim drain and events not activated. Follow-up embedding jobs are queued, not executed. Content and settlement commits remain separate; no exactly-once external-effect guarantee."
+  },
+  "migration": "20260913000000_scoped_embedding_member_jobs.sql: shared queue and native UUID function qualified; tenant/archive dedup and routing; membership statistics qualified by triggering relation with old/new parents",
+  "binary": {
+    "path": "/var/tmp/fortemi-release-target-2026.9.1/debug/matric-api",
+    "sha256": "719f5ab20a72eb0387dfcbfbe2f8d5ecff4cce6f6f82c3eaf06fd4a8793af4a2",
+    "features": [
+      "hosted-auth",
+      "kms-vault"
+    ]
+  },
+  "installed": {
+    "tarballSha256": "8df3a4f435b0235bd653d03b2a4769c630a5f79034d6cb6b06a2094dfe69e0a1",
+    "entrySha256": "57a0b430c6c652be6d3e6eb18fe8c7ce2b51a63934f0286e77ac482d408ed1fe",
+    "packageRoot": "/tmp/fortemi-core-http-IJc45I/node_modules/@fortemi/core",
+    "version": "2026.9.5"
+  },
+  "phases": [
+    {
+      "phase": "initial",
+      "checks": 93
+    },
+    {
+      "phase": "jwt",
+      "checks": 22
+    },
+    {
+      "phase": "tenant-suspended",
+      "checks": 3
+    },
+    {
+      "phase": "tenant-soft_deleted",
+      "checks": 3
+    },
+    {
+      "phase": "tenant-active",
+      "checks": 3
+    },
+    {
+      "phase": "stale",
+      "checks": 15
+    },
+    {
+      "phase": "archived",
+      "checks": 27
+    },
+    {
+      "phase": "deleted",
+      "checks": 27
+    },
+    {
+      "phase": "purged",
+      "checks": 27
+    }
+  ],
+  "groups": 220,
+  "requests": 293,
+  "routers": {
+    "launched-binary": 278,
+    "note-denied": 12,
+    "untrusted-ca": 1,
+    "cold-jwks": 2
+  },
+  "routes": {
+    "/api/v1/search": 46,
+    "/api/v1/notes/{id}": 28,
+    "/api/v1/search/evidence/resolve": 219
+  },
+  "startup": {
+    "status": "PASS",
+    "components": [
+      [
+        "Redis search cache enabled",
+        true
+      ],
+      [
+        "Chat-stream resumption store enabled",
+        true
+      ],
+      [
+        "Ingest cursor store enabled",
+        true
+      ],
+      [
+        "Ingest token store enabled",
+        true
+      ],
+      [
+        "Idempotency store enabled",
+        true
+      ],
+      [
+        "OpenAI health check passed",
+        true
+      ],
+      [
+        "Stale-running job sweep completed",
+        true
+      ]
+    ],
+    "workerRecoveryError": false
+  },
+  "audit": {
+    "tenants": [
+      [
+        "5fc0a979-c07d-489d-9e66-f71e7fae6ea0",
+        390
+      ],
+      [
+        "b90f3de2-1d88-41a1-b336-dc43fefdcfeb",
+        190
+      ]
+    ],
+    "durable": true
+  },
+  "auditRows": 580,
+  "failures": {
+    "first": "Test compile borrowed Value mismatch; no database started",
+    "second": "Redacted native handler database failure; fixture removed",
+    "third": "Rollback-only diagnostic remained redacted; fixture removed",
+    "fourth": "42883 public.gen_uuid_v7 absent after prior native-UUID migration; repaired with pg_catalog.uuidv7; fixture removed"
+  },
+  "releases": {
+    "fortemi": {
+      "id": 2324,
+      "tag": "v2026.9.9",
+      "assets": [
+        {
+          "id": 6229,
+          "name": "matric-api-x86_64-unknown-linux-gnu",
+          "size": 72938328
+        },
+        {
+          "id": 6230,
+          "name": "matric-api-aarch64-unknown-linux-gnu",
+          "size": 68659392
+        },
+        {
+          "id": 6231,
+          "name": "matric-api-aarch64-apple-darwin",
+          "size": 61031584
+        },
+        {
+          "id": 6232,
+          "name": "matric-api-x86_64-apple-darwin",
+          "size": 65082640
+        },
+        {
+          "id": 6233,
+          "name": "SHA256SUMS.txt",
+          "size": 400
+        },
+        {
+          "id": 6234,
+          "name": "sidecar-provenance.intoto.json",
+          "size": 1751
+        }
+      ],
+      "main": "36c1b8779166af712afd588dd00dec871a6a9e30",
+      "released": "e91c595a896275f835cb7ed1aef173cb26056206",
+      "tagObject": "312897944bac30b36e1a215afe34178610ae48f6",
+      "version": "v2026.9.9",
+      "mergedUnreleasedCommits": 16,
+      "disposition": "UNRELEASED_PENDING_IMPLEMENTATION_ACCEPTANCE_DELIVERY"
+    },
+    "fortemi-react": {
+      "id": 2333,
+      "tag": "v2026.9.5",
+      "assets": [
+        {
+          "id": 6299,
+          "name": "fortemi-core-2026.9.5.tgz",
+          "size": 1257821
+        },
+        {
+          "id": 6300,
+          "name": "fortemi-graph-2026.9.5.tgz",
+          "size": 64363
+        },
+        {
+          "id": 6301,
+          "name": "fortemi-react-2026.9.5.tgz",
+          "size": 147087
+        },
+        {
+          "id": 6302,
+          "name": "SHA256SUMS",
+          "size": 278
+        }
+      ],
+      "main": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7",
+      "released": "01b4a9c923af9cde24dc6a2d293d96194b6a6d7d",
+      "tagObject": "4e588d8bdb3e6e455e2d35ef9e49498542917de0",
+      "version": "v2026.9.5",
+      "mergedUnreleasedCommits": 3,
+      "disposition": "PRIOR_PARTIAL_PUBLICATION_AND_UNRELEASED_PENDING_ACCEPTANCE"
+    },
+    "HotM": {
+      "id": 2331,
+      "tag": "v2026.9.5",
+      "assets": [
+        {
+          "id": 6289,
+          "name": "hotm-ui-dist.tar.gz",
+          "size": 3246334
+        },
+        {
+          "id": 6294,
+          "name": "HotM_2026.9.5_aarch64.dmg",
+          "size": 29201522
+        },
+        {
+          "id": 6295,
+          "name": "SHA256SUMS-macos.txt",
+          "size": 92
+        },
+        {
+          "id": 6296,
+          "name": "HotM_2026.9.5_amd64.AppImage",
+          "size": 109287928
+        },
+        {
+          "id": 6297,
+          "name": "HotM_2026.9.5_amd64.deb",
+          "size": 32747002
+        },
+        {
+          "id": 6298,
+          "name": "SHA256SUMS.txt",
+          "size": 268
+        }
+      ],
+      "main": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4",
+      "released": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4",
+      "tagObject": "8d4f756ed55afcf12120c9edffb76e70bc2b0a62",
+      "version": "v2026.9.5",
+      "mergedUnreleasedCommits": 0,
+      "disposition": "NO_CHANGE_THIS_CYCLE_PRIOR_DISPOSITION_RETAINED"
+    }
+  },
+  "releaseQualification": "Fresh release metadata, source refs and ancestry only. No fresh registry asset-byte/mirror verification, release/commit/PR/tag/closure/pin/capability promotion. Routine final lane release sweep remains required.",
+  "remaining": [
+    "production hosted handler registry/claim drain and pending-work integration",
+    "remaining enabled handlers and full follow-up embedding execution",
+    "attempt-fenced callbacks and tenant events",
+    "full worker/lifecycle/cache/EE/performance/every-consumer/CI/delivery/release"
+  ],
+  "scope": "Original20 Lane B issues retained; suite NO-GO; static index, named-profile shard transfer and live persistence remain distinct. Prior holds/questions preserved.",
+  "safety": "Eight serial bounded CPU jobs; four PASS/four preserved failures; Cargo1/offline/locked; seven owned PG clusters and twelve owned PIDs removed/absent. Shared inference untouched. No model/GPU/Docker/production vault/signing.",
+  "evidenceBoundary": "One production handler implementation executed directly through real committed dispatcher claims; daemon registry not activated. Synthetic embeddings/scanner controls and connected Redis do not qualify real model/scanner quality, hosted cache TTL or immediate revocation.",
+  "owner": "server",
+  "evidence": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260913-cycle89"
+}

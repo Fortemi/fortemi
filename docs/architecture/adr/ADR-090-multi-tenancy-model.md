@@ -34,6 +34,17 @@ fail-closed migration boundary, not a claim that every API surface is hosted-rea
 
 ## Context
 
+Cycle93 selected-memory read candidate: `GET /api/v1/memory/context` exposes only
+the authorized name/schema snapshot from request-bound archive routing, with
+read scope and no-store. It does not admit legacy archive inventory/detail or
+statistics handlers and does not broaden admin management authority. Hosted
+scope/context absence and resolution failures remain fail-closed. The default
+archive partial unique index is now tenant-qualified without changing existing
+rows, allowing independent defaults while retaining one default per tenant.
+See `.aiwg/architecture/impact/selected-memory-context.md` for the additive REST
+contract, consumer migration, rollback boundary and pending delivered gates.
+This candidate does not change the public hosted-readiness decision.
+
 ADR-068 introduced archive isolation via PostgreSQL schemas with `SET LOCAL search_path TO {schema}, public` wrapped by a `SchemaContext`. That mechanism enables multiple parallel **archives within a single deployment** — same user, different memory contexts. It does **not** provide multi-tenant SaaS isolation.
 
 For the hosted multi-tenant deployment (HotM mobile + HotM cloud-mode desktop), HotM ADR-MOBILE-001 Decision 6 selected the tenancy model after research into AWS, Crunchy, and Supabase guidance: **shared-schema with Postgres Row-Level Security**. The convergent recommendation across all three vendors is shared-schema + RLS for the operational scale HotM targets (well under 10k tenants at launch). Schema-per-tenant is documented as a future escalation path if a specific compliance regime (HIPAA / SOC2) requires per-tenant data separation or if a tenant grows beyond shared-schema's operational ceiling.
@@ -210,6 +221,96 @@ The schema-per-tenant escalation path is **not** the same as ADR-068's archive-p
 - (~) ADR-068 archive isolation pattern continues to work within tenants — archives are nested under tenants
 
 ## Implementation
+
+### Completion and stream checkpoint (Cycle91 candidate)
+
+The document-type handler classifies temporary database failures by typed errors
+and reviewed SQLSTATEs, including both progress transactions. Replacement attempts
+replay durable content without repeated access/provenance effects. Completion reads
+bounded active-note metadata under the admitted tenant/archive and settles the
+exact attempt in the same transaction. Only acknowledged commit publishes
+job.completed then note.updated; snapshot/commit errors publish neither. Recovery
+owns indeterminate settlement. No durable outbox or exactly-once claim is implied.
+
+Hosted live/replay filtering uses the resolved schema, not the request archive
+name, and rejects missing tenant/memory attribution. Authorization and personal
+behavior remain unchanged. See hosted-worker-transactions.md for metadata limits,
+retry boundaries and the HotM application archive-selection gap. Cycle91 receipts
+own native/binary/parser evidence. Other handlers, follow-ups, complete lifecycle,
+every consumer, CI and releases remain; suite NO-GO/readiness false are unchanged.
+
+### Hosted execution checkpoint (Cycle90 candidate)
+
+The daemon now uses an explicit hosted-only handler registry and bounded
+tenant-page claim drain. Committed claim capabilities persist through progress,
+timeout/panic, completion/failure/retry and shutdown cancellation. Legacy handlers
+and raw pending counts cannot become hosted fallbacks. Document-type inference
+is the first registered production handler; all other types remain unqualified.
+Existing lifecycle wire payloads acquire tenant/archive context directly from
+the claim, without raw job lookups or bridge writes. Global queue summaries stay
+personal-only. Hosted note.updated/follow-up/index events, other handlers, live
+SSE lifecycle and full acceptance/CI/release gates remain. Cycle90 evidence owns
+the exact native and actual-binary test results. No readiness or suite NO-GO change.
+
+### Document-type handler checkpoint (Cycle89 candidate)
+
+HostedDocumentTypeInferenceHandler owns no Database/pool. It uses the committed
+claim's bounded content transaction for shared-registry detection, content-row
+locking, assignment, access accounting and completed provenance. A job-identified
+activity is the durable retry receipt; existing assignments are preserved and
+conflicting/incomplete receipts fail closed. Selected document types must remain
+active and tenant-visible. Native membership triggers explicitly route by
+triggering schema/tenant and write archive-addressed follow-ups to public.job_queue.
+This implementation is not registered in the production worker yet. Claim drain,
+other handlers, callbacks, tenant events and full lifecycle acceptance remain.
+
+### Claim-bound content checkpoint (Cycle88 candidate)
+
+HostedClaim.with_content supplies a bounded borrowed TenantScopedConn under the
+committed attempt's tenant/archive. It validates canonical content table/RLS
+inventory, uses an archive-only search path without public-table fallback, holds
+queue/attempt locks through the short callback and rechecks scope/claim before
+commit. HostedJobHandler/HostedJobContext explicitly separate this path from legacy
+raw-Database handlers; no blanket adapter or ambient tenant is provided.
+
+Owned non-bypass tests execute native note mutations and rollback/error cases.
+This is an internal trusted-SQL capability, not an arbitrary-SQL sandbox or an
+exactly-once side-effect guarantee. Content and terminal commits are separate.
+Per-handler migration, retry-safe revision handling, follow-up pipelines and tenant
+events remain required before production activation or hosted readiness promotion.
+
+### Committed claim dispatcher checkpoint (Cycle87 candidate)
+
+HostedJobDispatcher now provides bounded active-tenant selection with independent
+cost-tier cursors and a required explicit hosted handler allowlist. It returns an
+immutable HostedClaim only after the scoped claim/attempt transaction commits.
+The capability's short scoped progress/completion/failure/retry methods preserve
+the original attempt UUID and active tenant/archive checks. Neither raw pools nor
+mutable tenant/claim identity are exposed. Commit failure, registry failure,
+timeout and lost claim have explicit outcomes; they are not successful empty work.
+
+Non-bypass owned database tests qualify these primitives, not production handler
+activation. JobWorker claim drain and raw-Database handlers still require a hosted
+content capability and event/callback migration. Recovery uses the shared bounded
+registry helper. No RLS bypass, ambient tenant, new schema or ready-flag promotion.
+
+### Hosted background recovery checkpoint (Cycle86 candidate)
+
+The worker bootstrap now opts into HostedJobRecovery in multi-tenant mode.
+The runtime role's existing SELECT on the system-scoped tenant_registry supplies
+bounded pages of active non-nil tenant IDs. Each tenant's recovery then executes
+through TenantScopedConn, active/GUC validation and FORCE RLS. No payload tenant,
+ambient tenant default, elevated role or cross-tenant data query is introduced.
+This internal service scheduler is not an admin endpoint and does not replace
+the SystemScopedConn/audit requirement for cross-tenant administrative APIs.
+
+Recovery uses row/page/time bounds and an epoch high-water cursor. It is one
+bounded page at startup, followed by periodic continuation, not a full-registry
+startup sweep. Partial failures are explicit and previously committed tenant
+transactions remain durable. See `.aiwg/architecture/impact/hosted-worker-transactions.md`
+for limits, tests, rollback and remaining migration. Claims, handlers, callback
+settlement and tenant event delivery are not yet scoped end to end. The accepted
+target architecture and hosted launch gate remain distinct from this candidate.
 
 **Code location:**
 - Tenancy primitives: `crates/matric-core/src/tenancy.rs` (new — `TenantId`, `AuthContext::tenant_id()`)

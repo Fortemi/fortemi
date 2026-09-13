@@ -1,0 +1,137 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-13T02:56:58.228Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-execution-cycle90.json",
+    "type": "artifact_bundle",
+    "created_at": "2026-09-13T02:56:58.228Z",
+    "checksum": "sha256:c835d452100ca56053eb4c83d32d15d260a22e24f485465d50cc91f337edff3d",
+    "size_bytes": 8734,
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "crates/matric-api/src/hosted_jobs.rs",
+          "bytes": 3898,
+          "sha256": "74b52bce59c491737a94cb58d439c418a4986a0a238a301437086e76a6480a88"
+        },
+        {
+          "path": "crates/matric-api/src/main.rs",
+          "bytes": 3208048,
+          "sha256": "eba95dda9f217802385fa99b1436b630200cbc39a984348411d8d6e125ce039e"
+        },
+        {
+          "path": "crates/matric-api/src/scoped_search_tests/binary_http.rs",
+          "bytes": 19709,
+          "sha256": "9218fccb555b496efbed05bcc9992a065c8ee9a30f33195501c6a7caf21fd118"
+        },
+        {
+          "path": "crates/matric-api/src/scoped_search_tests/installed_http.rs",
+          "bytes": 13671,
+          "sha256": "770b65bf55c9b9b2a77608b4545d15331fd5ecaebc52fe3fe77c1cdb6328e979"
+        },
+        {
+          "path": "crates/matric-api/tests/hosted_document_type_test.rs",
+          "bytes": 35882,
+          "sha256": "42c657452694cba3193277363618221c3d0ebfe8a164e55cdcd01760aee54e71"
+        },
+        {
+          "path": "crates/matric-jobs/src/handler/hosted.rs",
+          "bytes": 2454,
+          "sha256": "53ed9dddd5a796ce03fa316cbbc2c0ef916bb1e7292cb3ae524e81a24b9df54f"
+        },
+        {
+          "path": "crates/matric-jobs/src/worker.rs",
+          "bytes": 83019,
+          "sha256": "caec52d3a15634a8184116981d16d9dc48b11c1ae62f0d111f79c54078def889"
+        },
+        {
+          "path": "crates/matric-jobs/src/worker/execution.rs",
+          "bytes": 14033,
+          "sha256": "b0b76931dca0372c169af4325c0347c00bbfec59d472be29a03a3bd4cb788a19"
+        },
+        {
+          "path": "crates/matric-jobs/tests/hosted_execution_test.rs",
+          "bytes": 13633,
+          "sha256": "d96706115fe03ff8214668eb6b412c8afec12ab687eee80690252617bf62cdfe"
+        },
+        {
+          "path": ".aiwg/architecture/impact/typed-metadata-search.md",
+          "bytes": 20599,
+          "sha256": "071cc40839e9d2f5a74e6aca694c72bbbb0fbffb90f79459871fb6369477c056"
+        },
+        {
+          "path": ".aiwg/architecture/impact/hosted-worker-transactions.md",
+          "bytes": 19794,
+          "sha256": "11948a5b43bfe7fd0e2b0dfcee58f218e1c3df559073deffe404832739d056cf"
+        },
+        {
+          "path": "docs/architecture/adr/ADR-090-multi-tenancy-model.md",
+          "bytes": 20031,
+          "sha256": "636fbe10a360062cc049885a07a61f384ac51fe187afdfad7733f004cb546daa"
+        },
+        {
+          "path": "docs/content/authentication.md",
+          "bytes": 38887,
+          "sha256": "d8d3aa794828fb245b0cd83e4e4f4d8baecde2b296ae717e7e69447d4baaa484"
+        },
+        {
+          "path": ".aiwg/planning/roadmap.md",
+          "bytes": 343603,
+          "sha256": "bc0a06593d4641bf04cbf2434c3e20170a98b615d28def110e81b2cbd04ff6a8"
+        },
+        {
+          "path": ".aiwg/activity.log",
+          "bytes": 6673,
+          "sha256": "d24da4067dcd36ac2b7a526e3fef6d05349a2cbbb356cb572a91703247801106"
+        },
+        {
+          "path": ".aiwg/reports/lane-b-1091-hosted-execution-cycle90.json",
+          "bytes": 8734,
+          "sha256": "c835d452100ca56053eb4c83d32d15d260a22e24f485465d50cc91f337edff3d"
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:hosted-execution:lane-b:090:server",
+    "type": "modification",
+    "started_at": "2026-09-13T02:36:23.804Z",
+    "ended_at": "2026-09-13T02:56:58.228Z",
+    "description": "Explicit hosted registry, bounded claim drain, attempt-fenced lifecycle callbacks and scoped event bridge; native worker and actual-binary document-type execution. Other handlers and full lifecycle/consumer/release gates remain."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-execution-cycle90.json",
+      "activity": "urn:aiwg:activity:hosted-execution:lane-b:090:server"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:hosted-execution:lane-b:090:server",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-execution-cycle90.json",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-execution-cycle90.json",
+        "source": "urn:gitea:Fortemi:fortemi:issue:1091"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-execution-cycle90.json",
+        "source": "urn:gitea:Fortemi:fortemi-react:issue:405"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-execution-cycle90.json",
+        "source": "urn:aiwg:artifact:docs/architecture/adr/ADR-090-multi-tenancy-model.md"
+      }
+    ]
+  }
+}

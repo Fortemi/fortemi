@@ -1,0 +1,373 @@
+{
+  "cycle": 78,
+  "status": "VERIFIED_LOCAL_CANDIDATE_NOT_DELIVERED",
+  "recordedAt": "2026-09-12T20:23:46.932Z",
+  "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1091",
+  "linkedIssues": [
+    "https://git.integrolabs.net/Fortemi/fortemi-react/issues/405",
+    "https://git.integrolabs.net/Fortemi/fortemi/issues/1091"
+  ],
+  "source": {
+    "worktree": "/var/tmp/lane-b-server-1147",
+    "baseCommit": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+    "contractRevision": null,
+    "uncommitted": true
+  },
+  "changes": [
+    "Core validates full raw REST responses against the producer candidate authority before projection or detail I/O; strict schema validation does not silently strip unknown fields.",
+    "Separate hash-bound REST receipt and 20 shared request/response vectors; prior evidence-only receipt unchanged.",
+    "Producer object types and conditional property declarations clarified for strict Ajv compilation without changing instance semantics; bundled OpenAPI regenerated.",
+    "Request subset remains q/mode/limit/tags with default FTS, default 20 and 100-hit local maximum; unsupported options reject before I/O.",
+    "Public clean-installed gate adds 18 REST checks and source/pin drift negatives; current implementation receipt refreshed with complete portable acceptance."
+  ],
+  "verification": {
+    "status": "PASS",
+    "at": "2026-09-12T20:23:46.932Z",
+    "sourceFiles": 575,
+    "producerSourceFiles": 817,
+    "focusedAndSurrounding": 926,
+    "portable": 1845,
+    "portableFiles": 27,
+    "total": 2771,
+    "testFiles": 39,
+    "verifierTests": 8,
+    "producerTests": 895,
+    "red": {
+      "passed": 8,
+      "failed": 20
+    },
+    "installed": {
+      "status": "PASS",
+      "bindingCases": 55,
+      "envelopeCases": 36,
+      "storageChecks": [
+        "text-exact-unit-resolution",
+        "text-adapter-forwarding",
+        "semantic-exact-unit-resolution",
+        "semantic-adapter-forwarding",
+        "hybrid-exact-unit-resolution",
+        "hybrid-adapter-forwarding",
+        "changed-text-rejected",
+        "deleted-note-unavailable"
+      ],
+      "remoteChecks": [
+        "fts-remote-evidence-no-rebinding",
+        "semantic-remote-evidence-no-rebinding",
+        "hybrid-remote-evidence-no-rebinding",
+        "both-semantic-entry-points",
+        "legacy-absence",
+        "unavailable-omission",
+        "all-hits-validated-before-enrichment"
+      ],
+      "restChecks": [
+        "malformed-before-enrichment-0",
+        "malformed-before-enrichment-1",
+        "malformed-before-enrichment-2",
+        "malformed-before-enrichment-3",
+        "malformed-before-enrichment-4",
+        "malformed-before-enrichment-5",
+        "malformed-before-enrichment-6",
+        "malformed-before-enrichment-7",
+        "malformed-before-enrichment-8",
+        "legacy-empty",
+        "legacy-hit",
+        "explicit-degradation",
+        "missing-query",
+        "missing-degradation",
+        "null-is-not-absent",
+        "wrong-effective-mode",
+        "null-evidence",
+        "unsupported-request-subset-before-io"
+      ],
+      "restFiles": [
+        {
+          "path": "rest.receipt.json",
+          "sha256": "79634446d7b33551595e0acf4d5947550cdb2e2db1680ab5d1eebf0dd648cfb7",
+          "bytes": 1920
+        },
+        {
+          "path": "search-rest.schema.json",
+          "sha256": "df4bdf5c61187a66cc90b760ce9ebc71d062688d67858ed519fbd27141db9470",
+          "bytes": 8658
+        },
+        {
+          "path": "search-rest-vectors.json",
+          "sha256": "eac3b3739aedf037671be4cbd4a89f336d405de8cf06ea7ddebae9d1e4e288f2",
+          "bytes": 2630
+        },
+        {
+          "path": "predicates.schema.json",
+          "sha256": "e325707ce20abb88ef3a8f4bbb0d02ab09501b1ffe9b48b0c92a96e97dda00c3",
+          "bytes": 6868
+        },
+        {
+          "path": "evidence-locator.schema.json",
+          "sha256": "cd8427c507bca1a08bdb68da0a5d2759d1d7805401db3c00372ab249652efb7a",
+          "bytes": 1977
+        },
+        {
+          "path": "evidence-set.schema.json",
+          "sha256": "da7e5d41bd563cb2cfe424cf7dfa92007a865ee0e1a9a4832ef669039d80717e",
+          "bytes": 836
+        }
+      ],
+      "files": [
+        {
+          "path": "contract.receipt.json",
+          "sha256": "970335ba6c711de51ef03cb852044f25b596c1fdfcc85272cb6da62751a0a536",
+          "bytes": 1618
+        },
+        {
+          "path": "predicates.schema.json",
+          "sha256": "e325707ce20abb88ef3a8f4bbb0d02ab09501b1ffe9b48b0c92a96e97dda00c3",
+          "bytes": 6868
+        },
+        {
+          "path": "predicate-vectors.json",
+          "sha256": "df9e129cab4708db71c3e22f87efd252fbcac144daa45a53ee1716f4a1a05ae7",
+          "bytes": 17855
+        },
+        {
+          "path": "sql-scope-vectors.json",
+          "sha256": "dcd35298a3bc485a6f1c87c6c87f136ee98121dad3f2b1c8b590b2e5381aa4d5",
+          "bytes": 21016
+        },
+        {
+          "path": "evidence-locator.schema.json",
+          "sha256": "cd8427c507bca1a08bdb68da0a5d2759d1d7805401db3c00372ab249652efb7a",
+          "bytes": 1977
+        },
+        {
+          "path": "evidence-vectors.json",
+          "sha256": "b532a4fa7697bdfc87e8541575fcee7c94a5b5ac53e4a6472438c49247e6b266",
+          "bytes": 40273
+        },
+        {
+          "path": "evidence-set.schema.json",
+          "sha256": "da7e5d41bd563cb2cfe424cf7dfa92007a865ee0e1a9a4832ef669039d80717e",
+          "bytes": 836
+        },
+        {
+          "path": "evidence-set-vectors.json",
+          "sha256": "b84061ee252d2ee25d744111d2a04dfcd2c490274d4285bac31f4bd0e91e47d7",
+          "bytes": 172197
+        }
+      ],
+      "scope": "Clean-installed local candidate; synthetic vectors and remote responses, not live producer, inference or hosted authorization acceptance",
+      "publicEntrySha256": "a3fd74febaef921a4eea9fa998ffec795c8974c1b479f4e44c610988b200004a",
+      "packageVersion": "2026.9.5"
+    },
+    "package": {
+      "path": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260912-cycle78/candidate-package/fortemi-core-2026.9.5.tgz",
+      "sha256": "10dc444c05c3073137bb964249260c5562329925fd613dbb61b7648af02aa090"
+    },
+    "authorityByteIdentical": true,
+    "priorEvidenceReceiptUnchanged": true,
+    "currentImplementationReceiptVerified": true,
+    "openapiSha256": "31a156b1acf34c1f48c5283bd6c53f971e8f30c8b01e167d71e95ffec056e9a2",
+    "scope": "Uncommitted candidate; synthetic responses/vectors and producer fixture-auth router. No fresh launched producer HTTP, JWT/JWKS, model quality, published acceptance or capability promotion."
+  },
+  "cleanup": {
+    "jobs": 14,
+    "peakBytes": 3677159424,
+    "cgroupsAbsent": true,
+    "failedMarkersClearedAfterCapture": 3,
+    "ephemeralPostgres": [
+      {
+        "pid": 3420174,
+        "stopped": true,
+        "removed": true,
+        "tcpListening": false
+      },
+      {
+        "pid": 3453922,
+        "stopped": true,
+        "removed": true,
+        "tcpListening": false
+      }
+    ],
+    "services": {
+      "vllm": {
+        "ActiveState": "active",
+        "UnitFileState": "enabled",
+        "MainPID": "223555",
+        "NRestarts": "0"
+      },
+      "ollama": {
+        "ActiveState": "active",
+        "UnitFileState": "enabled",
+        "MainPID": "10457",
+        "NRestarts": "2"
+      },
+      "hostRunner": {
+        "ActiveState": "inactive",
+        "UnitFileState": "disabled",
+        "MainPID": "0",
+        "NRestarts": "0"
+      }
+    },
+    "preserved": [
+      "shared inference",
+      "models and caches",
+      "persistent data",
+      "WIP worktrees/branches",
+      "rollback artifacts",
+      "OpenBao custody"
+    ]
+  },
+  "release": {
+    "observedAt": "2026-09-12 20:04:49 UTC",
+    "releases": [
+      {
+        "repository": "fortemi",
+        "tag": "v2026.9.9",
+        "id": 2324,
+        "assets": [
+          {
+            "id": 6233,
+            "name": "SHA256SUMS.txt",
+            "size": 400
+          },
+          {
+            "id": 6231,
+            "name": "matric-api-aarch64-apple-darwin",
+            "size": 61031584
+          },
+          {
+            "id": 6230,
+            "name": "matric-api-aarch64-unknown-linux-gnu",
+            "size": 68659392
+          },
+          {
+            "id": 6232,
+            "name": "matric-api-x86_64-apple-darwin",
+            "size": 65082640
+          },
+          {
+            "id": 6229,
+            "name": "matric-api-x86_64-unknown-linux-gnu",
+            "size": 72938328
+          },
+          {
+            "id": 6234,
+            "name": "sidecar-provenance.intoto.json",
+            "size": 1751
+          }
+        ],
+        "disposition": "CANDIDATE_PENDING_ACCEPTANCE_DELIVERY"
+      },
+      {
+        "repository": "fortemi-react",
+        "tag": "v2026.9.5",
+        "id": 2333,
+        "assets": [
+          {
+            "id": 6302,
+            "name": "SHA256SUMS",
+            "size": 278
+          },
+          {
+            "id": 6299,
+            "name": "fortemi-core-2026.9.5.tgz",
+            "size": 1257821
+          },
+          {
+            "id": 6300,
+            "name": "fortemi-graph-2026.9.5.tgz",
+            "size": 64363
+          },
+          {
+            "id": 6301,
+            "name": "fortemi-react-2026.9.5.tgz",
+            "size": 147087
+          }
+        ],
+        "disposition": "PARTIAL_PUBLICATION_AND_UNRELEASED_SOURCE"
+      },
+      {
+        "repository": "HotM",
+        "tag": "v2026.9.5",
+        "id": 2331,
+        "assets": [
+          {
+            "id": 6294,
+            "name": "HotM_2026.9.5_aarch64.dmg",
+            "size": 29201522
+          },
+          {
+            "id": 6296,
+            "name": "HotM_2026.9.5_amd64.AppImage",
+            "size": 109287928
+          },
+          {
+            "id": 6297,
+            "name": "HotM_2026.9.5_amd64.deb",
+            "size": 32747002
+          },
+          {
+            "id": 6295,
+            "name": "SHA256SUMS-macos.txt",
+            "size": 92
+          },
+          {
+            "id": 6298,
+            "name": "SHA256SUMS.txt",
+            "size": 268
+          },
+          {
+            "id": 6289,
+            "name": "hotm-ui-dist.tar.gz",
+            "size": 3246334
+          }
+        ],
+        "disposition": "NO_CHANGE"
+      }
+    ],
+    "scope": "Gitea metadata only; prior byte/mirror proofs remain dated. No publication action or immutable overwrite."
+  },
+  "evidenceRoot": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260912-cycle78",
+  "remaining": [
+    "Authorized producer current-storage evidence resolution, with tenant/archive/visibility and source identity checked against current storage.",
+    "Every declared consumer's adoption and fresh producer-to-clean-installed/released HTTP acceptance; synthetic fetch and fixture-auth router results are not those gates.",
+    "Lifecycle/deletion/purge, cache behavior, JWT/JWKS cryptographic authorization, native pg_bigm/query costs and index plans.",
+    "Repository delivery, immutable authority/consumer pins, CI and full lane release/publication sweep.",
+    "Original 20-issue scope and existing holds/escalations/questions remain; no issue closure, full evidence capability or suite NO-GO change."
+  ],
+  "claims": {
+    "fullIssueAcceptance": false,
+    "evidenceLocators": false,
+    "promotedContract": false,
+    "liveProducerToConsumerAcceptance": false,
+    "publishedRuntimeAcceptance": false,
+    "suiteDecision": "NO-GO"
+  },
+  "openQuestions": "No new question. Approved Titan Actions procedure and exact prior gated-draft authorization remain unanswered; no override.",
+  "scope": {
+    "HotM": [
+      "M1",
+      288
+    ],
+    "server": [
+      1091,
+      1092,
+      1128,
+      1129,
+      1130,
+      1131
+    ],
+    "core": [
+      405,
+      406,
+      412,
+      417,
+      418,
+      419,
+      420,
+      421,
+      422,
+      423,
+      424,
+      425
+    ]
+  }
+}

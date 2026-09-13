@@ -1,0 +1,110 @@
+{
+  "at": "2026-09-13T05:16:53.585Z",
+  "cycle": 93,
+  "status": "PROGRESS_PRODUCER_SELECTED_MEMORY_PASS_CONSUMER_PENDING",
+  "overallAcceptance": "NOT_PASS",
+  "producerFiles": 847,
+  "hotmFiles": 513,
+  "coreFiles": 580,
+  "changedProducerSource": [
+    "contracts/openapi/openapi.sha256",
+    "contracts/openapi/openapi.yaml",
+    "crates/matric-api/src/handlers/archives.rs",
+    "crates/matric-api/src/main.rs",
+    "crates/matric-api/src/route_policy.rs",
+    "crates/matric-api/src/scoped_search_tests.rs",
+    "crates/matric-api/src/scoped_search_tests/memory_context.rs",
+    "migrations/20260913000100_tenant_archive_default.sql"
+  ],
+  "hotmSourceUnchanged": true,
+  "coreSourceUnchanged": true,
+  "sourceHeads": {
+    "server": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+    "core": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7",
+    "hotm": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4"
+  },
+  "verification": {
+    "tests": {
+      "handler-unit": {
+        "passed": 2,
+        "failed": 0,
+        "ignored": 0
+      },
+      "policy-unit": {
+        "passed": 19,
+        "failed": 0,
+        "ignored": 0
+      },
+      "openapi-unit": {
+        "passed": 8,
+        "failed": 0,
+        "ignored": 0
+      },
+      "database": {
+        "passed": 1,
+        "failed": 0,
+        "ignored": 0
+      }
+    },
+    "totalFunctions": 30,
+    "databaseRequestControls": 19,
+    "build": "PASS",
+    "generatedOpenApiCheck": "PASS",
+    "allJobsTerminal": true,
+    "jobs": 4,
+    "passes": 3,
+    "preservedFailures": 1,
+    "peakBytes": 6444306432,
+    "memoryQualification": "Second job slightly exceeded the 6GiB memory-high watermark; no hard-limit increase. Final job peak2471514112bytes. No claim that all runs stayed below memory-high."
+  },
+  "binary": {
+    "sha256": "f623fc6c11ec39410d10a5fcc50354fdb2d2640b138423b5a75016950888048c",
+    "openapiSha256": "0dd9b77e6d42c73197a489c575107c66d8f66755a2f8141a6788c7f4295c3cf1"
+  },
+  "implementation": "Producer GET /api/v1/memory/context returns only authorized canonical name/schema_name from request-owned routing under read scope and no-store. Tenant-qualified partial unique index permits independent tenant defaults while preserving existing rows. Inventory/detail/statistics and management authority unchanged.",
+  "hostedGap": "HotM runtime is unchanged from Cycle92 and still reads archive inventory/detail. New producer endpoint is not yet adopted or pinned by the consumer. Cycle92 actual hosted GET503 before SSE remains NOT_PASS; native fixture is not JWT/JWKS/tenant-status or actual-daemon acceptance.",
+  "releases": {
+    "fortemi": {
+      "tag": "v2026.9.9",
+      "main": "36c1b8779166af712afd588dd00dec871a6a9e30",
+      "released": "e91c595a896275f835cb7ed1aef173cb26056206",
+      "tagObject": "312897944bac30b36e1a215afe34178610ae48f6",
+      "mergedUnreleased": 16,
+      "refs": "36c1b8779166af712afd588dd00dec871a6a9e30\trefs/heads/main\n312897944bac30b36e1a215afe34178610ae48f6\trefs/tags/v2026.9.9\ne91c595a896275f835cb7ed1aef173cb26056206\trefs/tags/v2026.9.9^{}\n",
+      "disposition": "UNRELEASED_PENDING_FULL_ACCEPTANCE_DELIVERY",
+      "releaseId": 2324
+    },
+    "fortemi-react": {
+      "tag": "v2026.9.5",
+      "main": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7",
+      "released": "01b4a9c923af9cde24dc6a2d293d96194b6a6d7d",
+      "tagObject": "4e588d8bdb3e6e455e2d35ef9e49498542917de0",
+      "mergedUnreleased": 3,
+      "refs": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7\trefs/heads/main\n4e588d8bdb3e6e455e2d35ef9e49498542917de0\trefs/tags/v2026.9.5\n01b4a9c923af9cde24dc6a2d293d96194b6a6d7d\trefs/tags/v2026.9.5^{}\n",
+      "disposition": "UNRELEASED_PENDING_FULL_ACCEPTANCE_DELIVERY",
+      "releaseId": 2333
+    },
+    "HotM": {
+      "tag": "v2026.9.5",
+      "main": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4",
+      "released": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4",
+      "tagObject": "8d4f756ed55afcf12120c9edffb76e70bc2b0a62",
+      "mergedUnreleased": 0,
+      "refs": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4\trefs/heads/main\n8d4f756ed55afcf12120c9edffb76e70bc2b0a62\trefs/tags/v2026.9.5\n2b0b4a7aa283a91aa1026521b3a41faa4e834ad4\trefs/tags/v2026.9.5^{}\n",
+      "disposition": "CANDIDATE_UNRELEASED_CONSUMER_ADOPTION_AND_HOSTED_ACCEPTANCE_PENDING",
+      "releaseId": 2331
+    }
+  },
+  "releaseQualification": "Fresh metadata, source refs and ancestry only; no asset-byte or mirror revalidation, signing, commit, PR, tag, release, closure, pin or readiness promotion. Additive OpenAPI is an uncommitted source-bound candidate, not immutable delivered authority.",
+  "remaining": [
+    "HotM bounded context endpoint decoder/adoption and authority reconciliation",
+    "actual-server real-client SSE and browser/native lifecycle acceptance",
+    "remaining hosted handlers/follow-ups/index/queue events and durable outbox/crash/restart/cancellation/purge/restore/revocation",
+    "all declared consumers/cache/EE/performance/named-profile/CI/delivery and full lane release sweep"
+  ],
+  "scope": "Original20 Lane B issues and every prior hold/escalation retained. HotM human92284 requires separate immutable delivered receipts per axis. C82 held draft remains HELD_NOT_POSTED and unchanged. Suite NO-GO, public readiness false and goalACTIVE remain. Static index, named-profile shard transfer and live persistence are separate.",
+  "safety": "Four serial detached bounded jobs; three owned PostgreSQL18.6 fixtures each limited to12 connections removed with zero slot refusals in bounded log tails. Offline/device/network/resource guards unchanged. Shared inference unchanged. No model/GPU/Docker/production vault/signing action. Original model release must be within six calendar months at use; later quantization does not reset age.",
+  "evidenceBoundary": "30 final Rust test functions include one native middleware/database fixture with19requests. Fixture authentication is not real JWT/JWKS. No current-cycle actual daemon, consumer runtime, browser, complete lifecycle, full suite, supported-platform, auth parity or release qualification.",
+  "owner": "server",
+  "evidence": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260913-cycle93"
+}

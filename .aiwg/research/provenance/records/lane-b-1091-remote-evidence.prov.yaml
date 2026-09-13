@@ -1,0 +1,73 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-12T19:08:30.131Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-remote-evidence.json",
+    "type": "artifact_bundle",
+    "created_at": "2026-09-12T19:08:30.131Z",
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "contracts/metadata-search/candidate/1.0.0/EVIDENCE.md",
+          "sha256": "9a22ae98496662d4b7f9c7328048a1a9682a3843105bafa26433da35507eefb2",
+          "bytes": 11244
+        },
+        {
+          "path": ".aiwg/planning/roadmap.md",
+          "sha256": "d2db9c3ec02c5be121b98445649617795bb8aaadbc47aa4e1413cfe0519db4a5",
+          "bytes": 339452
+        },
+        {
+          "path": ".aiwg/activity.log",
+          "sha256": "1a9420ea03e1ed1a31b3d48cf00be3706cdd6961ff35681f550ee873474327f7",
+          "bytes": 4964
+        },
+        {
+          "path": ".aiwg/reports/lane-b-1091-remote-evidence.json",
+          "sha256": "8db95451302c74c9a5c403de13352367b26657661e4e12687dcc69018cd60540",
+          "bytes": 6285
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:modification:lane-b-remote-evidence:076:server",
+    "type": "modification",
+    "started_at": "2026-09-12T18:44:00Z",
+    "ended_at": "2026-09-12T19:08:30.131Z",
+    "description": "Remote parser validates present candidate evidence with strict same-note semantics before any detail enrichment; invalid envelopes yield bounded invalid-response without input or cause."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "name": "Codex",
+    "type": "ai_assistant"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-remote-evidence.json",
+      "activity": "urn:aiwg:activity:modification:lane-b-remote-evidence:076:server"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-remote-evidence.json",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:modification:lane-b-remote-evidence:076:server",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-remote-evidence.json",
+        "source": "urn:git:commit:a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+        "derivation_type": "derives_from"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-remote-evidence.json",
+        "source": "https://git.integrolabs.net/Fortemi/fortemi/issues/1091",
+        "derivation_type": "implements"
+      }
+    ]
+  }
+}

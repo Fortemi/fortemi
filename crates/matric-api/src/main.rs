@@ -3,6 +3,7 @@
 mod kms;
 
 mod audit_policy;
+mod evidence_resolution;
 mod handlers;
 mod middleware;
 mod oauth_profile;
@@ -10,6 +11,9 @@ mod query_types;
 #[cfg(test)]
 mod remote_adapter_fixture_tests;
 mod route_policy;
+#[cfg(all(test, feature = "hosted-auth"))]
+mod scoped_search_tests;
+mod search_contract;
 mod shard_signature;
 mod trusted_proxy;
 
@@ -1100,7 +1104,7 @@ use matric_search::{EnhancedSearchHit, HybridSearchConfig, HybridSearchEngine, S
 use handlers::{
     archives::{
         clone_archive, create_archive, delete_archive, get_archive, get_archive_stats,
-        list_archives, set_default_archive, update_archive,
+        get_memory_context, list_archives, set_default_archive, update_archive,
     },
     audio::transcribe_audio,
     chat::{chat_handler, chat_stream_handler, list_chat_models, ChatStreamMetrics},
@@ -1182,8 +1186,6 @@ struct AppState {
     rate_limiter: Option<Arc<GlobalRateLimiter>>,
     /// Shared atomic request admission required by hosted multi-instance mode.
     hosted_quota: Option<Arc<RedisRequestQuotaGate>>,
-    /// Tag resolver for strict filter resolution.
-    tag_resolver: TagResolver,
     /// Redis search cache (reduces latency for repeated queries).
     search_cache: matric_api::services::SearchCache,
     /// Redis-backed buffer for SSE chat-stream resumption (#815).
@@ -1256,11 +1258,6 @@ struct AppState {
     /// Hot-swappable inference runtime for generation backend + provider registry (#569).
     /// Use accessor methods `generation_backend()` and `provider_registry()` for reads.
     inference_runtime: Arc<std::sync::RwLock<InferenceRuntime>>,
-    /// Cached per-schema search engines for non-default archives.
-    schema_engines:
-        Arc<tokio::sync::RwLock<std::collections::HashMap<String, Arc<HybridSearchEngine>>>>,
-    /// Database URL for creating per-schema connection pools.
-    database_url: String,
     /// Pause state for global and per-archive job processing control (Issue #466).
     pause_state: Option<PauseState>,
     /// Staging directory for tus resumable uploads (Issue #528).
@@ -1347,6 +1344,7 @@ impl AppState {
         get_note_provenance, search_memories, get_memory_provenance_handler, export_note,
         get_full_document, list_note_versions, get_note_version, restore_note_version,
         delete_note_version, diff_note_versions, search_notes, federated_search,
+        evidence_resolution::resolve_search_evidence,
         memories_overview, list_embedding_sets, get_embedding_set, create_embedding_set,
         update_embedding_set, delete_embedding_set, list_embedding_set_members, add_embedding_set_members,
         remove_embedding_set_member, refresh_embedding_set, list_embedding_configs, get_default_embedding_config,
@@ -1368,6 +1366,7 @@ impl AppState {
         database_backup_upload, database_backup_restore, knowledge_archive_download, knowledge_archive_upload,
         get_backup_metadata, update_backup_metadata, memory_info,
         // handlers::archives
+        handlers::archives::get_memory_context,
         handlers::archives::list_archives, handlers::archives::get_archive,
         handlers::archives::create_archive, handlers::archives::update_archive,
         handlers::archives::delete_archive, handlers::archives::set_default_archive,
@@ -1640,6 +1639,7 @@ fn openapi_yaml_with_problem_contract() -> String {
     apply_openapi_problem_responses(&mut value);
     apply_openapi_route_security(&mut value);
     apply_openapi_operation_contracts(&mut value);
+    search_contract::apply_openapi(&mut value);
 
     let contract = serde_json::json!({
         "content_type": "application/problem+json",
@@ -3858,214 +3858,225 @@ async fn main() -> anyhow::Result<()> {
             .with_standard_backend(Some(OllamaBackend::from_env()))
             .with_vision_backend(vision_backend.clone());
 
+        if security_config.multi_tenant {
+            worker = worker
+                .with_hosted_handlers(vec![Arc::new(
+                    matric_api::hosted_jobs::HostedDocumentTypeInferenceHandler,
+                )])
+                .await?;
+        }
+
         // Wire pause state into worker for global/per-archive pause control (Issue #466).
         if let Some(ref ps) = pause_state {
             worker = worker.with_pause_state(ps.clone());
         }
 
-        // Register handlers - create separate backend instances.
-        // Cascaded model routing (#439): create fast backend if MATRIC_FAST_GEN_MODEL is set.
-        let fast_backend_model = std::env::var("MATRIC_FAST_GEN_MODEL")
-            .ok()
-            .filter(|s| !s.is_empty());
-        if let Some(ref model) = fast_backend_model {
-            info!(
-                model_len = model.chars().count(),
-                "Fast generation model configured for cascaded routing"
-            );
-        }
+        // Unmigrated personal handlers must never receive hosted claims.
+        if !security_config.multi_tenant {
+            // Register handlers - create separate backend instances.
+            // Cascaded model routing (#439): create fast backend if MATRIC_FAST_GEN_MODEL is set.
+            let fast_backend_model = std::env::var("MATRIC_FAST_GEN_MODEL")
+                .ok()
+                .filter(|s| !s.is_empty());
+            if let Some(ref model) = fast_backend_model {
+                info!(
+                    model_len = model.chars().count(),
+                    "Fast generation model configured for cascaded routing"
+                );
+            }
 
-        if let Some(ref scanner) = attachment_scanner {
-            worker
-                .register_handler(AttachmentScanHandler::new(
-                    db.clone(),
-                    scanner.clone(),
-                    attachment_scan_metrics.clone(),
-                ))
-                .await;
-        }
+            if let Some(ref scanner) = attachment_scanner {
+                worker
+                    .register_handler(AttachmentScanHandler::new(
+                        db.clone(),
+                        scanner.clone(),
+                        attachment_scan_metrics.clone(),
+                    ))
+                    .await;
+            }
 
-        worker
-            .register_handler(AiRevisionHandler::new(
-                db.clone(),
-                OllamaBackend::from_env(),
-                provider_registry.clone(),
-            ))
-            .await;
-        worker
-            .register_handler(AiRevisionContextualHandler::new(
-                db.clone(),
-                OllamaBackend::from_env(),
-                provider_registry.clone(),
-            ))
-            .await;
-        worker
-            .register_handler(EmbeddingHandler::new(
-                db.clone(),
-                provider_registry.clone(),
-                usage_meter.clone(),
-            ))
-            .await;
-        worker
-            .register_handler(TitleGenerationHandler::new(
-                db.clone(),
-                OllamaBackend::from_env(),
-                OllamaBackend::fast_from_env(),
-                provider_registry.clone(),
-            ))
-            .await;
-        worker
-            .register_handler(LinkingHandler::new(db.clone()))
-            .await;
-        worker
-            .register_handler(ContextUpdateHandler::new(
-                db.clone(),
-                OllamaBackend::from_env(),
-                provider_registry.clone(),
-            ))
-            .await;
-        worker
-            .register_handler(PurgeNoteHandler::new(db.clone()))
-            .await;
-        worker
-            .register_handler(ConceptTaggingHandler::new(
-                db.clone(),
-                OllamaBackend::from_env(),
-                OllamaBackend::fast_from_env(),
-                ner_backend.clone(),
-                provider_registry.clone(),
-            ))
-            .await;
-        worker
-            .register_handler(ReferenceExtractionHandler::new(
-                db.clone(),
-                OllamaBackend::from_env(),
-                OllamaBackend::fast_from_env(),
-                ner_backend.clone(),
-                provider_registry.clone(),
-            ))
-            .await;
-        worker
-            .register_handler(RelatedConceptHandler::new(
-                db.clone(),
-                OllamaBackend::from_env(),
-                OllamaBackend::fast_from_env(),
-                provider_registry.clone(),
-            ))
-            .await;
-        worker
-            .register_handler(MetadataExtractionHandler::new(
-                db.clone(),
-                OllamaBackend::from_env(),
-                OllamaBackend::fast_from_env(),
-                provider_registry.clone(),
-            ))
-            .await;
-        worker
-            .register_handler(DocumentTypeInferenceHandler::new(db.clone()))
-            .await;
-        worker
-            .register_handler(ReEmbedAllHandler::new(db.clone()))
-            .await;
-        if let Some(registry) = worker.extraction_registry() {
             worker
-                .register_handler(ExtractionHandler::new_with_attachment_scanning(
+                .register_handler(AiRevisionHandler::new(
                     db.clone(),
-                    registry.clone(),
-                    attachment_scan_config.mode,
-                    attachment_scan_metrics.clone(),
+                    OllamaBackend::from_env(),
+                    provider_registry.clone(),
                 ))
                 .await;
-        }
-        worker
-            .register_handler(ExifExtractionHandler::new(db.clone()))
-            .await;
-        worker
-            .register_handler(RefreshEmbeddingSetHandler::new(db.clone()))
-            .await;
-        worker
-            .register_handler(GraphMaintenanceHandler::new(db.clone()))
-            .await;
-        if let Some(ref diar_backend) = diarization_backend {
             worker
-                .register_handler(SpeakerDiarizationHandler::new(
+                .register_handler(AiRevisionContextualHandler::new(
                     db.clone(),
-                    diar_backend.clone(),
+                    OllamaBackend::from_env(),
+                    provider_registry.clone(),
                 ))
                 .await;
-        }
-        worker
-            .register_handler(SpeakerRelabelHandler::new(db.clone()))
-            .await;
-        worker
-            .register_handler(MediaOptimizeHandler::new(db.clone()))
-            .await;
-        worker
-            .register_handler(ThumbnailSpriteHandler::new(db.clone()))
-            .await;
-        // Keyframe vision pipeline (#526/#529): always register both handlers.
-        // Vision handler defers (Retry) if vision_backend is None, so jobs stay
-        // queued until the backend is configured rather than being silently orphaned.
-        worker
-            .register_handler(KeyframeVisionHandler::new(
-                db.clone(),
-                vision_backend.clone(),
-            ))
-            .await;
-        if vision_backend.is_none() {
-            warn!(
-                "KeyframeVision handler registered but vision backend unavailable — \
-                 keyframe description jobs will be deferred until OLLAMA_VISION_MODEL is set"
-            );
-        }
-        // Keyframe character + setting vision handlers (#550): optional enrichment
-        // passes for full analysis mode. Same deferral pattern as scene handler.
-        worker
-            .register_handler(KeyframeCharacterVisionHandler::new(
-                db.clone(),
-                vision_backend.clone(),
-            ))
-            .await;
-        worker
-            .register_handler(KeyframeSettingVisionHandler::new(
-                db.clone(),
-                vision_backend.clone(),
-            ))
-            .await;
-        worker
-            .register_handler(KeyframeAssemblyHandler::new(db.clone()))
-            .await;
-        // 3D model view vision pipeline (#533): mirrors keyframe pattern.
-        worker
-            .register_handler(ViewVisionHandler::new(db.clone(), vision_backend.clone()))
-            .await;
-        worker
-            .register_handler(ViewAssemblyHandler::new(db.clone()))
-            .await;
-        // Audio transcription pipeline (#542): atomic job for fan-in with keyframes.
-        // Always register — handler retries if Whisper backend is unavailable.
-        if let Some(ref backend) = transcription_backend {
             worker
-                .register_handler(AudioTranscriptionHandler::new(
+                .register_handler(EmbeddingHandler::new(
                     db.clone(),
-                    backend.clone(),
+                    provider_registry.clone(),
                     usage_meter.clone(),
                 ))
                 .await;
             worker
-                .register_handler(AudioChunkTranscriptionHandler::new(
+                .register_handler(TitleGenerationHandler::new(
                     db.clone(),
-                    backend.clone(),
-                    usage_meter.clone(),
+                    OllamaBackend::from_env(),
+                    OllamaBackend::fast_from_env(),
+                    provider_registry.clone(),
                 ))
                 .await;
+            worker
+                .register_handler(LinkingHandler::new(db.clone()))
+                .await;
+            worker
+                .register_handler(ContextUpdateHandler::new(
+                    db.clone(),
+                    OllamaBackend::from_env(),
+                    provider_registry.clone(),
+                ))
+                .await;
+            worker
+                .register_handler(PurgeNoteHandler::new(db.clone()))
+                .await;
+            worker
+                .register_handler(ConceptTaggingHandler::new(
+                    db.clone(),
+                    OllamaBackend::from_env(),
+                    OllamaBackend::fast_from_env(),
+                    ner_backend.clone(),
+                    provider_registry.clone(),
+                ))
+                .await;
+            worker
+                .register_handler(ReferenceExtractionHandler::new(
+                    db.clone(),
+                    OllamaBackend::from_env(),
+                    OllamaBackend::fast_from_env(),
+                    ner_backend.clone(),
+                    provider_registry.clone(),
+                ))
+                .await;
+            worker
+                .register_handler(RelatedConceptHandler::new(
+                    db.clone(),
+                    OllamaBackend::from_env(),
+                    OllamaBackend::fast_from_env(),
+                    provider_registry.clone(),
+                ))
+                .await;
+            worker
+                .register_handler(MetadataExtractionHandler::new(
+                    db.clone(),
+                    OllamaBackend::from_env(),
+                    OllamaBackend::fast_from_env(),
+                    provider_registry.clone(),
+                ))
+                .await;
+            worker
+                .register_handler(DocumentTypeInferenceHandler::new(db.clone()))
+                .await;
+            worker
+                .register_handler(ReEmbedAllHandler::new(db.clone()))
+                .await;
+            if let Some(registry) = worker.extraction_registry() {
+                worker
+                    .register_handler(ExtractionHandler::new_with_attachment_scanning(
+                        db.clone(),
+                        registry.clone(),
+                        attachment_scan_config.mode,
+                        attachment_scan_metrics.clone(),
+                    ))
+                    .await;
+            }
+            worker
+                .register_handler(ExifExtractionHandler::new(db.clone()))
+                .await;
+            worker
+                .register_handler(RefreshEmbeddingSetHandler::new(db.clone()))
+                .await;
+            worker
+                .register_handler(GraphMaintenanceHandler::new(db.clone()))
+                .await;
+            if let Some(ref diar_backend) = diarization_backend {
+                worker
+                    .register_handler(SpeakerDiarizationHandler::new(
+                        db.clone(),
+                        diar_backend.clone(),
+                    ))
+                    .await;
+            }
+            worker
+                .register_handler(SpeakerRelabelHandler::new(db.clone()))
+                .await;
+            worker
+                .register_handler(MediaOptimizeHandler::new(db.clone()))
+                .await;
+            worker
+                .register_handler(ThumbnailSpriteHandler::new(db.clone()))
+                .await;
+            // Keyframe vision pipeline (#526/#529): always register both handlers.
+            // Vision handler defers (Retry) if vision_backend is None, so jobs stay
+            // queued until the backend is configured rather than being silently orphaned.
+            worker
+                .register_handler(KeyframeVisionHandler::new(
+                    db.clone(),
+                    vision_backend.clone(),
+                ))
+                .await;
+            if vision_backend.is_none() {
+                warn!(
+                    "KeyframeVision handler registered but vision backend unavailable — \
+                     keyframe description jobs will be deferred until OLLAMA_VISION_MODEL is set"
+                );
+            }
+            // Keyframe character + setting vision handlers (#550): optional enrichment
+            // passes for full analysis mode. Same deferral pattern as scene handler.
+            worker
+                .register_handler(KeyframeCharacterVisionHandler::new(
+                    db.clone(),
+                    vision_backend.clone(),
+                ))
+                .await;
+            worker
+                .register_handler(KeyframeSettingVisionHandler::new(
+                    db.clone(),
+                    vision_backend.clone(),
+                ))
+                .await;
+            worker
+                .register_handler(KeyframeAssemblyHandler::new(db.clone()))
+                .await;
+            // 3D model view vision pipeline (#533): mirrors keyframe pattern.
+            worker
+                .register_handler(ViewVisionHandler::new(db.clone(), vision_backend.clone()))
+                .await;
+            worker
+                .register_handler(ViewAssemblyHandler::new(db.clone()))
+                .await;
+            // Audio transcription pipeline (#542): atomic job for fan-in with keyframes.
+            // Always register — handler retries if Whisper backend is unavailable.
+            if let Some(ref backend) = transcription_backend {
+                worker
+                    .register_handler(AudioTranscriptionHandler::new(
+                        db.clone(),
+                        backend.clone(),
+                        usage_meter.clone(),
+                    ))
+                    .await;
+                worker
+                    .register_handler(AudioChunkTranscriptionHandler::new(
+                        db.clone(),
+                        backend.clone(),
+                        usage_meter.clone(),
+                    ))
+                    .await;
+            }
         }
 
+        let bridge_rx = worker.events();
         let handle = worker.start();
         info!("Job worker started");
 
         // Bridge WorkerEvent → ServerEvent (Issue #40)
-        let bridge_rx = handle.events();
         let bridge_bus = event_bus.clone();
         let bridge_db = db.clone();
         tokio::spawn(async move {
@@ -4073,11 +4084,15 @@ async fn main() -> anyhow::Result<()> {
         });
 
         // Periodic QueueStatus emission (Issue #40)
-        let qs_bus = event_bus.clone();
-        let qs_db = db.clone();
-        tokio::spawn(async move {
-            emit_periodic_queue_status(qs_bus, qs_db).await;
-        });
+        // The global queue summary is a personal-mode contract. Hosted queue
+        // summaries require a separate tenant-scoped producer before admission.
+        if !security_config.multi_tenant {
+            let qs_bus = event_bus.clone();
+            let qs_db = db.clone();
+            tokio::spawn(async move {
+                emit_periodic_queue_status(qs_bus, qs_db).await;
+            });
+        }
 
         Some(handle)
     } else {
@@ -4190,7 +4205,6 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Create app state
-    let tag_resolver = TagResolver::new(db.clone());
     let search_cache = matric_api::services::SearchCache::from_env().await;
     let chat_stream_store = matric_api::services::ChatStreamStore::from_env().await;
     let ingest_cursor_store = matric_api::services::IngestCursorStore::from_env().await;
@@ -4209,7 +4223,6 @@ async fn main() -> anyhow::Result<()> {
         issuer,
         rate_limiter,
         hosted_quota,
-        tag_resolver,
         search_cache,
         chat_stream_store,
         ingest_cursor_store,
@@ -4256,8 +4269,6 @@ async fn main() -> anyhow::Result<()> {
             generation_backend,
             provider_registry: provider_registry.clone(),
         })),
-        schema_engines: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
-        database_url: database_url.clone(),
         tus_staging_path,
         pause_state,
         chat_semaphore,
@@ -4451,6 +4462,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/notes/{id}/versions/diff", get(diff_note_versions))
         // Search
         .route("/api/v1/search", get(search_notes))
+        .route(
+            "/api/v1/search/evidence/resolve",
+            evidence_resolution::route(),
+        )
         .route("/api/v1/search/federated", post(federated_search))
         // Memory search (spatial/temporal provenance)
         .route("/api/v1/memories/search", get(search_memories))
@@ -4570,6 +4585,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/v1/document-types/detect", post(detect_document_type))
         // Archives
+        .route("/api/v1/memory/context", get(get_memory_context))
         .route("/api/v1/archives", get(list_archives).post(create_archive))
         .route(
             "/api/v1/archives/{name}",
@@ -5175,6 +5191,10 @@ async fn bridge_worker_events(
         match worker_rx.recv().await {
             Ok(event) => {
                 let server_event = match event {
+                    WorkerEvent::Hosted(event) => {
+                        matric_api::hosted_jobs::emit_worker_event(&event_bus, &event);
+                        continue;
+                    }
                     WorkerEvent::JobStarted { job_id, job_type } => {
                         let note_id = db
                             .jobs
@@ -6310,6 +6330,7 @@ async fn sse_events(
     headers: HeaderMap,
 ) -> Result<axum::response::Response, ApiError> {
     // --- Auth (Issue #452/#953) ---
+    tracing::debug!(stage = "sse_handler", "Request admission stage");
     // Query auth is browser EventSource compatibility only and accepts a
     // distinct short-lived event-stream token class. Normal credentials must
     // use the Authorization header so they do not land in URLs or access logs.
@@ -6494,6 +6515,14 @@ async fn sse_events(
         }
     }
 
+    // Hosted event envelopes use the admitted schema, not the archive's display
+    // name. Keep names for request authorization, schemas for live/replay scope.
+    let memory_filter = if state.multi_tenant {
+        memory_schema
+    } else {
+        memory_filter
+    };
+
     // --- Entity ID filter parsing (Issue #457) ---
     let entity_id_filter: Option<String> = if let Some(ref eid) = params.entity_id {
         let trimmed = eid.trim();
@@ -6526,7 +6555,7 @@ async fn sse_events(
                 let frames: Vec<Event> = events
                     .into_iter()
                     .filter(|envelope| {
-                        sse_tenant_matches(envelope, tenant_id)
+                        sse_scope_matches(envelope, tenant_id, memory_filter.as_deref())
                             && envelope_matches_filters(
                                 envelope,
                                 &memory_filter,
@@ -6638,7 +6667,7 @@ async fn sse_events(
                     }
 
                     // Apply all filters: memory + type + entity (Issues #452, #457)
-                    if !sse_tenant_matches(&envelope, tenant_id) || !envelope_matches_filters(
+                    if !sse_scope_matches(&envelope, tenant_id, memory_filter.as_deref()) || !envelope_matches_filters(
                         &envelope,
                         &memory_filter,
                         &type_filters,
@@ -6727,6 +6756,16 @@ async fn sse_events(
 
 /// Hosted streams accept only events explicitly owned by the verified tenant.
 /// Unattributed process-wide events are not safe for tenant subscribers.
+fn sse_scope_matches(
+    envelope: &EventEnvelope,
+    tenant_id: Option<Uuid>,
+    memory_schema: Option<&str>,
+) -> bool {
+    sse_tenant_matches(envelope, tenant_id)
+        && (tenant_id.is_none()
+            || memory_schema.is_some_and(|schema| envelope.memory.as_deref() == Some(schema)))
+}
+
 fn sse_tenant_matches(envelope: &EventEnvelope, tenant_id: Option<Uuid>) -> bool {
     tenant_id
         .is_none_or(|tenant| envelope.tenant_id.as_deref() == Some(tenant.to_string().as_str()))
@@ -6754,6 +6793,22 @@ fn hosted_sse_filters_foreign_and_unattributed_live_and_replay_events() {
     assert!(!sse_tenant_matches(&unscoped, Some(tenant_a)));
     assert!(sse_tenant_matches(&owned, None));
     assert!(sse_tenant_matches(&unscoped, None));
+    assert!(sse_scope_matches(&owned, Some(tenant_a), Some("public")));
+    assert!(!sse_scope_matches(
+        &owned,
+        Some(tenant_a),
+        Some("archive-display-name")
+    ));
+    assert!(!sse_scope_matches(&owned, Some(tenant_b), Some("public")));
+    assert!(!sse_scope_matches(&owned, Some(tenant_a), None));
+    let mut no_memory = owned.clone();
+    no_memory.memory = None;
+    assert!(!sse_scope_matches(
+        &no_memory,
+        Some(tenant_a),
+        Some("public")
+    ));
+    assert!(sse_scope_matches(&no_memory, None, Some("public")));
 }
 
 async fn authorize_sse_memory_subscription(
@@ -8903,6 +8958,8 @@ async fn hosted_quota_response(
         })
         .await;
 
+    tracing::debug!(stage = "quota_decided", "Request admission stage");
+
     match decision {
         Ok(decision) if decision.allowed => {
             if emit_quota_audit_event(
@@ -9706,6 +9763,8 @@ async fn authorize_middleware(
     let input =
         normalize_route_policy_input_for_authorization(&state, input, archive_ctx.as_ref(), scope)
             .await;
+
+    tracing::debug!(stage = "normalized", "Request admission stage");
 
     let decision = if route_policy::is_operator_docs_route(input.policy.path) {
         // Generated API inventory is operator-only even when personal mode uses
@@ -11494,6 +11553,7 @@ async fn authorize_policy_input(
     auth: &Auth,
     input: &route_policy::RoutePolicyInput,
 ) -> Result<(), axum::response::Response> {
+    tracing::debug!(stage = "policy_entered", "Request admission stage");
     if hosted_policy_requires_normalized_resource(policy, input) {
         let _ = emit_auth_decision_audit_event(
             audit_sink,
@@ -20142,6 +20202,7 @@ async fn diff_note_versions(
 // =============================================================================
 
 #[derive(Deserialize)]
+#[cfg_attr(test, derive(Serialize))]
 struct SearchQuery {
     q: String,
     limit: Option<i64>,
@@ -20166,6 +20227,9 @@ struct SearchQuery {
     /// Example: {"required_tags":["tag1"],"excluded_tags":["tag2"]}
     #[serde(default)]
     strict_filter: Option<String>,
+    /// JSON array of registered typed metadata predicates.
+    #[serde(default)]
+    metadata_predicates: Option<String>,
     /// MMR diversity weight (0.0 = pure relevance, 1.0 = max diversity).
     /// When set, applies Maximal Marginal Relevance re-ranking after RRF fusion
     /// to balance relevance with result diversity.
@@ -20197,11 +20261,15 @@ impl fmt::Debug for SearchQuery {
                 &self.strict_filter.as_deref().map(telemetry_text_len),
             )
             .field("diversity", &self.diversity)
+            .field(
+                "metadata_predicates_set",
+                &self.metadata_predicates.is_some(),
+            )
             .finish()
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Deserialize)]
 struct SearchResponse {
     results: Vec<EnhancedSearchHit>,
     query: String,
@@ -20210,6 +20278,29 @@ struct SearchResponse {
     degraded: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     degradation: Option<SearchDegradation>,
+}
+
+impl Serialize for SearchResponse {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        search_contract::validate_response(self).map_err(serde::ser::Error::custom)?;
+        #[derive(Serialize)]
+        struct Wire<'a> {
+            results: &'a [EnhancedSearchHit],
+            query: &'a str,
+            total: usize,
+            degraded: bool,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            degradation: &'a Option<SearchDegradation>,
+        }
+        Wire {
+            results: &self.results,
+            query: &self.query,
+            total: self.total,
+            degraded: self.degraded,
+            degradation: &self.degradation,
+        }
+        .serialize(serializer)
+    }
 }
 
 impl fmt::Debug for SearchResponse {
@@ -20533,6 +20624,22 @@ fn search_operation_failed(context: &'static str, error: impl std::fmt::Display)
     }
 }
 
+fn parse_search_metadata_predicates(
+    raw: Option<&str>,
+) -> Result<Option<matric_core::metadata_search::MetadataPredicates>, ApiError> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    if raw.len() > 1_048_576 {
+        return Err(ApiError::BadRequest("METADATA_PREDICATES_INVALID".into()));
+    }
+    let value: serde_json::Value = serde_json::from_str(raw)
+        .map_err(|_| ApiError::BadRequest("METADATA_PREDICATES_INVALID".into()))?;
+    matric_core::metadata_search::MetadataPredicates::try_from(value)
+        .map(Some)
+        .map_err(|error| ApiError::BadRequest(error.to_string()))
+}
+
 fn eligible_fts_cache_key(
     cache: &matric_api::services::SearchCache,
     query: &SearchQuery,
@@ -20542,6 +20649,7 @@ fn eligible_fts_cache_key(
     if query.mode.as_deref() != Some("fts")
         || query.embedding_set.is_some()
         || query.strict_filter.is_some()
+        || query.metadata_predicates.is_some()
         || query.tags.is_some()
         || query.created_after.is_some()
         || query.created_before.is_some()
@@ -20562,58 +20670,32 @@ fn eligible_fts_cache_key(
     Some(cache.cache_key(&input))
 }
 
-/// Get or create a `HybridSearchEngine` for the given schema.
-///
-/// For the `public` schema, returns the default engine from `AppState`.
-/// For non-default archives, lazily creates a per-schema connection pool
-/// with `search_path` pinned to that schema, caches the engine, and returns it.
-async fn search_engine_for_schema(
-    state: &AppState,
-    schema: &str,
-) -> Result<Arc<HybridSearchEngine>, ApiError> {
-    if schema == "public" {
-        return Ok(state.search.clone());
-    }
-    // Fast path: check read cache
-    {
-        let engines = state.schema_engines.read().await;
-        if let Some(engine) = engines.get(schema) {
-            return Ok(engine.clone());
-        }
-    }
-    // Slow path: create pool + engine, insert into cache
-    let tenant_mode = if state.multi_tenant {
-        matric_db::pool::TenantPoolMode::HostedUnscoped
-    } else {
-        matric_db::pool::TenantPoolMode::PersonalSynthetic
-    };
-    let pool = matric_db::pool::create_pool_for_schema(&state.database_url, schema, tenant_mode)
-        .await
-        .map_err(|e| search_operation_failed("create schema search pool", e))?;
-    let db = Database::new(pool);
-    let engine = Arc::new(HybridSearchEngine::new(db));
-    state
-        .schema_engines
-        .write()
-        .await
-        .insert(schema.to_string(), engine.clone());
-    Ok(engine)
-}
-
 #[utoipa::path(get, path = "/api/v1/search", tag = "Search",
     responses((status = 200, description = "Success")))]
 async fn search_notes(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<SearchQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let limit = query
-        .limit
-        .unwrap_or(matric_core::defaults::PAGE_LIMIT_SEARCH);
+    let limit = search_contract::validate_request(&query)?;
+    let metadata_predicates =
+        parse_search_metadata_predicates(query.metadata_predicates.as_deref())?;
+    let scope = scope.map(|Extension(scope)| scope);
+    if state.multi_tenant && scope.is_none() {
+        return Err(ApiError::OperationFailed {
+            operation: "Search",
+            detail: "hosted request transaction unavailable".into(),
+        });
+    }
 
     // Semantic and hybrid cache entries require an effective embedding lineage.
     // Until that contract exists, cache only explicit, non-set FTS requests.
-    let cache_key = eligible_fts_cache_key(&state.search_cache, &query, &archive_ctx.schema, limit);
+    let cache_key = if state.multi_tenant || scope.is_some() {
+        None
+    } else {
+        eligible_fts_cache_key(&state.search_cache, &query, &archive_ctx.schema, limit)
+    };
 
     // Check cache first
     if let Some(ref key) = cache_key {
@@ -20639,20 +20721,27 @@ async fn search_notes(
         config.diversity = Some(diversity.clamp(0.0, 1.0));
     }
 
-    // Get or create a schema-scoped search engine
-    let engine = search_engine_for_schema(&state, &archive_ctx.schema).await?;
+    // The engine receives the authorized connection explicitly; it must not
+    // construct another pool that loses the request's tenant context.
+    let engine = state.search.clone();
+    config.metadata_predicates = metadata_predicates;
 
     // Resolve strict filter if provided (parse JSON string)
     // Use a schema-scoped TagResolver for non-default archives
     if let Some(filter_json) = &query.strict_filter {
         let filter_input: StrictTagFilterInput = serde_json::from_str(filter_json)
             .map_err(|_| ApiError::BadRequest("Invalid strict_filter JSON.".to_string()))?;
-        let tag_resolver = if archive_ctx.schema == "public" {
-            state.tag_resolver.clone()
-        } else {
-            TagResolver::new(Database::new(engine.db().pool().clone()))
-        };
-        let strict_filter = tag_resolver.resolve_filter(filter_input).await?;
+        let strict_filter = with_request_schema(
+            &state,
+            scope.clone(),
+            archive_ctx.schema.clone(),
+            move |connection| {
+                Box::pin(async move {
+                    TagResolver::resolve_filter_on_connection(connection, filter_input).await
+                })
+            },
+        )
+        .await?;
         config.strict_filter = Some(strict_filter);
     }
 
@@ -20660,30 +20749,61 @@ async fn search_notes(
     // searches must use the same model/dimension contract as their stored
     // embeddings; unscoped searches retain the active global registry route
     // until archive-aware provider credentials land in #666.
-    let search_db = if archive_ctx.schema == "public" {
-        &state.db
-    } else {
-        engine.db()
-    };
+    let lookup_slug = query
+        .embedding_set
+        .clone()
+        .or_else(|| (config.semantic_weight > 0.0).then(|| "default".to_string()));
+    let lookup_db = state.db.clone();
+    let (resolved_set, resolved_profile) = with_request_schema(
+        &state,
+        scope.clone(),
+        archive_ctx.schema.clone(),
+        move |connection| {
+            Box::pin(async move {
+                let set = match lookup_slug {
+                    Some(slug) => {
+                        lookup_db
+                            .embedding_sets
+                            .get_by_slug_tx(connection, &slug)
+                            .await?
+                    }
+                    None => None,
+                };
+                let profile = if let Some(set) = &set {
+                    match set.embedding_config_id {
+                        Some(id) => {
+                            lookup_db
+                                .embedding_sets
+                                .get_config_tx(connection, id)
+                                .await?
+                        }
+                        None => {
+                            lookup_db
+                                .embedding_sets
+                                .get_default_config_tx(connection)
+                                .await?
+                        }
+                    }
+                } else {
+                    None
+                };
+                Ok((set, profile))
+            })
+        },
+    )
+    .await?;
     let mut embedding_set_id = None;
     let mut embedding_contract_set_id = None;
     let mut embedding_profile = None;
     let mut embedding_truncate_dimension = None;
     let mut embedding_contract_failure = None;
-    if let Some(ref set_slug) = query.embedding_set {
-        let set = search_db
-            .embedding_sets
-            .get_by_slug(set_slug)
-            .await?
-            .ok_or_else(embedding_set_not_found)?;
+    if query.embedding_set.is_some() {
+        let set = resolved_set.ok_or_else(embedding_set_not_found)?;
         embedding_set_id = Some(set.id);
         embedding_contract_set_id = Some(set.id);
         embedding_truncate_dimension = set.truncate_dim;
 
-        let profile = match set.embedding_config_id {
-            Some(config_id) => search_db.embedding_sets.get_config(config_id).await?,
-            None => search_db.embedding_sets.get_default_config().await?,
-        };
+        let profile = resolved_profile;
         if let Some(profile) = profile {
             embedding_profile = Some(profile);
         } else {
@@ -20701,13 +20821,10 @@ async fn search_notes(
             });
         }
     } else if config.semantic_weight > 0.0 {
-        if let Some(set) = search_db.embedding_sets.get_by_slug("default").await? {
+        if let Some(set) = resolved_set {
             embedding_contract_set_id = Some(set.id);
             embedding_truncate_dimension = set.truncate_dim;
-            embedding_profile = match set.embedding_config_id {
-                Some(config_id) => search_db.embedding_sets.get_config(config_id).await?,
-                None => search_db.embedding_sets.get_default_config().await?,
-            };
+            embedding_profile = resolved_profile;
         }
     }
 
@@ -20824,7 +20941,15 @@ async fn search_notes(
         request = request.with_updated_before(ts);
     }
 
-    let results = request.execute(&engine).await?;
+    let results = with_request_schema(
+        &state,
+        scope,
+        archive_ctx.schema.clone(),
+        move |connection| {
+            Box::pin(async move { request.execute_on_connection(&engine, connection).await })
+        },
+    )
+    .await?;
     let total = results.len();
 
     let response = SearchResponse {
@@ -42804,6 +42929,26 @@ mod tests {
     }
 
     #[test]
+    fn search_metadata_validates_before_request_execution() {
+        assert!(parse_search_metadata_predicates(None).unwrap().is_none());
+        assert!(parse_search_metadata_predicates(Some("[]"))
+            .unwrap()
+            .is_some());
+        assert!(parse_search_metadata_predicates(Some(
+            r#"[{"path":"model","op":"eq","value":42}]"#
+        ))
+        .is_ok());
+        for input in [
+            "invalid-json",
+            r#"[{"path":"unregistered","op":"eq","value":42}]"#,
+            r#"[{"path":"model","op":"range","gte":10,"lte":2}]"#,
+            r#"[{"path":"model","op":"eq","value":{}}]"#,
+        ] {
+            assert!(parse_search_metadata_predicates(Some(input)).is_err());
+        }
+    }
+
+    #[test]
     fn search_query_debug_redacts_query_filters_tags_and_embedding_set() {
         let query = SearchQuery {
             q: "customer@example.com café payroll postgres://user:pass@db.internal/app"
@@ -42825,6 +42970,7 @@ mod tests {
                     .to_string(),
             ),
             diversity: Some(0.25),
+            metadata_predicates: Some("private-metadata-value".into()),
         };
 
         let rendered = format!("{query:?}");
@@ -42847,6 +42993,7 @@ mod tests {
         assert!(rendered.contains("strict_filter_len: Some(81)"));
 
         for raw in [
+            "private-metadata-value",
             "customer@example.com",
             "café",
             "postgres://user:pass",
@@ -42879,6 +43026,7 @@ mod tests {
             since: None,
             tags: None,
             strict_filter: None,
+            metadata_predicates: None,
             diversity: None,
         }
     }
@@ -42905,6 +43053,10 @@ mod tests {
     #[test]
     fn search_cache_bypasses_complex_filters_time_and_ranking() {
         let cache = matric_api::services::SearchCache::disabled();
+
+        let mut query = cacheable_fts_query();
+        query.metadata_predicates = Some("[]".into());
+        assert!(eligible_fts_cache_key(&cache, &query, "public", 20).is_none());
 
         let mut query = cacheable_fts_query();
         query.tags = Some("security".to_string());
@@ -43050,6 +43202,7 @@ mod tests {
         let response = SearchResponse {
             results: vec![EnhancedSearchHit {
                 hit: matric_core::SearchHit {
+                    evidence: None,
                     note_id: Uuid::nil(),
                     score: 0.95,
                     snippet: Some(
@@ -69206,14 +69359,13 @@ not-json
         assert_eq!(counts.embeddings, 0);
     }
 
-    pub(super) async fn build_call_api_test_state(db: Database, database_url: &str) -> AppState {
+    pub(super) async fn build_call_api_test_state(db: Database, _database_url: &str) -> AppState {
         AppState {
             db: db.clone(),
             search: Arc::new(matric_search::HybridSearchEngine::new(db.clone())),
             issuer: "http://localhost:3000".to_string(),
             rate_limiter: None,
             hosted_quota: None,
-            tag_resolver: matric_api::services::TagResolver::new(db.clone()),
             search_cache: matric_api::services::SearchCache::disabled(),
             event_bus: Arc::new(EventBus::new(matric_core::defaults::EVENT_BUS_CAPACITY)),
             ws_connections: Arc::new(AtomicUsize::new(0)),
@@ -69257,8 +69409,6 @@ not-json
                     matric_inference::ProviderRegistry::from_env(),
                 ),
             })),
-            schema_engines: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
-            database_url: database_url.to_string(),
             pause_state: None,
             tus_staging_path: "/tmp/matric-tus-staging-test".to_string(),
             chat_semaphore: None,
@@ -74642,9 +74792,6 @@ not-json
             issuer: "http://localhost:3000".to_string(),
             rate_limiter: None,
             hosted_quota: None,
-            tag_resolver: matric_api::services::TagResolver::new(
-                Database::connect(&database_url).await.unwrap(),
-            ),
             search_cache: matric_api::services::SearchCache::disabled(),
             event_bus: event_bus.clone(),
             ws_connections: ws_connections.clone(),
@@ -74688,8 +74835,6 @@ not-json
                     matric_inference::ProviderRegistry::from_env(),
                 ),
             })),
-            schema_engines: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
-            database_url: String::new(),
             tus_staging_path: "/tmp/matric-tus-staging-test".to_string(),
             pause_state: None,
             chat_semaphore: None,
@@ -76439,9 +76584,6 @@ not-json
             issuer: "http://localhost:3000".to_string(),
             rate_limiter: None,
             hosted_quota: None,
-            tag_resolver: matric_api::services::TagResolver::new(
-                Database::connect(&database_url).await.unwrap(),
-            ),
             search_cache: matric_api::services::SearchCache::disabled(),
             event_bus: event_bus.clone(),
             ws_connections,
@@ -76485,8 +76627,6 @@ not-json
                     matric_inference::ProviderRegistry::from_env(),
                 ),
             })),
-            schema_engines: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
-            database_url: String::new(),
             tus_staging_path: "/tmp/matric-tus-staging-test".to_string(),
             pause_state: None,
             chat_semaphore: None,
@@ -76789,7 +76929,6 @@ not-json
             issuer: "http://localhost:3000".to_string(),
             rate_limiter: None,
             hosted_quota: None,
-            tag_resolver: matric_api::services::TagResolver::new(Database::new(pool.clone())),
             search_cache: matric_api::services::SearchCache::disabled(),
             event_bus,
             ws_connections,
@@ -76833,8 +76972,6 @@ not-json
                     matric_inference::ProviderRegistry::from_env(),
                 ),
             })),
-            schema_engines: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
-            database_url: String::new(),
             tus_staging_path: "/tmp/matric-tus-staging-test".to_string(),
             pause_state: None,
             chat_semaphore: None,
@@ -77874,10 +78011,16 @@ not-json
 
     #[test]
     fn committed_openapi_artifact_is_current() {
-        assert_eq!(
-            openapi_yaml_with_problem_contract(),
-            include_str!("../../../contracts/openapi/openapi.yaml"),
-            "run scripts/ci/openapi-contract.sh generate"
+        let actual = openapi_yaml_with_problem_contract();
+        let expected = include_str!("../../../contracts/openapi/openapi.yaml");
+        let first = actual
+            .lines()
+            .zip(expected.lines())
+            .position(|(a, b)| a != b);
+        assert!(
+            actual == expected,
+            "OpenAPI artifact differs at line {:?} (bytes {} vs {}); run scripts/ci/openapi-contract.sh generate",
+            first.map(|line| line + 1), actual.len(), expected.len()
         );
     }
 

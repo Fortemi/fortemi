@@ -1,0 +1,112 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-13T01:47:04.177Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-content-cycle88.json",
+    "type": "artifact_bundle",
+    "created_at": "2026-09-13T01:47:04.177Z",
+    "checksum": "sha256:82e845208e0c65ab96a7ed02e882dd1b2fc67aeceebfd2f0e30a904f3a2141de",
+    "size_bytes": 9953,
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "crates/matric-db/src/jobs/scoped.rs",
+          "bytes": 16380,
+          "sha256": "357fc52701c332effe7956bf3f008d34bb8f81c91c0825dbb16527df65845699"
+        },
+        {
+          "path": "crates/matric-jobs/src/handler.rs",
+          "bytes": 22534,
+          "sha256": "5ad1921b03178e26b3388516a846f50ee752a2771c6625f3c29af3329986c136"
+        },
+        {
+          "path": "crates/matric-jobs/src/handler/hosted.rs",
+          "bytes": 1886,
+          "sha256": "0c6337927d4b53aa5414947866cb70ed1752dbdf59997b1a50bfa35846b657df"
+        },
+        {
+          "path": "crates/matric-jobs/src/lib.rs",
+          "bytes": 3616,
+          "sha256": "65ed7e44efc9fb89c1bd6b1be0a419062984b427246f0cc820084f1bf622f6c2"
+        },
+        {
+          "path": "crates/matric-jobs/src/worker/dispatch.rs",
+          "bytes": 12982,
+          "sha256": "02b6de429e7e14a90cbd097f2691ead005eef45cd9dd41a04136b562c7c7061d"
+        },
+        {
+          "path": "crates/matric-jobs/tests/hosted_content_test.rs",
+          "bytes": 20459,
+          "sha256": "86158aeeb63c2d6385985263bae07144defcdb5ed6caec3b7e0d8f1284f9391c"
+        },
+        {
+          "path": ".aiwg/architecture/impact/typed-metadata-search.md",
+          "bytes": 19152,
+          "sha256": "742e350c7f4b0ef374d8f186e0f49b9a8857de3baa5f1d1dbf5e7da371c1eec7"
+        },
+        {
+          "path": ".aiwg/architecture/impact/hosted-worker-transactions.md",
+          "bytes": 15024,
+          "sha256": "1bb319c13eabb529263eb500716fe63dfcd9e7abeb2be2aa54b2c6a292829663"
+        },
+        {
+          "path": "docs/architecture/adr/ADR-090-multi-tenancy-model.md",
+          "bytes": 18399,
+          "sha256": "df71cc7c7f37be056b1ada9d6071478e2e35a0f785aa7d3f611930d48e0dc885"
+        },
+        {
+          "path": "docs/content/authentication.md",
+          "bytes": 38495,
+          "sha256": "f0dcda8af246dc5d7328774a8c5f31cfc16eea5266252869ff19a5a4c67e51d3"
+        },
+        {
+          "path": ".aiwg/reports/lane-b-1091-hosted-content-cycle88.json",
+          "bytes": 9953,
+          "sha256": "82e845208e0c65ab96a7ed02e882dd1b2fc67aeceebfd2f0e30a904f3a2141de"
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:hosted-content:lane-b:088:server",
+    "type": "modification",
+    "started_at": "2026-09-13T01:25:24.393Z",
+    "ended_at": "2026-09-13T01:47:04.177Z",
+    "description": "Claim-bound content transactions and explicit hosted handler contract with native-write/rollback acceptance; actual-binary installed-Core regression passes. Production handler/claim-drain/event integration remains incomplete."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-content-cycle88.json",
+      "activity": "urn:aiwg:activity:hosted-content:lane-b:088:server"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:hosted-content:lane-b:088:server",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-content-cycle88.json",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-content-cycle88.json",
+        "source": "urn:gitea:Fortemi:fortemi:issue:1091"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-content-cycle88.json",
+        "source": "urn:gitea:Fortemi:fortemi-react:issue:405"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-content-cycle88.json",
+        "source": "urn:aiwg:artifact:docs/architecture/adr/ADR-090-multi-tenancy-model.md"
+      }
+    ]
+  }
+}

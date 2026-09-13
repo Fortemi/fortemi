@@ -1,0 +1,368 @@
+{
+  "at": "2026-09-12 18:34:25 UTC",
+  "status": "PRODUCER_CANDIDATE_MATCHED_EVIDENCE_PASS",
+  "issues": [
+    "Fortemi/fortemi#1091",
+    "Fortemi/fortemi-react#405"
+  ],
+  "sourceState": {
+    "worktree": "/var/tmp/lane-b-server-1147",
+    "baseCommit": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+    "uncommitted": true,
+    "baseIsContractRevision": false
+  },
+  "verification": {
+    "sourceFiles": 813,
+    "steps": [
+      {
+        "name": "core-lib",
+        "passed": 639,
+        "log": "accepted-core-lib.log",
+        "sha256": "3d4f7d52bcf034f8a916b78eb42af490789948d1c4f7593d1003e39640befd67",
+        "bytes": 42678
+      },
+      {
+        "name": "core-hit-wire",
+        "passed": 5,
+        "log": "accepted-core-hit-wire.log",
+        "sha256": "33ff9594fffec990e809057fbfddb7252fd3d01ae748f560c0a2c8b84b3f4096",
+        "bytes": 746
+      },
+      {
+        "name": "search-lib",
+        "passed": 223,
+        "log": "accepted-search-lib.log",
+        "sha256": "26c9bddd52ec0a485c22ea8066f452a4c17130c67d1a9489cb3d9ab95ec0840f",
+        "bytes": 14222
+      },
+      {
+        "name": "search-hit-fusion",
+        "passed": 6,
+        "log": "accepted-search-hit-fusion.log",
+        "sha256": "5f5cc8f6ccdf307492812ae86a4a37816b6b5d5ef7323fa73c176759e3ad90a8",
+        "bytes": 823
+      },
+      {
+        "name": "scoped-retrieval",
+        "passed": 3,
+        "log": "accepted-scoped-retrieval.log",
+        "sha256": "6790028c9575058f7542d630104af0cdb32a169d7715edf58c6c6cf6eb71884f",
+        "bytes": 824
+      },
+      {
+        "name": "native-projection",
+        "passed": 1,
+        "log": "accepted-native-projection.log",
+        "sha256": "770075bfb9ac25e8c87f4deea935e885460880f7002b16ea066de85fffe31780",
+        "bytes": 502
+      },
+      {
+        "name": "metadata-builder",
+        "passed": 4,
+        "log": "accepted-metadata-builder.log",
+        "sha256": "7ed1805cf855eee27cd2528d2a4881765e28c450662f53695b8be27cae2cd3a1",
+        "bytes": 754
+      },
+      {
+        "name": "candidate-scope",
+        "passed": 2,
+        "log": "accepted-candidate-scope.log",
+        "sha256": "5a3f3d1f3ed15a570dee6d20a0dacc1480e52f3e6e52b8499b706b274033cd71",
+        "bytes": 489
+      },
+      {
+        "name": "hosted-search",
+        "passed": 1,
+        "log": "feature-qualified-hosted-search.log",
+        "sha256": "3192a2314f544a8f5211a1388fe6bbafb52bf5e72651908257e1153c2812a0b6",
+        "bytes": 1050
+      }
+    ],
+    "total": 884
+  },
+  "behavior": [
+    "SearchHit rejects malformed/null/foreign evidence and revalidates at serialization; Debug omits content, IDs and hashes.",
+    "Scoped PostgreSQL ranking projects matched title/current/completed attachment units and the selected embedding row/index/text without display rebinding.",
+    "Source digests exactly use tenant/schema/namespace/key plus NUL separators, with source predicates applied to projected tuples.",
+    "RRF, RSF and dedup merge evidence and omissions; MMR preserves snapshots; absent support stays absent and mixed legs report unavailable.",
+    "Fixed completed attachment-only lexical eligibility and ranking; native tests cover raw BOM/CRLF/astral text, all four lexical strategy branches (pg_bigm fallback only), source fanout, limit, oversize and deletion.",
+    "129 native scope checks retain original pre-limit/RLS assertions; 120 positive hits assert reproducible unit evidence. 72 hosted fixture-auth requests assert validated evidence, with 3 auth and 2 before-inference negatives."
+  ],
+  "retainedFailures": [
+    "Custom serde implementation initially left derive-only attributes; corrected and all core tests rerun.",
+    "Native DB test initially omitted the migrations feature; fixed the exact test invocation and removed a private module/re-export naming collision.",
+    "Initial native fixture put BOM adjacent to the search word; retained BOM while separating the actual query token.",
+    "Corrected fixture exposed attachment-only English eligibility failure; added same-scope attachment matching and ranking, preserving the failing receipt.",
+    "First API invocation lacked hosted-auth and ran zero tests despite exit 0. final-hosted-receipt.json is NOT acceptance. Qualified invocation names feature and binary, requires positive test count and exact 72-request marker."
+  ],
+  "remaining": [
+    "Full request/result/EnhancedSearchHit authority and offline bundled OpenAPI, replacing the currently unresolved external candidate schema reference before delivery.",
+    "Authorized producer database resolver; complete deletion/purge, personal cache and JWT/JWKS qualification; native pg_bigm and query-cost/index-plan qualification.",
+    "Core remote-contract.ts currently strips evidence; validate and forward through every declared consumer, then clean-installed and released cross-runtime acceptance.",
+    "Legacy chain_info best_chunk_sequence/count remain heuristics, not citation coordinates. Raw repository helpers omit evidence and are outside canonical filtered entry-point acceptance.",
+    "Delivery through repository policies, immutable producer/consumer pins, pending publications and the entire original 20-issue lane release sweep."
+  ],
+  "claims": {
+    "fullEvidenceLocators": false,
+    "fullRestAuthority": false,
+    "hostedJwtJwks": false,
+    "releasedCrossRuntimeAcceptance": false,
+    "inferenceQuality": false,
+    "suiteParity": false
+  },
+  "artifacts": [
+    {
+      "path": "crates/matric-core/src/models.rs",
+      "sha256": "29829a32a6203ecfc08a35a1b2f2661be30d37c2730cbeefee0baa8185076049",
+      "size": 433316
+    },
+    {
+      "path": "crates/matric-core/src/search_evidence.rs",
+      "sha256": "797f711fffcba98f0941f02dcc74c916df6b45367ae7e282731b12f585dd9290",
+      "size": 19187
+    },
+    {
+      "path": "crates/matric-core/tests/search_hit_evidence_test.rs",
+      "sha256": "518b3d8976e1edf3d6aaf07788b5f7f17de2365d6643fd0baef6acd4c58a9b7a",
+      "size": 3667
+    },
+    {
+      "path": "crates/matric-db/src/lib.rs",
+      "sha256": "4eac3765fa3a9edf1dbbe91f19d879ea8cd60b011b8c4556b4a11c05028f1714",
+      "size": 37317
+    },
+    {
+      "path": "crates/matric-db/src/search_candidates.rs",
+      "sha256": "1de2ddc124f3f9c163aa6b64712cd5d98d35810fca814a3f4b23c8f925e8ad2d",
+      "size": 14995
+    },
+    {
+      "path": "crates/matric-db/src/metadata_predicates.rs",
+      "sha256": "b5ed6d5131112332986c0de9b55377cce8d5b46ada0de1478c59d95047fa2505",
+      "size": 10543
+    },
+    {
+      "path": "crates/matric-db/src/search_evidence_projection.rs",
+      "sha256": "8eea6e05d1e303452c08e9928631dd52f8dc027df87baec86d00f61474527976",
+      "size": 4379
+    },
+    {
+      "path": "crates/matric-db/src/search.rs",
+      "sha256": "71501282fcb7da6d4dce3b528b5cfbf44967a4f9c9cd5a646adeb466f3e6a30b",
+      "size": 28767
+    },
+    {
+      "path": "crates/matric-db/src/embeddings.rs",
+      "sha256": "9a3e011e718ccf4b7fa9806179ee401b0dab77055740d05dc8bd0cbb7cbea416",
+      "size": 31741
+    },
+    {
+      "path": "crates/matric-db/tests/search_evidence_projection_test.rs",
+      "sha256": "aa307e1543769f10773c501bd2296bd40ec49ac4fa0027c46926e80c2ad545cc",
+      "size": 6991
+    },
+    {
+      "path": "crates/matric-search/src/lib.rs",
+      "sha256": "c13e616ccbdb3f14ae57ee665a77c8068dffc8f7d7dca7f8c6c241dec27ce353",
+      "size": 2048
+    },
+    {
+      "path": "crates/matric-search/src/evidence.rs",
+      "sha256": "c1a91193479f818461406d43c408143322f6f37560e1abb11fe355339d24ba2f",
+      "size": 1033
+    },
+    {
+      "path": "crates/matric-search/src/rrf.rs",
+      "sha256": "2c87d3c9ea2f23e40c9477fcb32cf1e3f823432cc267ed71f9f4359b53386ff3",
+      "size": 22755
+    },
+    {
+      "path": "crates/matric-search/src/rsf.rs",
+      "sha256": "b7eca453dde878c048baa49382f18efa7d59f6155fbe9c34a57785069cb47c4e",
+      "size": 9402
+    },
+    {
+      "path": "crates/matric-search/src/mmr.rs",
+      "sha256": "1de1d17d40503db86a951214cd62d39350ef05ed151552011d1d0eaeefd049b2",
+      "size": 11198
+    },
+    {
+      "path": "crates/matric-search/src/deduplication.rs",
+      "sha256": "0ae3ddee4b9b89abaffa2244930908c5c92fb30fd7986d1731e0161167a4e11f",
+      "size": 17189
+    },
+    {
+      "path": "crates/matric-search/src/hybrid.rs",
+      "sha256": "31b70b13035a5d5b8755520e7ba4f634ce50743c992c344d92af6a7cd806973e",
+      "size": 50960
+    },
+    {
+      "path": "crates/matric-search/tests/search_evidence_test.rs",
+      "sha256": "71a3288d7d53df2f9596c4afdc9f44d1b7a9bc371a809c5ad250afbd4ec0422b",
+      "size": 5089
+    },
+    {
+      "path": "crates/matric-search/tests/scoped_retrieval_test.rs",
+      "sha256": "f1c9b635a3092aa2d31140a6599408fce39f17f0458b3582d9716e9f443f2597",
+      "size": 24287
+    },
+    {
+      "path": "crates/matric-api/src/main.rs",
+      "sha256": "39ad3927425d9a7a30e502517e9bcde5d2af863a94af3575bfccde180a863a82",
+      "size": 3205369
+    },
+    {
+      "path": "crates/matric-api/src/handlers/jobs.rs",
+      "sha256": "ad0dc83c92b19787af02e619bd40ef07d1990850a4f4573a335a43fa878e2558",
+      "size": 413158
+    },
+    {
+      "path": "crates/matric-api/src/search_dedup.rs",
+      "sha256": "656558e71d97cab2c7891eb018a1448009988c4a53f002846f6fcd1e11c2412e",
+      "size": 2776
+    },
+    {
+      "path": "crates/matric-api/src/scoped_search_tests.rs",
+      "sha256": "187fcb031d850aca81dbaac3dee00e7d58a0b9e01b55f817082f9261f7ed7ea6",
+      "size": 16635
+    },
+    {
+      "path": "contracts/metadata-search/candidate/1.0.0/EVIDENCE.md",
+      "sha256": "282f4e39edcd62527469eb3402ad8b18673cb7df033d76f54634c69643d062bf",
+      "size": 10693
+    },
+    {
+      "path": ".aiwg/architecture/impact/typed-metadata-search.md",
+      "sha256": "2ebc107db6df5640aadc6a234f6bc936f7fc201c8b09a8b1867e0d3c8b5cc607",
+      "size": 9114
+    },
+    {
+      "path": ".aiwg/planning/roadmap.md",
+      "sha256": "3a2f86b41261f79f37cff03c9e136fe9ddd8282d45c4fef262de2e396bdd8a6f",
+      "size": 338655
+    },
+    {
+      "path": ".aiwg/activity.log",
+      "sha256": "099d30274a07aef1af201b668858330d13ac5bda6129edd5ebf21e9ee34d63e7",
+      "size": 4818
+    }
+  ],
+  "releaseInventory": [
+    {
+      "repo": "fortemi",
+      "observedAt": "2026-09-12 18:24:04 UTC",
+      "id": 2324,
+      "tag": "v2026.9.9",
+      "target": "",
+      "published": "2026-09-09T22:25:15Z",
+      "assets": [
+        {
+          "id": 6233,
+          "name": "SHA256SUMS.txt",
+          "size": 400
+        },
+        {
+          "id": 6231,
+          "name": "matric-api-aarch64-apple-darwin",
+          "size": 61031584
+        },
+        {
+          "id": 6230,
+          "name": "matric-api-aarch64-unknown-linux-gnu",
+          "size": 68659392
+        },
+        {
+          "id": 6232,
+          "name": "matric-api-x86_64-apple-darwin",
+          "size": 65082640
+        },
+        {
+          "id": 6229,
+          "name": "matric-api-x86_64-unknown-linux-gnu",
+          "size": 72938328
+        },
+        {
+          "id": 6234,
+          "name": "sidecar-provenance.intoto.json",
+          "size": 1751
+        }
+      ]
+    },
+    {
+      "repo": "fortemi-react",
+      "observedAt": "2026-09-12 18:24:04 UTC",
+      "id": 2333,
+      "tag": "v2026.9.5",
+      "target": "",
+      "published": "2026-09-12T15:08:14Z",
+      "assets": [
+        {
+          "id": 6302,
+          "name": "SHA256SUMS",
+          "size": 278
+        },
+        {
+          "id": 6299,
+          "name": "fortemi-core-2026.9.5.tgz",
+          "size": 1257821
+        },
+        {
+          "id": 6300,
+          "name": "fortemi-graph-2026.9.5.tgz",
+          "size": 64363
+        },
+        {
+          "id": 6301,
+          "name": "fortemi-react-2026.9.5.tgz",
+          "size": 147087
+        }
+      ]
+    },
+    {
+      "repo": "HotM",
+      "observedAt": "2026-09-12 18:24:04 UTC",
+      "id": 2331,
+      "tag": "v2026.9.5",
+      "target": "",
+      "published": "2026-09-11T13:43:47Z",
+      "assets": [
+        {
+          "id": 6294,
+          "name": "HotM_2026.9.5_aarch64.dmg",
+          "size": 29201522
+        },
+        {
+          "id": 6296,
+          "name": "HotM_2026.9.5_amd64.AppImage",
+          "size": 109287928
+        },
+        {
+          "id": 6297,
+          "name": "HotM_2026.9.5_amd64.deb",
+          "size": 32747002
+        },
+        {
+          "id": 6295,
+          "name": "SHA256SUMS-macos.txt",
+          "size": 92
+        },
+        {
+          "id": 6298,
+          "name": "SHA256SUMS.txt",
+          "size": 268
+        },
+        {
+          "id": 6289,
+          "name": "hotm-ui-dist.tar.gz",
+          "size": 3246334
+        }
+      ]
+    }
+  ],
+  "releaseDisposition": {
+    "fortemi": "2026.9.9 published; source acceptance/delivery and next release pending",
+    "core": "2026.9.5 partial publication retained; merged and candidate source unreleased; no recovery retry or overwrite",
+    "HotM": "2026.9.5 no change for this increment"
+  },
+  "evidenceRoot": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260912-cycle75"
+}

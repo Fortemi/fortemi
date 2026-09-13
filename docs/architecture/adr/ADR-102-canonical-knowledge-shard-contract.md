@@ -49,6 +49,19 @@ semantics, schema/profile authority, historical fixtures or Knowledge Shard
 matrix claims. Consumer pin delivery and remaining negative/operation gates
 are still required. Suite NO-GO and release acceptance boundaries remain.
 
+### Hosted Native Membership Functions (Cycle89 Candidate)
+
+Migration20260913000000 repairs native membership queue/statistics functions for
+tenant/archive-scoped handler transactions. The queue is explicitly public and
+follow-ups/dedup include tenant/archive identity; the native PostgreSQL UUID
+function replaces a removed legacy helper. Statistics resolve by triggering
+schema and tenant and update both parents on reparent. No portable records,
+profile/schema tuple or authority/consumer pin changes are introduced. Native
+handler and actual-binary HTTP regressions are recorded in the suite Cycle89
+checkpoint. These do not replace named-profile restore/consumer regression,
+exact-head CI or released-artifact qualification; historical receipts are not
+promoted and suite NO-GO remains.
+
 ### Release 2026.9.10 Preparation (#1145, #1146, #1147)
 
 Main58399 and comprehensive58416 pass at4676d6fa after the runtime corrections

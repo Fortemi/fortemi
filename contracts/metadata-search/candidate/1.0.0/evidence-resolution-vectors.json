@@ -1,0 +1,355 @@
+{
+  "schemaVersion": "fortemi.evidence-resolution-vectors.candidate.v1",
+  "boundary": "Portable wire schema cases, not current-storage, authorization, model or released-consumer acceptance. Semantic locator and range checks remain required.",
+  "requests": [
+    {
+      "id": "minimal",
+      "valid": true,
+      "value": {
+        "locator": {
+          "version": "1.0.0",
+          "note_id": "00000000-0000-0000-0000-000000000001",
+          "unit": {
+            "kind": "current",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "index": 0
+          },
+          "content_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "span": {
+            "unit": "utf8-bytes",
+            "start": 0,
+            "end": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "archived-explicit",
+      "valid": true,
+      "value": {
+        "locator": {
+          "version": "1.0.0",
+          "note_id": "00000000-0000-0000-0000-000000000001",
+          "unit": {
+            "kind": "current",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "index": 0
+          },
+          "content_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "span": {
+            "unit": "utf8-bytes",
+            "start": 0,
+            "end": 0
+          }
+        },
+        "include_archived": true
+      }
+    },
+    {
+      "id": "metadata-typed",
+      "valid": true,
+      "value": {
+        "locator": {
+          "version": "1.0.0",
+          "note_id": "00000000-0000-0000-0000-000000000001",
+          "unit": {
+            "kind": "current",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "index": 0
+          },
+          "content_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "span": {
+            "unit": "utf8-bytes",
+            "start": 0,
+            "end": 0
+          }
+        },
+        "metadata_predicates": [
+          {
+            "path": "model",
+            "op": "eq",
+            "value": 42
+          }
+        ]
+      }
+    },
+    {
+      "id": "missing-locator",
+      "valid": false,
+      "value": {}
+    },
+    {
+      "id": "null-locator",
+      "valid": false,
+      "value": {
+        "locator": null
+      }
+    },
+    {
+      "id": "caller-tenant",
+      "valid": false,
+      "value": {
+        "locator": {
+          "version": "1.0.0",
+          "note_id": "00000000-0000-0000-0000-000000000001",
+          "unit": {
+            "kind": "current",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "index": 0
+          },
+          "content_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "span": {
+            "unit": "utf8-bytes",
+            "start": 0,
+            "end": 0
+          }
+        },
+        "tenant_id": "forged"
+      }
+    },
+    {
+      "id": "caller-archive",
+      "valid": false,
+      "value": {
+        "locator": {
+          "version": "1.0.0",
+          "note_id": "00000000-0000-0000-0000-000000000001",
+          "unit": {
+            "kind": "current",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "index": 0
+          },
+          "content_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "span": {
+            "unit": "utf8-bytes",
+            "start": 0,
+            "end": 0
+          }
+        },
+        "archive_id": "forged"
+      }
+    },
+    {
+      "id": "null-metadata",
+      "valid": false,
+      "value": {
+        "locator": {
+          "version": "1.0.0",
+          "note_id": "00000000-0000-0000-0000-000000000001",
+          "unit": {
+            "kind": "current",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "index": 0
+          },
+          "content_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "span": {
+            "unit": "utf8-bytes",
+            "start": 0,
+            "end": 0
+          }
+        },
+        "metadata_predicates": null
+      }
+    },
+    {
+      "id": "unknown-metadata",
+      "valid": false,
+      "value": {
+        "locator": {
+          "version": "1.0.0",
+          "note_id": "00000000-0000-0000-0000-000000000001",
+          "unit": {
+            "kind": "current",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "index": 0
+          },
+          "content_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "span": {
+            "unit": "utf8-bytes",
+            "start": 0,
+            "end": 0
+          }
+        },
+        "metadata_predicates": [
+          {
+            "path": "unknown",
+            "op": "eq",
+            "value": "x"
+          }
+        ]
+      }
+    },
+    {
+      "id": "null-archived",
+      "valid": false,
+      "value": {
+        "locator": {
+          "version": "1.0.0",
+          "note_id": "00000000-0000-0000-0000-000000000001",
+          "unit": {
+            "kind": "current",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "index": 0
+          },
+          "content_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "span": {
+            "unit": "utf8-bytes",
+            "start": 0,
+            "end": 0
+          }
+        },
+        "include_archived": null
+      }
+    },
+    {
+      "id": "unknown-property",
+      "valid": false,
+      "value": {
+        "locator": {
+          "version": "1.0.0",
+          "note_id": "00000000-0000-0000-0000-000000000001",
+          "unit": {
+            "kind": "current",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "index": 0
+          },
+          "content_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "span": {
+            "unit": "utf8-bytes",
+            "start": 0,
+            "end": 0
+          }
+        },
+        "extra": 1
+      }
+    },
+    {
+      "id": "unknown-unit",
+      "valid": false,
+      "value": {
+        "locator": {
+          "version": "1.0.0",
+          "note_id": "00000000-0000-0000-0000-000000000001",
+          "unit": {
+            "kind": "history",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "index": 0
+          },
+          "content_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "span": {
+            "unit": "utf8-bytes",
+            "start": 0,
+            "end": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "fractional-offset",
+      "valid": false,
+      "value": {
+        "locator": {
+          "version": "1.0.0",
+          "note_id": "00000000-0000-0000-0000-000000000001",
+          "unit": {
+            "kind": "current",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "index": 0
+          },
+          "content_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "span": {
+            "unit": "utf8-bytes",
+            "start": 0.5,
+            "end": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "wrong-span-unit",
+      "valid": false,
+      "value": {
+        "locator": {
+          "version": "1.0.0",
+          "note_id": "00000000-0000-0000-0000-000000000001",
+          "unit": {
+            "kind": "current",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "index": 0
+          },
+          "content_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "span": {
+            "unit": "characters",
+            "start": 0,
+            "end": 0
+          }
+        }
+      }
+    },
+    {
+      "id": "null-source",
+      "valid": false,
+      "value": {
+        "locator": {
+          "version": "1.0.0",
+          "note_id": "00000000-0000-0000-0000-000000000001",
+          "unit": {
+            "kind": "current",
+            "id": "00000000-0000-0000-0000-000000000001",
+            "index": 0
+          },
+          "content_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+          "span": {
+            "unit": "utf8-bytes",
+            "start": 0,
+            "end": 0
+          },
+          "source": null
+        }
+      }
+    }
+  ],
+  "responses": [
+    {
+      "id": "empty-range",
+      "valid": true,
+      "value": {
+        "text": ""
+      }
+    },
+    {
+      "id": "raw-unicode",
+      "valid": true,
+      "value": {
+        "text": "\uFEFFraw\r\n\ud83d\ude42"
+      }
+    },
+    {
+      "id": "missing-text",
+      "valid": false,
+      "value": {}
+    },
+    {
+      "id": "null-text",
+      "valid": false,
+      "value": {
+        "text": null
+      }
+    },
+    {
+      "id": "numeric-text",
+      "valid": false,
+      "value": {
+        "text": 1
+      }
+    },
+    {
+      "id": "unknown-property",
+      "valid": false,
+      "value": {
+        "text": "x",
+        "source": "not-permitted"
+      }
+    }
+  ]
+}

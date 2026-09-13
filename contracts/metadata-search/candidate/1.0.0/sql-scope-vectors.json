@@ -1,0 +1,894 @@
+{
+  "status": "candidate",
+  "scope": "Actual SQL only: bounded-key rechecks and source quantification. Tenant authorization and full retrieval modes still require separate endpoint tests.",
+  "cases": [
+    {
+      "id": "source-conjunction-one-identity",
+      "rows": [
+        {
+          "id": "multi",
+          "metadata": {},
+          "identities": [
+            {
+              "tenant": "tenant-a",
+              "run": "run-1"
+            },
+            {
+              "tenant": "tenant-a",
+              "run": "run-2"
+            }
+          ]
+        },
+        {
+          "id": "single",
+          "metadata": {},
+          "identities": [
+            {
+              "tenant": "tenant-a",
+              "run": "run-1"
+            }
+          ]
+        },
+        {
+          "id": "missing",
+          "metadata": {},
+          "identities": []
+        },
+        {
+          "id": "foreign",
+          "metadata": {
+            "import_run_id": "run-1"
+          },
+          "identities": [
+            {
+              "tenant": "tenant-b",
+              "run": "run-1"
+            }
+          ]
+        }
+      ],
+      "predicates": [
+        {
+          "path": "import_run_id",
+          "op": "eq",
+          "value": "run-1"
+        },
+        {
+          "path": "import_run_id",
+          "op": "eq",
+          "value": "run-2"
+        }
+      ],
+      "valid": true,
+      "expectedIds": []
+    },
+    {
+      "id": "source-membership-no-duplicates",
+      "rows": [
+        {
+          "id": "multi",
+          "metadata": {},
+          "identities": [
+            {
+              "tenant": "tenant-a",
+              "run": "run-1"
+            },
+            {
+              "tenant": "tenant-a",
+              "run": "run-2"
+            }
+          ]
+        },
+        {
+          "id": "single",
+          "metadata": {},
+          "identities": [
+            {
+              "tenant": "tenant-a",
+              "run": "run-1"
+            }
+          ]
+        },
+        {
+          "id": "missing",
+          "metadata": {},
+          "identities": []
+        },
+        {
+          "id": "foreign",
+          "metadata": {
+            "import_run_id": "run-1"
+          },
+          "identities": [
+            {
+              "tenant": "tenant-b",
+              "run": "run-1"
+            }
+          ]
+        }
+      ],
+      "predicates": [
+        {
+          "path": "import_run_id",
+          "op": "in",
+          "value": [
+            "run-1",
+            "run-2"
+          ]
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "multi",
+        "single"
+      ]
+    },
+    {
+      "id": "source-exists-tenant-local",
+      "rows": [
+        {
+          "id": "multi",
+          "metadata": {},
+          "identities": [
+            {
+              "tenant": "tenant-a",
+              "run": "run-1"
+            },
+            {
+              "tenant": "tenant-a",
+              "run": "run-2"
+            }
+          ]
+        },
+        {
+          "id": "single",
+          "metadata": {},
+          "identities": [
+            {
+              "tenant": "tenant-a",
+              "run": "run-1"
+            }
+          ]
+        },
+        {
+          "id": "missing",
+          "metadata": {},
+          "identities": []
+        },
+        {
+          "id": "foreign",
+          "metadata": {
+            "import_run_id": "run-1"
+          },
+          "identities": [
+            {
+              "tenant": "tenant-b",
+              "run": "run-1"
+            }
+          ]
+        }
+      ],
+      "predicates": [
+        {
+          "path": "import_run_id",
+          "op": "exists"
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "multi",
+        "single"
+      ]
+    },
+    {
+      "id": "source-missing-tenant-local",
+      "rows": [
+        {
+          "id": "multi",
+          "metadata": {},
+          "identities": [
+            {
+              "tenant": "tenant-a",
+              "run": "run-1"
+            },
+            {
+              "tenant": "tenant-a",
+              "run": "run-2"
+            }
+          ]
+        },
+        {
+          "id": "single",
+          "metadata": {},
+          "identities": [
+            {
+              "tenant": "tenant-a",
+              "run": "run-1"
+            }
+          ]
+        },
+        {
+          "id": "missing",
+          "metadata": {},
+          "identities": []
+        },
+        {
+          "id": "foreign",
+          "metadata": {
+            "import_run_id": "run-1"
+          },
+          "identities": [
+            {
+              "tenant": "tenant-b",
+              "run": "run-1"
+            }
+          ]
+        }
+      ],
+      "predicates": [
+        {
+          "path": "import_run_id",
+          "op": "exists",
+          "value": false
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "missing",
+        "foreign"
+      ]
+    },
+    {
+      "id": "source-contradictory-presence",
+      "rows": [
+        {
+          "id": "multi",
+          "metadata": {},
+          "identities": [
+            {
+              "tenant": "tenant-a",
+              "run": "run-1"
+            },
+            {
+              "tenant": "tenant-a",
+              "run": "run-2"
+            }
+          ]
+        },
+        {
+          "id": "single",
+          "metadata": {},
+          "identities": [
+            {
+              "tenant": "tenant-a",
+              "run": "run-1"
+            }
+          ]
+        },
+        {
+          "id": "missing",
+          "metadata": {},
+          "identities": []
+        },
+        {
+          "id": "foreign",
+          "metadata": {
+            "import_run_id": "run-1"
+          },
+          "identities": [
+            {
+              "tenant": "tenant-b",
+              "run": "run-1"
+            }
+          ]
+        }
+      ],
+      "predicates": [
+        {
+          "path": "import_run_id",
+          "op": "exists",
+          "value": false
+        },
+        {
+          "path": "import_run_id",
+          "op": "eq",
+          "value": "run-1"
+        }
+      ],
+      "valid": true,
+      "expectedIds": []
+    },
+    {
+      "id": "source-range",
+      "rows": [
+        {
+          "id": "multi",
+          "metadata": {},
+          "identities": [
+            {
+              "tenant": "tenant-a",
+              "run": "run-1"
+            },
+            {
+              "tenant": "tenant-a",
+              "run": "run-2"
+            }
+          ]
+        },
+        {
+          "id": "single",
+          "metadata": {},
+          "identities": [
+            {
+              "tenant": "tenant-a",
+              "run": "run-1"
+            }
+          ]
+        },
+        {
+          "id": "missing",
+          "metadata": {},
+          "identities": []
+        },
+        {
+          "id": "foreign",
+          "metadata": {
+            "import_run_id": "run-1"
+          },
+          "identities": [
+            {
+              "tenant": "tenant-b",
+              "run": "run-1"
+            }
+          ]
+        }
+      ],
+      "predicates": [
+        {
+          "path": "import_run_id",
+          "op": "range",
+          "gte": "run-2",
+          "lte": "run-2"
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "multi"
+      ]
+    },
+    {
+      "id": "numeric-clamp-upper",
+      "rows": [
+        {
+          "id": "huge-positive",
+          "metadataJson": "{\"model\":1e10000}"
+        },
+        {
+          "id": "huge-negative",
+          "metadataJson": "{\"model\":-1e10000}"
+        },
+        {
+          "id": "tiny-positive",
+          "metadataJson": "{\"model\":1e-1000}"
+        },
+        {
+          "id": "tiny-negative",
+          "metadataJson": "{\"model\":-1e-1000}"
+        },
+        {
+          "id": "fraction-positive",
+          "metadataJson": "{\"model\":1e-19}"
+        },
+        {
+          "id": "fraction-negative",
+          "metadataJson": "{\"model\":-1e-19}"
+        },
+        {
+          "id": "zero",
+          "metadata": {
+            "model": 0
+          }
+        },
+        {
+          "id": "string",
+          "metadata": {
+            "model": "1e10000"
+          }
+        },
+        {
+          "id": "boolean",
+          "metadata": {
+            "model": false
+          }
+        },
+        {
+          "id": "missing",
+          "metadata": {}
+        }
+      ],
+      "predicates": [
+        {
+          "path": "model",
+          "op": "range",
+          "gte": 9007199254740991
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "huge-positive"
+      ]
+    },
+    {
+      "id": "numeric-clamp-lower",
+      "rows": [
+        {
+          "id": "huge-positive",
+          "metadataJson": "{\"model\":1e10000}"
+        },
+        {
+          "id": "huge-negative",
+          "metadataJson": "{\"model\":-1e10000}"
+        },
+        {
+          "id": "tiny-positive",
+          "metadataJson": "{\"model\":1e-1000}"
+        },
+        {
+          "id": "tiny-negative",
+          "metadataJson": "{\"model\":-1e-1000}"
+        },
+        {
+          "id": "fraction-positive",
+          "metadataJson": "{\"model\":1e-19}"
+        },
+        {
+          "id": "fraction-negative",
+          "metadataJson": "{\"model\":-1e-19}"
+        },
+        {
+          "id": "zero",
+          "metadata": {
+            "model": 0
+          }
+        },
+        {
+          "id": "string",
+          "metadata": {
+            "model": "1e10000"
+          }
+        },
+        {
+          "id": "boolean",
+          "metadata": {
+            "model": false
+          }
+        },
+        {
+          "id": "missing",
+          "metadata": {}
+        }
+      ],
+      "predicates": [
+        {
+          "path": "model",
+          "op": "range",
+          "lte": -9007199254740991
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "huge-negative"
+      ]
+    },
+    {
+      "id": "numeric-truncation-positive-recheck",
+      "rows": [
+        {
+          "id": "huge-positive",
+          "metadataJson": "{\"model\":1e10000}"
+        },
+        {
+          "id": "huge-negative",
+          "metadataJson": "{\"model\":-1e10000}"
+        },
+        {
+          "id": "tiny-positive",
+          "metadataJson": "{\"model\":1e-1000}"
+        },
+        {
+          "id": "tiny-negative",
+          "metadataJson": "{\"model\":-1e-1000}"
+        },
+        {
+          "id": "fraction-positive",
+          "metadataJson": "{\"model\":1e-19}"
+        },
+        {
+          "id": "fraction-negative",
+          "metadataJson": "{\"model\":-1e-19}"
+        },
+        {
+          "id": "zero",
+          "metadata": {
+            "model": 0
+          }
+        },
+        {
+          "id": "string",
+          "metadata": {
+            "model": "1e10000"
+          }
+        },
+        {
+          "id": "boolean",
+          "metadata": {
+            "model": false
+          }
+        },
+        {
+          "id": "missing",
+          "metadata": {}
+        }
+      ],
+      "predicates": [
+        {
+          "path": "model",
+          "op": "range",
+          "gte": 1e-20
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "huge-positive",
+        "fraction-positive"
+      ]
+    },
+    {
+      "id": "numeric-truncation-negative-recheck",
+      "rows": [
+        {
+          "id": "huge-positive",
+          "metadataJson": "{\"model\":1e10000}"
+        },
+        {
+          "id": "huge-negative",
+          "metadataJson": "{\"model\":-1e10000}"
+        },
+        {
+          "id": "tiny-positive",
+          "metadataJson": "{\"model\":1e-1000}"
+        },
+        {
+          "id": "tiny-negative",
+          "metadataJson": "{\"model\":-1e-1000}"
+        },
+        {
+          "id": "fraction-positive",
+          "metadataJson": "{\"model\":1e-19}"
+        },
+        {
+          "id": "fraction-negative",
+          "metadataJson": "{\"model\":-1e-19}"
+        },
+        {
+          "id": "zero",
+          "metadata": {
+            "model": 0
+          }
+        },
+        {
+          "id": "string",
+          "metadata": {
+            "model": "1e10000"
+          }
+        },
+        {
+          "id": "boolean",
+          "metadata": {
+            "model": false
+          }
+        },
+        {
+          "id": "missing",
+          "metadata": {}
+        }
+      ],
+      "predicates": [
+        {
+          "path": "model",
+          "op": "range",
+          "lte": -1e-20
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "huge-negative",
+        "fraction-negative"
+      ]
+    },
+    {
+      "id": "numeric-zero-recheck",
+      "rows": [
+        {
+          "id": "huge-positive",
+          "metadataJson": "{\"model\":1e10000}"
+        },
+        {
+          "id": "huge-negative",
+          "metadataJson": "{\"model\":-1e10000}"
+        },
+        {
+          "id": "tiny-positive",
+          "metadataJson": "{\"model\":1e-1000}"
+        },
+        {
+          "id": "tiny-negative",
+          "metadataJson": "{\"model\":-1e-1000}"
+        },
+        {
+          "id": "fraction-positive",
+          "metadataJson": "{\"model\":1e-19}"
+        },
+        {
+          "id": "fraction-negative",
+          "metadataJson": "{\"model\":-1e-19}"
+        },
+        {
+          "id": "zero",
+          "metadata": {
+            "model": 0
+          }
+        },
+        {
+          "id": "string",
+          "metadata": {
+            "model": "1e10000"
+          }
+        },
+        {
+          "id": "boolean",
+          "metadata": {
+            "model": false
+          }
+        },
+        {
+          "id": "missing",
+          "metadata": {}
+        }
+      ],
+      "predicates": [
+        {
+          "path": "model",
+          "op": "eq",
+          "value": 0
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "zero"
+      ]
+    },
+    {
+      "id": "string-prefix-equality-recheck",
+      "rows": [
+        {
+          "id": "exact",
+          "metadata": {
+            "model": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp"
+          }
+        },
+        {
+          "id": "long",
+          "metadata": {
+            "model": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp"
+          },
+          "appendFixture": "long-uncompressible-ascii"
+        },
+        {
+          "id": "unicode",
+          "metadata": {
+            "model": "𐀀"
+          },
+          "appendFixture": "long-uncompressible-ascii"
+        },
+        {
+          "id": "bmp",
+          "metadata": {
+            "model": ""
+          }
+        },
+        {
+          "id": "missing",
+          "metadata": {}
+        }
+      ],
+      "predicates": [
+        {
+          "path": "model",
+          "op": "eq",
+          "value": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp"
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "exact"
+      ]
+    },
+    {
+      "id": "string-prefix-upper-recheck",
+      "rows": [
+        {
+          "id": "exact",
+          "metadata": {
+            "model": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp"
+          }
+        },
+        {
+          "id": "long",
+          "metadata": {
+            "model": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp"
+          },
+          "appendFixture": "long-uncompressible-ascii"
+        },
+        {
+          "id": "unicode",
+          "metadata": {
+            "model": "𐀀"
+          },
+          "appendFixture": "long-uncompressible-ascii"
+        },
+        {
+          "id": "bmp",
+          "metadata": {
+            "model": ""
+          }
+        },
+        {
+          "id": "missing",
+          "metadata": {}
+        }
+      ],
+      "predicates": [
+        {
+          "path": "model",
+          "op": "range",
+          "lte": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp"
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "exact"
+      ]
+    },
+    {
+      "id": "string-prefix-lower-recheck",
+      "rows": [
+        {
+          "id": "exact",
+          "metadata": {
+            "model": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp"
+          }
+        },
+        {
+          "id": "long",
+          "metadata": {
+            "model": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp"
+          },
+          "appendFixture": "long-uncompressible-ascii"
+        },
+        {
+          "id": "unicode",
+          "metadata": {
+            "model": "𐀀"
+          },
+          "appendFixture": "long-uncompressible-ascii"
+        },
+        {
+          "id": "bmp",
+          "metadata": {
+            "model": ""
+          }
+        },
+        {
+          "id": "missing",
+          "metadata": {}
+        }
+      ],
+      "predicates": [
+        {
+          "path": "model",
+          "op": "range",
+          "gte": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp"
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "exact",
+        "long",
+        "unicode",
+        "bmp"
+      ]
+    },
+    {
+      "id": "string-unicode-scalar-order",
+      "rows": [
+        {
+          "id": "exact",
+          "metadata": {
+            "model": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp"
+          }
+        },
+        {
+          "id": "long",
+          "metadata": {
+            "model": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp"
+          },
+          "appendFixture": "long-uncompressible-ascii"
+        },
+        {
+          "id": "unicode",
+          "metadata": {
+            "model": "𐀀"
+          },
+          "appendFixture": "long-uncompressible-ascii"
+        },
+        {
+          "id": "bmp",
+          "metadata": {
+            "model": ""
+          }
+        },
+        {
+          "id": "missing",
+          "metadata": {}
+        }
+      ],
+      "predicates": [
+        {
+          "path": "model",
+          "op": "range",
+          "gte": "𐀀"
+        }
+      ],
+      "valid": true,
+      "expectedIds": [
+        "unicode"
+      ]
+    }
+  ],
+  "planPredicates": [
+    {
+      "id": "numeric-model",
+      "predicates": [
+        {
+          "path": "model",
+          "op": "eq",
+          "value": 777
+        }
+      ],
+      "expectedIndex": "idx_note_metadata_model_v1"
+    },
+    {
+      "id": "string-provider",
+      "predicates": [
+        {
+          "path": "provider",
+          "op": "eq",
+          "value": "provider-777"
+        }
+      ],
+      "expectedIndex": "idx_note_metadata_provider_v1"
+    },
+    {
+      "id": "source-run",
+      "predicates": [
+        {
+          "path": "import_run_id",
+          "op": "eq",
+          "value": "run-777"
+        }
+      ],
+      "expectedIndex": "idx_source_identity_metadata_run_v1"
+    }
+  ]
+}

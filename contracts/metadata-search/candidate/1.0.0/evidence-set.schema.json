@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fortemi.com/contracts/metadata-search/candidate/1.0.0/evidence-set.schema.json",
+  "title": "Candidate per-hit search evidence envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "locators", "omissions"],
+  "properties": {
+    "version": { "const": "1.0.0" },
+    "locators": {
+      "type": "array", "maxItems": 64, "uniqueItems": true,
+      "items": { "$ref": "evidence-locator.schema.json" }
+    },
+    "omissions": {
+      "type": "array", "maxItems": 2, "uniqueItems": true,
+      "items": { "enum": ["unavailable-unit", "locator-limit"] }
+    }
+  },
+  "if": { "properties": { "locators": { "type": "array", "maxItems": 0 } } },
+  "then": { "properties": { "omissions": { "type": "array", "minItems": 1 } } }
+}

@@ -24,4 +24,5 @@ regex = "1.10"
 unicode-script = "0.5"
 
 [dev-dependencies]
+matric-db = { path = "../matric-db", features = ["migrations"] }
 criterion = { version = "0.5", features = ["html_reports"] }

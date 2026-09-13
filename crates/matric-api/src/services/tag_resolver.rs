@@ -39,6 +39,89 @@ pub struct TagResolver {
 }
 
 impl TagResolver {
+    /// Resolve within the request transaction. The legacy notation-only cache
+    /// must not be used across tenant or archive boundaries.
+    pub async fn resolve_filter_on_connection(
+        connection: &mut sqlx::PgConnection,
+        input: StrictTagFilterInput,
+    ) -> Result<StrictTagFilter> {
+        let count = input.required_tags.len()
+            + input.any_tags.len()
+            + input.excluded_tags.len()
+            + input.required_schemes.len()
+            + input.excluded_schemes.len();
+        if count > 1000 {
+            return Err(Error::InvalidInput(
+                "strict_filter exceeds 1000 entries".into(),
+            ));
+        }
+        let mut filter = StrictTagFilter::new();
+        for (notations, concepts, strings, required) in [
+            (
+                &input.required_tags,
+                &mut filter.required_concepts,
+                &mut filter.required_string_tags,
+                true,
+            ),
+            (
+                &input.any_tags,
+                &mut filter.any_concepts,
+                &mut filter.any_string_tags,
+                false,
+            ),
+            (
+                &input.excluded_tags,
+                &mut filter.excluded_concepts,
+                &mut filter.excluded_string_tags,
+                false,
+            ),
+        ] {
+            for notation in notations {
+                let concept = sqlx::query_scalar::<_, Uuid>(
+                    "SELECT id FROM (SELECT id, 0 AS priority FROM skos_concept WHERE notation = $1 UNION ALL SELECT c.id, CASE WHEN l.label_type = 'pref_label' THEN 1 ELSE 2 END FROM skos_concept c JOIN skos_concept_label l ON l.concept_id = c.id AND l.tenant_id = c.tenant_id WHERE l.label_type IN ('pref_label', 'alt_label') AND l.value ILIKE $1) matches ORDER BY priority, id LIMIT 1"
+                ).bind(notation).fetch_optional(&mut *connection).await?;
+                if let Some(id) = concept {
+                    concepts.push(id);
+                } else {
+                    let exists: bool =
+                        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tag WHERE name = $1)")
+                            .bind(notation)
+                            .fetch_one(&mut *connection)
+                            .await?;
+                    if exists {
+                        strings.push(notation.clone());
+                    } else if required {
+                        return Err(required_tag_not_found_error(notation));
+                    }
+                }
+            }
+        }
+        filter.match_none = !input.any_tags.is_empty()
+            && filter.any_concepts.is_empty()
+            && filter.any_string_tags.is_empty();
+        for (notations, schemes, required) in [
+            (&input.required_schemes, &mut filter.required_schemes, true),
+            (&input.excluded_schemes, &mut filter.excluded_schemes, false),
+        ] {
+            for notation in notations {
+                let id = sqlx::query_scalar::<_, Uuid>(
+                    "SELECT id FROM skos_concept_scheme WHERE notation = $1 ORDER BY id LIMIT 1",
+                )
+                .bind(notation)
+                .fetch_optional(&mut *connection)
+                .await?;
+                if let Some(id) = id {
+                    schemes.push(id);
+                } else if required {
+                    return Err(required_scheme_not_found_error(notation));
+                }
+            }
+        }
+        filter.min_tag_count = input.min_tag_count;
+        filter.include_untagged = input.include_untagged;
+        Ok(filter)
+    }
+
     /// Create a new TagResolver with a 1000-entry LRU cache.
     pub fn new(db: Database) -> Self {
         let cache_size = NonZeroUsize::new(1000).expect("Cache size must be non-zero");

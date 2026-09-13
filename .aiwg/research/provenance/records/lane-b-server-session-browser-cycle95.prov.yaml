@@ -1,0 +1,92 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-13T06:13:37.994Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-session-browser-cycle95.json",
+    "type": "artifact_bundle",
+    "created_at": "2026-09-13T06:13:37.994Z",
+    "checksum": "sha256:f60cf7a745b11f8b6b8c5e0ce9419fdc106f7d12e633a3045e1bc0e3229faabd",
+    "size_bytes": 9822,
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "crates/matric-api/src/scoped_search_tests/binary_http.rs",
+          "bytes": 25009,
+          "sha256": "3341d25b1532801b52c0b9a431978ea2c07ce3f714ebf6f1d40bf7541814c335"
+        },
+        {
+          "path": "crates/matric-api/src/scoped_search_tests/installed_http.rs",
+          "bytes": 13710,
+          "sha256": "a0a963d1500e2e3b49bd1bf9d238144e4b17d48fca5bb1e6b7bae1b9cc190f1b"
+        },
+        {
+          "path": "crates/matric-api/src/scoped_search_tests/worker-sse-consumer.mjs",
+          "bytes": 10937,
+          "sha256": "f661586b5811514e93d16342bdfcd9f406ff2d337d0c8bfc355415298813088e"
+        },
+        {
+          "path": ".aiwg/architecture/impact/selected-memory-context.md",
+          "bytes": 5620,
+          "sha256": "16b512910bb6f63e9140f12da26e9a07f2ef589476d5f9f4d669d55945b6be18"
+        },
+        {
+          "path": ".aiwg/planning/roadmap.md",
+          "bytes": 347512,
+          "sha256": "2b73d7a09ee4f10503006bc568ea8ad5a4fdf531cb081e6a574d873c293eec79"
+        },
+        {
+          "path": ".aiwg/activity.log",
+          "bytes": 11083,
+          "sha256": "a98b0623f114fca414503e6204a825c04166f791d1e0fb1839432f9c5764fd71"
+        },
+        {
+          "path": ".aiwg/reports/lane-b-server-session-browser-cycle95.json",
+          "bytes": 9822,
+          "sha256": "f60cf7a745b11f8b6b8c5e0ce9419fdc106f7d12e633a3045e1bc0e3229faabd"
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:session-browser:lane-b:095:server",
+    "type": "modification",
+    "started_at": "2026-09-13T05:42:43.361Z",
+    "ended_at": "2026-09-13T06:13:37.994Z",
+    "description": "HotM auth/tenant changes emit credential-free effective-change events. Owned auth/memory subscriptions cover same-tab and cross-tab storage, resetting stale tenant overrides. Realtime stream/cursor/pending events and hook queue view reset; subscriptions removed on close. No producer runtime/wire change. Browser stream checks pass; application session isolation remains incomplete. Full scope and delivery gates retained."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-session-browser-cycle95.json",
+      "activity": "urn:aiwg:activity:session-browser:lane-b:095:server"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:session-browser:lane-b:095:server",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-session-browser-cycle95.json",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-session-browser-cycle95.json",
+        "source": "urn:gitea:Fortemi:HotM:issue:1"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-session-browser-cycle95.json",
+        "source": "urn:gitea:Fortemi:fortemi:issue:1091"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-session-browser-cycle95.json",
+        "source": "urn:gitea:Fortemi:fortemi-react:issue:405"
+      }
+    ]
+  }
+}

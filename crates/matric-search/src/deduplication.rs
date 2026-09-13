@@ -140,7 +140,10 @@ pub fn deduplicate_search_results(
             });
 
             let chunks_matched = hits.len();
-            let best_hit = hits.into_iter().next().unwrap(); // Safe: at least one hit per chain
+            let evidence =
+                crate::evidence::merge_evidence(chain_id, hits.iter().map(|hit| &hit.evidence));
+            let mut best_hit = hits.into_iter().next().unwrap(); // Safe: at least one hit per chain
+            best_hit.evidence = evidence;
 
             // Extract original title (remove "Part N/M" suffix if present)
             let original_title = best_hit
@@ -204,6 +207,7 @@ mod tests {
 
     fn create_test_hit(note_id: Uuid, score: f32, title: Option<&str>) -> SearchHit {
         SearchHit {
+            evidence: None,
             note_id,
             score,
             snippet: Some("test snippet".to_string()),
@@ -347,6 +351,7 @@ mod tests {
         let note_id = Uuid::new_v4();
         let results = vec![
             SearchHit {
+                evidence: None,
                 note_id,
                 score: 0.9,
                 snippet: Some("Best snippet".to_string()),
@@ -355,6 +360,7 @@ mod tests {
                 embedding_status: None,
             },
             SearchHit {
+                evidence: None,
                 note_id,
                 score: 0.7,
                 snippet: Some("Other snippet".to_string()),
@@ -415,6 +421,7 @@ mod tests {
         };
         let hit = EnhancedSearchHit {
             hit: SearchHit {
+                evidence: None,
                 note_id,
                 score: 0.91,
                 snippet: Some("Private snippet includes /tmp/customer/note.md".to_string()),

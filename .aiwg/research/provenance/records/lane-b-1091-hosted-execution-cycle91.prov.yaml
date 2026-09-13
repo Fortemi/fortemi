@@ -1,0 +1,177 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-13T04:03:55.126Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-execution-cycle91.json",
+    "type": "artifact_bundle",
+    "created_at": "2026-09-13T04:03:55.126Z",
+    "checksum": "sha256:2326167298c55c85d86066ec678b355a639da6fc4bf472f99d49c66236b5d73b",
+    "size_bytes": 10490,
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "crates/matric-api/src/hosted_auth.rs",
+          "bytes": 11976,
+          "sha256": "9d4172c42d146443bc5c00c37b04c9f0cbf1696df8b729ffb4c042928f1eb7aa"
+        },
+        {
+          "path": "crates/matric-api/src/hosted_jobs.rs",
+          "bytes": 4151,
+          "sha256": "bebca000bbcda27413d5c78813aaf6afd75985d76f0104f40ffb360ff836a506"
+        },
+        {
+          "path": "crates/matric-api/src/main.rs",
+          "bytes": 3209411,
+          "sha256": "4c7c1fbc23ab70c5a2477ebf210435a5a7702fc2947012ff713ff711549515cd"
+        },
+        {
+          "path": "crates/matric-api/src/scoped_search_tests.rs",
+          "bytes": 25039,
+          "sha256": "b4fcd1d3e660afef5fcc64de30c9953a43e70fb26de0131792ddaaa3d1e89138"
+        },
+        {
+          "path": "crates/matric-api/src/scoped_search_tests/binary_http.rs",
+          "bytes": 23909,
+          "sha256": "4f598baa1492acef01dc4ecf841b78af78558855f9f7c45be93f484eb050771e"
+        },
+        {
+          "path": "crates/matric-api/src/scoped_search_tests/worker-sse-consumer.mjs",
+          "bytes": 8553,
+          "sha256": "7d0b637aa443e0e2aefb7d6e36b22e594b3106087cd1a505f84f90307c417936"
+        },
+        {
+          "path": "crates/matric-api/tests/hosted_document_type_test.rs",
+          "bytes": 37080,
+          "sha256": "3e171284fb7e2226ae1835ba00f1cba2ca1cae9d1da9ea7522e8466c1fbcc797"
+        },
+        {
+          "path": "crates/matric-api/tests/hosted_document_type_test/completion.rs",
+          "bytes": 17759,
+          "sha256": "519b794a2b18ba7da457eea4ef26b5fe6979b7b6f69de7d4e78f45c7738bbaa9"
+        },
+        {
+          "path": "crates/matric-core/src/error.rs",
+          "bytes": 16575,
+          "sha256": "01baa48ff19d58f588c6ad181f375767ff296cb3e55dfb3fe7922cbd663b58d5"
+        },
+        {
+          "path": "crates/matric-db/src/file_storage.rs",
+          "bytes": 157635,
+          "sha256": "04df66e3125d93fb4d2a8618be4154237f1aa57fe767a97557afe74fe12b4fbc"
+        },
+        {
+          "path": "crates/matric-db/src/notes.rs",
+          "bytes": 68105,
+          "sha256": "f924f6a7080e22d9534645ecec1d2349cf589925390df85808515cb6d9bd5e38"
+        },
+        {
+          "path": "crates/matric-db/src/notes/hosted.rs",
+          "bytes": 2442,
+          "sha256": "fb47b2e3f812736e706ae90aed7a828d0ee32d8a09dd3354e7c0f22fec9b0647"
+        },
+        {
+          "path": "crates/matric-jobs/src/handler.rs",
+          "bytes": 22559,
+          "sha256": "81a316a3e7daef683d29c37f2edb1d3bae5a9ca2ee835a3801eb5175a9118911"
+        },
+        {
+          "path": "crates/matric-jobs/src/handler/hosted.rs",
+          "bytes": 5296,
+          "sha256": "18544943cc91ab20400c6d9f6bf4e65efdc30bc1b7470c9d6b1fff92b8dfe6b5"
+        },
+        {
+          "path": "crates/matric-jobs/src/worker/dispatch.rs",
+          "bytes": 14186,
+          "sha256": "0eed5871c45feeedef9a249e4fd119cb1d95083f14fa67674900dd85ab5c53bc"
+        },
+        {
+          "path": "crates/matric-jobs/src/worker/execution.rs",
+          "bytes": 14545,
+          "sha256": "50bdc650a392822d74ed30e5cfeaddc13d7739634535819654bf6ff77c4d3aad"
+        },
+        {
+          "path": "crates/matric-jobs/tests/hosted_execution_test.rs",
+          "bytes": 13768,
+          "sha256": "005ea2fd22150ba0e133840c10732ddee87d74425f1e840f76e5f271e1caee7b"
+        },
+        {
+          "path": ".aiwg/architecture/impact/typed-metadata-search.md",
+          "bytes": 21153,
+          "sha256": "e8b3a40643b3ad3ee0306d3d06726f78a8e5ff3cf51c9950542b6ed9ac675b5e"
+        },
+        {
+          "path": ".aiwg/architecture/impact/hosted-worker-transactions.md",
+          "bytes": 22277,
+          "sha256": "8f2cb626a99576ce0421df65c862904abe779ae388e1f7763676159469750ad5"
+        },
+        {
+          "path": "docs/architecture/adr/ADR-090-multi-tenancy-model.md",
+          "bytes": 21146,
+          "sha256": "7461b8a1a761a1150166f424793fb21f91f6463015c86fa454ff0f6fd3301949"
+        },
+        {
+          "path": "docs/content/authentication.md",
+          "bytes": 39378,
+          "sha256": "80db56564e392199dfb99dcae116d586ca5c2fe108d6f93c4a3191f2c01d590f"
+        },
+        {
+          "path": ".aiwg/planning/roadmap.md",
+          "bytes": 344717,
+          "sha256": "d2d8d49eabe59601a2d38aaee452bec7613a6df47ffeab265924c64da58faa8d"
+        },
+        {
+          "path": ".aiwg/activity.log",
+          "bytes": 7972,
+          "sha256": "d961d24dd38b0f85e1672ff4a75d3c8e8d991ee9147f64c4102268afa3a08bb0"
+        },
+        {
+          "path": ".aiwg/reports/lane-b-1091-hosted-execution-cycle91.json",
+          "bytes": 10490,
+          "sha256": "2326167298c55c85d86066ec678b355a639da6fc4bf472f99d49c66236b5d73b"
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:hosted-execution:lane-b:091:server",
+    "type": "modification",
+    "started_at": "2026-09-13T03:01:45.996Z",
+    "ended_at": "2026-09-13T04:03:55.126Z",
+    "description": "Typed retry classification, bounded fenced note completion snapshot and canonical hosted SSE filtering; real HotM parser live/seeded replay with owned adapter. Fixed bounded HTTP fixture connection profile. Full application/lifecycle/consumer/release gates remain."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-execution-cycle91.json",
+      "activity": "urn:aiwg:activity:hosted-execution:lane-b:091:server"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:hosted-execution:lane-b:091:server",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-execution-cycle91.json",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-execution-cycle91.json",
+        "source": "urn:gitea:Fortemi:fortemi:issue:1091"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-execution-cycle91.json",
+        "source": "urn:gitea:Fortemi:fortemi-react:issue:405"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-execution-cycle91.json",
+        "source": "urn:aiwg:artifact:docs/architecture/adr/ADR-090-multi-tenancy-model.md"
+      }
+    ]
+  }
+}

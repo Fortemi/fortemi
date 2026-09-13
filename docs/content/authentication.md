@@ -101,7 +101,37 @@ existing data and tenant-qualified foreign-key guards are preserved. Provision
 any required default SKOS scheme or document types under the intended tenant,
 not by sharing the personal tenant's seed rows.
 
+Hosted stale-running job recovery now enumerates active tenants through the
+service control plane and updates each tenant in a short scoped transaction.
+Startup performs one bounded page; periodic passes continue the cursor. Partial
+failures and pass deadlines are reported as incomplete recovery, not empty
+success. Recovery does not by itself establish tenant-worker execution readiness.
+
+The candidate also includes a service-owned bounded claim dispatcher with an
+explicit handler allowlist and post-commit, attempt-fenced settlement capability.
+Cycle90 connects it to an explicit hosted-only registry and claim drain. The
+document-type handler is registered; legacy personal handlers never receive
+hosted claims. Global/per-archive pause is checked before claims and shutdown
+retains attempt-fenced settlement. Public hosted readiness remains false.
+
+HostedJobHandler/HostedJobContext expose bounded claim-bound content work and
+fenced async progress. A pool-free document-type handler now implements scoped
+detection, assignment/access/provenance and durable job-bound replay, including
+native tenant/archive-addressed membership follow-ups. Its committed progress
+and terminal events use tenant/archive context without raw bridge lookups/writes.
+Cycle91 adds typed temporary-database retries and a bounded read-only note.updated
+snapshot in fenced completion. Both success events follow acknowledged commit;
+failures publish neither and leave settlement to recovery. Other handlers,
+follow-up embedding execution, index events, scoped queue summaries and complete
+live SSE lifecycle remain unqualified. Global queue
+summaries are emitted only in personal mode. Content and terminal settlement
+commit separately; no exactly-once external-effect guarantee is implied.
+
 Hosted SSE requires a bearer header with the canonical tenant and `mcp` scope.
+Archive names are authorized first; resolved schemas filter live/replay events.
+Missing tenant/memory attribution is rejected on hosted streams. Consumer request
+names and canonical event schemas must be resolved separately; a test transport
+adapter is not application acceptance.
 Memory access also requires `read` scope. The default subscription is the caller's default memory, never a cross-tenant
 monitoring stream. `memory=default` and `memory=public` select tenant-protected
 public tables when no tenant archive exists. Other archive names must resolve
@@ -1186,6 +1216,21 @@ if __name__ == "__main__":
 - **Token Introspection RFC 7662:** https://datatracker.ietf.org/doc/html/rfc7662
 
 For questions or issues, please contact support or open an issue on the project repository.
+
+## Selected memory context (producer candidate)
+
+`GET /api/v1/memory/context` uses the authenticated hosted tenant transaction
+and existing `read` scope. It returns only the currently authorized canonical
+`name` and `schema_name`, with `Cache-Control: no-store`. The normal
+`X-Fortemi-Memory` header selects a visible memory; an absent header resolves
+the tenant default or public fallback. Later requests are independently
+authorized; this response is not a continuing access grant.
+
+Archive inventory remains admin-only and unmigrated. The context endpoint does
+not expose global storage statistics or add management privileges. Missing
+transaction/context and lookup failures fail closed. This Cycle93 producer
+candidate is not yet consumed by HotM or qualified as a released hosted flow;
+see `.aiwg/architecture/impact/selected-memory-context.md` and the suite receipt.
 
 ## Hosted OpenBao key custody
 

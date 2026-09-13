@@ -1,0 +1,65 @@
+{
+  "at": "2026-09-12T16:37:06.786Z",
+  "status": "LOCAL_RESOLVER_PASS_SEARCH_PROJECTION_PENDING",
+  "issues": [
+    "Fortemi/fortemi#1091",
+    "Fortemi/fortemi-react#405"
+  ],
+  "authority": {
+    "repository": "Fortemi/fortemi",
+    "issue": 1091,
+    "baseCommit": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+    "sourceState": "uncommitted candidate; base is not the contract revision",
+    "path": "contracts/metadata-search/candidate/1.0.0/",
+    "files": {
+      "predicates.schema.json": "e325707ce20abb88ef3a8f4bbb0d02ab09501b1ffe9b48b0c92a96e97dda00c3",
+      "predicate-vectors.json": "df9e129cab4708db71c3e22f87efd252fbcac144daa45a53ee1716f4a1a05ae7",
+      "sql-scope-vectors.json": "dcd35298a3bc485a6f1c87c6c87f136ee98121dad3f2b1c8b590b2e5381aa4d5",
+      "evidence-locator.schema.json": "cd8427c507bca1a08bdb68da0a5d2759d1d7805401db3c00372ab249652efb7a",
+      "evidence-vectors.json": "b532a4fa7697bdfc87e8541575fcee7c94a5b5ac53e4a6472438c49247e6b266"
+    }
+  },
+  "verification": {
+    "localResolverTests": 45,
+    "bindingAndMetadataTests": 153,
+    "surroundingSearchTests": 689,
+    "greenTotal": 887,
+    "currentCitationControl": 1,
+    "currentCitationFailures": 6,
+    "typecheck": true,
+    "focusedLint": true,
+    "candidateAuthorityBytesUnchanged": true
+  },
+  "behavior": [
+    "Single statement checks current note, exact unit ID/index, local scope and selected source tuple.",
+    "Default local source tenant excludes foreign sources; native no-source notes remain local.",
+    "Only tenant/archive/visibility/typed metadata scope supported; malformed or unknown fields reject before I/O.",
+    "SQL withholds raw text above16MiB, returning accepted text via BOM-preserving UTF-8 hex transport.",
+    "Resolver returns exact cited byte range or uniform unavailable for stale/missing/deleted/purged/out-of-scope text."
+  ],
+  "failuresRetained": [
+    "Initial43 failures came from missing archive fixture FK; archive fixture corrected.",
+    "Corrected190/196 exposed real leading-BOM loss through ordinary PGlite decoding and one invalid pending attachment fixture status. Bounded UTF-8 hex transport and uploaded status fixed these without weakening assertions.",
+    "Six actual search citation failures reproduced unchanged on current candidate source."
+  ],
+  "remaining": [
+    "Producer result-envelope authority and query/fusion/MMR/dedup matched-unit retention.",
+    "Consumer search projection; all six actual citation failures remain.",
+    "Producer database resolution, hosted authorization/cache/full lifecycle and clean installed/released every-consumer acceptance.",
+    "Next Core release after required main/source/release gates; existing2026.9.5 missing publication recovery and full lane release sweep."
+  ],
+  "claims": {
+    "fullEvidenceLocators": false,
+    "searchCitationAcceptance": false,
+    "hostedAuthorization": false,
+    "promotedContract": false,
+    "suiteParity": false
+  },
+  "scope": "Consumer-local candidate resolver only; no schema/corpus/result envelope/capability promotion. No producer runtime changes or new release.",
+  "repository": "server",
+  "parent": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+  "sourceState": "Uncommitted candidate WIP; adapter parent separately merged as PR455.",
+  "source": {
+    "contracts/metadata-search/candidate/1.0.0/EVIDENCE.md": "91095412ee6f3bd0a2faa2ae85de3b25d6a117e9b1681d5968ece92491da8e36"
+  }
+}

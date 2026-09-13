@@ -321,20 +321,99 @@ impl fmt::Debug for Link {
 // =============================================================================
 
 /// A search result hit.
-#[derive(Clone, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, utoipa::ToSchema)]
 pub struct SearchHit {
     pub note_id: Uuid,
     pub score: f32,
     pub snippet: Option<String>,
     /// Note title (generated or first line of content)
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     /// Note tags
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[schema(required = false)]
     pub tags: Vec<String>,
     /// Embedding status for this note
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub embedding_status: Option<EmbeddingStatus>,
+    /// Candidate matched-unit evidence. Absence does not advertise support.
+    #[schema(nullable = false)]
+    pub evidence: Option<crate::search_evidence::SearchEvidenceSet>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SearchHitWire {
+    note_id: Uuid,
+    score: f32,
+    snippet: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    embedding_status: Option<EmbeddingStatus>,
+    #[serde(
+        default,
+        deserialize_with = "present_evidence",
+        skip_serializing_if = "Option::is_none"
+    )]
+    evidence: Option<JsonValue>,
+}
+
+fn present_evidence<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<JsonValue>, D::Error> {
+    // Explicit null is malformed evidence, distinct from an absent capability.
+    JsonValue::deserialize(deserializer).map(Some)
+}
+
+impl<'de> Deserialize<'de> for SearchHit {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wire = SearchHitWire::deserialize(deserializer)?;
+        let evidence = wire
+            .evidence
+            .map(|value| {
+                crate::search_evidence::SearchEvidenceSet::parse(value, &wire.note_id.to_string())
+            })
+            .transpose()
+            .map_err(serde::de::Error::custom)?;
+        Ok(Self {
+            note_id: wire.note_id,
+            score: wire.score,
+            snippet: wire.snippet,
+            title: wire.title,
+            tags: wire.tags,
+            embedding_status: wire.embedding_status,
+            evidence,
+        })
+    }
+}
+
+impl Serialize for SearchHit {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if !self.score.is_finite() {
+            return Err(serde::ser::Error::custom("SEARCH_RESULT_INVALID"));
+        }
+        // SearchHit's public note_id can change after construction; recheck the
+        // immutable evidence at the outbound boundary, including cached hits.
+        let evidence = self
+            .evidence
+            .as_ref()
+            .map(|value| {
+                value
+                    .validate_note(&self.note_id.to_string())
+                    .map_err(serde::ser::Error::custom)?;
+                serde_json::to_value(value).map_err(serde::ser::Error::custom)
+            })
+            .transpose()?;
+        SearchHitWire {
+            note_id: self.note_id,
+            score: self.score,
+            snippet: self.snippet.clone(),
+            title: self.title.clone(),
+            tags: self.tags.clone(),
+            embedding_status: self.embedding_status.clone(),
+            evidence,
+        }
+        .serialize(serializer)
+    }
 }
 
 impl fmt::Debug for SearchHit {
@@ -346,6 +425,7 @@ impl fmt::Debug for SearchHit {
             .field("title_len", &optional_debug_len(self.title.as_ref()))
             .field("tags_count", &self.tags.len())
             .field("embedding_status", &self.embedding_status)
+            .field("evidence", &self.evidence)
             .finish()
     }
 }
@@ -5976,6 +6056,7 @@ mod tests {
             })),
         };
         let hit = SearchHit {
+            evidence: None,
             note_id: Uuid::new_v4(),
             score: 0.93,
             snippet: Some(
@@ -9440,6 +9521,7 @@ mod tests {
     #[test]
     fn test_search_hit_skip_serializing_empty_tags() {
         let hit = SearchHit {
+            evidence: None,
             note_id: Uuid::new_v4(),
             score: 0.95,
             snippet: Some("snippet".to_string()),

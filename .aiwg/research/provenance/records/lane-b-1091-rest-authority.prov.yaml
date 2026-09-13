@@ -1,0 +1,138 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-12T19:44:53Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-rest-authority.json",
+    "type": "artifact_bundle",
+    "created_at": "2026-09-12T19:44:53Z",
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "contracts/metadata-search/candidate/1.0.0/search-rest.schema.json",
+          "sha256": "f52615fed250e64f94b21c51a312738180cf14a9cdc040c760799afd6aa137f5",
+          "bytes": 8478
+        },
+        {
+          "path": "contracts/metadata-search/candidate/1.0.0/search-rest-vectors.json",
+          "sha256": "eac3b3739aedf037671be4cbd4a89f336d405de8cf06ea7ddebae9d1e4e288f2",
+          "bytes": 2630
+        },
+        {
+          "path": "crates/matric-api/src/search_contract.rs",
+          "sha256": "8b2a73a46bf4821dfb64ade953b0b4d39462793afa3d6539f1f91928578f826c",
+          "bytes": 7538
+        },
+        {
+          "path": "crates/matric-api/src/search_contract/tests.rs",
+          "sha256": "5466909f7e8ce3ecd483c4d1479f3fd9f53c73ebc20a8cda7e21d7ee9e48cdb6",
+          "bytes": 17395
+        },
+        {
+          "path": "crates/matric-api/src/main.rs",
+          "sha256": "69bf665caf017bbf0fde6cad1be084fbbe53f3989c7cdbaee02318389d12a9f9",
+          "bytes": 3206293
+        },
+        {
+          "path": "crates/matric-core/src/models.rs",
+          "sha256": "8c1376453832ddf6336135fee3ed4a1ce096236713c7b13b15b4f10089f96415",
+          "bytes": 433439
+        },
+        {
+          "path": "crates/matric-core/tests/search_hit_evidence_test.rs",
+          "sha256": "e98edd18e07ab20447b74019539e5e6be1908a624e901c29877b05e57b357c7e",
+          "bytes": 4216
+        },
+        {
+          "path": "crates/matric-api/src/scoped_search_tests.rs",
+          "sha256": "946c5d0bb1127f64cf2be0239687a6d5e931914c1748e17ce578a176a6ea1410",
+          "bytes": 17898
+        },
+        {
+          "path": "contracts/openapi/openapi.yaml",
+          "sha256": "73357e6c386b78bc5b7b7efa312127bf49dc6209fe5c0873527e70942aed76a0",
+          "bytes": 393951
+        },
+        {
+          "path": "contracts/openapi/openapi.sha256",
+          "sha256": "4fc4a5dcf7185f97a3e1684b4c54c08c347ab095dd7afdb7194271e2780d644a",
+          "bytes": 79
+        },
+        {
+          "path": "contracts/metadata-search/candidate/1.0.0/README.md",
+          "sha256": "483f5784a103aaf9601408862ad380c10d8b4f8351a9178caaca5963a857a4fa",
+          "bytes": 11348
+        },
+        {
+          "path": "contracts/metadata-search/candidate/1.0.0/EVIDENCE.md",
+          "sha256": "96e457d974d9d0636e6926159a6115c13389ad355c469221e0e747aa6afb1d83",
+          "bytes": 11573
+        },
+        {
+          "path": ".aiwg/architecture/impact/typed-metadata-search.md",
+          "sha256": "1e36478489029f7f464752e3800e8966c05f9df7584a1ebe704a4ff77408a9ca",
+          "bytes": 10298
+        },
+        {
+          "path": ".aiwg/planning/roadmap.md",
+          "sha256": "7a7f6a91a33f32b1740b9a6fa655f4c2783df444600d22a973e08b82c4c9933a",
+          "bytes": 340399
+        },
+        {
+          "path": ".aiwg/activity.log",
+          "sha256": "dbd9cb4e0383dedbf4828a3b4a99cfbaa6ab511a45d987a1d0480a533963dc69",
+          "bytes": 5221
+        },
+        {
+          "path": ".aiwg/reports/lane-b-1091-rest-authority.json",
+          "sha256": "c8976adb8567e50c233b332a5b5cdc325be1a9e70474fd9107f1d6d35fdd68fd",
+          "bytes": 11533
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:modification:lane-b-rest-authority:077:server",
+    "type": "modification",
+    "started_at": "2026-09-12T19:20:00Z",
+    "ended_at": "2026-09-12T19:44:53Z",
+    "description": "Candidate REST authority, offline deterministic OpenAPI bundle and actual Rust/router serialization validation; no capability or release promotion."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "name": "Codex",
+    "type": "ai_assistant"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-rest-authority.json",
+      "activity": "urn:aiwg:activity:modification:lane-b-rest-authority:077:server"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-rest-authority.json",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:modification:lane-b-rest-authority:077:server",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-rest-authority.json",
+        "source": "urn:git:commit:a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+        "derivation_type": "derives_from"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-rest-authority.json",
+        "source": "https://git.integrolabs.net/Fortemi/fortemi/issues/1091",
+        "derivation_type": "implements"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-rest-authority.json",
+        "source": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/405",
+        "derivation_type": "implements"
+      }
+    ]
+  }
+}

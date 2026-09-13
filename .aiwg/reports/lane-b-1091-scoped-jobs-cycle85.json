@@ -1,0 +1,147 @@
+{
+  "at": "2026-09-13T00:18:42.404Z",
+  "cycle": 85,
+  "status": "PARTIAL_SCOPED_QUEUE_IMPLEMENTED",
+  "overallAcceptance": "NOT_PASS",
+  "queueAcceptance": "PASS",
+  "producerFiles": 829,
+  "coreFiles": 580,
+  "changedProducerSource": [
+    "crates/matric-db/src/jobs.rs",
+    "crates/matric-db/src/jobs/scoped.rs",
+    "crates/matric-db/src/lib.rs",
+    "crates/matric-db/tests/scoped_jobs_test.rs"
+  ],
+  "coreSourceUnchanged": true,
+  "sourceHeads": {
+    "server": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+    "core": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7"
+  },
+  "verification": {
+    "unitTests": 8,
+    "databaseTestFunctions": 6,
+    "newMatrixFunctions": 1,
+    "modelGuardTests": 8,
+    "finalLabel": "third",
+    "allJobsTerminal": true,
+    "peakBytes": 2471276544
+  },
+  "runtimeBoundary": "Not wired into production JobWorker or handlers; Cycle84 actual-binary worker failure remains unresolved. No new installed-Core or lifecycle qualification.",
+  "releases": {
+    "fortemi": {
+      "id": 2324,
+      "tag": "v2026.9.9",
+      "assets": [
+        {
+          "id": 6229,
+          "name": "matric-api-x86_64-unknown-linux-gnu",
+          "size": 72938328
+        },
+        {
+          "id": 6230,
+          "name": "matric-api-aarch64-unknown-linux-gnu",
+          "size": 68659392
+        },
+        {
+          "id": 6231,
+          "name": "matric-api-aarch64-apple-darwin",
+          "size": 61031584
+        },
+        {
+          "id": 6232,
+          "name": "matric-api-x86_64-apple-darwin",
+          "size": 65082640
+        },
+        {
+          "id": 6233,
+          "name": "SHA256SUMS.txt",
+          "size": 400
+        },
+        {
+          "id": 6234,
+          "name": "sidecar-provenance.intoto.json",
+          "size": 1751
+        }
+      ],
+      "disposition": "UNRELEASED_PENDING_IMPLEMENTATION_ACCEPTANCE_DELIVERY"
+    },
+    "fortemi-react": {
+      "id": 2333,
+      "tag": "v2026.9.5",
+      "assets": [
+        {
+          "id": 6299,
+          "name": "fortemi-core-2026.9.5.tgz",
+          "size": 1257821
+        },
+        {
+          "id": 6300,
+          "name": "fortemi-graph-2026.9.5.tgz",
+          "size": 64363
+        },
+        {
+          "id": 6301,
+          "name": "fortemi-react-2026.9.5.tgz",
+          "size": 147087
+        },
+        {
+          "id": 6302,
+          "name": "SHA256SUMS",
+          "size": 278
+        }
+      ],
+      "disposition": "PRIOR_PARTIAL_PUBLICATION_AND_UNRELEASED_PENDING_ACCEPTANCE"
+    },
+    "HotM": {
+      "id": 2331,
+      "tag": "v2026.9.5",
+      "assets": [
+        {
+          "id": 6289,
+          "name": "hotm-ui-dist.tar.gz",
+          "size": 3246334
+        },
+        {
+          "id": 6294,
+          "name": "HotM_2026.9.5_aarch64.dmg",
+          "size": 29201522
+        },
+        {
+          "id": 6295,
+          "name": "SHA256SUMS-macos.txt",
+          "size": 92
+        },
+        {
+          "id": 6296,
+          "name": "HotM_2026.9.5_amd64.AppImage",
+          "size": 109287928
+        },
+        {
+          "id": 6297,
+          "name": "HotM_2026.9.5_amd64.deb",
+          "size": 32747002
+        },
+        {
+          "id": 6298,
+          "name": "SHA256SUMS.txt",
+          "size": 268
+        }
+      ],
+      "disposition": "NO_CHANGE_THIS_CYCLE_PRIOR_DISPOSITION_RETAINED"
+    }
+  },
+  "releaseQualification": "Metadata identities unchanged; no fresh registry asset-byte or mirror verification. No release/commit/PR/tag/closure/capability/pin promotion. Full lane-closeout release sweep remains required.",
+  "remaining": [
+    "trusted tenant dispatch and bounded recovery scheduling",
+    "scoped handler/content/follow-up operations",
+    "fenced callback integration and tenant events",
+    "actual-binary worker and installed-consumer acceptance",
+    "cache expiry/revocation and EE policy atomicity",
+    "lifecycle purge/crash/restore and performance",
+    "every consumer and CI/delivery/release sweep"
+  ],
+  "scope": "Original20 Lane B issues retained; suite NO-GO. Static index, named-profile shard transfer and live persistence remain distinct. Prior holds and unanswered questions preserved.",
+  "safety": "One bounded CPU job at a time, offline Cargo1. No GPU/model load, Docker, shared service changes or production vault/signing action. March12 model expired; current-time guard rejects it.",
+  "owner": "server",
+  "evidence": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260912-cycle85"
+}

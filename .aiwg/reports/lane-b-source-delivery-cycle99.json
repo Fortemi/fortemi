@@ -1,0 +1,876 @@
+{
+  "status": "PASS_LOCAL_SOURCE_VERIFICATION",
+  "at": "2026-09-13T16:59:57.743Z",
+  "repository": "Fortemi/fortemi",
+  "parent": "36c1b8779166af712afd588dd00dec871a6a9e30",
+  "issue": 1091,
+  "subjects": [
+    {
+      "path": ".aiwg/architecture/impact/hosted-worker-transactions.md",
+      "bytes": 22277,
+      "sha256": "8f2cb626a99576ce0421df65c862904abe779ae388e1f7763676159469750ad5"
+    },
+    {
+      "path": ".aiwg/architecture/impact/selected-memory-context.md",
+      "bytes": 7349,
+      "sha256": "607f90d3fb4395056ab423d83534f9c81f1dfaa966e2dcd6837be10918b5cd8c"
+    },
+    {
+      "path": ".aiwg/architecture/impact/typed-metadata-search.md",
+      "bytes": 21571,
+      "sha256": "3b603f97171413a89745efe12daee019b9b4a90ac108603ef53b7d58123a3537"
+    },
+    {
+      "path": ".aiwg/planning/roadmap.md",
+      "bytes": 351046,
+      "sha256": "1d4403fb677ff7080ad99646cc6f5e83f9f118d466e37e0e197ef1536f5a006c"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-1091-binary-http-cycle84.json",
+      "bytes": 5673,
+      "sha256": "1ddd4fa01fdfe9eaf77b7a8daf6e7dbf7baebb9a71d4ca77a5afa7d5f5a3481d"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-1091-current-storage-resolution.json",
+      "bytes": 19327,
+      "sha256": "417ac5cab35c24668e1cab4f8e29f14213a76c6dde43eea72ae3bc915e9cf6d2"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-1091-evidence-binding.json",
+      "bytes": 4143,
+      "sha256": "629042e7b8592262477b81870a30d6cf175ebc5ae434f963cef845cce8cdf52d"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-1091-evidence-projection.json",
+      "bytes": 5298,
+      "sha256": "5eeb959953502f6e0a147c0a442b60cdea09557e731e1da89145164e9e865325"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-1091-evidence-resolution.json",
+      "bytes": 3420,
+      "sha256": "7b3b8db1935ad65187a7c1484dc21bad4929546186b69e5a1721ec9ff37eba44"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-1091-hosted-content-cycle88.json",
+      "bytes": 9953,
+      "sha256": "82e845208e0c65ab96a7ed02e882dd1b2fc67aeceebfd2f0e30a904f3a2141de"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-1091-hosted-dispatch-cycle87.json",
+      "bytes": 9994,
+      "sha256": "818f079b54b9f0ed712a100941f9b613c99819b3ce9075a202c58d8ce0e9566a"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-1091-hosted-document-type-cycle89.json",
+      "bytes": 9515,
+      "sha256": "af571bba9be772a542e07c796e0d9ba3b416af25d2101b2efd9a7d6fa6e041c9"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-1091-hosted-execution-cycle90.json",
+      "bytes": 8734,
+      "sha256": "c835d452100ca56053eb4c83d32d15d260a22e24f485465d50cc91f337edff3d"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-1091-hosted-execution-cycle91.json",
+      "bytes": 10490,
+      "sha256": "2326167298c55c85d86066ec678b355a639da6fc4bf472f99d49c66236b5d73b"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-1091-hosted-recovery-cycle86.json",
+      "bytes": 9040,
+      "sha256": "77238563e4f665acbc311ba53a77b1543750d0bf8888db4d824166b3960964ee"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-1091-installed-http-cycle81.json",
+      "bytes": 10557,
+      "sha256": "a3041926f1544e11b16d79b39f03c63052d57b007fa48522ace02bd06d2e4314"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-1091-jwt-http-cycle82.json",
+      "bytes": 5955,
+      "sha256": "6d32205d0a75014c2a82612e0f3ebbf1c2f567306e20fee4691a847a8aadb821"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-1091-producer-evidence.json",
+      "bytes": 13062,
+      "sha256": "58eca7053eb1c479a38178fad8bbf8a7e7c7caeafdb6a1009d2b60774db56f09"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-1091-remote-evidence.json",
+      "bytes": 6285,
+      "sha256": "8db95451302c74c9a5c403de13352367b26657661e4e12687dcc69018cd60540"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-1091-remote-resolution-cycle80.json",
+      "bytes": 17421,
+      "sha256": "22074c006312e1e687e7b34da7db3b9640365ca695a1edaea6e06090c4f82e8e"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-1091-rest-adoption.json",
+      "bytes": 11987,
+      "sha256": "1ae3005ca94b7e389f856929f326709ad915f341af53e59d19a909b7e967ab3a"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-1091-rest-authority.json",
+      "bytes": 11533,
+      "sha256": "c8976adb8567e50c233b332a5b5cdc325be1a9e70474fd9107f1d6d35fdd68fd"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-1091-scoped-jobs-cycle85.json",
+      "bytes": 4500,
+      "sha256": "e34aaea152ca1084af0f895d2d6fd7d86f981b30f8ea440bd50e29241a23f287"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-server-context-owned-views-cycle96.json",
+      "bytes": 10018,
+      "sha256": "b7e3c4263e2ac3695f41307c80b370656da9241485c1999af60d2e7db4c91e13"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-server-owned-job-cache-cycle97-phase2.json",
+      "bytes": 20060,
+      "sha256": "0e7ef9da325a9645762cc1f96040d08c457ec178b9e4f3e9dd70cd5ff5b59cb9"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-server-realtime-context-cycle92.json",
+      "bytes": 8124,
+      "sha256": "95bf46a7d76c135710504198fc449c531ae54789b7a5a4aac4410c0b7e9d40e7"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-server-selected-memory-context-cycle93.json",
+      "bytes": 6209,
+      "sha256": "bed9edc76805e3f13702039b674121c18f98d432ef8f51baf203bc6993fe45b1"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-server-selected-memory-context-cycle94.json",
+      "bytes": 7925,
+      "sha256": "406bbc67a4c78838ff913640f39132430560c0c561a9f63e7e9a8a2834d2aed1"
+    },
+    {
+      "path": ".aiwg/reports/lane-b-server-session-browser-cycle95.json",
+      "bytes": 9822,
+      "sha256": "f60cf7a745b11f8b6b8c5e0ce9419fdc106f7d12e633a3045e1bc0e3229faabd"
+    },
+    {
+      "path": "contracts/metadata-search/candidate/1.0.0/EVIDENCE.md",
+      "bytes": 17808,
+      "sha256": "007496d39462b442a3295ec34facf8caf97e66ade50835d3930c24f7689e1d4b"
+    },
+    {
+      "path": "contracts/metadata-search/candidate/1.0.0/README.md",
+      "bytes": 13770,
+      "sha256": "8156468f6a09ac51d9d6169941dbfa3bc19f1fb9c558ec4ce49de16b1f6bb1b1"
+    },
+    {
+      "path": "contracts/metadata-search/candidate/1.0.0/evidence-locator.schema.json",
+      "bytes": 1977,
+      "sha256": "cd8427c507bca1a08bdb68da0a5d2759d1d7805401db3c00372ab249652efb7a"
+    },
+    {
+      "path": "contracts/metadata-search/candidate/1.0.0/evidence-resolution-vectors.json",
+      "bytes": 9082,
+      "sha256": "3d217a489a29be0eb152a8efb4f569e7942d4ae2af921218e295c0dba8a38aea"
+    },
+    {
+      "path": "contracts/metadata-search/candidate/1.0.0/evidence-resolution.schema.json",
+      "bytes": 839,
+      "sha256": "92c0cd616d26fad83e56e602d8393a8b6135175c849284d97721da146d923723"
+    },
+    {
+      "path": "contracts/metadata-search/candidate/1.0.0/evidence-set-vectors.json",
+      "bytes": 172197,
+      "sha256": "b84061ee252d2ee25d744111d2a04dfcd2c490274d4285bac31f4bd0e91e47d7"
+    },
+    {
+      "path": "contracts/metadata-search/candidate/1.0.0/evidence-set.schema.json",
+      "bytes": 836,
+      "sha256": "da7e5d41bd563cb2cfe424cf7dfa92007a865ee0e1a9a4832ef669039d80717e"
+    },
+    {
+      "path": "contracts/metadata-search/candidate/1.0.0/evidence-vectors.json",
+      "bytes": 40273,
+      "sha256": "b532a4fa7697bdfc87e8541575fcee7c94a5b5ac53e4a6472438c49247e6b266"
+    },
+    {
+      "path": "contracts/metadata-search/candidate/1.0.0/predicate-vectors.json",
+      "bytes": 17855,
+      "sha256": "df9e129cab4708db71c3e22f87efd252fbcac144daa45a53ee1716f4a1a05ae7"
+    },
+    {
+      "path": "contracts/metadata-search/candidate/1.0.0/predicates.schema.json",
+      "bytes": 6868,
+      "sha256": "e325707ce20abb88ef3a8f4bbb0d02ab09501b1ffe9b48b0c92a96e97dda00c3"
+    },
+    {
+      "path": "contracts/metadata-search/candidate/1.0.0/search-rest-vectors.json",
+      "bytes": 2630,
+      "sha256": "eac3b3739aedf037671be4cbd4a89f336d405de8cf06ea7ddebae9d1e4e288f2"
+    },
+    {
+      "path": "contracts/metadata-search/candidate/1.0.0/search-rest.schema.json",
+      "bytes": 8658,
+      "sha256": "df4bdf5c61187a66cc90b760ce9ebc71d062688d67858ed519fbd27141db9470"
+    },
+    {
+      "path": "contracts/metadata-search/candidate/1.0.0/sql-scope-vectors.json",
+      "bytes": 21016,
+      "sha256": "dcd35298a3bc485a6f1c87c6c87f136ee98121dad3f2b1c8b590b2e5381aa4d5"
+    },
+    {
+      "path": "contracts/openapi/openapi.sha256",
+      "bytes": 79,
+      "sha256": "1de38aa2a58bc3f9eb3968b4c1c50df06acb86082a1d69c108487bbb24f52c7a"
+    },
+    {
+      "path": "contracts/openapi/openapi.yaml",
+      "bytes": 400148,
+      "sha256": "0dd9b77e6d42c73197a489c575107c66d8f66755a2f8141a6788c7f4295c3cf1"
+    },
+    {
+      "path": "crates/matric-api/src/evidence_resolution.rs",
+      "bytes": 8751,
+      "sha256": "e1b396ebec01ed0ba5bb6bb6d2a395de9061abb4c3dc19bbd407ac354dc8b8a0"
+    },
+    {
+      "path": "crates/matric-api/src/handlers/archives.rs",
+      "bytes": 32675,
+      "sha256": "585ed7a3ce3cf5bb2da9b9d9be99d5db9bc6b1bcce26ccc7d02b53297e110192"
+    },
+    {
+      "path": "crates/matric-api/src/handlers/jobs.rs",
+      "bytes": 413158,
+      "sha256": "ad0dc83c92b19787af02e619bd40ef07d1990850a4f4573a335a43fa878e2558"
+    },
+    {
+      "path": "crates/matric-api/src/hosted_auth.rs",
+      "bytes": 11976,
+      "sha256": "9d4172c42d146443bc5c00c37b04c9f0cbf1696df8b729ffb4c042928f1eb7aa"
+    },
+    {
+      "path": "crates/matric-api/src/hosted_jobs.rs",
+      "bytes": 4151,
+      "sha256": "bebca000bbcda27413d5c78813aaf6afd75985d76f0104f40ffb360ff836a506"
+    },
+    {
+      "path": "crates/matric-api/src/lib.rs",
+      "bytes": 170,
+      "sha256": "cdf686660bbe4398a8b9a1516ae5b205fbc6fada15f1e217d6c51185101535fe"
+    },
+    {
+      "path": "crates/matric-api/src/main.rs",
+      "bytes": 3209737,
+      "sha256": "a94361089eb7d4cde060d0956d7e2ad0daa5c3379112e85db418eeef07150183"
+    },
+    {
+      "path": "crates/matric-api/src/route_policy.rs",
+      "bytes": 72490,
+      "sha256": "49b6fbfee8f0052755a303696b0ddedf45a5543b91022f90efc5fa18a533bbd5"
+    },
+    {
+      "path": "crates/matric-api/src/scoped_search_tests.rs",
+      "bytes": 26064,
+      "sha256": "2a5f30c376f328d55d25c12a2b60e27ab316a32dab4c4ec9b44b3799ff9eed66"
+    },
+    {
+      "path": "crates/matric-api/src/scoped_search_tests/binary_http.rs",
+      "bytes": 28891,
+      "sha256": "8161a2a2caa0144317a7fa60c5d1015158f3dfdefa9f773c9dfca59c7f4987db"
+    },
+    {
+      "path": "crates/matric-api/src/scoped_search_tests/fixture-issuer-client.mjs",
+      "bytes": 1186,
+      "sha256": "c2136c183494b25028d11eb96ad1209c9e45783e0ca9c3335a56a387887e0480"
+    },
+    {
+      "path": "crates/matric-api/src/scoped_search_tests/fixture-issuer.mjs",
+      "bytes": 5091,
+      "sha256": "bce3af115317885e269b71d1b02966823349ddfd41fdafbb09e057c0b7434b87"
+    },
+    {
+      "path": "crates/matric-api/src/scoped_search_tests/installed-http-consumer.mjs",
+      "bytes": 12097,
+      "sha256": "ac8ad7b0581dac0638494d8b09c21f0b70a428852d6ce0effa23d661752dcc04"
+    },
+    {
+      "path": "crates/matric-api/src/scoped_search_tests/installed_http.rs",
+      "bytes": 15567,
+      "sha256": "99362128dcc7687aa965aa520249a01fce40b052208385f6583ed9a86eea20ee"
+    },
+    {
+      "path": "crates/matric-api/src/scoped_search_tests/memory_context.rs",
+      "bytes": 11691,
+      "sha256": "e012b504b8733410344b7fe8e0ded86c05e313a3406e26cfee6c1934c5d36ab3"
+    },
+    {
+      "path": "crates/matric-api/src/scoped_search_tests/resolution_checks.rs",
+      "bytes": 19595,
+      "sha256": "ab7eec6510e0b57dfe913d2eb418e7fe5e4e93d754c9b2d1af7e692e55d4b121"
+    },
+    {
+      "path": "crates/matric-api/src/scoped_search_tests/worker-sse-consumer.mjs",
+      "bytes": 10971,
+      "sha256": "e7badb0217a5323bdab7f9cc8aad2e050fc74ae0d25b9335b13ca31f999ac01b"
+    },
+    {
+      "path": "crates/matric-api/src/search_contract.rs",
+      "bytes": 9037,
+      "sha256": "34c7525681e6d97261f18063af6279690ac9a38f5f7615619f841de49f3cc9a5"
+    },
+    {
+      "path": "crates/matric-api/src/search_contract/tests.rs",
+      "bytes": 19424,
+      "sha256": "21e41f026dc181e9b35cd2e7585334c7988779f38d334abebea6baedc0c72cb4"
+    },
+    {
+      "path": "crates/matric-api/src/search_dedup.rs",
+      "bytes": 2671,
+      "sha256": "2fc0ff8ffc5a9c72600e78fa04ad39f9f36ad5bcad9e3d451a75ffd9486c336a"
+    },
+    {
+      "path": "crates/matric-api/src/services/tag_resolver.rs",
+      "bytes": 31835,
+      "sha256": "0d1b0fbbb9f7d396068e59b594dccc0e50a3b18077bb341547c5a46e78997ff8"
+    },
+    {
+      "path": "crates/matric-api/tests/hosted_document_type_test.rs",
+      "bytes": 37080,
+      "sha256": "3e171284fb7e2226ae1835ba00f1cba2ca1cae9d1da9ea7522e8466c1fbcc797"
+    },
+    {
+      "path": "crates/matric-api/tests/hosted_document_type_test/completion.rs",
+      "bytes": 17759,
+      "sha256": "519b794a2b18ba7da457eea4ef26b5fe6979b7b6f69de7d4e78f45c7738bbaa9"
+    },
+    {
+      "path": "crates/matric-core/src/error.rs",
+      "bytes": 16575,
+      "sha256": "01baa48ff19d58f588c6ad181f375767ff296cb3e55dfb3fe7922cbd663b58d5"
+    },
+    {
+      "path": "crates/matric-core/src/lib.rs",
+      "bytes": 1936,
+      "sha256": "6018fc4d744ee7502c7ff77812a6e7dd31e0b96a1566b3b54d872c21c9125abe"
+    },
+    {
+      "path": "crates/matric-core/src/metadata_search.rs",
+      "bytes": 8109,
+      "sha256": "00270b2d72561d467544eab8ca67caa5ff7f7d6754bc1c2f9982741ceecf0a9d"
+    },
+    {
+      "path": "crates/matric-core/src/models.rs",
+      "bytes": 433439,
+      "sha256": "8c1376453832ddf6336135fee3ed4a1ce096236713c7b13b15b4f10089f96415"
+    },
+    {
+      "path": "crates/matric-core/src/search_evidence.rs",
+      "bytes": 19346,
+      "sha256": "3a94c298ed45848ecd2bf6fc486d590f8235d6f2e248869b7c5e3ee3c08f9774"
+    },
+    {
+      "path": "crates/matric-core/tests/search_hit_evidence_test.rs",
+      "bytes": 4216,
+      "sha256": "e98edd18e07ab20447b74019539e5e6be1908a624e901c29877b05e57b357c7e"
+    },
+    {
+      "path": "crates/matric-db/examples/metadata_predicate_vectors.rs",
+      "bytes": 2409,
+      "sha256": "2e75d632d12f48a777e3ef46896078ba027917fd424aabe01b2b7d78b0de2c49"
+    },
+    {
+      "path": "crates/matric-db/src/document_types.rs",
+      "bytes": 31130,
+      "sha256": "def222d72fc0d0d0f5b4569363d891f38d0577684e0a80be84e0bbf34e55945d"
+    },
+    {
+      "path": "crates/matric-db/src/document_types/scoped.rs",
+      "bytes": 6313,
+      "sha256": "0b1d6452eb2383e422845f4ee94bf832f84461ff6ebc7ffa57f32b871b43e2de"
+    },
+    {
+      "path": "crates/matric-db/src/embedding_sets.rs",
+      "bytes": 95879,
+      "sha256": "d3609cff120c37f354cdb3bd8d48de615edf56d473929b0012c30850cb4a7cef"
+    },
+    {
+      "path": "crates/matric-db/src/embeddings.rs",
+      "bytes": 31741,
+      "sha256": "9a3e011e718ccf4b7fa9806179ee401b0dab77055740d05dc8bd0cbb7cbea416"
+    },
+    {
+      "path": "crates/matric-db/src/file_storage.rs",
+      "bytes": 157635,
+      "sha256": "04df66e3125d93fb4d2a8618be4154237f1aa57fe767a97557afe74fe12b4fbc"
+    },
+    {
+      "path": "crates/matric-db/src/jobs.rs",
+      "bytes": 54955,
+      "sha256": "c813d6f91593d3514be9e4959f5b59cb2bab30935ab9e4bdaa605950df8afe5f"
+    },
+    {
+      "path": "crates/matric-db/src/jobs/scoped.rs",
+      "bytes": 16380,
+      "sha256": "357fc52701c332effe7956bf3f008d34bb8f81c91c0825dbb16527df65845699"
+    },
+    {
+      "path": "crates/matric-db/src/lib.rs",
+      "bytes": 37392,
+      "sha256": "dc67db0e511c859a85f1af5504553f1e84c1bb8e5c82809571fd634dade7ddae"
+    },
+    {
+      "path": "crates/matric-db/src/metadata_predicates.rs",
+      "bytes": 10543,
+      "sha256": "b5ed6d5131112332986c0de9b55377cce8d5b46ada0de1478c59d95047fa2505"
+    },
+    {
+      "path": "crates/matric-db/src/notes.rs",
+      "bytes": 68105,
+      "sha256": "f924f6a7080e22d9534645ecec1d2349cf589925390df85808515cb6d9bd5e38"
+    },
+    {
+      "path": "crates/matric-db/src/notes/hosted.rs",
+      "bytes": 2442,
+      "sha256": "fb47b2e3f812736e706ae90aed7a828d0ee32d8a09dd3354e7c0f22fec9b0647"
+    },
+    {
+      "path": "crates/matric-db/src/search.rs",
+      "bytes": 28767,
+      "sha256": "71501282fcb7da6d4dce3b528b5cfbf44967a4f9c9cd5a646adeb466f3e6a30b"
+    },
+    {
+      "path": "crates/matric-db/src/search_candidates.rs",
+      "bytes": 15017,
+      "sha256": "bc9e0f03710a35edcb22d1109f45ed300bdad54278111fecaa820f60f9456994"
+    },
+    {
+      "path": "crates/matric-db/src/search_evidence_projection.rs",
+      "bytes": 4518,
+      "sha256": "ea3d09ee7fac0889e5c23052d698a431bf616515461ba6cb7e2db316a517786a"
+    },
+    {
+      "path": "crates/matric-db/src/search_evidence_resolution.rs",
+      "bytes": 5221,
+      "sha256": "cbc012056214b4ffbd499627682591781bfd647c1df4be56695d35668f376938"
+    },
+    {
+      "path": "crates/matric-db/tests/metadata_predicates_sql_test.rs",
+      "bytes": 11835,
+      "sha256": "31b196215245033612cab89811cc3ffff5d6d2a555b661f97c55f5dcb1df076c"
+    },
+    {
+      "path": "crates/matric-db/tests/scoped_jobs_test.rs",
+      "bytes": 27923,
+      "sha256": "e992b3e511121ba88f217e19f5d1c9dcfd91a4df9621a157d483ba0195efd178"
+    },
+    {
+      "path": "crates/matric-db/tests/search_evidence_projection_test.rs",
+      "bytes": 6991,
+      "sha256": "aa307e1543769f10773c501bd2296bd40ec49ac4fa0027c46926e80c2ad545cc"
+    },
+    {
+      "path": "crates/matric-db/tests/tenant_embedding_names_test.rs",
+      "bytes": 3899,
+      "sha256": "f17a8688d4bbd2565191920eaf9fba0d8f45484047cc8b5a29eded3aca70cd2c"
+    },
+    {
+      "path": "crates/matric-jobs/Cargo.toml",
+      "bytes": 2159,
+      "sha256": "f2d0d1e680fc8ad64cc2c6c4f024a0d506276168f726a3bedc56125ff0d5b492"
+    },
+    {
+      "path": "crates/matric-jobs/src/handler.rs",
+      "bytes": 22559,
+      "sha256": "81a316a3e7daef683d29c37f2edb1d3bae5a9ca2ee835a3801eb5175a9118911"
+    },
+    {
+      "path": "crates/matric-jobs/src/handler/hosted.rs",
+      "bytes": 5296,
+      "sha256": "18544943cc91ab20400c6d9f6bf4e65efdc30bc1b7470c9d6b1fff92b8dfe6b5"
+    },
+    {
+      "path": "crates/matric-jobs/src/lib.rs",
+      "bytes": 3616,
+      "sha256": "65ed7e44efc9fb89c1bd6b1be0a419062984b427246f0cc820084f1bf622f6c2"
+    },
+    {
+      "path": "crates/matric-jobs/src/worker.rs",
+      "bytes": 83019,
+      "sha256": "caec52d3a15634a8184116981d16d9dc48b11c1ae62f0d111f79c54078def889"
+    },
+    {
+      "path": "crates/matric-jobs/src/worker/dispatch.rs",
+      "bytes": 14186,
+      "sha256": "0eed5871c45feeedef9a249e4fd119cb1d95083f14fa67674900dd85ab5c53bc"
+    },
+    {
+      "path": "crates/matric-jobs/src/worker/execution.rs",
+      "bytes": 14545,
+      "sha256": "50bdc650a392822d74ed30e5cfeaddc13d7739634535819654bf6ff77c4d3aad"
+    },
+    {
+      "path": "crates/matric-jobs/src/worker/recovery.rs",
+      "bytes": 6361,
+      "sha256": "30af995f915f54dd82c05d8a02ba8e0bca5b9e99063f329c9f4f968119a09a11"
+    },
+    {
+      "path": "crates/matric-jobs/src/worker/registry.rs",
+      "bytes": 1620,
+      "sha256": "6a52ba6c6fc4bf2c2145bddae74a8b3725fa50da5d22c10e455067bea234ded5"
+    },
+    {
+      "path": "crates/matric-jobs/tests/hosted_content_test.rs",
+      "bytes": 20459,
+      "sha256": "86158aeeb63c2d6385985263bae07144defcdb5ed6caec3b7e0d8f1284f9391c"
+    },
+    {
+      "path": "crates/matric-jobs/tests/hosted_dispatch_test.rs",
+      "bytes": 15048,
+      "sha256": "79c54965c35e75e080572097c20cf3a9f9b2f8c2fad623fbba99e2877de3306c"
+    },
+    {
+      "path": "crates/matric-jobs/tests/hosted_execution_test.rs",
+      "bytes": 13768,
+      "sha256": "005ea2fd22150ba0e133840c10732ddee87d74425f1e840f76e5f271e1caee7b"
+    },
+    {
+      "path": "crates/matric-jobs/tests/hosted_recovery_test.rs",
+      "bytes": 10200,
+      "sha256": "083968c217ca127887438484e27321a1e607c4d35bea43fbbc410f83cb69a3be"
+    },
+    {
+      "path": "crates/matric-search/Cargo.toml",
+      "bytes": 815,
+      "sha256": "37d8d39dfdea92ee1853a67832a59c3afa65652a2f1e31b9ae9e212ffe30624d"
+    },
+    {
+      "path": "crates/matric-search/src/deduplication.rs",
+      "bytes": 17189,
+      "sha256": "0ae3ddee4b9b89abaffa2244930908c5c92fb30fd7986d1731e0161167a4e11f"
+    },
+    {
+      "path": "crates/matric-search/src/evidence.rs",
+      "bytes": 1033,
+      "sha256": "c1a91193479f818461406d43c408143322f6f37560e1abb11fe355339d24ba2f"
+    },
+    {
+      "path": "crates/matric-search/src/hybrid.rs",
+      "bytes": 50960,
+      "sha256": "31b70b13035a5d5b8755520e7ba4f634ce50743c992c344d92af6a7cd806973e"
+    },
+    {
+      "path": "crates/matric-search/src/lib.rs",
+      "bytes": 2048,
+      "sha256": "c13e616ccbdb3f14ae57ee665a77c8068dffc8f7d7dca7f8c6c241dec27ce353"
+    },
+    {
+      "path": "crates/matric-search/src/mmr.rs",
+      "bytes": 11198,
+      "sha256": "1de1d17d40503db86a951214cd62d39350ef05ed151552011d1d0eaeefd049b2"
+    },
+    {
+      "path": "crates/matric-search/src/rrf.rs",
+      "bytes": 22755,
+      "sha256": "2c87d3c9ea2f23e40c9477fcb32cf1e3f823432cc267ed71f9f4359b53386ff3"
+    },
+    {
+      "path": "crates/matric-search/src/rsf.rs",
+      "bytes": 9402,
+      "sha256": "b7eca453dde878c048baa49382f18efa7d59f6155fbe9c34a57785069cb47c4e"
+    },
+    {
+      "path": "crates/matric-search/tests/scoped_retrieval_test.rs",
+      "bytes": 24287,
+      "sha256": "f1c9b635a3092aa2d31140a6599408fce39f17f0458b3582d9716e9f443f2597"
+    },
+    {
+      "path": "crates/matric-search/tests/search_evidence_test.rs",
+      "bytes": 5089,
+      "sha256": "71a3288d7d53df2f9596c4afdc9f44d1b7a9bc371a809c5ad250afbd4ec0422b"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-090-multi-tenancy-model.md",
+      "bytes": 21920,
+      "sha256": "3951ac74528cb809d25c37e5d5ffa728b33acc41c8b9032d79d785a3501d245c"
+    },
+    {
+      "path": "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md",
+      "bytes": 80599,
+      "sha256": "1273044e7952e2b0fa8f4a664910f263eab1b2cae1b88a44454f11e23278da07"
+    },
+    {
+      "path": "docs/content/authentication.md",
+      "bytes": 40253,
+      "sha256": "6b6511155baa5dec1aadf07b30e236771f9fdfef04bb8bbf1a1a07ac943abfa0"
+    },
+    {
+      "path": "migrations/20260912000000_typed_metadata_search_indexes.sql",
+      "bytes": 2359,
+      "sha256": "7dd1acc8dd78b08ca8a8839ce94826a4b8830cd6a43e89e6d4857c57793d0485"
+    },
+    {
+      "path": "migrations/20260912000100_tenant_embedding_names.sql",
+      "bytes": 1813,
+      "sha256": "ef04c817bb028be5ecc85eab8736d91385ef2ad3eb28031522f3cb8ac393e317"
+    },
+    {
+      "path": "migrations/20260913000000_scoped_embedding_member_jobs.sql",
+      "bytes": 3776,
+      "sha256": "15ba4c99c1ffb9645eb8ca09e158f2f13f44c0d3661fb84181c1ed74aeecaa8e"
+    },
+    {
+      "path": "migrations/20260913000100_tenant_archive_default.sql",
+      "bytes": 441,
+      "sha256": "8bb4b36e9cebf279dd4e49c4a5f7f0b8615a43fde4313ee2252ae274dfdcf2ae"
+    }
+  ],
+  "verification": {
+    "path": "suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260913-cycle99/formatted-final/receipt.json",
+    "sha256": "e82143248121e23b89888a6a1ded9d096ed97f9fbcb03ba10d7730e5e47c24f3",
+    "steps": [
+      {
+        "name": "browser-preflight",
+        "command": "node",
+        "args": [
+          "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260913-cycle99/browser-preflight-installed.mjs",
+          "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260913-cycle99/formatted-final"
+        ],
+        "status": 0,
+        "signal": null
+      },
+      {
+        "name": "context-authority",
+        "command": "node",
+        "args": [
+          "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260913-cycle99/verify-context-authority.mjs",
+          "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260913-cycle99/formatted-final"
+        ],
+        "status": 0,
+        "signal": null
+      },
+      {
+        "name": "fixture-profile",
+        "command": "node",
+        "args": [
+          "--test",
+          "/home/roctinam/dev/fortemi-suite/.aiwg/testing/scripts/postgres-fixture-profile.test.mjs"
+        ],
+        "status": 0,
+        "signal": null
+      },
+      {
+        "name": "build-binary",
+        "command": "cargo",
+        "args": [
+          "build",
+          "--offline",
+          "--locked",
+          "-p",
+          "matric-api",
+          "--features",
+          "hosted-auth,kms-vault",
+          "--bin",
+          "matric-api"
+        ],
+        "status": 0,
+        "signal": null
+      },
+      {
+        "name": "compile-tests",
+        "command": "cargo",
+        "args": [
+          "test",
+          "--offline",
+          "--locked",
+          "-p",
+          "matric-api",
+          "--features",
+          "hosted-auth,kms-vault",
+          "--bin",
+          "matric-api",
+          "scoped_search_tests",
+          "--no-run"
+        ],
+        "status": 0,
+        "signal": null
+      },
+      {
+        "name": "syntax-worker-sse",
+        "command": "node",
+        "args": [
+          "--check",
+          "crates/matric-api/src/scoped_search_tests/worker-sse-consumer.mjs"
+        ],
+        "status": 0,
+        "signal": null
+      },
+      {
+        "name": "syntax",
+        "command": "node",
+        "args": [
+          "--check",
+          "crates/matric-api/src/scoped_search_tests/installed-http-consumer.mjs"
+        ],
+        "status": 0,
+        "signal": null
+      },
+      {
+        "name": "install",
+        "command": "npm",
+        "args": [
+          "install",
+          "--offline",
+          "--ignore-scripts",
+          "--no-audit",
+          "--no-fund",
+          "--cache=/home/roctinam/.codex/roles-runtime/full/.npm",
+          "--userconfig=/tmp/fortemi-core-http-CJ3DPP/user.conf",
+          "--globalconfig=/tmp/fortemi-core-http-CJ3DPP/global.conf",
+          "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260913-cycle99/../lane-b-delivery-20260912-cycle80/candidate-package/fortemi-core-2026.9.5.tgz"
+        ],
+        "status": 0,
+        "signal": null
+      },
+      {
+        "name": "syntax-fixture-issuer",
+        "command": "node",
+        "args": [
+          "--check",
+          "crates/matric-api/src/scoped_search_tests/fixture-issuer.mjs"
+        ],
+        "status": 0,
+        "signal": null
+      },
+      {
+        "name": "syntax-fixture-issuer-client",
+        "command": "node",
+        "args": [
+          "--check",
+          "crates/matric-api/src/scoped_search_tests/fixture-issuer-client.mjs"
+        ],
+        "status": 0,
+        "signal": null
+      },
+      {
+        "name": "ca",
+        "command": "openssl",
+        "args": [
+          "req",
+          "-x509",
+          "-newkey",
+          "rsa:2048",
+          "-nodes",
+          "-keyout",
+          "ca.key",
+          "-out",
+          "ca.pem",
+          "-days",
+          "1",
+          "-subj",
+          "/CN=Disposable Fortemi test CA",
+          "-addext",
+          "basicConstraints=critical,CA:TRUE"
+        ],
+        "status": 0,
+        "signal": null
+      },
+      {
+        "name": "csr",
+        "command": "openssl",
+        "args": [
+          "req",
+          "-new",
+          "-newkey",
+          "rsa:2048",
+          "-nodes",
+          "-keyout",
+          "server.key",
+          "-out",
+          "server.csr",
+          "-subj",
+          "/CN=127.0.0.1"
+        ],
+        "status": 0,
+        "signal": null
+      },
+      {
+        "name": "certificate",
+        "command": "openssl",
+        "args": [
+          "x509",
+          "-req",
+          "-in",
+          "server.csr",
+          "-CA",
+          "ca.pem",
+          "-CAkey",
+          "ca.key",
+          "-CAcreateserial",
+          "-out",
+          "server.pem",
+          "-days",
+          "1",
+          "-extfile",
+          "server.ext"
+        ],
+        "status": 0,
+        "signal": null
+      },
+      {
+        "name": "hosted",
+        "command": "node",
+        "args": [
+          "/home/roctinam/dev/fortemi-suite/.aiwg/testing/scripts/with-bootstrap-services.mjs",
+          "--",
+          "node",
+          "/home/roctinam/dev/fortemi-suite/.aiwg/testing/scripts/with-ephemeral-postgres.mjs",
+          "--profile",
+          "hosted-http",
+          "--",
+          "cargo",
+          "test",
+          "--offline",
+          "--locked",
+          "-p",
+          "matric-api",
+          "--features",
+          "hosted-auth,kms-vault",
+          "--bin",
+          "matric-api",
+          "scoped_search_tests",
+          "--",
+          "--include-ignored",
+          "--test-threads=1",
+          "--nocapture"
+        ],
+        "status": 0,
+        "signal": null
+      },
+      {
+        "name": "sse-filter",
+        "command": "cargo",
+        "args": [
+          "test",
+          "--offline",
+          "--locked",
+          "-p",
+          "matric-api",
+          "--features",
+          "hosted-auth,kms-vault",
+          "--bin",
+          "matric-api",
+          "hosted_sse_filters_foreign_and_unattributed_live_and_replay_events",
+          "--",
+          "--exact",
+          "--test-threads=1"
+        ],
+        "status": 0,
+        "signal": null
+      }
+    ]
+  },
+  "scope": "Reviewed outstanding Lane B source; local verification is not exact-head CI, released-artifact acceptance or lane closure.",
+  "limitations": [
+    "Suite NO-GO remains.",
+    "Candidate contracts are not promoted by this checkpoint.",
+    "Physical-device and human AI-quality evaluations remain separate.",
+    "Historical per-cycle reports retain their original source-bound meaning."
+  ]
+}

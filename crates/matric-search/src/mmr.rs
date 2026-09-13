@@ -171,6 +171,7 @@ mod tests {
 
     fn make_hit(id: Uuid, score: f32) -> SearchHit {
         SearchHit {
+            evidence: None,
             note_id: id,
             score,
             snippet: None,

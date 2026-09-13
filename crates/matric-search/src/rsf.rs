@@ -44,6 +44,10 @@ pub fn rsf_fuse(
     let scored_list_count = scored_lists.len();
     let mut scores: HashMap<Uuid, f32> = HashMap::new();
     let mut metadata: HashMap<Uuid, HitMetadata> = HashMap::new();
+    let mut evidence_hits: HashMap<
+        Uuid,
+        Vec<Option<matric_core::search_evidence::SearchEvidenceSet>>,
+    > = HashMap::new();
 
     for (list_idx, list) in scored_lists.into_iter().enumerate() {
         let weight = weights.get(list_idx).copied().unwrap_or(1.0);
@@ -52,6 +56,10 @@ pub fn rsf_fuse(
         let normalized = normalize_min_max(list);
 
         for hit in normalized {
+            evidence_hits
+                .entry(hit.note_id)
+                .or_default()
+                .push(hit.evidence.clone());
             *scores.entry(hit.note_id).or_insert(0.0) += hit.score * weight;
 
             metadata.entry(hit.note_id).or_insert(HitMetadata {
@@ -75,6 +83,10 @@ pub fn rsf_fuse(
                 tags: Vec::new(),
             });
             SearchHit {
+                evidence: crate::evidence::merge_evidence(
+                    note_id,
+                    evidence_hits.get(&note_id).into_iter().flatten(),
+                ),
                 note_id,
                 score: score.min(1.0),
                 snippet: meta.snippet,
@@ -141,6 +153,7 @@ mod tests {
 
     fn hit(id: Uuid, score: f32) -> SearchHit {
         SearchHit {
+            evidence: None,
             note_id: id,
             score,
             snippet: None,
@@ -277,6 +290,7 @@ mod tests {
     fn test_rsf_preserves_metadata() {
         let id = Uuid::new_v4();
         let list = vec![SearchHit {
+            evidence: None,
             note_id: id,
             score: 0.9,
             snippet: Some("test snippet".to_string()),

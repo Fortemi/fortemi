@@ -1,0 +1,225 @@
+{
+  "at": "2026-09-12T23:42:41.191Z",
+  "cycle": 84,
+  "status": "PARTIAL_WITH_REPRODUCED_WORKER_FAILURE",
+  "overallAcceptance": "NOT_PASS",
+  "binary": {
+    "path": "/var/tmp/fortemi-release-target-2026.9.1/debug/matric-api",
+    "sha256": "51e3e95cc3deb5fad370ac52c60b6100f55af7c8dcc1a606a95e78fb22b81ba6",
+    "features": [
+      "hosted-auth",
+      "kms-vault"
+    ]
+  },
+  "installed": {
+    "tarballSha256": "8df3a4f435b0235bd653d03b2a4769c630a5f79034d6cb6b06a2094dfe69e0a1",
+    "entrySha256": "57a0b430c6c652be6d3e6eb18fe8c7ce2b51a63934f0286e77ac482d408ed1fe",
+    "packageRoot": "/tmp/fortemi-core-http-aTCm27/node_modules/@fortemi/core",
+    "version": "2026.9.5"
+  },
+  "phases": [
+    {
+      "phase": "initial",
+      "checks": 93
+    },
+    {
+      "phase": "jwt",
+      "checks": 22
+    },
+    {
+      "phase": "tenant-suspended",
+      "checks": 3
+    },
+    {
+      "phase": "tenant-soft_deleted",
+      "checks": 3
+    },
+    {
+      "phase": "tenant-active",
+      "checks": 3
+    },
+    {
+      "phase": "stale",
+      "checks": 15
+    },
+    {
+      "phase": "archived",
+      "checks": 27
+    },
+    {
+      "phase": "deleted",
+      "checks": 27
+    },
+    {
+      "phase": "purged",
+      "checks": 27
+    }
+  ],
+  "groups": 220,
+  "requests": 293,
+  "routes": {
+    "/api/v1/search": 46,
+    "/api/v1/notes/{id}": 28,
+    "/api/v1/search/evidence/resolve": 219
+  },
+  "routers": {
+    "launched-binary": 278,
+    "note-denied": 12,
+    "untrusted-ca": 1,
+    "cold-jwks": 2
+  },
+  "startup": {
+    "status": "NOT_PASS",
+    "components": [
+      [
+        "Redis search cache enabled",
+        true
+      ],
+      [
+        "Chat-stream resumption store enabled",
+        true
+      ],
+      [
+        "Ingest cursor store enabled",
+        true
+      ],
+      [
+        "Ingest token store enabled",
+        true
+      ],
+      [
+        "Idempotency store enabled",
+        true
+      ],
+      [
+        "OpenAI health check passed",
+        true
+      ],
+      [
+        "Stale-running job sweep completed",
+        false
+      ]
+    ],
+    "workerRecoveryError": true
+  },
+  "jobProbe": {
+    "unscopedSqlstate": "22P02",
+    "scopedBeforeSqlstate": "42501",
+    "scopedAfterReaped": 0,
+    "freshHostedSqlstate": "42704",
+    "freshPoolClosed": true,
+    "probeScopeReset": true,
+    "scope": "owned runtime job-state columns only; binary remains hosted-unscoped"
+  },
+  "audit": {
+    "tenants": [
+      [
+        "1385f006-e580-41bf-991b-ed57ffe2a157",
+        190
+      ],
+      [
+        "a8a83771-cc04-46ce-909f-815087c9f6d1",
+        390
+      ]
+    ],
+    "durable": true
+  },
+  "ordinaryRust": {
+    "passed": 1,
+    "searchRequests": 72,
+    "resolutionChecks": 227
+  },
+  "installedRust": {
+    "passed": false,
+    "reason": "worker-startup-health-gate"
+  },
+  "regressions": {
+    "tests": 43,
+    "lifecycle": 3
+  },
+  "sourceHeads": {
+    "server": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+    "core": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7"
+  },
+  "producerFiles": 827,
+  "coreFiles": 580,
+  "changedProducerSource": [
+    "crates/matric-api/src/scoped_search_tests.rs",
+    "crates/matric-api/src/scoped_search_tests/binary_http.rs",
+    "crates/matric-api/src/scoped_search_tests/installed_http.rs"
+  ],
+  "coreSourceUnchanged": true,
+  "releaseMetadataUnchanged": true,
+  "limits": "ordinary offline runner, CPU2/6GiB-high/8GiB-max/swap0/256tasks/15min, Cargo1",
+  "boundary": "Synthetic embeddings and scanner controls; auxiliary note-denied/TLS/cold-JWKS constructed routers; no worker lifecycle or cache-expiry qualification; no release or capability promotion; suite NO-GO",
+  "issues": [
+    "https://git.integrolabs.net/Fortemi/fortemi/issues/1091",
+    "https://git.integrolabs.net/Fortemi/fortemi-react/issues/405"
+  ],
+  "evidence": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260912-cycle84",
+  "releaseDisposition": {
+    "fortemi": {
+      "latest": "v2026.9.9",
+      "publishedSource": "e91c595a896275f835cb7ed1aef173cb26056206",
+      "releaseId": 2324,
+      "assetIds": [
+        6229,
+        6230,
+        6231,
+        6232,
+        6233,
+        6234
+      ],
+      "disposition": "UNRELEASED_PENDING_ACCEPTANCE_AND_DELIVERY"
+    },
+    "core": {
+      "latest": "v2026.9.5",
+      "publishedSource": "01b4a9c923af9cde24dc6a2d293d96194b6a6d7d",
+      "releaseId": 2333,
+      "assetIds": [
+        6299,
+        6300,
+        6301,
+        6302
+      ],
+      "disposition": "PRIOR_PARTIAL_PUBLICATION_PLUS_UNRELEASED; no Core runtime change in Cycle84"
+    },
+    "HotM": {
+      "latest": "v2026.9.5",
+      "publishedSource": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4",
+      "releaseId": 2331,
+      "assetIds": [
+        6289,
+        6294,
+        6295,
+        6296,
+        6297,
+        6298
+      ],
+      "disposition": "PRIOR_NO_CHANGE; no HotM changes in Cycle84"
+    },
+    "verification": "Current release metadata identities only; no new asset/mirror byte verification; mandatory lane-closeout release sweep remains"
+  },
+  "notDone": [
+    "tenant-aware worker claim/recovery/execution",
+    "cache expiry and intended revocation",
+    "EE policy atomicity",
+    "lifecycle purge/crash/restore",
+    "native performance",
+    "every declared consumer",
+    "delivery and CI",
+    "release sweep"
+  ],
+  "safety": {
+    "jobs": 8,
+    "pidsAbsent": 38,
+    "privateClustersRemoved": 5,
+    "fixtureRootsRemoved": 8,
+    "failedAttemptsPreserved": 5,
+    "failedMarkersCleared": 5,
+    "sharedServicesUnchanged": true,
+    "noGpuOrDockerOrSharedInference": true,
+    "noModelDownloadOrLoad": true,
+    "gpgCustody": "unchanged OpenBao"
+  }
+}

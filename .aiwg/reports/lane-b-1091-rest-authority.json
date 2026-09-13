@@ -1,0 +1,411 @@
+{
+  "schemaVersion": 1,
+  "cycle": 77,
+  "status": "UNPUBLISHED_CANDIDATE_PROGRESS",
+  "at": "2026-09-12T19:42:59.032Z",
+  "producer": {
+    "repository": "Fortemi/fortemi",
+    "worktree": "/var/tmp/lane-b-server-1147",
+    "head": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+    "issue": 1091
+  },
+  "consumer": {
+    "repository": "Fortemi/fortemi-react",
+    "issue": 405,
+    "head": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7",
+    "changedThisCycle": false,
+    "adoption": "pending full REST authority adoption; prior evidence-only receipt unchanged"
+  },
+  "authority": {
+    "path": "contracts/metadata-search/candidate/1.0.0/search-rest.schema.json",
+    "status": "candidate-unpublished",
+    "sharedVectors": "contracts/metadata-search/candidate/1.0.0/search-rest-vectors.json",
+    "openapi": "contracts/openapi/openapi.yaml",
+    "sha256": "73357e6c386b78bc5b7b7efa312127bf49dc6209fe5c0873527e70942aed76a0"
+  },
+  "changes": [
+    "Decoded GET query, SearchHit/EnhancedSearchHit, chain display and explicit degradation schemas",
+    "All four search schemas bundled with local references; strict conditionals retained",
+    "Deterministic OpenAPI fragments across serde_json feature sets; unrelated YAML ordering retained",
+    "Finite scores/diversity, exact returned totals, same-note chain identity and degradation invariants",
+    "20 shared vectors, seven historical HTTP shapes, 72 actual fixture-auth router responses and five added before-inference negatives"
+  ],
+  "verification": {
+    "status": "PASS",
+    "at": "2026-09-12T19:42:59.032Z",
+    "sourceFiles": 817,
+    "sourceStable": true,
+    "tests": 895,
+    "steps": [
+      {
+        "command": "cargo",
+        "args": [
+          "test",
+          "--offline",
+          "-p",
+          "matric-core",
+          "--test",
+          "search_hit_evidence_test"
+        ],
+        "status": 0,
+        "signal": null,
+        "passed": 6,
+        "ranRequiredTests": true
+      },
+      {
+        "command": "cargo",
+        "args": [
+          "test",
+          "--offline",
+          "-p",
+          "matric-api",
+          "--features",
+          "hosted-auth",
+          "--bin",
+          "matric-api",
+          "search_contract::tests"
+        ],
+        "status": 0,
+        "signal": null,
+        "passed": 12,
+        "ranRequiredTests": true
+      },
+      {
+        "command": "cargo",
+        "args": [
+          "test",
+          "--offline",
+          "-p",
+          "matric-api",
+          "--features",
+          "hosted-auth",
+          "--bin",
+          "matric-api",
+          "openapi"
+        ],
+        "status": 0,
+        "signal": null,
+        "passed": 8,
+        "ranRequiredTests": true
+      },
+      {
+        "command": "cargo",
+        "args": [
+          "test",
+          "--offline",
+          "-p",
+          "matric-core",
+          "--lib"
+        ],
+        "status": 0,
+        "signal": null,
+        "passed": 639,
+        "ranRequiredTests": true
+      },
+      {
+        "command": "cargo",
+        "args": [
+          "test",
+          "--offline",
+          "-p",
+          "matric-search",
+          "--lib"
+        ],
+        "status": 0,
+        "signal": null,
+        "passed": 223,
+        "ranRequiredTests": true
+      },
+      {
+        "command": "cargo",
+        "args": [
+          "test",
+          "--offline",
+          "-p",
+          "matric-search",
+          "--test",
+          "search_evidence_test"
+        ],
+        "status": 0,
+        "signal": null,
+        "passed": 6,
+        "ranRequiredTests": true
+      },
+      {
+        "command": "cargo",
+        "args": [
+          "test",
+          "--offline",
+          "-p",
+          "matric-api",
+          "--features",
+          "hosted-auth",
+          "--bin",
+          "matric-api",
+          "scoped_search_tests",
+          "--",
+          "--nocapture"
+        ],
+        "status": 0,
+        "signal": null,
+        "passed": 1,
+        "ranRequiredTests": true
+      }
+    ],
+    "openapiSha256": "73357e6c386b78bc5b7b7efa312127bf49dc6209fe5c0873527e70942aed76a0",
+    "sharedRestVectors": 20,
+    "capturedReleasedSearchCases": 7,
+    "scope": "Producer candidate offline Rust and isolated fixture-auth router. No new live HTTP, JWT/JWKS, model quality or released consumer acceptance.",
+    "remaining": [
+      "consumer REST adoption and receipts",
+      "authorized producer current-storage resolver",
+      "legacy chain display semantics",
+      "lifecycle/purge/cache/JWT/JWKS",
+      "native pg_bigm and query-cost plans",
+      "clean installed and released consumer matrix",
+      "full original 20-issue lane delivery/release sweep"
+    ]
+  },
+  "cleanup": {
+    "at": "2026-09-12T19:43:00.589Z",
+    "jobs": [
+      {
+        "unit": "fortemi-local-test-1000-35d57419-efd7-4be8-ac9b-8d7b21be86b4.service",
+        "state": "failed",
+        "result": "exit-code",
+        "exitStatus": "1",
+        "memoryPeak": 6255788032,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-da809b95-ffa6-4a93-9fb2-ed826e27bdc8.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 2838818816,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-bd8ac97c-72bd-4f7c-97ea-7222070ae1ac.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 5177241600,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-ecad7cec-6644-4eba-ae11-d9059571623c.service",
+        "state": "failed",
+        "result": "exit-code",
+        "exitStatus": "1",
+        "memoryPeak": 4180520960,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-7a829014-8e4a-40a9-9002-0d3095bf3f81.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 3565375488,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-15a38a61-9333-48bb-be29-4f3268ce608b.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 448569344,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-c0c88b3c-e9ea-4b47-bef0-4b19f5872d49.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 3402715136,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-d0bbd733-7355-4353-8260-44aff5622e0d.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 450752512,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-204b625b-08d2-4814-8ecf-a53037ad9ebd.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 4009664512,
+        "cgroupAbsent": true
+      }
+    ],
+    "peakBytes": 6255788032,
+    "services": {
+      "vllm": {
+        "ActiveState": "active",
+        "UnitFileState": "enabled",
+        "MainPID": "223555",
+        "NRestarts": "0"
+      },
+      "ollama": {
+        "ActiveState": "active",
+        "UnitFileState": "enabled",
+        "MainPID": "10457",
+        "NRestarts": "2"
+      },
+      "hostRunner": {
+        "ActiveState": "inactive",
+        "UnitFileState": "disabled",
+        "MainPID": "0",
+        "NRestarts": "0"
+      }
+    },
+    "preserved": [
+      "shared inference",
+      "models and caches",
+      "persistent data",
+      "WIP worktrees/branches",
+      "rollback artifacts",
+      "OpenBao custody"
+    ],
+    "scope": "Only owned isolated CPU jobs and ephemeral PostgreSQL. No Docker, model load or shared-service mutation."
+  },
+  "releaseDisposition": {
+    "observationWindowUtc": "2026-09-12T19:33:00Z/2026-09-12T19:34:24Z",
+    "scope": "Fresh Gitea metadata only. Prior artifact-byte and missing-publication observations remain dated.",
+    "releases": [
+      {
+        "repo": "fortemi",
+        "tag": "v2026.9.9",
+        "id": 2324,
+        "assets": [
+          {
+            "id": 6233,
+            "name": "SHA256SUMS.txt",
+            "size": 400
+          },
+          {
+            "id": 6231,
+            "name": "matric-api-aarch64-apple-darwin",
+            "size": 61031584
+          },
+          {
+            "id": 6230,
+            "name": "matric-api-aarch64-unknown-linux-gnu",
+            "size": 68659392
+          },
+          {
+            "id": 6232,
+            "name": "matric-api-x86_64-apple-darwin",
+            "size": 65082640
+          },
+          {
+            "id": 6229,
+            "name": "matric-api-x86_64-unknown-linux-gnu",
+            "size": 72938328
+          },
+          {
+            "id": 6234,
+            "name": "sidecar-provenance.intoto.json",
+            "size": 1751
+          }
+        ],
+        "disposition": "UNRELEASED_CANDIDATE_PENDING_ACCEPTANCE"
+      },
+      {
+        "repo": "fortemi-react",
+        "tag": "v2026.9.5",
+        "id": 2333,
+        "assets": [
+          {
+            "id": 6302,
+            "name": "SHA256SUMS",
+            "size": 278
+          },
+          {
+            "id": 6299,
+            "name": "fortemi-core-2026.9.5.tgz",
+            "size": 1257821
+          },
+          {
+            "id": 6300,
+            "name": "fortemi-graph-2026.9.5.tgz",
+            "size": 64363
+          },
+          {
+            "id": 6301,
+            "name": "fortemi-react-2026.9.5.tgz",
+            "size": 147087
+          }
+        ],
+        "disposition": "PARTIAL_PUBLICATION_AND_UNRELEASED_SOURCE"
+      },
+      {
+        "repo": "HotM",
+        "tag": "v2026.9.5",
+        "id": 2331,
+        "assets": [
+          {
+            "id": 6294,
+            "name": "HotM_2026.9.5_aarch64.dmg",
+            "size": 29201522
+          },
+          {
+            "id": 6296,
+            "name": "HotM_2026.9.5_amd64.AppImage",
+            "size": 109287928
+          },
+          {
+            "id": 6297,
+            "name": "HotM_2026.9.5_amd64.deb",
+            "size": 32747002
+          },
+          {
+            "id": 6295,
+            "name": "SHA256SUMS-macos.txt",
+            "size": 92
+          },
+          {
+            "id": 6298,
+            "name": "SHA256SUMS.txt",
+            "size": 268
+          },
+          {
+            "id": 6289,
+            "name": "hotm-ui-dist.tar.gz",
+            "size": 3246334
+          }
+        ],
+        "disposition": "NO_CHANGE"
+      }
+    ],
+    "publicationAction": "none",
+    "immutableOverwrite": false
+  },
+  "evidenceRoot": ".aiwg/working/lane-b/evidence/lane-b-delivery-20260912-cycle77",
+  "failedAttempts": [
+    {
+      "label": "focused-1",
+      "cause": "Fixture JavaScript integer score encoding versus Rust f32 comparison; corrected numeric-domain assertion"
+    },
+    {
+      "label": "accept-1",
+      "cause": "Generated CLI/test schema ordering drift from serde_json feature unification; fixed fragment sorting"
+    }
+  ],
+  "boundaries": {
+    "evidenceCompleteCapability": false,
+    "suiteAudit": "NO-GO",
+    "original20IssueScopeUnchanged": true,
+    "noNewCommitPrTagOrRelease": true,
+    "priorHoldsQuestionsEscalationsUnchanged": true,
+    "staticIndexShardAndLivePersistenceSeparate": true,
+    "modelLoaded": false,
+    "sharedServiceMutation": false,
+    "modelOriginalDate": "2026-03-12",
+    "modelQualifiesThrough": "2026-09-12"
+  }
+}

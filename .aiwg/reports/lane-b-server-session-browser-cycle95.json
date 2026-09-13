@@ -1,0 +1,181 @@
+{
+  "at": "2026-09-13T06:13:37.994Z",
+  "cycle": 95,
+  "status": "PROGRESS_BROWSER_STREAMS_PASS_APPLICATION_ISOLATION_INCOMPLETE",
+  "overallAcceptance": "NOT_PASS",
+  "producerFiles": 847,
+  "hotmFiles": 513,
+  "coreFiles": 580,
+  "changedProducerSource": [
+    "crates/matric-api/src/scoped_search_tests/binary_http.rs",
+    "crates/matric-api/src/scoped_search_tests/installed_http.rs",
+    "crates/matric-api/src/scoped_search_tests/worker-sse-consumer.mjs"
+  ],
+  "changedHotmSource": [
+    "ui/src/api/__tests__/auth-context-hosted.test.ts",
+    "ui/src/api/auth-context.ts",
+    "ui/src/api/memory-context.ts",
+    "ui/src/services/__tests__/websocket-archive-context.test.ts",
+    "ui/src/services/__tests__/websocket-archive-view.test.ts",
+    "ui/src/services/websocket.ts"
+  ],
+  "producerRuntimeUnchanged": true,
+  "coreSourceUnchanged": true,
+  "sourceHeads": {
+    "server": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+    "core": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7",
+    "hotm": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4"
+  },
+  "verification": {
+    "tests": {
+      "vitest.json": {
+        "passed": 326,
+        "failed": 0,
+        "skipped": 0,
+        "todo": 0
+      },
+      "full-vitest.json": {
+        "passed": 2102,
+        "failed": 0,
+        "skipped": 0,
+        "todo": 0
+      }
+    },
+    "typecheck": "PASS",
+    "build": "PASS",
+    "schemaAndConsumerVectors": 12,
+    "metadataRequests": 12,
+    "sseStreams": 6,
+    "sseEvents": 24,
+    "browserStreamChecks": 6,
+    "browserEventBytes": 0,
+    "browserScreenshots": 2,
+    "coreCheckGroups": 220,
+    "coreHttpRequests": 293,
+    "durableAuditRows": 625,
+    "rustFunctions": 5,
+    "nativeContextRequestControls": 19,
+    "fixtureProfileTests": 4,
+    "allJobsTerminal": true,
+    "jobs": 9,
+    "passes": 3,
+    "preservedFailures": 6,
+    "peakBytes": 3436302336
+  },
+  "bundle": {
+    "status": "PASS",
+    "source": {
+      "src/api/events.ts": "55b86a18cfa350c80d76b04e3f03bc9fb311368c9671c089c6f55e589a8db922",
+      "src/api/errors.ts": "c282e128554e20dd1cace1d6e18d02262dd9a567e406bb3dc7141fdfe4697874",
+      "src/api/realtime-context.ts": "8b0702bd462bff9cf12b1138529b63f77a62b2aa3ea4ca89d1a6d0d9115b1b69",
+      "src/api/memory-context.ts": "d7e9c28791ee80bd5539cb29e6f27a20bca46bb7e2e9f702d29659a09863b45f",
+      "src/api/archives.ts": "e341057ddd82e00909bd0b315d03838b9d836d688d833949be397783ea6a703a",
+      "src/lib/runtime-config.ts": "3f0d24c2407339409493e623b05242326e25ccfd515b1002596e7a2f101f9eee",
+      "src/api/auth-context.ts": "fc501711e60770bb7880039546dcbb573ca2d190f1b5959ea28a4d7e6e7e5078",
+      "src/api/client.ts": "5d051f585baa371868deacd688b794e72947ed088b94972dbc7b8d3003069fe7"
+    },
+    "virtualInputs": [
+      "owned:platform",
+      "owned-realtime-entry.ts",
+      "<define:import.meta.env>"
+    ],
+    "sha256": "3375be39595a8ba0d70f1822eed051aa72816c1fead648d1861c3dafe7ef51ec",
+    "bytes": 30008,
+    "esbuildVersion": "0.28.1",
+    "esbuildSha256": "8331fe1d8b3a07381f33cc425fcfaa94776e263113653f80ec3ba433e9657e73",
+    "esbuildBinarySha256": "0c6588b092a2c291a72bab90659f3c9e0e25e0fe59c9ac12b4dae4d945e5548c",
+    "scope": "Real candidate archive resolver, HTTP client and SSE parser; only platform fetch bridge and entrypoint are fixture adapters. No archive-name rewrite, metadata or event decoder replacement."
+  },
+  "binary": {
+    "path": "/var/tmp/fortemi-release-target-2026.9.1/debug/matric-api",
+    "sha256": "f623fc6c11ec39410d10a5fcc50354fdb2d2640b138423b5a75016950888048c",
+    "features": [
+      "hosted-auth",
+      "kms-vault"
+    ]
+  },
+  "implementation": "HotM auth/tenant changes emit credential-free effective-change events. Owned auth/memory subscriptions cover same-tab and cross-tab storage, resetting stale tenant overrides. Realtime stream/cursor/pending events and hook queue view reset; subscriptions removed on close. No producer runtime/wire change.",
+  "hostedProgress": "Actual production browser asset bytes, sandboxed installed Chrome and read-only owned proxy pass six real daemon stream lifecycle checks. Core220groups/293requests,625durable audit rows and separate real-worker12metadata/six SSE streams24events pass.",
+  "residualTestRisk": "First two focused runs each failed3fixture cases; distinct parameter event IDs and receiver reset corrected fixtures without changing dedup semantics. Two HTTP harness import failures occurred before browser launch. Cached Chromium sandbox refused; installed Chrome first failed an obsolete status-label assertion, then structured DOM checks passed. All6failures retained; no unsandboxing, host policy changes or isolation relaxation.",
+  "applicationGap": {
+    "at": "2026-09-13T06:13:37.994Z",
+    "streamLifecycle": "PASS",
+    "applicationSessionIsolation": "NOT_PASS",
+    "screenshots": [
+      {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900,
+        "sha256": "b3d016356617e8caedda85439ceed6ffbd60f69a361f9a848d30b4c77c66103a",
+        "bytes": 67610,
+        "sampledColors": 691,
+        "layout": {
+          "rootChildren": 1,
+          "textLength": 653,
+          "width": 1440,
+          "scrollWidth": 1440
+        }
+      },
+      {
+        "name": "mobile",
+        "width": 390,
+        "height": 844,
+        "sha256": "b7a3ecd365aa713381552e38537c268110e963efda61de4106a93e5fb24ddaa8",
+        "bytes": 38924,
+        "sampledColors": 469,
+        "layout": {
+          "rootChildren": 1,
+          "textLength": 519,
+          "width": 390,
+          "scrollWidth": 390
+        }
+      }
+    ],
+    "finding": "Mobile screenshot after tenant B admission retains the same tenant A note list as the desktop screenshot; only one notes GET, authenticated A, occurs. HallOfMind listens only to same-tab memory events. Central jobEventStore persists/hydrates unscoped data and has unfenced async pause refresh.",
+    "next": "Invalidate context-owned application views/caches and fence pending work; add negative browser assertions. Stream admission with zero event bytes is not nonempty replay or full lifecycle qualification."
+  },
+  "releases": {
+    "fortemi": {
+      "tag": "v2026.9.9",
+      "main": "36c1b8779166af712afd588dd00dec871a6a9e30",
+      "released": "e91c595a896275f835cb7ed1aef173cb26056206",
+      "tagObject": "312897944bac30b36e1a215afe34178610ae48f6",
+      "mergedUnreleased": 16,
+      "refs": "36c1b8779166af712afd588dd00dec871a6a9e30\trefs/heads/main\n312897944bac30b36e1a215afe34178610ae48f6\trefs/tags/v2026.9.9\ne91c595a896275f835cb7ed1aef173cb26056206\trefs/tags/v2026.9.9^{}\n",
+      "disposition": "CANDIDATE_UNRELEASED_FULL_ACCEPTANCE_AND_DELIVERY_PENDING",
+      "releaseId": 2324
+    },
+    "fortemi-react": {
+      "tag": "v2026.9.5",
+      "main": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7",
+      "released": "01b4a9c923af9cde24dc6a2d293d96194b6a6d7d",
+      "tagObject": "4e588d8bdb3e6e455e2d35ef9e49498542917de0",
+      "mergedUnreleased": 3,
+      "refs": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7\trefs/heads/main\n4e588d8bdb3e6e455e2d35ef9e49498542917de0\trefs/tags/v2026.9.5\n01b4a9c923af9cde24dc6a2d293d96194b6a6d7d\trefs/tags/v2026.9.5^{}\n",
+      "disposition": "CANDIDATE_UNRELEASED_FULL_ACCEPTANCE_AND_DELIVERY_PENDING",
+      "releaseId": 2333
+    },
+    "HotM": {
+      "tag": "v2026.9.5",
+      "main": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4",
+      "released": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4",
+      "tagObject": "8d4f756ed55afcf12120c9edffb76e70bc2b0a62",
+      "mergedUnreleased": 0,
+      "refs": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4\trefs/heads/main\n8d4f756ed55afcf12120c9edffb76e70bc2b0a62\trefs/tags/v2026.9.5\n2b0b4a7aa283a91aa1026521b3a41faa4e834ad4\trefs/tags/v2026.9.5^{}\n",
+      "disposition": "CANDIDATE_UNRELEASED_FULL_ACCEPTANCE_AND_DELIVERY_PENDING",
+      "releaseId": 2331
+    }
+  },
+  "releaseQualification": "Fresh metadata/source refs/ancestry only. No asset-byte/mirror revalidation, signing, commit, PR, tag, release, closure or delivered-pin promotion. Uncommitted candidates remain incomplete.",
+  "remaining": [
+    "context-owned application/cache isolation, especially stale note list and unscoped job persistence/async pause response; negative browser tests",
+    "nonempty browser reconnect/replay, same-tab user controls, native and live tenant-default administration",
+    "remaining hosted handlers/follow-ups/index/queue events, durable outbox and crash/restart/cancellation/purge/restore/revocation",
+    "every declared consumer/cache/EE/performance/named-profile/CI/delivery and full lane release sweep"
+  ],
+  "scope": "Original20 Lane B issues and every prior hold/escalation retained. Human92284 requires separate immutable delivered receipts per axis. Exact C82 draft unchanged HELD_NOT_POSTED. SuiteNO-GO/public readiness false/goalACTIVE. Static index, named-profile shards and live persistence remain separate.",
+  "safety": "Nine serial detached bounded jobs;3PASS/6retained failures. Three owned PG18.6 hosted-http20 fixtures stopped/removed with zero slot refusals in bounded tails. All recorded PIDs/cgroups/private roots absent; shared services unchanged. No model/GPU/Docker/production vault/signing. Original model release must be within six calendar months at use, not quantization date.",
+  "evidenceBoundary": "Browser streams have zero application event bytes; admission/replacement/reconnect/logout only. Actual browser shows stale note data after tenant switch, so application isolation is NOT_PASS. Worker live/seeded replay is separate. No full lifecycle, native, live independent-default administration, auth parity, immutable delivery or suite compatibility qualification.",
+  "owner": "server",
+  "evidence": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260913-cycle95"
+}

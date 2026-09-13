@@ -1,0 +1,237 @@
+{
+  "at": "2026-09-13T02:56:58.228Z",
+  "cycle": 90,
+  "status": "PARTIAL_HOSTED_EXECUTION_IMPLEMENTED",
+  "overallAcceptance": "NOT_PASS",
+  "producerFiles": 842,
+  "coreFiles": 580,
+  "changedProducerSource": [
+    "crates/matric-api/src/hosted_jobs.rs",
+    "crates/matric-api/src/main.rs",
+    "crates/matric-api/src/scoped_search_tests/binary_http.rs",
+    "crates/matric-api/src/scoped_search_tests/installed_http.rs",
+    "crates/matric-api/tests/hosted_document_type_test.rs",
+    "crates/matric-jobs/src/handler/hosted.rs",
+    "crates/matric-jobs/src/worker.rs",
+    "crates/matric-jobs/src/worker/execution.rs",
+    "crates/matric-jobs/tests/hosted_execution_test.rs"
+  ],
+  "coreSourceUnchanged": true,
+  "sourceHeads": {
+    "server": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+    "core": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7"
+  },
+  "verification": {
+    "unitTests": 48,
+    "databaseTestFunctions": 12,
+    "apiHandlerTestFunctions": 1,
+    "apiHttpTestFunctions": 3,
+    "sseFilterUnitTests": 1,
+    "focusedRustFunctions": 65,
+    "finalHandlerLabel": "third",
+    "finalHttpLabel": "http-first",
+    "allJobsTerminal": true,
+    "jobPasses": 4,
+    "preservedFailures": 0,
+    "peakBytes": 6444404736,
+    "runnerAndBootstrapLifecycleRegressions": "Inherited Cycle84; not rerun"
+  },
+  "execution": "Explicit nonempty hosted handler registry, bounded tenant-page continuation and finite tier batches; no raw pool claim/pending fallback. Global/archive pause, partial-error backoff, fenced completion/failure/retry/panic/timeout and cancellation; shutdown receipt.",
+  "events": "Claim-derived tenant/archive/job/attempt identity; post-commit progress and settlement; existing wire job payloads with scoped envelope; no raw bridge reads/writes. Global queue summary is personal-only.",
+  "native": "Real production document-type worker plus restrictive-role fairness/pagination, settlement rollback, retry/panic/timeout, shutdown/replacement fencing and suspension. Pool context restored; no privileged runtime.",
+  "binary": {
+    "path": "/var/tmp/fortemi-release-target-2026.9.1/debug/matric-api",
+    "sha256": "791c7b054bf336020c0b951b5134dccbda0921773f2ef927c60405397cee7b5c",
+    "features": [
+      "hosted-auth",
+      "kms-vault"
+    ]
+  },
+  "worker": {
+    "status": "PASS",
+    "runtime": "actual hosted binary",
+    "controls": [
+      {
+        "tenant": "f730e322-07ca-481f-b3fa-14a366de3591",
+        "schema": "public",
+        "note": "37485cf2-ee2d-418e-9a14-974e288e6c6d",
+        "job": "6082ea73-e0ef-444a-a242-9089aa4b43da",
+        "attempt": "01a098af-5e69-7424-8e11-afa324ec6d1a",
+        "status": "completed",
+        "assignment": true,
+        "accessCount": 1,
+        "provenanceCount": 1
+      },
+      {
+        "tenant": "38b82786-301b-41a2-9426-5e7a0112d482",
+        "schema": "public",
+        "note": "d2730599-f8db-487b-a7f7-8a7146f28f12",
+        "job": "98718dad-07b0-4e4e-b3ca-f2c7a23d7a14",
+        "attempt": "01a098af-5f28-7ed7-9c73-54b624538886",
+        "status": "completed",
+        "assignment": true,
+        "accessCount": 1,
+        "provenanceCount": 1
+      },
+      {
+        "tenant": "f730e322-07ca-481f-b3fa-14a366de3591",
+        "schema": "archive_search_fixture",
+        "note": "5197d2bc-75e8-4072-827e-f872bea700b1",
+        "job": "1fb57285-f847-46ac-a3d3-893c8c699d6e",
+        "attempt": "01a098af-5f68-7f0b-9542-f506dd75dbc7",
+        "status": "completed",
+        "assignment": true,
+        "accessCount": 1,
+        "provenanceCount": 1
+      }
+    ],
+    "sharedInferenceUsed": false,
+    "unqualified": "other handlers, followup execution, queue summaries, note.updated and live SSE lifecycle"
+  },
+  "installed": {
+    "tarballSha256": "8df3a4f435b0235bd653d03b2a4769c630a5f79034d6cb6b06a2094dfe69e0a1",
+    "entrySha256": "57a0b430c6c652be6d3e6eb18fe8c7ce2b51a63934f0286e77ac482d408ed1fe",
+    "packageRoot": "/tmp/fortemi-core-http-EDPZnX/node_modules/@fortemi/core",
+    "version": "2026.9.5"
+  },
+  "phases": [
+    {
+      "phase": "initial",
+      "checks": 93
+    },
+    {
+      "phase": "jwt",
+      "checks": 22
+    },
+    {
+      "phase": "tenant-suspended",
+      "checks": 3
+    },
+    {
+      "phase": "tenant-soft_deleted",
+      "checks": 3
+    },
+    {
+      "phase": "tenant-active",
+      "checks": 3
+    },
+    {
+      "phase": "stale",
+      "checks": 15
+    },
+    {
+      "phase": "archived",
+      "checks": 27
+    },
+    {
+      "phase": "deleted",
+      "checks": 27
+    },
+    {
+      "phase": "purged",
+      "checks": 27
+    }
+  ],
+  "groups": 220,
+  "requests": 293,
+  "routers": {
+    "launched-binary": 278,
+    "note-denied": 12,
+    "untrusted-ca": 1,
+    "cold-jwks": 2
+  },
+  "routes": {
+    "/api/v1/search": 46,
+    "/api/v1/notes/{id}": 28,
+    "/api/v1/search/evidence/resolve": 219
+  },
+  "startup": {
+    "status": "PASS",
+    "components": [
+      [
+        "Redis search cache enabled",
+        true
+      ],
+      [
+        "Chat-stream resumption store enabled",
+        true
+      ],
+      [
+        "Ingest cursor store enabled",
+        true
+      ],
+      [
+        "Ingest token store enabled",
+        true
+      ],
+      [
+        "Idempotency store enabled",
+        true
+      ],
+      [
+        "OpenAI health check passed",
+        true
+      ],
+      [
+        "Stale-running job sweep completed",
+        true
+      ]
+    ],
+    "workerRecoveryError": false
+  },
+  "audit": {
+    "tenants": [
+      [
+        "38b82786-301b-41a2-9426-5e7a0112d482",
+        190
+      ],
+      [
+        "f730e322-07ca-481f-b3fa-14a366de3591",
+        390
+      ]
+    ],
+    "durable": true
+  },
+  "auditRows": 580,
+  "releases": {
+    "fortemi": {
+      "tag": "v2026.9.9",
+      "main": "36c1b8779166af712afd588dd00dec871a6a9e30",
+      "released": "e91c595a896275f835cb7ed1aef173cb26056206",
+      "tagObject": "312897944bac30b36e1a215afe34178610ae48f6",
+      "mergedUnreleased": 16,
+      "refs": "36c1b8779166af712afd588dd00dec871a6a9e30\trefs/heads/main\n312897944bac30b36e1a215afe34178610ae48f6\trefs/tags/v2026.9.9\ne91c595a896275f835cb7ed1aef173cb26056206\trefs/tags/v2026.9.9^{}\n",
+      "disposition": "UNRELEASED_PENDING_FULL_ACCEPTANCE_DELIVERY"
+    },
+    "fortemi-react": {
+      "tag": "v2026.9.5",
+      "main": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7",
+      "released": "01b4a9c923af9cde24dc6a2d293d96194b6a6d7d",
+      "tagObject": "4e588d8bdb3e6e455e2d35ef9e49498542917de0",
+      "mergedUnreleased": 3,
+      "refs": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7\trefs/heads/main\n4e588d8bdb3e6e455e2d35ef9e49498542917de0\trefs/tags/v2026.9.5\n01b4a9c923af9cde24dc6a2d293d96194b6a6d7d\trefs/tags/v2026.9.5^{}\n",
+      "disposition": "UNRELEASED_PENDING_FULL_ACCEPTANCE_DELIVERY"
+    },
+    "HotM": {
+      "tag": "v2026.9.5",
+      "main": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4",
+      "released": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4",
+      "tagObject": "8d4f756ed55afcf12120c9edffb76e70bc2b0a62",
+      "mergedUnreleased": 0,
+      "refs": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4\trefs/heads/main\n8d4f756ed55afcf12120c9edffb76e70bc2b0a62\trefs/tags/v2026.9.5\n2b0b4a7aa283a91aa1026521b3a41faa4e834ad4\trefs/tags/v2026.9.5^{}\n",
+      "disposition": "NO_CHANGE_THIS_CYCLE"
+    }
+  },
+  "releaseQualification": "Fresh source refs/ancestry and release metadata only; no fresh published asset-byte or mirror verification. No commit, PR, tag, release, closure, pin or readiness promotion.",
+  "remaining": [
+    "every remaining hosted handler and follow-up execution",
+    "hosted note.updated, index and follow-up events; scoped queue summary",
+    "live SSE/replay, full lifecycle/purge/restore/reclaim and handler database-error retry classification",
+    "cache/EE/performance/named-profile/every-consumer/CI/delivery and lane release sweep"
+  ],
+  "scope": "Original20 Lane B issues retained. Suite NO-GO and public readiness false. Static index, named-profile shard transfer and live persistence remain distinct. All prior holds/questions preserved.",
+  "safety": "Four serial bounded offline CPU jobs; four owned PostgreSQL clusters and bootstrap/install roots removed; shared inference unchanged. No model, GPU, Docker, production vault or signing.",
+  "evidenceBoundary": "One production handler registered and tested in native worker and actual daemon. Three actual binary jobs are not full follow-up or live SSE lifecycle qualification. Unit SSE filter evidence is not a live transport receipt. Synthetic embedding/scanner and Redis connectivity do not prove model quality, cache TTL or immediate revocation.",
+  "owner": "server",
+  "evidence": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260913-cycle90"
+}

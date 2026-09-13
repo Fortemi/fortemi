@@ -8,13 +8,15 @@
 
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
-    Json,
+    http::{header, StatusCode},
+    response::IntoResponse,
+    Extension, Json,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use crate::{telemetry_text_len, ApiError, AppState};
+use crate::middleware::{archive_routing::ArchiveContext, tenant_scope::TenantRequestScope};
+use crate::{telemetry_text_len, ApiError, AppState, ProblemDetails};
 use matric_core::{ArchiveInfo, ArchiveRepository, ServerEvent};
 
 const ARCHIVE_ALREADY_EXISTS_MESSAGE: &str = "Archive already exists.";
@@ -29,6 +31,43 @@ fn live_memory_limit_reached() -> ApiError {
 // =============================================================================
 // REQUEST/RESPONSE TYPES
 // =============================================================================
+
+/// Selected memory identity, not an archive inventory or storage-statistics view.
+#[derive(Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MemoryContextResponse {
+    /// Canonical name to send in X-Fortemi-Memory for subsequent requests.
+    #[schema(min_length = 1, max_length = 255)]
+    pub name: String,
+    /// Canonical schema carried by hosted realtime envelope memory fields.
+    #[schema(pattern = "^[a-z_][a-z0-9_]{0,62}$", min_length = 1, max_length = 63)]
+    pub schema_name: String,
+}
+
+impl MemoryContextResponse {
+    fn from_context(context: ArchiveContext, hosted: bool) -> Result<Self, ApiError> {
+        let unavailable = || ApiError::OperationFailed {
+            operation: "Memory context",
+            detail: "Resolved memory context is unavailable.".into(),
+        };
+        let name = match context.name {
+            Some(name) => name,
+            None if !hosted && context.schema == "public" => "public".into(),
+            None => return Err(unavailable()),
+        };
+        if name.is_empty() || name.trim() != name || name.chars().count() > 255 {
+            return Err(unavailable());
+        }
+        matric_db::validate_schema_name(&context.schema).map_err(|_| unavailable())?;
+        if context.schema.bytes().any(|byte| byte.is_ascii_uppercase()) {
+            return Err(unavailable());
+        }
+        Ok(Self {
+            name,
+            schema_name: context.schema,
+        })
+    }
+}
 
 /// Request body for creating a new archive.
 #[derive(Deserialize, utoipa::ToSchema)]
@@ -126,6 +165,46 @@ impl fmt::Debug for ArchiveStatsResponse {
 // =============================================================================
 // HANDLERS
 // =============================================================================
+
+/// Resolve the selected memory using the same routing context as data requests.
+///
+/// X-Fortemi-Memory selects a visible archive name; an absent header selects the
+/// tenant's configured default or built-in public context. The response pins the
+/// canonical name for later requests. This snapshot grants no continuing access:
+/// every subsequent request is independently authorized. Hosted resolution uses
+/// the request-owned transaction and never the process-wide default cache.
+/// Inventory, metadata management and physical storage statistics are not exposed.
+/// Authenticated hosted requests require the existing read scope.
+#[utoipa::path(get, path = "/api/v1/memory/context", tag = "Archives",
+    params(("X-Fortemi-Memory" = Option<String>, Header, description = "Visible memory name; absent selects the tenant default or public fallback")),
+    responses(
+        (status = 200, description = "Authorized selected memory identity", body = MemoryContextResponse,
+            headers(("Cache-Control" = String, description = "no-store"))),
+        (status = 400, description = "Invalid memory selection header", body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 401, description = "Authentication required or invalid", body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 403, description = "Tenant or read authorization denied", body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 404, description = "Memory absent or not visible", body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 500, description = "Memory resolution or context failed", body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 503, description = "Authentication or tenant dependency unavailable", body = ProblemDetails, content_type = "application/problem+json")
+    ))]
+pub async fn get_memory_context(
+    State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
+    context: Option<Extension<ArchiveContext>>,
+) -> Result<impl IntoResponse, ApiError> {
+    if state.multi_tenant && scope.is_none() {
+        return Err(ApiError::OperationFailed {
+            operation: "Memory context",
+            detail: "Hosted memory transaction is unavailable.".into(),
+        });
+    }
+    let context = context.ok_or_else(|| ApiError::OperationFailed {
+        operation: "Memory context",
+        detail: "Resolved memory context is unavailable.".into(),
+    })?;
+    let response = MemoryContextResponse::from_context(context.0, state.multi_tenant)?;
+    Ok(([(header::CACHE_CONTROL, "no-store")], Json(response)))
+}
 
 /// List all archives.
 ///
@@ -454,6 +533,58 @@ pub async fn clone_archive(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn memory_context_identity_and_personal_fallback() {
+        let context = super::ArchiveContext {
+            name: Some("research".into()),
+            schema: "archive_42".into(),
+            is_default: true,
+        };
+        let result = super::MemoryContextResponse::from_context(context, true).unwrap();
+        assert_eq!(
+            serde_json::to_value(result).unwrap(),
+            serde_json::json!({"name":"research", "schema_name":"archive_42"})
+        );
+        let fallback =
+            super::MemoryContextResponse::from_context(super::ArchiveContext::default(), false)
+                .unwrap();
+        assert_eq!(fallback.name, "public");
+        assert_eq!(fallback.schema_name, "public");
+        assert!(
+            super::MemoryContextResponse::from_context(super::ArchiveContext::default(), true)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn memory_context_rejects_invalid_server_metadata_without_echoing_it() {
+        for (name, schema) in [
+            (Some("".to_string()), "public".to_string()),
+            (Some(" private ".into()), "public".into()),
+            (Some("x".repeat(256)), "public".into()),
+            (Some("private-name".into()), "invalid.schema".into()),
+            (Some("private-name".into()), "UpperCase".into()),
+            (None, "archive_private".into()),
+        ] {
+            let error = super::MemoryContextResponse::from_context(
+                super::ArchiveContext {
+                    name,
+                    schema,
+                    is_default: false,
+                },
+                true,
+            )
+            .err()
+            .unwrap();
+            let super::ApiError::OperationFailed { detail, .. } = error else {
+                panic!("invalid context must use a redacted operation failure");
+            };
+            assert!(!detail.contains("private-name"));
+            assert!(!detail.contains("archive_private"));
+            assert!(!detail.contains("invalid.schema"));
+        }
+    }
+
     use super::*;
     use axum::http::header;
     use axum::response::IntoResponse;

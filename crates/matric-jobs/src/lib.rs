@@ -72,7 +72,9 @@ pub use audio_chunk_handler::AudioChunkTranscriptionHandler;
 pub use audio_transcription_handler::AudioTranscriptionHandler;
 pub use diarization_handler::SpeakerDiarizationHandler;
 pub use extraction_handler::ExtractionHandler;
-pub use handler::{JobContext, JobHandler, JobResult, NoOpHandler};
+pub use handler::{
+    HostedJobContext, HostedJobHandler, JobContext, JobHandler, JobResult, NoOpHandler,
+};
 pub use keyframe_assembly_handler::KeyframeAssemblyHandler;
 pub use keyframe_character_vision_handler::KeyframeCharacterVisionHandler;
 pub use keyframe_setting_vision_handler::KeyframeSettingVisionHandler;

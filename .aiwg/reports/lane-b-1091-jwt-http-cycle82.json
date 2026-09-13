@@ -1,0 +1,182 @@
+{
+  "cycle": 82,
+  "at": "2026-09-12T22:28:55.865Z",
+  "status": "PASS_FOR_NAMED_JWT_HTTP_CELL",
+  "issues": [
+    "https://git.integrolabs.net/Fortemi/fortemi/issues/1091",
+    "https://git.integrolabs.net/Fortemi/fortemi-react/issues/405"
+  ],
+  "verification": {
+    "changedSource": [
+      "contracts/metadata-search/candidate/1.0.0/EVIDENCE.md",
+      "crates/matric-api/src/scoped_search_tests.rs",
+      "crates/matric-api/src/scoped_search_tests/fixture-issuer-client.mjs",
+      "crates/matric-api/src/scoped_search_tests/fixture-issuer.mjs",
+      "crates/matric-api/src/scoped_search_tests/installed-http-consumer.mjs",
+      "crates/matric-api/src/scoped_search_tests/installed_http.rs"
+    ],
+    "status": "PASS",
+    "sourceFiles": 826,
+    "coreSourceFilesUnchanged": 580,
+    "rustTests": 2,
+    "phases": [
+      {
+        "phase": "initial",
+        "checks": 93
+      },
+      {
+        "phase": "jwt",
+        "checks": 22
+      },
+      {
+        "phase": "tenant-suspended",
+        "checks": 3
+      },
+      {
+        "phase": "tenant-soft_deleted",
+        "checks": 3
+      },
+      {
+        "phase": "tenant-active",
+        "checks": 3
+      },
+      {
+        "phase": "stale",
+        "checks": 15
+      },
+      {
+        "phase": "archived",
+        "checks": 27
+      },
+      {
+        "phase": "deleted",
+        "checks": 27
+      },
+      {
+        "phase": "purged",
+        "checks": 27
+      }
+    ],
+    "checkGroups": 220,
+    "routes": {
+      "/api/v1/search": 46,
+      "/api/v1/notes/{id}": 28,
+      "/api/v1/search/evidence/resolve": 219
+    },
+    "httpRequests": 293,
+    "priorRouterChecksPerTest": {
+      "search": 72,
+      "resolution": 227
+    },
+    "tarball": {
+      "tarballSha256": "8df3a4f435b0235bd653d03b2a4769c630a5f79034d6cb6b06a2094dfe69e0a1",
+      "entrySha256": "57a0b430c6c652be6d3e6eb18fe8c7ce2b51a63934f0286e77ac482d408ed1fe",
+      "packageRoot": "/tmp/fortemi-core-http-HojDgd/node_modules/@fortemi/core",
+      "version": "2026.9.5"
+    },
+    "purgeQualification": "SQL fixture only",
+    "authentication": "Production ClerkProvider HTTPS and PgTenantStore with disposable issuer; not binary bootstrap",
+    "inference": "Synthetic query embeddings, no model"
+  },
+  "cleanup": {
+    "at": "2026-09-12T22:28:55.865Z",
+    "jobs": [
+      {
+        "unit": "fortemi-local-test-1000-e1c4817b-9378-4ac6-9580-92dc9ac44bf1.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 3070726144,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-d7c78d3c-fafc-44a5-92b8-9b9ca8f3f766.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 20201472,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-bde33f95-020e-4ecf-864c-a5b933fef528.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 2932498432,
+        "cgroupAbsent": true
+      }
+    ],
+    "issuersAbsent": [
+      3715456,
+      3721425
+    ],
+    "postmastersAbsent": [
+      3715488,
+      3721503
+    ],
+    "postgresClustersRemoved": 2,
+    "peakBytes": 3070726144,
+    "services": {
+      "vllm": {
+        "ActiveState": "active",
+        "UnitFileState": "enabled",
+        "MainPID": "223555",
+        "NRestarts": "0"
+      },
+      "ollama": {
+        "ActiveState": "active",
+        "UnitFileState": "enabled",
+        "MainPID": "10457",
+        "NRestarts": "2"
+      },
+      "hostRunner": {
+        "ActiveState": "inactive",
+        "UnitFileState": "disabled",
+        "MainPID": "0",
+        "NRestarts": "0"
+      }
+    },
+    "noSharedServiceMutation": true
+  },
+  "evidence": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260912-cycle82",
+  "authAuthority": {
+    "tag": "v2026.9.0",
+    "revision": "cff36d293d73080c186e2f35115dd92a594982d2",
+    "adapter": "build_clerk_authenticator",
+    "transport": "Production HTTPS-only rustls with explicit disposable CA; no mock HttpClient",
+    "tenantStore": "PgTenantStore runtime non-bypass pool",
+    "cache": "xjp-oidc1.1.0 JWKS TTL600s; per-request discovery; unknown kid does not refresh warm same-URI cache"
+  },
+  "observedLimits": [
+    "Same-URI rotation retains cached old key and rejects new kid; changed JWKS URI fetches new key.",
+    "Discovery outage fails closed despite cached JWKS.",
+    "No real authority keys or bearer tokens persisted; ephemeral issuer is a fixture, not a deployable issuer."
+  ],
+  "unchanged": [
+    "Production implementation, dependency pins, authority schemas and OpenAPI",
+    "Core580 runtime/package source files and Cycle80 tarball",
+    "Consumer historical receipts, capability false, separate data planes, suite NO-GO",
+    "Original20 issues, escalation/flagged-draft holds, unresolved approved Titan Actions procedure, lane release sweep"
+  ],
+  "remaining": [
+    "Production binary/configuration bootstrap acceptance",
+    "Cache expiry and intended rotation/revocation behavior, external EE authorization atomicity",
+    "Lifecycle-worker purge/crash/resume/restore re-erasure",
+    "Native pg_bigm/query cost, every declared consumer and exact-head CI",
+    "Source delivery and immutable released-artifact/assets/mirror/pin acceptance"
+  ],
+  "releaseDisposition": {
+    "producer": "v2026.9.9 latest metadata, uncommitted candidate awaiting full acceptance/delivery; no release this cycle",
+    "core": "v2026.9.5 latest metadata, prior PARTIAL_PUBLICATION plus unreleased source; no immutable replacement",
+    "HotM": "v2026.9.5 NO_CHANGE, historical artifact/source identities remain dated",
+    "freshByteOrMirrorVerification": false
+  },
+  "mutations": {
+    "commit": false,
+    "push": false,
+    "release": false,
+    "closure": false,
+    "sharedServices": false,
+    "modelLoad": false
+  }
+}

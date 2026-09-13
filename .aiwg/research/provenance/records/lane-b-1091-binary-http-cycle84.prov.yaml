@@ -1,0 +1,82 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-12T23:44:44.000Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-binary-http-cycle84.json",
+    "type": "artifact_bundle",
+    "created_at": "2026-09-12T23:44:44.000Z",
+    "checksum": "sha256:1ddd4fa01fdfe9eaf77b7a8daf6e7dbf7baebb9a71d4ca77a5afa7d5f5a3481d",
+    "size_bytes": 5673,
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "crates/matric-api/src/scoped_search_tests.rs",
+          "bytes": 24730,
+          "sha256": "704d14631bef0a69f3f4dd06975a43031f606f9e3755235bffc9d64f2d944e03"
+        },
+        {
+          "path": "crates/matric-api/src/scoped_search_tests/installed_http.rs",
+          "bytes": 13562,
+          "sha256": "bfee86e8d3691a5ca6095a5cdd76b3bd506e4a709a076211f88e1aad19cac464"
+        },
+        {
+          "path": "crates/matric-api/src/scoped_search_tests/binary_http.rs",
+          "bytes": 13196,
+          "sha256": "a3b931522fccfa3a7595c88bf90ec55a5682494d7c751060573412d0e713c32f"
+        },
+        {
+          "path": ".aiwg/architecture/impact/typed-metadata-search.md",
+          "bytes": 16272,
+          "sha256": "d26c02fc698fde27561ab73fa617ca59f70f12516b9dd8a7191708fd7d585119"
+        },
+        {
+          "path": ".aiwg/reports/lane-b-1091-binary-http-cycle84.json",
+          "bytes": 5673,
+          "sha256": "1ddd4fa01fdfe9eaf77b7a8daf6e7dbf7baebb9a71d4ca77a5afa7d5f5a3481d"
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:binary-http:lane-b:084:server",
+    "type": "validation",
+    "started_at": "2026-09-12T23:23:09.379Z",
+    "ended_at": "2026-09-12T23:44:44.000Z",
+    "description": "Actual-binary installed HTTP matrix and owned fixture corrections; overall acceptance remains NOT_PASS due to reproduced hosted worker scope failure."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-binary-http-cycle84.json",
+      "activity": "urn:aiwg:activity:binary-http:lane-b:084:server"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:binary-http:lane-b:084:server",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-binary-http-cycle84.json",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-binary-http-cycle84.json",
+        "source": "urn:aiwg:artifact:.aiwg/working/lane-b/evidence/lane-b-delivery-20260912-cycle83/NEXT.md"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-binary-http-cycle84.json",
+        "source": "urn:gitea:Fortemi:fortemi:issue:1091"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-binary-http-cycle84.json",
+        "source": "urn:gitea:Fortemi:fortemi-react:issue:405"
+      }
+    ]
+  }
+}

@@ -1,0 +1,168 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-12T21:03:52Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-current-storage-resolution.json",
+    "type": "artifact_bundle",
+    "created_at": "2026-09-12T21:03:52Z",
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "crates/matric-core/src/search_evidence.rs",
+          "sha256": "3a94c298ed45848ecd2bf6fc486d590f8235d6f2e248869b7c5e3ee3c08f9774",
+          "bytes": 19346
+        },
+        {
+          "path": "crates/matric-db/src/lib.rs",
+          "sha256": "680ef58d486a1919b90f8131cc92cba7b7d75d3f4b3601f9e723ecb1164631fc",
+          "bytes": 37353
+        },
+        {
+          "path": "crates/matric-db/src/search_candidates.rs",
+          "sha256": "bc9e0f03710a35edcb22d1109f45ed300bdad54278111fecaa820f60f9456994",
+          "bytes": 15017
+        },
+        {
+          "path": "crates/matric-db/src/search_evidence_projection.rs",
+          "sha256": "89149c898b8b18a557b0c8899651b4a44a23c0167d5094e3f73e857d41e17b6f",
+          "bytes": 4514
+        },
+        {
+          "path": "crates/matric-db/src/search_evidence_resolution.rs",
+          "sha256": "cbc012056214b4ffbd499627682591781bfd647c1df4be56695d35668f376938",
+          "bytes": 5221
+        },
+        {
+          "path": "crates/matric-api/src/main.rs",
+          "sha256": "f5adde0fb961b36b41502a59bf01b4c08b4f831578bc72583f09dcdcf243c86c",
+          "bytes": 3206452
+        },
+        {
+          "path": "crates/matric-api/src/evidence_resolution.rs",
+          "sha256": "e1b396ebec01ed0ba5bb6bb6d2a395de9061abb4c3dc19bbd407ac354dc8b8a0",
+          "bytes": 8751
+        },
+        {
+          "path": "crates/matric-api/src/route_policy.rs",
+          "sha256": "4992e7b6564bab6d78664d39a3c4b17f1d459ec7c29aa69803616a090d325c0f",
+          "bytes": 71037
+        },
+        {
+          "path": "crates/matric-api/src/scoped_search_tests.rs",
+          "sha256": "6ca7194bdf4f464e6c76d8a2708086caf7442f3663907aa24bea257ee739ee5a",
+          "bytes": 21880
+        },
+        {
+          "path": "crates/matric-api/src/scoped_search_tests/resolution_checks.rs",
+          "sha256": "ab7eec6510e0b57dfe913d2eb418e7fe5e4e93d754c9b2d1af7e692e55d4b121",
+          "bytes": 19595
+        },
+        {
+          "path": "crates/matric-api/src/search_contract.rs",
+          "sha256": "a2d65008ae65c413811fd8504b47006a1aa625b424a9a734611f4bf33492b108",
+          "bytes": 8887
+        },
+        {
+          "path": "crates/matric-api/src/search_contract/tests.rs",
+          "sha256": "45ccc0323d4d3287ac223b3653cbcaeae0c3156521211ab065793d01a22dd69f",
+          "bytes": 19117
+        },
+        {
+          "path": "contracts/metadata-search/candidate/1.0.0/evidence-resolution.schema.json",
+          "sha256": "92c0cd616d26fad83e56e602d8393a8b6135175c849284d97721da146d923723",
+          "bytes": 839
+        },
+        {
+          "path": "contracts/metadata-search/candidate/1.0.0/evidence-resolution-vectors.json",
+          "sha256": "3d217a489a29be0eb152a8efb4f569e7942d4ae2af921218e295c0dba8a38aea",
+          "bytes": 9082
+        },
+        {
+          "path": "contracts/openapi/openapi.yaml",
+          "sha256": "240d4b16916d7218119937255c0646da8db3ea50bb4313137be9f2f9c42f1b01",
+          "bytes": 396556
+        },
+        {
+          "path": "contracts/openapi/openapi.sha256",
+          "sha256": "ccdbe27a04943e92bffa5f3c45bdd1bc532a6f046d54f7b1a6e2883cc1fc374b",
+          "bytes": 79
+        },
+        {
+          "path": "contracts/metadata-search/candidate/1.0.0/README.md",
+          "sha256": "30061be265f3c011da8c1eab821e62b98c4fe6e567d83dcca309472b24fd0218",
+          "bytes": 13403
+        },
+        {
+          "path": "contracts/metadata-search/candidate/1.0.0/EVIDENCE.md",
+          "sha256": "f70d59e93078cb82a82cb40512ca59028117bbc59dada48f04a2ed68abecceef",
+          "bytes": 14038
+        },
+        {
+          "path": ".aiwg/architecture/impact/typed-metadata-search.md",
+          "sha256": "550ed547024dc3f49759b42e8959ae79085a145b8226a0774c46fe707408b6e3",
+          "bytes": 12276
+        },
+        {
+          "path": ".aiwg/planning/roadmap.md",
+          "sha256": "52269fb4f7e2382293681743bec1fe43d5eaa7406381a444a15a2d1b2bcd72df",
+          "bytes": 342089
+        },
+        {
+          "path": ".aiwg/activity.log",
+          "sha256": "c072662d1da799edd6b1ef921a5a2a4652401ee382bd3d8aab443969ec360e6a",
+          "bytes": 5651
+        },
+        {
+          "path": ".aiwg/reports/lane-b-1091-current-storage-resolution.json",
+          "sha256": "417ac5cab35c24668e1cab4f8e29f14213a76c6dde43eea72ae3bc915e9cf6d2",
+          "bytes": 19327
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:modification:lane-b-producer-resolution:079:server",
+    "type": "modification",
+    "started_at": "2026-09-12T20:32:00Z",
+    "ended_at": "2026-09-12T21:03:52Z",
+    "description": "Implement current-storage evidence resolution with target-note policy authorization and scoped unit/source/digest checks; verify bounded isolated acceptance without promoting released compatibility."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "name": "Codex",
+    "type": "ai_assistant"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-current-storage-resolution.json",
+      "activity": "urn:aiwg:activity:modification:lane-b-producer-resolution:079:server"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-current-storage-resolution.json",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:modification:lane-b-producer-resolution:079:server",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-current-storage-resolution.json",
+        "source": "urn:git:commit:a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+        "derivation_type": "derives_from"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-current-storage-resolution.json",
+        "source": "https://git.integrolabs.net/Fortemi/fortemi/issues/1091",
+        "derivation_type": "implements"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-current-storage-resolution.json",
+        "source": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/405",
+        "derivation_type": "implements"
+      }
+    ]
+  }
+}

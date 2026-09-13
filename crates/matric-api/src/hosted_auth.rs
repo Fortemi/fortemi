@@ -128,6 +128,11 @@ impl PgTenantStore {
 
 impl TenantStore for PgTenantStore {
     async fn lookup(&self, tenant_id: Uuid) -> Result<Option<TenantRecord>, AuthError> {
+        tracing::debug!(
+            pool_size = self.pool.size(),
+            pool_idle = self.pool.num_idle(),
+            "Hosted tenant lookup started"
+        );
         let row: Option<(Uuid, String)> =
             sqlx::query_as("SELECT id, status FROM tenant_registry WHERE id = $1")
                 .bind(tenant_id)
@@ -135,6 +140,7 @@ impl TenantStore for PgTenantStore {
                 .await
                 .map_err(|_| AuthError::TenantStoreUnavailable)?;
 
+        tracing::debug!("Hosted tenant lookup finished");
         row.map(|(id, status)| tenant_record_from_row(id, &status))
             .transpose()
     }
@@ -161,7 +167,10 @@ where
     P: OAuthProvider + Send + Sync,
 {
     async fn authenticate(&self, token: &str) -> Result<AuthContext, AuthError> {
-        OAuthProvider::authenticate(self, token).await
+        tracing::debug!("Hosted authentication started");
+        let result = OAuthProvider::authenticate(self, token).await;
+        tracing::debug!(succeeded = result.is_ok(), "Hosted authentication finished");
+        result
     }
 }
 

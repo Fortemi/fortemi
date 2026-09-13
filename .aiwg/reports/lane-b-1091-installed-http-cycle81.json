@@ -1,0 +1,328 @@
+{
+  "cycle": 81,
+  "status": "VERIFIED_FIXTURE_AUTH_HTTP_CANDIDATE_NOT_DELIVERED",
+  "recordedAt": "2026-09-12T22:04:56.498Z",
+  "linkedIssues": [
+    "https://git.integrolabs.net/Fortemi/fortemi/issues/1091",
+    "https://git.integrolabs.net/Fortemi/fortemi-react/issues/405"
+  ],
+  "changes": [
+    "Actual Axum TCP search, note-detail and resolver handlers with existing scoped middleware and a non-bypass database role.",
+    "Clean offline installation of the unchanged Cycle80 Core tarball; public ESM entry and native fetch, no response mocks or query rewrites.",
+    "Three modes, two tenants and an archive, four native units including embedding index7, exact UTF-8 and scoped source identities.",
+    "Typed resolution predicates, partial/empty ranges, authentication and note-policy denial, stale text, archive visibility, tombstones and SQL hard deletion.",
+    "216 server-observed requests: 21 search, 12 note-detail, 183 resolution; four persisted access counters/logs per note distinguish enrichment from resolution."
+  ],
+  "verification": {
+    "status": "PASS",
+    "sourceFiles": 824,
+    "coreSourceFilesUnchanged": 580,
+    "rustTests": 2,
+    "phases": [
+      {
+        "phase": "initial",
+        "checks": 93
+      },
+      {
+        "phase": "stale",
+        "checks": 15
+      },
+      {
+        "phase": "archived",
+        "checks": 27
+      },
+      {
+        "phase": "deleted",
+        "checks": 27
+      },
+      {
+        "phase": "purged",
+        "checks": 27
+      }
+    ],
+    "checkGroups": 189,
+    "routes": {
+      "/api/v1/search": 21,
+      "/api/v1/notes/{id}": 12,
+      "/api/v1/search/evidence/resolve": 183
+    },
+    "httpRequests": 216,
+    "priorRouterChecksPerTest": {
+      "search": 72,
+      "resolution": 227
+    },
+    "tarball": {
+      "tarballSha256": "8df3a4f435b0235bd653d03b2a4769c630a5f79034d6cb6b06a2094dfe69e0a1",
+      "entrySha256": "57a0b430c6c652be6d3e6eb18fe8c7ce2b51a63934f0286e77ac482d408ed1fe",
+      "packageRoot": "/tmp/fortemi-core-http-vhDJN2/node_modules/@fortemi/core",
+      "version": "2026.9.5"
+    },
+    "purgeQualification": "SQL fixture only",
+    "authentication": "Fixture identities, not JWT/JWKS",
+    "inference": "Synthetic query embeddings, no model"
+  },
+  "cleanup": {
+    "at": "2026-09-12T22:04:56.498Z",
+    "jobs": [
+      {
+        "unit": "fortemi-local-test-1000-e2097607-8711-4f34-8464-25ca3868677b.service",
+        "state": "failed",
+        "result": "exit-code",
+        "exitStatus": "1",
+        "memoryPeak": 3678568448,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-1a0a2ffc-4040-48d2-a5e3-ae4201b4858f.service",
+        "state": "failed",
+        "result": "exit-code",
+        "exitStatus": "1",
+        "memoryPeak": 646443008,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-b7b18508-86c2-4b79-bdc5-02deb25652eb.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 104419328,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-1e20a3d2-f800-42f2-a6d0-43a672513263.service",
+        "state": "failed",
+        "result": "exit-code",
+        "exitStatus": "1",
+        "memoryPeak": 2887311360,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-7fb52e33-fc84-47ec-b06d-8d0d938e59d5.service",
+        "state": "failed",
+        "result": "exit-code",
+        "exitStatus": "1",
+        "memoryPeak": 3283951616,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-8e6d78be-5c38-47d0-91bf-edcaeb07c427.service",
+        "state": "failed",
+        "result": "exit-code",
+        "exitStatus": "1",
+        "memoryPeak": 2903248896,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-c46fb03e-6824-4384-90cf-6a707053a21d.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 2934280192,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-cf993d4b-a0ad-45fa-8741-db68ec09acad.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 25714688,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-5d5eb5fd-f37a-4d7f-bb45-4c4b79f10165.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 2908110848,
+        "cgroupAbsent": true
+      }
+    ],
+    "postmastersAbsent": [
+      3657899,
+      3651635,
+      3655689,
+      3659005,
+      3663015,
+      3666614,
+      3669960,
+      3674994
+    ],
+    "postgresClustersRemoved": 8,
+    "peakBytes": 3678568448,
+    "services": {
+      "vllm": {
+        "ActiveState": "active",
+        "UnitFileState": "enabled",
+        "MainPID": "223555",
+        "NRestarts": "0"
+      },
+      "ollama": {
+        "ActiveState": "active",
+        "UnitFileState": "enabled",
+        "MainPID": "10457",
+        "NRestarts": "2"
+      },
+      "hostRunner": {
+        "ActiveState": "inactive",
+        "UnitFileState": "disabled",
+        "MainPID": "0",
+        "NRestarts": "0"
+      }
+    },
+    "noSharedServiceMutation": true
+  },
+  "fixtureFindings": [
+    "Leading BOM belongs to the adjacent PostgreSQL lexeme. A bounded native probe records non-match versus separated search term; fixture retains BOM on a separate word.",
+    "Real detail GET updates access counters and logs. Fixture requires UPDATE(last_accessed_at,access_count), INSERT note_access_log, and INSERT embedding_set_member for its existing trigger. SQL42501 before the final grant is explicitly reproduced; no content-write or RLS-bypass grant.",
+    "Five failed development runs preserved separately; final ordinary and installed HTTP test paths both pass. No product runtime correction was necessary."
+  ],
+  "releaseInventory": {
+    "observedAt": "2026-09-12T22:04:56.498Z",
+    "releases": [
+      {
+        "repo": "fortemi",
+        "id": 2324,
+        "tag": "v2026.9.9",
+        "assets": [
+          {
+            "id": 6233,
+            "name": "SHA256SUMS.txt",
+            "size": 400
+          },
+          {
+            "id": 6231,
+            "name": "matric-api-aarch64-apple-darwin",
+            "size": 61031584
+          },
+          {
+            "id": 6230,
+            "name": "matric-api-aarch64-unknown-linux-gnu",
+            "size": 68659392
+          },
+          {
+            "id": 6232,
+            "name": "matric-api-x86_64-apple-darwin",
+            "size": 65082640
+          },
+          {
+            "id": 6229,
+            "name": "matric-api-x86_64-unknown-linux-gnu",
+            "size": 72938328
+          },
+          {
+            "id": 6234,
+            "name": "sidecar-provenance.intoto.json",
+            "size": 1751
+          }
+        ],
+        "published_at": "2026-09-09T22:25:15Z"
+      },
+      {
+        "repo": "fortemi-react",
+        "id": 2333,
+        "tag": "v2026.9.5",
+        "assets": [
+          {
+            "id": 6302,
+            "name": "SHA256SUMS",
+            "size": 278
+          },
+          {
+            "id": 6299,
+            "name": "fortemi-core-2026.9.5.tgz",
+            "size": 1257821
+          },
+          {
+            "id": 6300,
+            "name": "fortemi-graph-2026.9.5.tgz",
+            "size": 64363
+          },
+          {
+            "id": 6301,
+            "name": "fortemi-react-2026.9.5.tgz",
+            "size": 147087
+          }
+        ],
+        "published_at": "2026-09-12T15:08:14Z"
+      },
+      {
+        "repo": "HotM",
+        "id": 2331,
+        "tag": "v2026.9.5",
+        "assets": [
+          {
+            "id": 6294,
+            "name": "HotM_2026.9.5_aarch64.dmg",
+            "size": 29201522
+          },
+          {
+            "id": 6296,
+            "name": "HotM_2026.9.5_amd64.AppImage",
+            "size": 109287928
+          },
+          {
+            "id": 6297,
+            "name": "HotM_2026.9.5_amd64.deb",
+            "size": 32747002
+          },
+          {
+            "id": 6295,
+            "name": "SHA256SUMS-macos.txt",
+            "size": 92
+          },
+          {
+            "id": 6298,
+            "name": "SHA256SUMS.txt",
+            "size": 268
+          },
+          {
+            "id": 6289,
+            "name": "hotm-ui-dist.tar.gz",
+            "size": 3246334
+          }
+        ],
+        "published_at": "2026-09-11T13:43:47Z"
+      }
+    ],
+    "dispositions": {
+      "fortemi": "CANDIDATE_PENDING_ACCEPTANCE_DELIVERY",
+      "fortemi-react": "PARTIAL_PUBLICATION_AND_UNRELEASED_SOURCE",
+      "HotM": "NO_CHANGE"
+    },
+    "artifactBytesReverified": false,
+    "mirrorReverified": false
+  },
+  "remaining": [
+    "Production JWT/JWKS and authorization/cache qualification, including external policy revocation boundaries.",
+    "Lifecycle-worker completed purge, crash/resume and restore-time re-erasure; SQL fixture deletion is not that proof.",
+    "Native pg_bigm/query-cost/index performance and every declared consumer conformance.",
+    "Exact-head CI, repository delivery, immutable authority/consumer pins and original full lane release/assets/mirrors/cleanup sweep."
+  ],
+  "claims": {
+    "fixtureAuthHttp": true,
+    "launchedProductionBinary": false,
+    "productionAuthentication": false,
+    "lifecycleWorkerPurge": false,
+    "modelAcceptance": false,
+    "releasedRuntime": false,
+    "completeEvidenceCapability": false,
+    "typedRemoteSearchCapability": false,
+    "promotedContract": false,
+    "suiteAudit": "NO-GO"
+  },
+  "boundaries": {
+    "originalScope": "HotM M1/288; server1091/1092/1128/1129/1130/1131; Core405/406/412/417/418/419/420/421/422/423/424/425.",
+    "holds": "Prior escalations, gated drafts, label-taxonomy and approved Titan Actions procedure questions unchanged.",
+    "delivery": "No commit, PR, tag, release, issue closure or capability promotion.",
+    "custody": "WIP, personal services, persistent data, caches/models, rollback artifacts and OpenBao custody preserved."
+  },
+  "evidenceRoot": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260912-cycle81",
+  "issue": 1091,
+  "role": "Producer fixture implementation; runtime/schema/OpenAPI unchanged",
+  "source": {
+    "worktree": "/var/tmp/lane-b-server-1147",
+    "baseCommit": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+    "uncommitted": true,
+    "contractRevision": null
+  }
+}

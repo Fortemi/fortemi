@@ -1,0 +1,286 @@
+{
+  "at": "2026-09-13T04:03:55.126Z",
+  "cycle": 91,
+  "status": "PARTIAL_HOSTED_NOTE_EVENTS_RETRY_AND_SSE_IMPLEMENTED",
+  "overallAcceptance": "NOT_PASS",
+  "producerFiles": 845,
+  "coreFiles": 580,
+  "changedProducerSource": [
+    "crates/matric-api/src/hosted_auth.rs",
+    "crates/matric-api/src/hosted_jobs.rs",
+    "crates/matric-api/src/main.rs",
+    "crates/matric-api/src/scoped_search_tests.rs",
+    "crates/matric-api/src/scoped_search_tests/binary_http.rs",
+    "crates/matric-api/src/scoped_search_tests/worker-sse-consumer.mjs",
+    "crates/matric-api/tests/hosted_document_type_test.rs",
+    "crates/matric-api/tests/hosted_document_type_test/completion.rs",
+    "crates/matric-core/src/error.rs",
+    "crates/matric-db/src/file_storage.rs",
+    "crates/matric-db/src/notes.rs",
+    "crates/matric-db/src/notes/hosted.rs",
+    "crates/matric-jobs/src/handler.rs",
+    "crates/matric-jobs/src/handler/hosted.rs",
+    "crates/matric-jobs/src/worker/dispatch.rs",
+    "crates/matric-jobs/src/worker/execution.rs",
+    "crates/matric-jobs/tests/hosted_execution_test.rs"
+  ],
+  "coreSourceUnchanged": true,
+  "sourceHeads": {
+    "server": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+    "core": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7"
+  },
+  "verification": {
+    "unitTests": 76,
+    "databaseTestFunctions": 12,
+    "apiHandlerTestFunctions": 1,
+    "apiHttpTestFunctions": 3,
+    "sseFilterUnitTests": 1,
+    "focusedRustFunctions": 93,
+    "fixtureProfileUnitTests": 4,
+    "finalHandlerLabel": "fourth",
+    "finalHttpLabel": "http-tenth",
+    "allJobsTerminal": true,
+    "jobPasses": 5,
+    "preservedFailures": 7,
+    "preservedInterruptions": 2,
+    "peakBytes": 6445203456
+  },
+  "implementation": "Typed database retry classification from SQLSTATE/typed errors, bounded read-only note snapshot inside fenced completion transaction, post-commit completed then note.updated, hosted SSE authorized canonical schema filtering for live and replay.",
+  "native": "Real progress SQLSTATE failures, durable-content replay, permanent failure/retry exhaustion, lock/deadline, snapshot metadata/count/byte bounds, missing/deleted/stale and deferred completion failure with neither success event. Destructive commit failure uses its own one-connection pool; same-connection context restoration remains checked.",
+  "binary": {
+    "path": "/var/tmp/fortemi-release-target-2026.9.1/debug/matric-api",
+    "sha256": "19a6f442f36cc86f8c11a74967d83deebdb9958a0a773a76a9b63f4bdc921c8d",
+    "features": [
+      "hosted-auth",
+      "kms-vault"
+    ]
+  },
+  "worker": {
+    "status": "PASS",
+    "runtime": "actual hosted binary",
+    "controls": [
+      {
+        "tenant": "aa0a43c7-b417-4230-8860-11b9989d4e6a",
+        "schema": "public",
+        "note": "ef850f17-d29c-4070-8888-1109d27a9917",
+        "job": "3834aefc-b4cf-4207-8b18-06c5c23e7912",
+        "attempt": "01a098ec-5f90-70a1-8741-f4b32ea14f21",
+        "status": "completed",
+        "assignment": true,
+        "accessCount": 1,
+        "provenanceCount": 1
+      },
+      {
+        "tenant": "dc4c75f7-1783-4fe1-8ec0-ce457edeb49f",
+        "schema": "public",
+        "note": "09ff8bf4-e907-4d76-9ebc-ee5d8feb0d07",
+        "job": "14d455c1-57dd-429a-9866-b04c84d78b73",
+        "attempt": "01a098ec-6017-790f-963f-0fca88e7b18f",
+        "status": "completed",
+        "assignment": true,
+        "accessCount": 1,
+        "provenanceCount": 1
+      },
+      {
+        "tenant": "aa0a43c7-b417-4230-8860-11b9989d4e6a",
+        "schema": "archive_search_fixture",
+        "note": "0f0f7814-593f-4cee-ad36-de2b2a2e766f",
+        "job": "720268d5-52d2-4bcf-b3b8-df8da92bf0ec",
+        "attempt": "01a098ec-6072-7fce-af1e-a0cd93075451",
+        "status": "completed",
+        "assignment": true,
+        "accessCount": 1,
+        "provenanceCount": 1
+      }
+    ],
+    "sseAuditRows": 12,
+    "sharedInferenceUsed": false,
+    "unqualified": "other handlers, followup execution, queue summaries, complete lifecycle and HotM application archive selection"
+  },
+  "installed": {
+    "tarballSha256": "8df3a4f435b0235bd653d03b2a4769c630a5f79034d6cb6b06a2094dfe69e0a1",
+    "entrySha256": "57a0b430c6c652be6d3e6eb18fe8c7ce2b51a63934f0286e77ac482d408ed1fe",
+    "packageRoot": "/tmp/fortemi-core-http-cp3VhX/node_modules/@fortemi/core",
+    "version": "2026.9.5"
+  },
+  "phases": [
+    {
+      "phase": "initial",
+      "checks": 93
+    },
+    {
+      "phase": "jwt",
+      "checks": 22
+    },
+    {
+      "phase": "tenant-suspended",
+      "checks": 3
+    },
+    {
+      "phase": "tenant-soft_deleted",
+      "checks": 3
+    },
+    {
+      "phase": "tenant-active",
+      "checks": 3
+    },
+    {
+      "phase": "stale",
+      "checks": 15
+    },
+    {
+      "phase": "archived",
+      "checks": 27
+    },
+    {
+      "phase": "deleted",
+      "checks": 27
+    },
+    {
+      "phase": "purged",
+      "checks": 27
+    }
+  ],
+  "groups": 220,
+  "requests": 293,
+  "routers": {
+    "launched-binary": 278,
+    "note-denied": 12,
+    "untrusted-ca": 1,
+    "cold-jwks": 2
+  },
+  "routes": {
+    "/api/v1/search": 46,
+    "/api/v1/notes/{id}": 28,
+    "/api/v1/search/evidence/resolve": 219
+  },
+  "startup": {
+    "status": "PASS",
+    "components": [
+      [
+        "Redis search cache enabled",
+        true
+      ],
+      [
+        "Chat-stream resumption store enabled",
+        true
+      ],
+      [
+        "Ingest cursor store enabled",
+        true
+      ],
+      [
+        "Ingest token store enabled",
+        true
+      ],
+      [
+        "Idempotency store enabled",
+        true
+      ],
+      [
+        "OpenAI health check passed",
+        true
+      ],
+      [
+        "Stale-running job sweep completed",
+        true
+      ]
+    ],
+    "workerRecoveryError": false
+  },
+  "audit": {
+    "tenants": [
+      [
+        "aa0a43c7-b417-4230-8860-11b9989d4e6a",
+        398
+      ],
+      [
+        "dc4c75f7-1783-4fe1-8ec0-ce457edeb49f",
+        194
+      ]
+    ],
+    "durable": true
+  },
+  "auditRows": 592,
+  "sse": {
+    "status": "PASS",
+    "streams": 6,
+    "events": 24,
+    "sourceSha256": "f8e570f97e17379d0c1f7a55bcfd70c9e0099b13db23f0419bfd5109967e84a7",
+    "bundleSha256": "e3b93634ae280d9baa0b5b67a4dde2f841cd6eb841eb6cdd69038f8510fea37f",
+    "scope": "actual hosted binary; real HotM parser with owned Node transport and archive-name adapter; seeded server replay, not automatic reconnect, HotM application archive selection or released HotM qualification"
+  },
+  "capacity": [
+    {
+      "label": "fourth",
+      "profile": "default",
+      "capacity": {
+        "maxConnections": 12,
+        "superuserReserved": 3,
+        "reserved": 0
+      },
+      "slotRefusalsInLast64KiB": 0
+    },
+    {
+      "label": "http-ninth",
+      "profile": "hosted-http",
+      "capacity": {
+        "maxConnections": 20,
+        "superuserReserved": 3,
+        "reserved": 0
+      },
+      "slotRefusalsInLast64KiB": 0
+    },
+    {
+      "label": "http-tenth",
+      "profile": "hosted-http",
+      "capacity": {
+        "maxConnections": 20,
+        "superuserReserved": 3,
+        "reserved": 0
+      },
+      "slotRefusalsInLast64KiB": 0
+    }
+  ],
+  "releases": {
+    "fortemi": {
+      "tag": "v2026.9.9",
+      "main": "36c1b8779166af712afd588dd00dec871a6a9e30",
+      "released": "e91c595a896275f835cb7ed1aef173cb26056206",
+      "tagObject": "312897944bac30b36e1a215afe34178610ae48f6",
+      "mergedUnreleased": 16,
+      "refs": "36c1b8779166af712afd588dd00dec871a6a9e30\trefs/heads/main\n312897944bac30b36e1a215afe34178610ae48f6\trefs/tags/v2026.9.9\ne91c595a896275f835cb7ed1aef173cb26056206\trefs/tags/v2026.9.9^{}\n",
+      "disposition": "UNRELEASED_PENDING_FULL_ACCEPTANCE_DELIVERY"
+    },
+    "fortemi-react": {
+      "tag": "v2026.9.5",
+      "main": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7",
+      "released": "01b4a9c923af9cde24dc6a2d293d96194b6a6d7d",
+      "tagObject": "4e588d8bdb3e6e455e2d35ef9e49498542917de0",
+      "mergedUnreleased": 3,
+      "refs": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7\trefs/heads/main\n4e588d8bdb3e6e455e2d35ef9e49498542917de0\trefs/tags/v2026.9.5\n01b4a9c923af9cde24dc6a2d293d96194b6a6d7d\trefs/tags/v2026.9.5^{}\n",
+      "disposition": "UNRELEASED_PENDING_FULL_ACCEPTANCE_DELIVERY"
+    },
+    "HotM": {
+      "tag": "v2026.9.5",
+      "main": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4",
+      "released": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4",
+      "tagObject": "8d4f756ed55afcf12120c9edffb76e70bc2b0a62",
+      "mergedUnreleased": 0,
+      "refs": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4\trefs/heads/main\n8d4f756ed55afcf12120c9edffb76e70bc2b0a62\trefs/tags/v2026.9.5\n2b0b4a7aa283a91aa1026521b3a41faa4e834ad4\trefs/tags/v2026.9.5^{}\n",
+      "disposition": "NO_CHANGE_THIS_CYCLE"
+    }
+  },
+  "releaseQualification": "Fresh source refs/ancestry and release metadata only; no fresh published asset-byte or mirror verification. No commit, PR, tag, release, closure, pin or readiness promotion.",
+  "remaining": [
+    "every remaining hosted handler and follow-up execution; index/follow-up events and scoped queue summaries",
+    "HotM application archive request-name versus canonical event-schema mapping",
+    "durable outbox/crash/restart/lifecycle/cancel/purge/restore/revocation and every-consumer qualification",
+    "cache/EE/performance/named-profile/CI/delivery and lane release sweep"
+  ],
+  "scope": "Original20 Lane B issues retained. Suite NO-GO and public readiness false. Static index, named-profile shard transfer and live persistence remain distinct. All prior holds/questions preserved.",
+  "safety": "Fourteen serial bounded offline CPU jobs; twelve owned PostgreSQL clusters removed; failed/interrupted receipts retained, exact owned failed markers reset. Shared inference unchanged. Default PG12 and reviewed HTTP-only PG20; all original cgroup/network/device/lifetime guards unchanged. No model, GPU, Docker, production vault or signing.",
+  "evidenceBoundary": "Real HotM parser with an owned transport/name adapter is not HotM application integration or automatic reconnect qualification. No durable outbox; crash after commit can lose broadcast. Synthetic embeddings/scanner and Redis connectivity do not prove model quality, cache TTL or immediate revocation. Connection-slot pressure is reproduced in the owned fixture, not a proven cause of earlier Zellij/vLLM incidents.",
+  "owner": "server",
+  "evidence": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260913-cycle91"
+}

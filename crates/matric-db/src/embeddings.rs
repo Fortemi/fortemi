@@ -122,6 +122,7 @@ impl EmbeddingRepository for PgEmbeddingRepository {
                     tags_str.split(',').map(String::from).collect()
                 };
                 SearchHit {
+                    evidence: None,
                     note_id: row.get("note_id"),
                     score: row.get::<f64, _>("score") as f32,
                     snippet: row.get("snippet"),
@@ -191,6 +192,7 @@ impl EmbeddingRepository for PgEmbeddingRepository {
                     tags_str.split(',').map(String::from).collect()
                 };
                 let hit = SearchHit {
+                    evidence: None,
                     note_id: row.get("note_id"),
                     score: row.get::<f64, _>("score") as f32,
                     snippet: row.get("snippet"),
@@ -342,6 +344,7 @@ impl PgEmbeddingRepository {
                     tags_str.split(',').map(String::from).collect()
                 };
                 SearchHit {
+                    evidence: None,
                     note_id: row.get("note_id"),
                     score: row.get::<f64, _>("score") as f32,
                     snippet: row.get("snippet"),
@@ -454,6 +457,7 @@ impl PgEmbeddingRepository {
                     tags_str.split(',').map(String::from).collect()
                 };
                 SearchHit {
+                    evidence: None,
                     note_id: row.get("note_id"),
                     score: row.get::<f64, _>("score") as f32,
                     snippet: row.get("snippet"),
@@ -739,6 +743,7 @@ impl PgEmbeddingRepository {
                     tags_str.split(',').map(String::from).collect()
                 };
                 SearchHit {
+                    evidence: None,
                     note_id: row.get("note_id"),
                     score: row.get::<f64, _>("score") as f32,
                     snippet: row.get("snippet"),
@@ -810,6 +815,7 @@ impl PgEmbeddingRepository {
                     tags_str.split(',').map(String::from).collect()
                 };
                 let hit = SearchHit {
+                    evidence: None,
                     note_id: row.get("note_id"),
                     score: row.get::<f64, _>("score") as f32,
                     snippet: row.get("snippet"),

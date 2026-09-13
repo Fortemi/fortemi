@@ -34,6 +34,7 @@ mod tests {
 
     fn create_test_hit(note_id: Uuid, score: f32) -> SearchHit {
         SearchHit {
+            evidence: None,
             note_id,
             score,
             snippet: Some("test".to_string()),
@@ -45,10 +46,7 @@ mod tests {
     #[test]
     fn test_apply_deduplication_default() {
         let note_id = Uuid::new_v4();
-        let results = vec![
-            create_test_hit(note_id, 0.9),
-            create_test_hit(note_id, 0.7),
-        ];
+        let results = vec![create_test_hit(note_id, 0.9), create_test_hit(note_id, 0.7)];
 
         let deduplicated = apply_search_deduplication(results, None, None);
 
@@ -60,10 +58,7 @@ mod tests {
     #[test]
     fn test_apply_deduplication_disabled() {
         let note_id = Uuid::new_v4();
-        let results = vec![
-            create_test_hit(note_id, 0.9),
-            create_test_hit(note_id, 0.7),
-        ];
+        let results = vec![create_test_hit(note_id, 0.9), create_test_hit(note_id, 0.7)];
 
         let deduplicated = apply_search_deduplication(results, Some(false), None);
 
@@ -74,10 +69,7 @@ mod tests {
     #[test]
     fn test_apply_deduplication_explicit_enabled() {
         let note_id = Uuid::new_v4();
-        let results = vec![
-            create_test_hit(note_id, 0.9),
-            create_test_hit(note_id, 0.7),
-        ];
+        let results = vec![create_test_hit(note_id, 0.9), create_test_hit(note_id, 0.7)];
 
         let deduplicated = apply_search_deduplication(results, Some(true), Some(false));
 

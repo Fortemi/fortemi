@@ -1,0 +1,78 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-12T21:37:16Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-remote-resolution-cycle80.json",
+    "type": "artifact_bundle",
+    "created_at": "2026-09-12T21:37:16Z",
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "contracts/metadata-search/candidate/1.0.0/EVIDENCE.md",
+          "sha256": "c8f421603dddc1532a804385a735a3aadc5fedd91946240d03031c14a98243fa",
+          "bytes": 14583
+        },
+        {
+          "path": "contracts/metadata-search/candidate/1.0.0/README.md",
+          "sha256": "8156468f6a09ac51d9d6169941dbfa3bc19f1fb9c558ec4ce49de16b1f6bb1b1",
+          "bytes": 13770
+        },
+        {
+          "path": ".aiwg/architecture/impact/typed-metadata-search.md",
+          "sha256": "30f05e5858c905540ea82fbd73a28fc091065a8b8b5a2905500d90bad83ba490",
+          "bytes": 12990
+        },
+        {
+          "path": ".aiwg/reports/lane-b-1091-remote-resolution-cycle80.json",
+          "sha256": "22074c006312e1e687e7b34da7db3b9640365ca695a1edaea6e06090c4f82e8e",
+          "bytes": 17421
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:modification:lane-b-remote-resolution:080:server",
+    "type": "modification",
+    "started_at": "2026-09-12T21:10:00Z",
+    "ended_at": "2026-09-12T21:37:16Z",
+    "description": "Acknowledge Core remote resolution adoption in producer docs, preserving runtime/schema bytes, historical receipts and unqualified compatibility limits."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "name": "Codex",
+    "type": "ai_assistant"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-remote-resolution-cycle80.json",
+      "activity": "urn:aiwg:activity:modification:lane-b-remote-resolution:080:server"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-remote-resolution-cycle80.json",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:modification:lane-b-remote-resolution:080:server",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-remote-resolution-cycle80.json",
+        "source": "urn:git:commit:a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+        "derivation_type": "derives_from"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-remote-resolution-cycle80.json",
+        "source": "https://git.integrolabs.net/Fortemi/fortemi/issues/1091",
+        "derivation_type": "implements"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-remote-resolution-cycle80.json",
+        "source": "https://git.integrolabs.net/Fortemi/fortemi-react/issues/405",
+        "derivation_type": "implements"
+      }
+    ]
+  }
+}

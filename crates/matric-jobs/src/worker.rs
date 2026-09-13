@@ -29,6 +29,14 @@ use crate::DEFAULT_POLL_INTERVAL_MS;
 const STALE_THRESHOLD_MULTIPLIER: u32 = 2;
 const DEFAULT_STALE_REAP_INTERVAL_SECS: u64 = 30;
 
+mod dispatch;
+mod execution;
+mod recovery;
+mod registry;
+pub use dispatch::{HostedClaim, HostedDispatchLimits, HostedDispatchReport, HostedJobDispatcher};
+pub use execution::{HostedWorkerEvent, HostedWorkerEventKind};
+pub use recovery::{HostedJobRecovery, HostedRecoveryLimits, HostedRecoveryReport};
+
 /// Return an opaque, stable-for-this-process token for correlating job stages.
 ///
 /// The per-process salt prevents the token from becoming a durable external
@@ -419,17 +427,45 @@ where
 
 async fn reap_stale_jobs_once(
     db: &Database,
+    hosted: Option<&HostedJobRecovery>,
     stale_reap_threshold: Duration,
     retry_policy: JobRetryPolicy,
     trigger: &'static str,
 ) {
     let stale_threshold_secs = stale_reap_threshold.as_secs().max(1);
     let started = Instant::now();
-    match db
-        .jobs
-        .reap_stale_running(stale_threshold_secs, &retry_policy)
-        .await
-    {
+    let result = if let Some(recovery) = hosted {
+        match recovery.sweep(stale_threshold_secs, &retry_policy).await {
+            Ok(report) if report.failed_tenants > 0 || report.timed_out => {
+                error!(
+                    stage = "stale_reap",
+                    trigger,
+                    tenants_visited = report.tenants_visited,
+                    reaped_count = report.reaped_count,
+                    failed_tenants = report.failed_tenants,
+                    timed_out = report.timed_out,
+                    "Hosted stale-running recovery pass incomplete"
+                );
+                return;
+            }
+            Ok(report) => {
+                debug!(
+                    stage = "stale_reap",
+                    trigger,
+                    tenants_visited = report.tenants_visited,
+                    wrapped = report.wrapped,
+                    "Hosted recovery page completed"
+                );
+                Ok(report.reaped_count)
+            }
+            Err(error) => Err(error),
+        }
+    } else {
+        db.jobs
+            .reap_stale_running(stale_threshold_secs, &retry_policy)
+            .await
+    };
+    match result {
         Ok(0) => debug!(
             stage = "stale_reap",
             trigger,
@@ -464,6 +500,7 @@ async fn reap_stale_jobs_once(
 
 async fn run_periodic_stale_reaper(
     db: Database,
+    hosted: Option<Arc<HostedJobRecovery>>,
     stale_reap_threshold: Duration,
     stale_reap_interval: Duration,
     retry_policy: JobRetryPolicy,
@@ -479,13 +516,22 @@ async fn run_periodic_stale_reaper(
     interval.tick().await;
     loop {
         interval.tick().await;
-        reap_stale_jobs_once(&db, stale_reap_threshold, retry_policy, "periodic").await;
+        reap_stale_jobs_once(
+            &db,
+            hosted.as_deref(),
+            stale_reap_threshold,
+            retry_policy,
+            "periodic",
+        )
+        .await;
     }
 }
 
 /// Event emitted by the job worker.
 #[derive(Clone)]
 pub enum WorkerEvent {
+    /// Scoped lifecycle event minted from a committed claim, never a bare job.
+    Hosted(HostedWorkerEvent),
     /// A downstream job was queued by a handler (not directly by user request).
     JobQueued {
         job_id: Uuid,
@@ -528,6 +574,7 @@ pub enum WorkerEvent {
 impl fmt::Debug for WorkerEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Hosted(event) => event.fmt(f),
             Self::JobQueued {
                 job_id,
                 job_type,
@@ -604,15 +651,24 @@ fn job_id_set(_: &Uuid) -> bool {
 pub struct WorkerHandle {
     shutdown_tx: mpsc::Sender<()>,
     event_rx: broadcast::Receiver<WorkerEvent>,
+    stopped: tokio::sync::watch::Receiver<bool>,
 }
 
 impl WorkerHandle {
     /// Signal the worker to shut down gracefully.
     pub async fn shutdown(&self) -> Result<()> {
+        if *self.stopped.borrow() {
+            return Ok(());
+        }
         self.shutdown_tx
             .send(())
             .await
             .map_err(|_| matric_core::Error::Internal("Failed to send shutdown signal".into()))?;
+        let mut stopped = self.stopped.clone();
+        stopped
+            .wait_for(|done| *done)
+            .await
+            .map_err(|_| Error::Internal("Worker stopped without a shutdown receipt".into()))?;
         Ok(())
     }
 
@@ -625,6 +681,8 @@ impl WorkerHandle {
 /// Job worker that processes jobs from the queue.
 pub struct JobWorker {
     db: Database,
+    hosted_recovery: Option<Arc<HostedJobRecovery>>,
+    hosted_execution: Option<execution::HostedExecution>,
     config: WorkerConfig,
     handlers: Arc<RwLock<HashMap<JobType, Arc<dyn JobHandler>>>>,
     event_tx: broadcast::Sender<WorkerEvent>,
@@ -661,6 +719,8 @@ impl JobWorker {
 
         Self {
             db,
+            hosted_recovery: None,
+            hosted_execution: None,
             config,
             handlers: Arc::new(RwLock::new(HashMap::new())),
             event_tx,
@@ -671,6 +731,26 @@ impl JobWorker {
             pause_state: None,
             sidecar_controller,
         }
+    }
+
+    /// Use bounded tenant-scoped startup/periodic recovery in hosted deployments.
+    /// This does not qualify the separate claim, handler or event execution paths.
+    pub async fn with_hosted_recovery(mut self) -> Result<Self> {
+        self.hosted_recovery = Some(Arc::new(
+            HostedJobRecovery::new(self.db.pool().clone(), HostedRecoveryLimits::default()).await?,
+        ));
+        Ok(self)
+    }
+
+    /// Enable only explicitly migrated handlers; legacy registration never grants
+    /// hosted execution authority. Shared personal-model lifecycle is not used.
+    pub async fn with_hosted_handlers(
+        mut self,
+        handlers: Vec<Arc<dyn crate::handler::HostedJobHandler>>,
+    ) -> Result<Self> {
+        self.hosted_execution =
+            Some(execution::HostedExecution::new(self.db.pool().clone(), handlers).await?);
+        self.with_hosted_recovery().await
     }
 
     /// Set the fast GPU model backend for tier-1 warmup.
@@ -722,17 +802,20 @@ impl JobWorker {
     pub fn start(self) -> WorkerHandle {
         let (shutdown_tx, mut shutdown_rx) = mpsc::channel(1);
         let event_rx = self.event_tx.subscribe();
+        let (stopped_tx, stopped) = tokio::sync::watch::channel(false);
 
         let worker = Arc::new(self);
         let worker_clone = worker.clone();
 
         tokio::spawn(async move {
             worker_clone.run(&mut shutdown_rx).await;
+            let _ = stopped_tx.send(true);
         });
 
         WorkerHandle {
             shutdown_tx,
             event_rx,
+            stopped,
         }
     }
 
@@ -757,6 +840,7 @@ impl JobWorker {
         // new work, then keep sweeping independently of the drain loop.
         reap_stale_jobs_once(
             &self.db,
+            self.hosted_recovery.as_deref(),
             self.config.stale_reap_threshold,
             self.config.retry_policy,
             "startup",
@@ -764,10 +848,25 @@ impl JobWorker {
         .await;
         let periodic_reaper = tokio::spawn(run_periodic_stale_reaper(
             self.db.clone(),
+            self.hosted_recovery.clone(),
             self.config.stale_reap_threshold,
             self.config.stale_reap_interval,
             self.config.retry_policy,
         ));
+
+        if self.hosted_recovery.is_some() {
+            let _ = self.event_tx.send(WorkerEvent::WorkerStarted);
+            if let Some(execution) = &self.hosted_execution {
+                execution.run(self, shutdown_rx).await;
+            } else {
+                warn!("Hosted recovery-only worker has no execution registry");
+                shutdown_rx.recv().await;
+            }
+            periodic_reaper.abort();
+            let _ = periodic_reaper.await;
+            let _ = self.event_tx.send(WorkerEvent::WorkerStopped);
+            return;
+        }
 
         let job_notify = self.db.jobs.job_notify();
         let poll_interval = Duration::from_millis(self.config.poll_interval_ms);
@@ -1196,6 +1295,11 @@ impl JobWorker {
 
     /// Get the pending job count.
     pub async fn pending_count(&self) -> Result<i64> {
+        if self.hosted_recovery.is_some() {
+            return Err(Error::InvalidInput(
+                "Global pending counts are unavailable for a hosted worker".into(),
+            ));
+        }
         self.db.jobs.pending_count().await
     }
 }

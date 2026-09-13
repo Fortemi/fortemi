@@ -1,0 +1,107 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-13T01:16:01.851Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-dispatch-cycle87.json",
+    "type": "artifact_bundle",
+    "created_at": "2026-09-13T01:16:01.851Z",
+    "checksum": "sha256:818f079b54b9f0ed712a100941f9b613c99819b3ce9075a202c58d8ce0e9566a",
+    "size_bytes": 9994,
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "crates/matric-jobs/src/worker.rs",
+          "bytes": 80966,
+          "sha256": "e76e4aee075fdaeda2129b1d9839c618dee902eec3aff70087603aaed4e64310"
+        },
+        {
+          "path": "crates/matric-jobs/src/worker/dispatch.rs",
+          "bytes": 10856,
+          "sha256": "021499a5d02d8494fcd9eb198f6d526af00551b056409d079ab0a0a6edc37af9"
+        },
+        {
+          "path": "crates/matric-jobs/src/worker/recovery.rs",
+          "bytes": 6361,
+          "sha256": "30af995f915f54dd82c05d8a02ba8e0bca5b9e99063f329c9f4f968119a09a11"
+        },
+        {
+          "path": "crates/matric-jobs/src/worker/registry.rs",
+          "bytes": 1620,
+          "sha256": "6a52ba6c6fc4bf2c2145bddae74a8b3725fa50da5d22c10e455067bea234ded5"
+        },
+        {
+          "path": "crates/matric-jobs/tests/hosted_dispatch_test.rs",
+          "bytes": 15048,
+          "sha256": "79c54965c35e75e080572097c20cf3a9f9b2f8c2fad623fbba99e2877de3306c"
+        },
+        {
+          "path": ".aiwg/architecture/impact/typed-metadata-search.md",
+          "bytes": 18457,
+          "sha256": "cbb6e48d39c0bfba38695bcb42b4bc49273f2ebf590bc58f3eaa63df28c9deae"
+        },
+        {
+          "path": ".aiwg/architecture/impact/hosted-worker-transactions.md",
+          "bytes": 11606,
+          "sha256": "9c91014e7f2c7c5bcea0d943b1854a69491b299a1cc73568a733a081e4439e22"
+        },
+        {
+          "path": "docs/architecture/adr/ADR-090-multi-tenancy-model.md",
+          "bytes": 17463,
+          "sha256": "0a13abc71ff90fb9cf2442b216846dd1c9d99f735184ac41fe33c5b8bdd5b0f2"
+        },
+        {
+          "path": "docs/content/authentication.md",
+          "bytes": 38165,
+          "sha256": "6544dd02f9be60b0046434fcafbb06de6babc40ee5d01169b5e5ca577c9fea2c"
+        },
+        {
+          "path": ".aiwg/reports/lane-b-1091-hosted-dispatch-cycle87.json",
+          "bytes": 9994,
+          "sha256": "818f079b54b9f0ed712a100941f9b613c99819b3ce9075a202c58d8ce0e9566a"
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:hosted-dispatch:lane-b:087:server",
+    "type": "modification",
+    "started_at": "2026-09-13T01:01:47.461Z",
+    "ended_at": "2026-09-13T01:16:01.851Z",
+    "description": "Bounded service-authorized committed claim dispatch and fenced settlement capabilities with owned database acceptance; recovery and installed-Core actual-binary regression pass. Production handler integration remains incomplete."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-dispatch-cycle87.json",
+      "activity": "urn:aiwg:activity:hosted-dispatch:lane-b:087:server"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:hosted-dispatch:lane-b:087:server",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-dispatch-cycle87.json",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-dispatch-cycle87.json",
+        "source": "urn:gitea:Fortemi:fortemi:issue:1091"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-dispatch-cycle87.json",
+        "source": "urn:gitea:Fortemi:fortemi-react:issue:405"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-dispatch-cycle87.json",
+        "source": "urn:aiwg:artifact:docs/architecture/adr/ADR-090-multi-tenancy-model.md"
+      }
+    ]
+  }
+}

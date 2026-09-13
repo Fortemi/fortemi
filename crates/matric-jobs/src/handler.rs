@@ -11,6 +11,9 @@ use std::{fmt, sync::Arc};
 
 use crate::worker::WorkerEvent;
 
+mod hosted;
+pub use hosted::{hosted_database_failure, HostedJobContext, HostedJobHandler};
+
 /// Progress callback type for job handlers.
 pub type ProgressCallback = Arc<dyn Fn(i32, Option<&str>) + Send + Sync>;
 

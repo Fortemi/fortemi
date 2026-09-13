@@ -70,6 +70,8 @@ pub struct HybridSearchConfig {
     /// Unified strict filter for multi-dimensional filtering.
     /// When set, takes precedence over strict_filter for FTS.
     pub unified_filter: Option<StrictFilter>,
+    /// Validated indexed metadata predicates, applied before candidate ranking.
+    pub metadata_predicates: Option<matric_core::metadata_search::MetadataPredicates>,
     /// Optional ISO 639-1 language hint (e.g., "en", "zh", "ja", "de")
     pub lang_hint: Option<String>,
     /// Optional script hint (e.g., "latin", "han", "cyrillic")
@@ -99,6 +101,7 @@ impl fmt::Debug for HybridSearchConfig {
             )
             .field("strict_filter_set", &self.strict_filter.is_some())
             .field("unified_filter_set", &self.unified_filter.is_some())
+            .field("metadata_predicates", &self.metadata_predicates)
             .field("lang_hint_len", &self.lang_hint.as_ref().map(String::len))
             .field(
                 "script_hint_len",
@@ -137,6 +140,7 @@ impl Default for HybridSearchConfig {
             deduplication: DeduplicationConfig::default(),
             strict_filter: None,
             unified_filter: None,
+            metadata_predicates: None,
             lang_hint: None,
             script_hint: None,
             fts_flags: FtsFeatureFlags::default(),
@@ -332,6 +336,136 @@ pub struct HybridSearchEngine {
 }
 
 impl HybridSearchEngine {
+    /// Execute retrieval and reranking entirely on the caller's authorized
+    /// tenant/archive connection, with identical candidate scope in every mode.
+    #[instrument(skip_all, fields(
+        subsystem = "search",
+        component = "hybrid_search",
+        op = "search_on_connection",
+        query_len = telemetry_text_len(query),
+        query_class = %search_query_telemetry_class(query),
+        limit,
+        fts_weight = config.fts_weight,
+        semantic_weight = config.semantic_weight,
+    ))]
+    pub async fn search_on_connection(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        query: &str,
+        query_embedding: Option<&Vector>,
+        filters: &str,
+        limit: i64,
+        config: &HybridSearchConfig,
+    ) -> Result<Vec<EnhancedSearchHit>> {
+        use matric_db::search_candidates::{
+            lexical_on_connection, vector_on_connection, LexicalStrategy, SearchCandidateScope,
+        };
+        let start = Instant::now();
+        if limit < 0 || limit > 1000 {
+            return Err(matric_core::Error::InvalidInput(
+                "search limit must be between 0 and 1000".into(),
+            ));
+        }
+        if limit == 0 {
+            return Ok(Vec::new());
+        }
+        let scope = SearchCandidateScope {
+            metadata: config.metadata_predicates.clone(),
+            strict: config.strict_filter.clone(),
+            unified: config.unified_filter.clone(),
+            legacy_filters: filters.to_string(),
+            embedding_set_id: config.embedding_set_id,
+            exclude_archived: config.exclude_archived,
+        };
+        let (strategy, detected_script) = Self::select_strategy(query, config);
+        debug!(
+            ?detected_script,
+            ?strategy,
+            "Selected search strategy based on script detection"
+        );
+        let strategy = match strategy {
+            SearchStrategy::FtsEnglish => LexicalStrategy::English,
+            SearchStrategy::FtsSimple => LexicalStrategy::Simple,
+            SearchStrategy::Trigram => LexicalStrategy::Trigram,
+            SearchStrategy::Bigram | SearchStrategy::Cjk => LexicalStrategy::Bigram,
+        };
+        let mut lists = Vec::new();
+        let mut fts_count = 0;
+        let mut semantic_count = 0;
+        if config.fts_weight > 0.0 && !query.trim().is_empty() {
+            let fts_start = Instant::now();
+            let hits =
+                lexical_on_connection(connection, query, limit * 2, strategy, &scope).await?;
+            fts_count = hits.len();
+            debug!(
+                fts_hits = fts_count,
+                ?strategy,
+                duration_ms = fts_start.elapsed().as_millis() as u64,
+                "FTS retrieval complete"
+            );
+            if !hits.is_empty() {
+                lists.push(Self::apply_weights(hits, config.fts_weight));
+            }
+        }
+        if config.semantic_weight > 0.0 {
+            if let Some(vector) = query_embedding {
+                let sem_start = Instant::now();
+                let threshold = if fts_count == 0 {
+                    MIN_SEMANTIC_SIMILARITY_NO_FTS
+                } else {
+                    MIN_SEMANTIC_SIMILARITY
+                };
+                let hits = vector_on_connection(connection, vector, limit * 2, &scope)
+                    .await?
+                    .into_iter()
+                    .filter(|hit| hit.score >= threshold)
+                    .collect::<Vec<_>>();
+                semantic_count = hits.len();
+                debug!(semantic_hits = semantic_count, threshold = %threshold, fts_gate = fts_count == 0, duration_ms = sem_start.elapsed().as_millis() as u64, "Semantic retrieval complete");
+                if !hits.is_empty() {
+                    lists.push(Self::apply_weights(hits, config.semantic_weight));
+                }
+            }
+        }
+        let fusion_start = Instant::now();
+        let mut results = rrf_fuse(lists, limit as usize * 3);
+        debug!(
+            fusion_method = "rrf",
+            result_count = results.len(),
+            duration_ms = fusion_start.elapsed().as_millis() as u64,
+            "Fusion complete"
+        );
+        let diversity = config.diversity.unwrap_or(0.0);
+        if diversity > 0.0 {
+            if let Some(vector) = query_embedding {
+                let mmr_start = Instant::now();
+                use sqlx::Row;
+                let ids = results.iter().map(|h| h.note_id).collect::<Vec<_>>();
+                // The set and transaction remain pinned during MMR lookup; no
+                // second pool checkout or cross-set vector can affect ranking.
+                let rows = sqlx::query("SELECT DISTINCT ON (e.note_id) e.note_id, e.vector FROM embedding e JOIN note n ON n.id = e.note_id AND n.tenant_id = e.tenant_id WHERE e.note_id = ANY($1) AND ($2::uuid IS NULL OR e.embedding_set_id = $2) AND n.deleted_at IS NULL AND e.vector IS NOT NULL ORDER BY e.note_id, e.id")
+                    .bind(&ids).bind(config.embedding_set_id).fetch_all(&mut *connection).await?;
+                let vectors = rows.into_iter().map(|row| Ok((row.try_get("note_id")?, row.try_get("vector")?)))
+                    .collect::<std::result::Result<std::collections::HashMap<Uuid, Vector>, sqlx::Error>>()?;
+                results = mmr_rerank(results, &vectors, vector, diversity, limit as usize * 3);
+                debug!(diversity = %diversity, vectors_fetched = vectors.len(), result_count = results.len(), duration_ms = mmr_start.elapsed().as_millis() as u64, "MMR diversity re-ranking complete");
+            }
+        }
+        if config.min_score > 0.0 {
+            results.retain(|hit| hit.score >= config.min_score);
+        }
+        let mut results = deduplicate_search_results(results, &config.deduplication);
+        results.truncate(limit as usize);
+        info!(
+            fts_hits = fts_count,
+            semantic_hits = semantic_count,
+            result_count = results.len(),
+            duration_ms = start.elapsed().as_millis() as u64,
+            "Hybrid search completed"
+        );
+        Ok(results)
+    }
+
     /// Create a new hybrid search engine.
     pub fn new(db: Database) -> Self {
         Self { db }
@@ -340,52 +474,6 @@ impl HybridSearchEngine {
     /// Get a reference to the underlying database.
     pub fn db(&self) -> &Database {
         &self.db
-    }
-
-    /// Fetch embedding vectors for a batch of note IDs (for MMR re-ranking, issue #561).
-    /// Returns one vector per note (the primary/first embedding).
-    async fn fetch_vectors_for_notes(
-        &self,
-        note_ids: &[Uuid],
-    ) -> Result<std::collections::HashMap<Uuid, Vector>> {
-        if note_ids.is_empty() {
-            return Ok(std::collections::HashMap::new());
-        }
-        let rows = sqlx::query(
-            r#"
-            SELECT DISTINCT ON (note_id) note_id, vector
-            FROM embedding
-            WHERE note_id = ANY($1)
-            ORDER BY note_id, id
-            "#,
-        )
-        .bind(note_ids)
-        .fetch_all(self.db.pool())
-        .await
-        .map_err(matric_core::Error::Database)?;
-
-        use sqlx::Row;
-        Ok(rows
-            .into_iter()
-            .map(|row| {
-                let note_id: Uuid = row.get("note_id");
-                let vector: Vector = row.get("vector");
-                (note_id, vector)
-            })
-            .collect())
-    }
-
-    /// Get note IDs that belong to an embedding set (for FTS post-filtering, issue #125).
-    async fn get_set_member_ids(&self, set_id: Uuid) -> Result<std::collections::HashSet<Uuid>> {
-        let ids: Vec<Uuid> = sqlx::query_scalar(
-            "SELECT note_id FROM embedding_set_member WHERE embedding_set_id = $1",
-        )
-        .bind(set_id)
-        .fetch_all(self.db.pool())
-        .await
-        .map_err(matric_core::Error::Database)?;
-
-        Ok(ids.into_iter().collect())
     }
 
     /// Apply score weighting to search results.
@@ -480,235 +568,11 @@ impl HybridSearchEngine {
             DetectedScript::Unknown => SearchStrategy::FtsSimple,
         }
     }
-
-    /// Perform FTS search with the appropriate strategy.
-    ///
-    /// Applies strict_filter for all strategies: English FTS uses server-side SQL
-    /// filtering; non-English strategies use post-filtering (fixes #235, #236).
-    async fn fts_search_with_strategy(
-        &self,
-        query: &str,
-        strategy: SearchStrategy,
-        limit: i64,
-        config: &HybridSearchConfig,
-    ) -> Result<Vec<SearchHit>> {
-        let mut results = match strategy {
-            SearchStrategy::FtsEnglish => {
-                if let Some(ref strict_filter) = config.strict_filter {
-                    self.db
-                        .search
-                        .search_with_strict_filter(
-                            query,
-                            Some(strict_filter),
-                            limit,
-                            config.exclude_archived,
-                        )
-                        .await?
-                } else {
-                    self.db
-                        .search
-                        .search(query, limit, config.exclude_archived)
-                        .await?
-                }
-            }
-            SearchStrategy::FtsSimple => {
-                self.db
-                    .search
-                    .search_simple(query, limit, config.exclude_archived)
-                    .await?
-            }
-            SearchStrategy::Trigram => {
-                self.db
-                    .search
-                    .search_trigram(query, limit, config.exclude_archived)
-                    .await?
-            }
-            SearchStrategy::Bigram => {
-                self.db
-                    .search
-                    .search_bigram(query, limit, config.exclude_archived)
-                    .await?
-            }
-            SearchStrategy::Cjk => {
-                self.db
-                    .search
-                    .search_cjk(query, limit, config.exclude_archived)
-                    .await?
-            }
-        };
-
-        // Post-filter by strict_filter for non-English strategies (fixes #236).
-        // English FTS handles this server-side via search_with_strict_filter.
-        if strategy != SearchStrategy::FtsEnglish {
-            if let Some(ref strict_filter) = config.strict_filter {
-                if strict_filter.match_none {
-                    return Ok(Vec::new());
-                }
-                if !strict_filter.is_empty() {
-                    let note_ids: Vec<Uuid> = results.iter().map(|h| h.note_id).collect();
-                    if !note_ids.is_empty() {
-                        let matching = self
-                            .filter_notes_by_strict_filter(&note_ids, strict_filter)
-                            .await?;
-                        results.retain(|hit| matching.contains(&hit.note_id));
-                    }
-                }
-            }
-        }
-
-        Ok(results)
-    }
-
-    /// Post-filter FTS results by query-level filters (tag, collection, temporal).
-    ///
-    /// Used when non-English FTS strategies (trigram, bigram, CJK) are selected
-    /// for search_filtered — these strategies don't have SQL-level filter variants,
-    /// so we get unfiltered FTS results and filter them here.
-    async fn post_filter_by_query_filters(
-        &self,
-        results: Vec<SearchHit>,
-        filters: &str,
-        exclude_archived: bool,
-    ) -> Result<Vec<SearchHit>> {
-        if results.is_empty() || filters.trim().is_empty() {
-            return Ok(results);
-        }
-
-        let note_ids: Vec<Uuid> = results.iter().map(|h| h.note_id).collect();
-
-        let archive_clause = if exclude_archived {
-            "AND (n.archived IS FALSE OR n.archived IS NULL) AND n.deleted_at IS NULL"
-        } else {
-            "AND n.deleted_at IS NULL"
-        };
-
-        let mut sql = format!(
-            "SELECT n.id FROM note n WHERE n.id = ANY($1::uuid[]) {}",
-            archive_clause
-        );
-        let mut params: Vec<String> = Vec::new();
-
-        for token in filters.split_whitespace() {
-            if let Some(tag) = token.strip_prefix("tag:") {
-                params.push(tag.to_string());
-                let exact_idx = params.len() + 1; // +1 because $1 is note_ids
-                params.push(matric_db::escape_like(tag));
-                let like_idx = params.len() + 1;
-                sql.push_str(&format!(
-                    " AND n.id IN (SELECT note_id FROM note_tag WHERE LOWER(tag_name) = LOWER(${exact_idx}::text) OR LOWER(tag_name) LIKE LOWER(${like_idx}::text) || '/%' ESCAPE '\\\\')",
-                ));
-            } else if let Some(collection) = token.strip_prefix("collection:") {
-                if uuid::Uuid::parse_str(collection).is_ok() {
-                    params.push(collection.to_string());
-                    sql.push_str(&format!(
-                        " AND n.collection_id = ${}::uuid",
-                        params.len() + 1
-                    ));
-                }
-            } else if let Some(ts) = token.strip_prefix("created_after:") {
-                if chrono::DateTime::parse_from_rfc3339(ts).is_ok() {
-                    params.push(ts.to_string());
-                    sql.push_str(&format!(
-                        " AND n.created_at_utc >= ${}::timestamptz",
-                        params.len() + 1
-                    ));
-                }
-            } else if let Some(ts) = token.strip_prefix("created_before:") {
-                if chrono::DateTime::parse_from_rfc3339(ts).is_ok() {
-                    params.push(ts.to_string());
-                    sql.push_str(&format!(
-                        " AND n.created_at_utc <= ${}::timestamptz",
-                        params.len() + 1
-                    ));
-                }
-            } else if let Some(ts) = token.strip_prefix("updated_after:") {
-                if chrono::DateTime::parse_from_rfc3339(ts).is_ok() {
-                    params.push(ts.to_string());
-                    sql.push_str(&format!(
-                        " AND n.updated_at_utc >= ${}::timestamptz",
-                        params.len() + 1
-                    ));
-                }
-            } else if let Some(ts) = token.strip_prefix("updated_before:") {
-                if chrono::DateTime::parse_from_rfc3339(ts).is_ok() {
-                    params.push(ts.to_string());
-                    sql.push_str(&format!(
-                        " AND n.updated_at_utc <= ${}::timestamptz",
-                        params.len() + 1
-                    ));
-                }
-            }
-        }
-
-        // If no filter conditions were added, return unfiltered results
-        if params.is_empty() {
-            return Ok(results);
-        }
-
-        let mut q = sqlx::query_scalar::<_, Uuid>(&sql);
-        q = q.bind(&note_ids);
-        for param in &params {
-            q = q.bind(param);
-        }
-
-        let matching_ids: std::collections::HashSet<Uuid> = q
-            .fetch_all(self.db.pool())
-            .await
-            .map_err(matric_core::Error::Database)?
-            .into_iter()
-            .collect();
-
-        Ok(results
-            .into_iter()
-            .filter(|hit| matching_ids.contains(&hit.note_id))
-            .collect())
-    }
-
-    /// Post-filter a set of note IDs by strict tag filter (fixes #235, #236).
-    ///
-    /// Used for non-English FTS strategies and the search_filtered path where
-    /// strict_filter cannot be applied server-side in the FTS query.
-    async fn filter_notes_by_strict_filter(
-        &self,
-        note_ids: &[Uuid],
-        filter: &matric_core::StrictTagFilter,
-    ) -> Result<std::collections::HashSet<Uuid>> {
-        use matric_db::strict_filter::StrictFilterQueryBuilder;
-
-        let builder = StrictFilterQueryBuilder::new(filter.clone(), 1);
-        let (filter_clause, filter_params) = builder.build();
-
-        let sql = format!(
-            "SELECT n.id FROM note n WHERE n.id = ANY($1::uuid[]) AND {}",
-            filter_clause
-        );
-
-        let mut q = sqlx::query_scalar::<_, Uuid>(&sql);
-        q = q.bind(note_ids);
-
-        for param in &filter_params {
-            q = match param {
-                matric_db::strict_filter::QueryParam::Uuid(id) => q.bind(id),
-                matric_db::strict_filter::QueryParam::UuidArray(ids) => q.bind(ids),
-                matric_db::strict_filter::QueryParam::Int(val) => q.bind(val),
-                matric_db::strict_filter::QueryParam::Timestamp(ts) => q.bind(ts),
-                matric_db::strict_filter::QueryParam::Bool(b) => q.bind(b),
-                matric_db::strict_filter::QueryParam::String(s) => q.bind(s),
-                matric_db::strict_filter::QueryParam::StringArray(arr) => q.bind(arr),
-            };
-        }
-
-        let ids = q
-            .fetch_all(self.db.pool())
-            .await
-            .map_err(matric_core::Error::Database)?;
-        Ok(ids.into_iter().collect())
-    }
 }
 
 #[async_trait]
 impl HybridSearch for HybridSearchEngine {
-    #[instrument(skip(self, query_embedding, config), fields(
+    #[instrument(skip(self, query, query_embedding, config), fields(
         subsystem = "search",
         component = "hybrid_search",
         op = "search",
@@ -724,159 +588,12 @@ impl HybridSearch for HybridSearchEngine {
         limit: i64,
         config: &HybridSearchConfig,
     ) -> Result<Vec<EnhancedSearchHit>> {
-        let start = Instant::now();
-        let mut ranked_lists = Vec::new();
-        let mut fts_count = 0usize;
-        let mut semantic_count = 0usize;
-
-        // Select search strategy based on script detection
-        let (strategy, detected_script) = Self::select_strategy(query, config);
-        debug!(
-            ?detected_script,
-            ?strategy,
-            "Selected search strategy based on script detection"
-        );
-
-        // FTS search (if weight > 0 and query is not empty)
-        if config.fts_weight > 0.0 && !query.trim().is_empty() {
-            let fts_start = Instant::now();
-            let mut fts_results = self
-                .fts_search_with_strategy(query, strategy, limit * 2, config)
-                .await?;
-
-            // Filter FTS results to embedding set members (issue #125)
-            if let Some(set_id) = config.embedding_set_id {
-                let member_ids = self.get_set_member_ids(set_id).await?;
-                fts_results.retain(|hit| member_ids.contains(&hit.note_id));
-            }
-
-            fts_count = fts_results.len();
-            debug!(
-                fts_hits = fts_count,
-                ?strategy,
-                duration_ms = fts_start.elapsed().as_millis() as u64,
-                "FTS retrieval complete"
-            );
-
-            if !fts_results.is_empty() {
-                ranked_lists.push(Self::apply_weights(fts_results, config.fts_weight));
-            }
-        }
-
-        // Semantic search (if weight > 0 and embedding is provided)
-        if config.semantic_weight > 0.0 {
-            if let Some(embedding) = query_embedding {
-                let sem_start = Instant::now();
-                // Apply strict filter, embedding set, or search all embeddings
-                let semantic_results = if let Some(ref strict_filter) = config.strict_filter {
-                    // Strict filter takes priority - ensures data isolation
-                    self.db
-                        .embeddings
-                        .find_similar_with_strict_filter(
-                            embedding,
-                            strict_filter,
-                            limit * 2,
-                            config.exclude_archived,
-                        )
-                        .await?
-                } else if let Some(set_id) = config.embedding_set_id {
-                    self.db
-                        .embeddings
-                        .find_similar_in_set(embedding, set_id, limit * 2, config.exclude_archived)
-                        .await?
-                } else {
-                    self.db
-                        .embeddings
-                        .find_similar(embedding, limit * 2, config.exclude_archived)
-                        .await?
-                };
-                // Filter out low-similarity semantic results BEFORE RRF fusion (fixes #384).
-                // Use stricter threshold when FTS found nothing — without keyword
-                // confirmation, require stronger semantic evidence to avoid returning
-                // noise for nonsense queries in small corpora.
-                let threshold = if fts_count == 0 {
-                    MIN_SEMANTIC_SIMILARITY_NO_FTS
-                } else {
-                    MIN_SEMANTIC_SIMILARITY
-                };
-                let semantic_results: Vec<SearchHit> = semantic_results
-                    .into_iter()
-                    .filter(|hit| hit.score >= threshold)
-                    .collect();
-
-                semantic_count = semantic_results.len();
-                debug!(
-                    semantic_hits = semantic_count,
-                    threshold = %threshold,
-                    fts_gate = fts_count == 0,
-                    duration_ms = sem_start.elapsed().as_millis() as u64,
-                    "Semantic retrieval complete"
-                );
-
-                if !semantic_results.is_empty() {
-                    ranked_lists.push(Self::apply_weights(
-                        semantic_results,
-                        config.semantic_weight,
-                    ));
-                }
-            }
-        }
-
-        // If no results from either source, return empty
-        if ranked_lists.is_empty() {
-            debug!("No results from any source");
-            return Ok(Vec::new());
-        }
-
-        // Fuse results using RRF (over-fetch to account for deduplication reducing count)
-        let fusion_start = Instant::now();
-        let mut results = rrf_fuse(ranked_lists, (limit as usize) * 3);
-        debug!(
-            fusion_method = "rrf",
-            result_count = results.len(),
-            duration_ms = fusion_start.elapsed().as_millis() as u64,
-            "Fusion complete"
-        );
-
-        // Apply MMR diversity re-ranking if enabled (issue #561)
-        let diversity = config.diversity.unwrap_or(0.0);
-        if diversity > 0.0 {
-            if let Some(qvec) = query_embedding {
-                let mmr_start = Instant::now();
-                let note_ids: Vec<Uuid> = results.iter().map(|h| h.note_id).collect();
-                let vectors = self.fetch_vectors_for_notes(&note_ids).await?;
-                results = mmr_rerank(results, &vectors, qvec, diversity, (limit as usize) * 3);
-                debug!(
-                    diversity = %diversity,
-                    vectors_fetched = vectors.len(),
-                    result_count = results.len(),
-                    duration_ms = mmr_start.elapsed().as_millis() as u64,
-                    "MMR diversity re-ranking complete"
-                );
-            }
-        }
-
-        // Apply minimum score filter
-        if config.min_score > 0.0 {
-            results.retain(|hit| hit.score >= config.min_score);
-        }
-
-        // Apply deduplication, then enforce requested limit (fixes #183)
-        let mut deduplicated = deduplicate_search_results(results, &config.deduplication);
-        deduplicated.truncate(limit as usize);
-
-        info!(
-            fts_hits = fts_count,
-            semantic_hits = semantic_count,
-            result_count = deduplicated.len(),
-            duration_ms = start.elapsed().as_millis() as u64,
-            "Hybrid search completed"
-        );
-
-        Ok(deduplicated)
+        let mut connection = self.db.pool.acquire().await?;
+        self.search_on_connection(&mut connection, query, query_embedding, "", limit, config)
+            .await
     }
 
-    #[instrument(skip(self, query_embedding, config), fields(
+    #[instrument(skip(self, query, query_embedding, filters, config), fields(
         subsystem = "search",
         component = "hybrid_search",
         op = "search_filtered",
@@ -891,138 +608,16 @@ impl HybridSearch for HybridSearchEngine {
         limit: i64,
         config: &HybridSearchConfig,
     ) -> Result<Vec<EnhancedSearchHit>> {
-        let start = Instant::now();
-        let mut ranked_lists = Vec::new();
-        let mut fts_count: usize = 0;
-
-        // FTS search with filters — strategy-aware (fixes #295/#288 emoji search)
-        if config.fts_weight > 0.0 && !query.trim().is_empty() {
-            let (strategy, _script) = Self::select_strategy(query, config);
-            let mut fts_results = if strategy == SearchStrategy::FtsEnglish {
-                // English FTS can efficiently combine with SQL-level filters
-                self.db
-                    .search
-                    .search_filtered(query, filters, limit * 2, config.exclude_archived)
-                    .await?
-            } else {
-                // Non-English strategies (trigram, bigram, CJK): use strategy-aware
-                // FTS then post-filter by query-level filters
-                let unfiltered = self
-                    .fts_search_with_strategy(query, strategy, limit * 4, config)
-                    .await?;
-                self.post_filter_by_query_filters(unfiltered, filters, config.exclude_archived)
-                    .await?
-            };
-
-            // Apply strict_filter post-filtering (fixes #235 — search_filtered path)
-            if let Some(ref strict_filter) = config.strict_filter {
-                if strict_filter.match_none {
-                    fts_results.clear();
-                } else if !strict_filter.is_empty() {
-                    let note_ids: Vec<Uuid> = fts_results.iter().map(|h| h.note_id).collect();
-                    if !note_ids.is_empty() {
-                        let matching = self
-                            .filter_notes_by_strict_filter(&note_ids, strict_filter)
-                            .await?;
-                        fts_results.retain(|hit| matching.contains(&hit.note_id));
-                    }
-                }
-            }
-
-            // Filter FTS results to embedding set members (fixes #237)
-            if let Some(set_id) = config.embedding_set_id {
-                let member_ids = self.get_set_member_ids(set_id).await?;
-                fts_results.retain(|hit| member_ids.contains(&hit.note_id));
-            }
-
-            fts_count = fts_results.len();
-            debug!(fts_hits = fts_count, "FTS filtered retrieval");
-
-            if !fts_results.is_empty() {
-                ranked_lists.push(Self::apply_weights(fts_results, config.fts_weight));
-            }
-        }
-
-        // Semantic search with optional strict filter for data isolation
-        if config.semantic_weight > 0.0 {
-            if let Some(embedding) = query_embedding {
-                // Apply strict filter, embedding set, or search all embeddings
-                let semantic_results = if let Some(ref strict_filter) = config.strict_filter {
-                    // Strict filter takes priority - ensures data isolation
-                    self.db
-                        .embeddings
-                        .find_similar_with_strict_filter(
-                            embedding,
-                            strict_filter,
-                            limit * 2,
-                            config.exclude_archived,
-                        )
-                        .await?
-                } else if let Some(set_id) = config.embedding_set_id {
-                    self.db
-                        .embeddings
-                        .find_similar_in_set(embedding, set_id, limit * 2, config.exclude_archived)
-                        .await?
-                } else {
-                    self.db
-                        .embeddings
-                        .find_similar(embedding, limit * 2, config.exclude_archived)
-                        .await?
-                };
-                // Filter out low-similarity semantic results before RRF fusion (fixes #384)
-                // Use stricter threshold when FTS found nothing
-                let threshold = if fts_count == 0 {
-                    MIN_SEMANTIC_SIMILARITY_NO_FTS
-                } else {
-                    MIN_SEMANTIC_SIMILARITY
-                };
-                let semantic_results: Vec<SearchHit> = semantic_results
-                    .into_iter()
-                    .filter(|hit| hit.score >= threshold)
-                    .collect();
-
-                debug!(semantic_hits = semantic_results.len(), threshold = %threshold, "Semantic retrieval");
-
-                if !semantic_results.is_empty() {
-                    ranked_lists.push(Self::apply_weights(
-                        semantic_results,
-                        config.semantic_weight,
-                    ));
-                }
-            }
-        }
-
-        if ranked_lists.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let mut results = rrf_fuse(ranked_lists, (limit as usize) * 3);
-
-        // Apply MMR diversity re-ranking if enabled (issue #561)
-        let diversity = config.diversity.unwrap_or(0.0);
-        if diversity > 0.0 {
-            if let Some(qvec) = query_embedding {
-                let note_ids: Vec<Uuid> = results.iter().map(|h| h.note_id).collect();
-                let vectors = self.fetch_vectors_for_notes(&note_ids).await?;
-                results = mmr_rerank(results, &vectors, qvec, diversity, (limit as usize) * 3);
-            }
-        }
-
-        if config.min_score > 0.0 {
-            results.retain(|hit| hit.score >= config.min_score);
-        }
-
-        // Apply deduplication, then enforce requested limit (fixes #183)
-        let mut deduplicated = deduplicate_search_results(results, &config.deduplication);
-        deduplicated.truncate(limit as usize);
-
-        info!(
-            result_count = deduplicated.len(),
-            duration_ms = start.elapsed().as_millis() as u64,
-            "Filtered hybrid search completed"
-        );
-
-        Ok(deduplicated)
+        let mut connection = self.db.pool.acquire().await?;
+        self.search_on_connection(
+            &mut connection,
+            query,
+            query_embedding,
+            filters,
+            limit,
+            config,
+        )
+        .await
     }
 
     async fn find_similar(
@@ -1233,8 +828,7 @@ impl SearchRequest {
     }
 
     /// Execute the search request.
-    pub async fn execute(self, engine: &HybridSearchEngine) -> Result<Vec<EnhancedSearchHit>> {
-        // Build filters string with temporal filters
+    fn combined_filters(&self) -> String {
         let mut filter_parts: Vec<String> = Vec::new();
         if let Some(f) = &self.filters {
             filter_parts.push(f.clone());
@@ -1252,27 +846,30 @@ impl SearchRequest {
             filter_parts.push(format!("updated_before:{}", ts.to_rfc3339()));
         }
 
-        if !filter_parts.is_empty() {
-            let combined_filters = filter_parts.join(" ");
-            engine
-                .search_filtered(
-                    &self.query,
-                    self.embedding.as_ref(),
-                    &combined_filters,
-                    self.limit,
-                    &self.config,
-                )
-                .await
-        } else {
-            engine
-                .search(
-                    &self.query,
-                    self.embedding.as_ref(),
-                    self.limit,
-                    &self.config,
-                )
-                .await
-        }
+        filter_parts.join(" ")
+    }
+
+    pub async fn execute_on_connection(
+        self,
+        engine: &HybridSearchEngine,
+        connection: &mut sqlx::PgConnection,
+    ) -> Result<Vec<EnhancedSearchHit>> {
+        let filters = self.combined_filters();
+        engine
+            .search_on_connection(
+                connection,
+                &self.query,
+                self.embedding.as_ref(),
+                &filters,
+                self.limit,
+                &self.config,
+            )
+            .await
+    }
+
+    pub async fn execute(self, engine: &HybridSearchEngine) -> Result<Vec<EnhancedSearchHit>> {
+        let mut connection = engine.db.pool.acquire().await?;
+        self.execute_on_connection(engine, &mut connection).await
     }
 }
 
@@ -1311,6 +908,7 @@ mod tests {
     fn test_apply_weights() {
         let hits = vec![
             SearchHit {
+                evidence: None,
                 note_id: Uuid::new_v4(),
                 score: 1.0,
                 snippet: None,
@@ -1319,6 +917,7 @@ mod tests {
                 embedding_status: None,
             },
             SearchHit {
+                evidence: None,
                 note_id: Uuid::new_v4(),
                 score: 0.5,
                 snippet: None,
@@ -1701,6 +1300,7 @@ mod tests {
     #[test]
     fn test_apply_weights_with_zero_weight() {
         let hits = vec![SearchHit {
+            evidence: None,
             note_id: Uuid::new_v4(),
             score: 1.0,
             snippet: None,
@@ -1716,6 +1316,7 @@ mod tests {
     #[test]
     fn test_apply_weights_with_full_weight() {
         let hits = vec![SearchHit {
+            evidence: None,
             note_id: Uuid::new_v4(),
             score: 0.8,
             snippet: None,
@@ -1738,6 +1339,7 @@ mod tests {
     #[test]
     fn test_apply_weights_preserves_metadata() {
         let hits = vec![SearchHit {
+            evidence: None,
             note_id: Uuid::new_v4(),
             score: 1.0,
             snippet: Some("test snippet".to_string()),

@@ -1,0 +1,80 @@
+{
+  "at": "2026-09-12T17:42:08.102Z",
+  "status": "LOCAL_CITATION_PROJECTION_AND_INSTALLED_CANDIDATE_PASS",
+  "issues": [
+    "Fortemi/fortemi#1091",
+    "Fortemi/fortemi-react#405"
+  ],
+  "authority": {
+    "repository": "Fortemi/fortemi",
+    "issue": 1091,
+    "baseCommit": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+    "sourceState": "uncommitted candidate; base is not the contract revision",
+    "path": "contracts/metadata-search/candidate/1.0.0/",
+    "files": {
+      "predicates.schema.json": "e325707ce20abb88ef3a8f4bbb0d02ab09501b1ffe9b48b0c92a96e97dda00c3",
+      "predicate-vectors.json": "df9e129cab4708db71c3e22f87efd252fbcac144daa45a53ee1716f4a1a05ae7",
+      "sql-scope-vectors.json": "dcd35298a3bc485a6f1c87c6c87f136ee98121dad3f2b1c8b590b2e5381aa4d5",
+      "evidence-locator.schema.json": "cd8427c507bca1a08bdb68da0a5d2759d1d7805401db3c00372ab249652efb7a",
+      "evidence-vectors.json": "b532a4fa7697bdfc87e8541575fcee7c94a5b5ac53e4a6472438c49247e6b266",
+      "evidence-set.schema.json": "da7e5d41bd563cb2cfe424cf7dfa92007a865ee0e1a9a4832ef669039d80717e",
+      "evidence-set-vectors.json": "b84061ee252d2ee25d744111d2a04dfcd2c490274d4285bac31f4bd0e91e47d7"
+    }
+  },
+  "verification": {
+    "focused": 165,
+    "surroundingSearch": 782,
+    "portable": 1845,
+    "portableFiles": 27,
+    "portablePending": 0,
+    "rustCore": 639,
+    "bindingCorpus": 55,
+    "envelopeCorpus": 36,
+    "installedStorageChecks": 8,
+    "packageVerifierTests": 21,
+    "typecheck": true,
+    "focusedLint": true,
+    "sixFormerCitationFailuresNowPass": true,
+    "candidateAuthorityByteIdentical": true,
+    "implementationReceiptCurrent": true
+  },
+  "behavior": [
+    "Authority-owned strict per-hit envelope, same-note validation before dedup, Unicode scalar order, max64, semantic-first retention and explicit omissions.",
+    "Pure Rust and TypeScript build/merge preserve source identities and already-bound snapshots.",
+    "Actual PGlite lexical/vector ranking binds exact raw unit UTF-8 SHA-256 in SQL; no rendered snippet coordinates or post-ranking rebinding.",
+    "Title/current/attachment attribution and winning embedding ID/index survive hybrid fusion; hydration rechecks deletion and original filters.",
+    "Native hit IDs use JSON transport to preserve leading BOMs. PGlite adapter forwards candidate evidence; complete capability remains false.",
+    "Clean-installed public package executes both shared corpora and actual three-mode PGlite/adapter/resolver checks.",
+    "Current shard implementation receipt refreshed with new dependencies and portable-contract rerun; no shard authority or fixture-byte change."
+  ],
+  "failuresRetained": [
+    "Initial strict-AJV collection error from missing conditional array types corrected without weakening schema.",
+    "Historical Cycle71-73 RED receipts preserved; current regression assertions explicitly require new evidence field and exact stored-text resolution.",
+    "Full Rust journal lost test-level output to rate limiting; repeated bounded run writes a complete file and hash-bound receipt.",
+    "Initial full portable command hit540second step deadline; the same complete inventory passed three serial partitions, with exact file-union verification.",
+    "Package-verifier tests initially exited0 but the receipt parser expected TAP while Node emitted spec; explicit TAP reporter corrected the evidence capture, without changing tests.",
+    "First offline install failedENOTCACHED forwkx in the default cache. Existing Cycle70-qualified cache and empty npm configuration corrected installation; network stayed private.",
+    "npm pack retained0600 generated-file modes under the guarded umask, which the release normalizer rejected. The established pnpm pack path supplied its required archive modes; normalizer policy and runner umask were not relaxed. Prior tarballs retained."
+  ],
+  "remaining": [
+    "Full producer SearchHit/request/response authority and SQL lexical/vector projection, fusion/MMR/dedup and scoped database resolution.",
+    "Hosted authorization/cache/full lifecycle and every declared consumer including clean released cross-runtime acceptance.",
+    "Citation WIP delivery, immutable authority pins, next Core release and existing partial-publication recovery, full original lane release sweep."
+  ],
+  "claims": {
+    "fullEvidenceLocators": false,
+    "hostedAuthorization": false,
+    "promotedContract": false,
+    "suiteParity": false,
+    "releasedCitationAcceptance": false
+  },
+  "scope": "Uncommitted local candidate and clean-installed synthetic-vector acceptance only; not producer runtime, hosted/inference or released suite acceptance.",
+  "repository": "server",
+  "parent": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+  "source": {
+    "crates/matric-core/src/search_evidence.rs": "b75dbde7df3c6d127963cb8c7b88c67fb05ecc59221e78aab92e79741a44fd7f",
+    "contracts/metadata-search/candidate/1.0.0/evidence-set.schema.json": "da7e5d41bd563cb2cfe424cf7dfa92007a865ee0e1a9a4832ef669039d80717e",
+    "contracts/metadata-search/candidate/1.0.0/evidence-set-vectors.json": "b84061ee252d2ee25d744111d2a04dfcd2c490274d4285bac31f4bd0e91e47d7",
+    "contracts/metadata-search/candidate/1.0.0/EVIDENCE.md": "6849f75d5fefd4050999ec5b0a65232d2ac36a974083a34408b2d1093e310607"
+  }
+}

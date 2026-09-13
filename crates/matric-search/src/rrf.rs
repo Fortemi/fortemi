@@ -29,11 +29,19 @@ struct HitMetadata {
 pub fn rrf_fuse(ranked_lists: Vec<Vec<SearchHit>>, limit: usize) -> Vec<SearchHit> {
     let mut scores: HashMap<Uuid, f32> = HashMap::new();
     let mut metadata: HashMap<Uuid, HitMetadata> = HashMap::new();
+    let mut evidence_hits: HashMap<
+        Uuid,
+        Vec<Option<matric_core::search_evidence::SearchEvidenceSet>>,
+    > = HashMap::new();
 
     let num_lists = ranked_lists.len();
 
     for list in ranked_lists {
         for (rank, hit) in list.into_iter().enumerate() {
+            evidence_hits
+                .entry(hit.note_id)
+                .or_default()
+                .push(hit.evidence.clone());
             let rrf_score = 1.0 / (RRF_K + (rank as f32) + 1.0);
             *scores.entry(hit.note_id).or_insert(0.0) += rrf_score;
 
@@ -71,6 +79,10 @@ pub fn rrf_fuse(ranked_lists: Vec<Vec<SearchHit>>, limit: usize) -> Vec<SearchHi
                 tags: Vec::new(),
             });
             SearchHit {
+                evidence: crate::evidence::merge_evidence(
+                    note_id,
+                    evidence_hits.get(&note_id).into_iter().flatten(),
+                ),
                 note_id,
                 score: normalized_score,
                 snippet: meta.snippet,
@@ -109,6 +121,7 @@ mod tests {
 
         let list = vec![
             SearchHit {
+                evidence: None,
                 note_id: id1,
                 score: 0.9,
                 snippet: Some("first".to_string()),
@@ -117,6 +130,7 @@ mod tests {
                 embedding_status: None,
             },
             SearchHit {
+                evidence: None,
                 note_id: id2,
                 score: 0.8,
                 snippet: Some("second".to_string()),
@@ -150,6 +164,7 @@ mod tests {
         // List 1: id1 rank 0, id2 rank 1
         let list1 = vec![
             SearchHit {
+                evidence: None,
                 note_id: id1,
                 score: 0.9,
                 snippet: None,
@@ -158,6 +173,7 @@ mod tests {
                 embedding_status: None,
             },
             SearchHit {
+                evidence: None,
                 note_id: id2,
                 score: 0.8,
                 snippet: None,
@@ -170,6 +186,7 @@ mod tests {
         // List 2: id2 rank 0, id3 rank 1, id1 rank 2
         let list2 = vec![
             SearchHit {
+                evidence: None,
                 note_id: id2,
                 score: 0.95,
                 snippet: None,
@@ -178,6 +195,7 @@ mod tests {
                 embedding_status: None,
             },
             SearchHit {
+                evidence: None,
                 note_id: id3,
                 score: 0.85,
                 snippet: None,
@@ -186,6 +204,7 @@ mod tests {
                 embedding_status: None,
             },
             SearchHit {
+                evidence: None,
                 note_id: id1,
                 score: 0.75,
                 snippet: None,
@@ -209,6 +228,7 @@ mod tests {
     fn test_rrf_fuse_respects_limit() {
         let hits: Vec<SearchHit> = (0..100)
             .map(|i| SearchHit {
+                evidence: None,
                 note_id: Uuid::new_v4(),
                 score: 1.0 - (i as f32 * 0.01),
                 snippet: None,
@@ -230,6 +250,7 @@ mod tests {
         // Document appears at rank 0 in both lists (maximum score)
         let list1 = vec![
             SearchHit {
+                evidence: None,
                 note_id: id1,
                 score: 1.0,
                 snippet: None,
@@ -238,6 +259,7 @@ mod tests {
                 embedding_status: None,
             },
             SearchHit {
+                evidence: None,
                 note_id: id2,
                 score: 0.5,
                 snippet: None,
@@ -247,6 +269,7 @@ mod tests {
             },
         ];
         let list2 = vec![SearchHit {
+            evidence: None,
             note_id: id1,
             score: 1.0,
             snippet: None,
@@ -303,6 +326,7 @@ mod tests {
     fn test_rrf_fuse_single_result() {
         let id1 = Uuid::new_v4();
         let list = vec![SearchHit {
+            evidence: None,
             note_id: id1,
             score: 0.9,
             snippet: Some("single".to_string()),
@@ -323,6 +347,7 @@ mod tests {
     fn test_rrf_fuse_limit_zero() {
         let id1 = Uuid::new_v4();
         let list = vec![SearchHit {
+            evidence: None,
             note_id: id1,
             score: 1.0,
             snippet: None,
@@ -342,6 +367,7 @@ mod tests {
 
         let list = vec![
             SearchHit {
+                evidence: None,
                 note_id: id1,
                 score: 1.0,
                 snippet: None,
@@ -350,6 +376,7 @@ mod tests {
                 embedding_status: None,
             },
             SearchHit {
+                evidence: None,
                 note_id: id2,
                 score: 0.5,
                 snippet: None,
@@ -368,6 +395,7 @@ mod tests {
     fn test_rrf_fuse_large_result_set() {
         let hits: Vec<SearchHit> = (0..1000)
             .map(|i| SearchHit {
+                evidence: None,
                 note_id: Uuid::new_v4(),
                 score: 1.0 - (i as f32 * 0.001),
                 snippet: None,
@@ -392,6 +420,7 @@ mod tests {
         let _id2 = Uuid::new_v4();
 
         let list1 = vec![SearchHit {
+            evidence: None,
             note_id: id1,
             score: 0.9,
             snippet: Some("snippet1".to_string()),
@@ -401,6 +430,7 @@ mod tests {
         }];
 
         let list2 = vec![SearchHit {
+            evidence: None,
             note_id: id1,
             score: 0.8,
             snippet: None,
@@ -423,6 +453,7 @@ mod tests {
 
         // First list has no metadata
         let list1 = vec![SearchHit {
+            evidence: None,
             note_id: id1,
             score: 0.9,
             snippet: None,
@@ -433,6 +464,7 @@ mod tests {
 
         // Second list has metadata
         let list2 = vec![SearchHit {
+            evidence: None,
             note_id: id1,
             score: 0.8,
             snippet: Some("snippet2".to_string()),
@@ -456,6 +488,7 @@ mod tests {
 
         let list = vec![
             SearchHit {
+                evidence: None,
                 note_id: id1,
                 score: 1.0,
                 snippet: None,
@@ -464,6 +497,7 @@ mod tests {
                 embedding_status: None,
             },
             SearchHit {
+                evidence: None,
                 note_id: id2,
                 score: 0.5,
                 snippet: None,
@@ -494,6 +528,7 @@ mod tests {
 
         // id1 appears at rank 0 in both lists
         let list1 = vec![SearchHit {
+            evidence: None,
             note_id: id1,
             score: 1.0,
             snippet: None,
@@ -504,6 +539,7 @@ mod tests {
 
         let list2 = vec![
             SearchHit {
+                evidence: None,
                 note_id: id1,
                 score: 1.0,
                 snippet: None,
@@ -512,6 +548,7 @@ mod tests {
                 embedding_status: None,
             },
             SearchHit {
+                evidence: None,
                 note_id: id2,
                 score: 0.5,
                 snippet: None,
@@ -543,6 +580,7 @@ mod tests {
 
         let list1 = vec![
             SearchHit {
+                evidence: None,
                 note_id: id3,
                 score: 1.0,
                 snippet: None,
@@ -551,6 +589,7 @@ mod tests {
                 embedding_status: None,
             },
             SearchHit {
+                evidence: None,
                 note_id: id2,
                 score: 0.9,
                 snippet: None,
@@ -559,6 +598,7 @@ mod tests {
                 embedding_status: None,
             },
             SearchHit {
+                evidence: None,
                 note_id: id1,
                 score: 0.8,
                 snippet: None,
@@ -591,6 +631,7 @@ mod tests {
         // Completely different IDs in each list
         let list1 = vec![
             SearchHit {
+                evidence: None,
                 note_id: id1,
                 score: 1.0,
                 snippet: None,
@@ -599,6 +640,7 @@ mod tests {
                 embedding_status: None,
             },
             SearchHit {
+                evidence: None,
                 note_id: id2,
                 score: 0.9,
                 snippet: None,
@@ -610,6 +652,7 @@ mod tests {
 
         let list2 = vec![
             SearchHit {
+                evidence: None,
                 note_id: id3,
                 score: 1.0,
                 snippet: None,
@@ -618,6 +661,7 @@ mod tests {
                 embedding_status: None,
             },
             SearchHit {
+                evidence: None,
                 note_id: id4,
                 score: 0.9,
                 snippet: None,
@@ -646,6 +690,7 @@ mod tests {
         // id1 and id2 in both lists, id3 only in list2
         let list1 = vec![
             SearchHit {
+                evidence: None,
                 note_id: id1,
                 score: 1.0,
                 snippet: None,
@@ -654,6 +699,7 @@ mod tests {
                 embedding_status: None,
             },
             SearchHit {
+                evidence: None,
                 note_id: id2,
                 score: 0.9,
                 snippet: None,
@@ -665,6 +711,7 @@ mod tests {
 
         let list2 = vec![
             SearchHit {
+                evidence: None,
                 note_id: id2,
                 score: 1.0,
                 snippet: None,
@@ -673,6 +720,7 @@ mod tests {
                 embedding_status: None,
             },
             SearchHit {
+                evidence: None,
                 note_id: id1,
                 score: 0.9,
                 snippet: None,
@@ -681,6 +729,7 @@ mod tests {
                 embedding_status: None,
             },
             SearchHit {
+                evidence: None,
                 note_id: id3,
                 score: 0.8,
                 snippet: None,

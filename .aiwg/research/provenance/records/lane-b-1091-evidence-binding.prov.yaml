@@ -1,0 +1,81 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-12T16:10:58.402Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-evidence-binding.json",
+    "type": "artifact_bundle",
+    "created_at": "2026-09-12T16:10:58.402Z",
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "crates/matric-core/src/search_evidence.rs",
+          "sha256": "1f7e6f72609a66546c52c9583dfdcd1f79a7680be73a683962edf095553248f3"
+        },
+        {
+          "path": "crates/matric-core/src/lib.rs",
+          "sha256": "6018fc4d744ee7502c7ff77812a6e7dd31e0b96a1566b3b54d872c21c9125abe"
+        },
+        {
+          "path": "contracts/metadata-search/candidate/1.0.0/evidence-locator.schema.json",
+          "sha256": "cd8427c507bca1a08bdb68da0a5d2759d1d7805401db3c00372ab249652efb7a"
+        },
+        {
+          "path": "contracts/metadata-search/candidate/1.0.0/evidence-vectors.json",
+          "sha256": "b532a4fa7697bdfc87e8541575fcee7c94a5b5ac53e4a6472438c49247e6b266"
+        },
+        {
+          "path": "contracts/metadata-search/candidate/1.0.0/EVIDENCE.md",
+          "sha256": "64286dacb0effaa9461aac428c8e3b2f48c01295a3bb7131758f3c99a351fde6"
+        },
+        {
+          "path": ".aiwg/architecture/impact/typed-metadata-search.md",
+          "sha256": "f6cc886be07d2691046cdad98e97dfc40b4a8b9574945ba658e3f9c94b895ce1"
+        },
+        {
+          "path": ".aiwg/reports/lane-b-1091-evidence-binding.json",
+          "sha256": "629042e7b8592262477b81870a30d6cf175ebc5ae434f963cef845cce8cdf52d"
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:modification:lane-b-evidence:072:server",
+    "type": "modification",
+    "started_at": "2026-09-12T15:57:00Z",
+    "ended_at": "2026-09-12T16:10:58.402Z",
+    "description": "Pure binding contract and runtime helpers. No database resolver, access grant, search-result field, existing locator type replacement or backend capability promotion."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "name": "Codex",
+    "type": "ai_assistant"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-evidence-binding.json",
+      "activity": "urn:aiwg:activity:modification:lane-b-evidence:072:server"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-evidence-binding.json",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:modification:lane-b-evidence:072:server",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-evidence-binding.json",
+        "source": "urn:git:commit:a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+        "derivation_type": "derives_from"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-evidence-binding.json",
+        "source": "https://git.integrolabs.net/Fortemi/fortemi/issues/1091",
+        "derivation_type": "implements"
+      }
+    ]
+  }
+}

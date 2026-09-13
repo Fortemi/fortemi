@@ -1,7 +1,47 @@
 # Fortemi Delivery Roadmap
 
+## Cycle97 Browser Job Ownership Receipt
+
+Three fixed fixture-only document-type jobs are enqueued through bounded
+browser handshakes, using predeclared tenant/archive/note identities and the
+real worker. No producer runtime, wire contract, privileges or Core package
+changes. HotM strict owner-qualified cache, endpoint invalidation and buffered
+event fencing pass500focused/2177full UI tests, typecheck/build and17actual
+browser controls. Live job content and reload, tenant/archive replacement,
+foreign denial/logout clearing and cursor reconnect pass. Core220groups/
+293requests and655durable audit rows pass. Both owned HTTP fixtures stop/remove
+their services with zero PostgreSQL slot refusals. A preceding wrong-cache
+launch was intentionally stopped; all evidence is preserved.
+
+Next mobile clipped controls, other persisted stores, live default administration,
+nonempty replay response, native, remaining handlers/lifecycle/every-consumer/
+CI/delivery/release gates. Source/authority pins and suite NO-GO are unchanged.
+See suite Cycle97 phase2-summary.json; no shared inference or signing action.
+
+## Cycle96 Priority Update
+
+HotM context-owned views and in-flight request/gate fencing now pass400focused/
+2133full UI tests and eleven real browser stream/note-identity/clearing controls.
+The fixture separately proves one browser detail access plus four Core enrichment
+reads; Core220groups/293requests/635audit rows pass. No producer runtime/wire change.
+Next external job/cache ownership and stale pause responses, mobile clipped note
+controls, then nonempty browser replay/native/default administration and all
+remaining hosted handlers/outbox/consumer/CI/delivery/release gates. Original20scope,
+holds and suite NO-GO retained; source/cleanup/release receipts in suite Cycle96.
+
+## Cycle95 Priority Update
+
+HotM session notifications and real-browser stream replacement/reconnect/logout
+pass against the owned actual daemon; Core220groups/293requests and625durable
+audit rows pass. Full application isolation is still NOT_PASS: the browser retains
+tenant A notes after B admission and central job persistence/async pause refresh
+are unscoped. Next invalidate context-owned UI/cache state and fence pending work,
+then nonempty browser replay/native/default-admin lifecycle and remaining hosted
+handlers/outbox/all-consumer/CI/delivery/release gates. Full20scope/holds and NO-GO
+remain. See suite Cycle95 source, browser, cleanup and release-reconciliation receipts.
+
 > **Status:** Active — reference until all planned phases are complete.
-> **Created:** 2026-06-24 · **Last updated:** 2026-09-11 (America/New_York; receipts through 2026-09-12 UTC)
+> **Created:** 2026-06-24 · **Last updated:** 2026-09-13 (America/New_York)
 > **Tracker:** Gitea `Fortemi/fortemi` (authoritative). Issue numbers below are Gitea issues.
 > **Source:** Synthesized from the 2026-06-21→23 open-issue audit sweep (#746–#1006), the milestone structure, the 2026-06-23 interactive product-decision Q&A (31 decisions recorded on-issue), and the 2026-08-23 full-open-backlog rebaseline.
 
@@ -32,6 +72,174 @@
   pin delivery, remaining negative/operation gates and release sweep stay open.
   No phase/issue closure, hosted qualification or suite NO-GO change follows.
   Evidence: `contracts/openapi/fixtures/native-remote-auth.receipt.json`.
+
+- 2026-09-13 Lane B cycle94: HotM#1/#1091/#405 selected-memory context consumer
+  adopts the read-authorized endpoint with bounded exact-field decoding and no
+  inventory/guessed fallback. Candidate generated-schema and actual-daemon
+  metadata/SSE receipts are separate from UI tests; full results in Cycle94.
+  Retain all20issues/holds, full lifecycle/consumer/browser/native/CI/delivery/
+  release gates, suiteNO-GO and readiness false. No model/shared inference.
+
+- 2026-09-13 Lane B cycle93: #1091 / HotM#1 / Core#405 producer adds the
+  read-authorized selected-memory context endpoint and tenant-qualified default
+  uniqueness. No admin inventory or statistics privilege is added. Native
+  forced-RLS/one-connection tests cover independent defaults and19request
+  controls; generated OpenAPI records the additive operation and strict schema.
+  Source-bound final results are in Cycle93. HotM adoption/authority pins and
+  actual-daemon client/SSE acceptance remain next; its Cycle92 failure is retained.
+  Original20scope/holds, full lifecycle/consumer/CI/delivery/release sweep,
+  suiteNO-GO and public readiness false remain. No model/shared inference.
+
+- 2026-09-13 Lane B cycle92: HotM#1 / #1091 / Core#405 consumer work separates
+  realtime archive request names from canonical schema context, replaces streams
+  on selection and fences stale callbacks/cursors. The producer test harness
+  consumes real candidate archive resolution/HTTP/parser code without translating
+  request names. Producer wire/registry behavior and Core runtime/pins unchanged.
+  Cycle92 owns exact-source tests/cleanup; full lifecycle/handlers/every-consumer/
+  CI/delivery/release gates and suite NO-GO remain. No model/shared inference.
+  Final HotM local279focused/2066full UI, typecheck/build and pinned transport
+  corpus PASS. Actual hosted metadata GET503 before SSE admission: archive
+  handlers are not tenant-transaction migrated; listing also requires admin.
+  Next resolve producer-owned scoped reader/default metadata without granting
+  admin, bypassing the gate, guessing schemas or stubbing the response.
+
+- 2026-09-12 Lane B cycle91: #1091/#405 producer work adds typed database retries,
+  bounded read-only note snapshots coupled to fenced completion, and canonical
+  hosted SSE schema filtering. The source-bound Cycle91 checkpoint owns final
+  native/binary/parser acceptance. HotM application archive-name/schema mapping,
+  remaining handlers/follow-ups/index/queue events, full lifecycle, every consumer,
+  CI, delivery and release sweep remain. No phase/capability/readiness promotion;
+  suite NO-GO remains. Roadmap-specific discovery is unavailable; loaded
+  architecture-evolution/address-issues and existing gates remain in force.
+  Final acceptance: 93 focused Rust functions plus four fixture-profile tests,
+  installed Core 220 groups/293 requests, and six live/seeded-replay HotM parser
+  streams PASS. Two HTTP profile runs have zero slot refusals in the bounded
+  PostgreSQL log tail; default native profile remains 12 connections. All 14
+  jobs are terminal, including preserved failures/interruptions. No model/shared
+  inference or signing action; see the Cycle91 report for cleanup and boundaries.
+
+- 2026-09-12 Lane B cycle90: #1091/#405 producer work connects the first hosted
+  production handler to an explicit registry, bounded committed claim drain and
+  fenced progress/settlement/cancellation callbacks. Tenant/archive event context
+  no longer needs raw bridge lookups/writes. Native worker acceptance passes;
+  actual-binary/installed-Core results are owned by the Cycle90 checkpoint.
+  Other handlers/follow-ups, note.updated/index events, scoped queue summaries,
+  live SSE/lifecycle/named-profile/consumer/CI/release gates remain. No phase,
+  capability or hosted-readiness promotion. Roadmap skill discovery remains
+  unavailable; architecture-evolution/address-issues and existing gates retained.
+
+- 2026-09-12 Lane B cycle89: #1091/#405 now have a pool-free hosted document-type
+  handler implementation with atomic scoped assignment/access/provenance and
+  replacement-attempt replay. Native membership follow-ups/statistics preserve
+  tenant/archive routing. Final63focused Rust functions and actual-binary
+  installed-Core220groups/293requests PASS. Production handler registration,
+  claim drain, other handlers, events, follow-up execution and full lifecycle/
+  named-profile/consumer/CI/release gates remain. No phase or readiness promotion.
+  See `.aiwg/reports/lane-b-1091-hosted-document-type-cycle89.json`. Discovery and
+  show could not resolve fortemi-roadmap-skill in this worktree or suite; existing
+  roadmap gates and loaded architecture-evolution/address-issues remain in force.
+
+- 2026-09-12 Lane B cycle79: #1091 adds candidate current-storage evidence
+  resolution with normalized target-note authorization, tenant/archive isolation,
+  exact source/unit/digest/range checks and bounded no-store errors. The initial
+  route-allow/note-deny bypass is reproduced and fixed. OpenAPI plus 922 Rust
+  tests pass, including 227 resolution checks and 72 search response-schema
+  checks; 822 producer source files are stable. Core #405 acknowledges the new
+  authority but has not adopted this POST endpoint; its 575 runtime/source files
+  remain unchanged from cycle78. Eleven owned jobs terminal, ten private database
+  fixtures removed, shared inference unchanged. See
+  `.aiwg/reports/lane-b-1091-current-storage-resolution.json`. Remote consumer, launched
+  HTTP, JWT/JWKS, lifecycle/cache/performance and full release gates remain.
+  No complete capability or suite NO-GO change.
+
+- 2026-09-12 Lane B cycle78: Core #405 adopts #1091's full candidate REST
+  response authority through a separate receipt, with strict validation before
+  projection/detail I/O. Existing request subset and evidence-only receipt stay
+  unchanged. Strict Ajv-compatible schema declarations and regenerated OpenAPI
+  pass 895 producer tests; Core passes 2,771 tests across 39 files, typecheck,
+  lint and eight verifier tests. Clean-installed candidate adds 18 REST checks.
+  All 14 owned jobs are terminal; two private PostgreSQL fixtures removed and
+  shared inference unchanged. See `.aiwg/reports/lane-b-1091-rest-adoption.json`.
+  Authorized producer resolution, other consumers, live/released matrices and
+  the original lane release sweep remain. No capability or suite NO-GO change.
+
+- 2026-09-12 Lane B cycle77: #1091 now defines candidate GET request/result/
+  EnhancedSearchHit authority,20 shared vectors and offline bundled OpenAPI.
+  Fixed CLI/test feature-dependent JSON ordering without unrelated YAML churn.
+  Finite score/diversity and response invariant guards pass895 Rust tests in
+  seven groups, including72 actual fixture-auth responses validated against the
+  generated schema and seven before-inference negatives. Stable817-file source;
+  deterministic OpenAPI SHA73357e6c386b78bc5b7b7efa312127bf49dc6209fe5c0873527e70942aed76a0.
+  Nine owned jobs clean; shared inference unchanged. Candidate consumer adoption,
+  scoped producer resolution, lifecycle/cache/JWT/JWKS/native-query performance,
+  clean live/released matrices and full original lane release sweep remain.
+  No capability/pin/commit/release promotion; suite NO-GO retained. See
+  `.aiwg/reports/lane-b-1091-rest-authority.json` and Cycle77 evidence.
+
+- 2026-09-12 Lane B cycle76: Core405 remote search now validates and forwards
+  the1091 candidate evidence envelope before detail enrichment, preserving native
+  snapshots across every search/semantic entry point. Synthetic regressions
+  reproduce22failures before the fix;194focused and1845portable tests pass, as
+  does the clean-installed candidate's seven remote checks. This is not a fresh
+  live-producer capture or promoted REST authority. Full request/result schemas,
+  offline bundled OpenAPI, scoped producer resolver, lifecycle/cache/JWT/JWKS,
+  nativepg_bigm/query-cost and released-consumer gates remain. No capability,
+  immutable pin, commit or release promotion; original20scope and NO-GO retained.
+  See Core `.aiwg/reports/lane-b-405-remote-evidence.json` and Cycle76 evidence.
+
+- 2026-09-12 Lane B cycle75: #1091 candidate SearchHit now validates and retains
+  matched-unit evidence through scoped native SQL, RRF/RSF/MMR/dedup and hosted
+  response serialization. Fixed attachment-only eligibility/ranking. 884 Rust
+  tests pass in nine groups, including129 scoped retrieval checks and72 hosted
+  fixture-auth requests with valid evidence. The initial zero-test API invocation
+  is not acceptance; the corrected hosted-auth binary ran the named test and
+  the collector now rejects zero-test success. Full request/response authority,
+  bundled OpenAPI, authorized database resolution, Core remote forwarding,
+  cache/JWT/JWKS/lifecycle and released cross-runtime gates remain. No capability,
+  immutable pin, commit, push or release promotion; original20 scope and NO-GO
+  retained. Details: `.aiwg/reports/lane-b-1091-producer-evidence.json`.
+
+- 2026-09-12 Lane B cycle45: #1091 public trait and builder search now use
+  the same pre-ranking scope with or without metadata predicates. The stronger
+  out-of-set candidate regression is reproduced and fixed; 54 no-metadata
+  entry-point checks and real span-redaction capture pass alongside the prior
+  75 native checks and 72 hosted router requests. Ten regression groups pass.
+  The six-cycle search run is escalated with locators/generated contracts,
+  Core405 correction and released/live acceptance still open. Next independent
+  action is fresh PR448 delivery reconciliation, not a reset of the search cycle
+  counter. No commit/push/release/closure; full Lane B and suite NO-GO remain.
+
+- 2026-09-12 Lane B cycle44: #1091 now admits GET search through the hosted
+  transaction gate. Full middleware/SQL tests pass72 scoped requests across two
+  tenants and public/archive tables with the same set names, plus authorization
+  and before-inference rejection. Fixture identities and synthetic embeddings
+  are explicit; this is not JWT/JWKS cryptographic or GPU-quality qualification.
+  Forward tenant-qualified embedding names preserve UUIDs and same-tenant
+  uniqueness in public, existing and future archives. NULL vectors no longer
+  consume semantic limits or break MMR. Ten regression groups pass. Enabled
+  Redis cache, legacy trait entry points, locators, Core405, generated contract
+  and released acceptance remain. Uncommitted candidate; full Lane B/NO-GO stays.
+
+- 2026-09-12 Lane B cycle43: #1091 candidate now wires typed predicates and
+  common pre-ranking scope through connection-based FTS/vector/hybrid retrieval,
+  with REST validation and request-transaction tag/profile lookup. Hosted cache
+  bypass replaces unbound per-archive search pools and notation-only tag caches.
+  Full native migrations plus 75 real retrieval checks pass with synthetic vectors;
+  focused parser, scope, search-library, API validation/cache/redaction tests pass.
+  HTTP verified-claim and multi-archive acceptance, citation locators, Core405
+  correction, generated contracts and released qualification remain. Source is
+  uncommitted; no issue/phase/release or suite NO-GO change. See the typed-search
+  impact note and Lane B cycle43 evidence.
+
+- 2026-09-12 Lane B cycle42: #1091 has an uncommitted candidate schema/parser,
+  parameterized typed SQL compiler, bounded forward indexes and shared SQL corpus.
+  All122 comparison/source/archive cases and three natural selective index plans
+  pass both PGlite and native PostgreSQL18, with explicit role/RLS checks. Native
+  tests use a disposable private-socket cluster inside the bounded offline runner,
+  not shared databases or Docker. HTTP verified-tenant transaction integration,
+  filtering before FTS/vector/hybrid top-k, evidence locators, Core405 correction,
+  full migrations and released/live receipts remain. No phase/issue/release or
+  suite NO-GO change. See the candidate README and Lane B cycle42 evidence.
 
 - 2026-09-11 Lane B cycle39: #1128 consumes Core #422 validation1.0.1 at
   exact56252157. Schema-first request validation rejects malformed optional

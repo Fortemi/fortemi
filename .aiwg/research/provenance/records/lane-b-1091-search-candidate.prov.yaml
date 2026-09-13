@@ -1,0 +1,194 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-12T05:02:58.432Z",
+    "updated_at": "2026-09-12T06:31:19.485Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/README.md",
+    "type": "artifact_bundle",
+    "created_at": "2026-09-12T05:02:58.432Z",
+    "checksum": "sha256:676fd2308aa010d5aeb67862b50f410a369cdb18a79e9b381f7a1826d3a633bf",
+    "size_bytes": 9620,
+    "attributes": {
+      "state": "UNCOMMITTED_CANDIDATE",
+      "base": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+      "subjects": [
+        {
+          "path": "contracts/metadata-search/candidate/1.0.0/predicates.schema.json",
+          "sha256": "e325707ce20abb88ef3a8f4bbb0d02ab09501b1ffe9b48b0c92a96e97dda00c3",
+          "bytes": 6868
+        },
+        {
+          "path": "contracts/metadata-search/candidate/1.0.0/predicate-vectors.json",
+          "sha256": "df9e129cab4708db71c3e22f87efd252fbcac144daa45a53ee1716f4a1a05ae7",
+          "bytes": 17855
+        },
+        {
+          "path": "contracts/metadata-search/candidate/1.0.0/sql-scope-vectors.json",
+          "sha256": "dcd35298a3bc485a6f1c87c6c87f136ee98121dad3f2b1c8b590b2e5381aa4d5",
+          "bytes": 21016
+        },
+        {
+          "path": "contracts/metadata-search/candidate/1.0.0/README.md",
+          "sha256": "676fd2308aa010d5aeb67862b50f410a369cdb18a79e9b381f7a1826d3a633bf",
+          "bytes": 9620
+        },
+        {
+          "path": "crates/matric-core/src/lib.rs",
+          "sha256": "e08f011de61a360fe9f8e39b83146d5a77812360260c948c1cf83474b67650da",
+          "bytes": 1911
+        },
+        {
+          "path": "crates/matric-core/src/metadata_search.rs",
+          "sha256": "00270b2d72561d467544eab8ca67caa5ff7f7d6754bc1c2f9982741ceecf0a9d",
+          "bytes": 8109
+        },
+        {
+          "path": "crates/matric-db/src/lib.rs",
+          "sha256": "c875427fba4596bd55420eb1476c8bacd246ccdb1fe1cfb793f23afcb9666ef3",
+          "bytes": 37285
+        },
+        {
+          "path": "crates/matric-db/src/metadata_predicates.rs",
+          "sha256": "1e170ddcbe23ca5b0dc07feadf20ac3840579c38695539a2ee8b38f0224197eb",
+          "bytes": 9373
+        },
+        {
+          "path": "crates/matric-db/examples/metadata_predicate_vectors.rs",
+          "sha256": "2e75d632d12f48a777e3ef46896078ba027917fd424aabe01b2b7d78b0de2c49",
+          "bytes": 2409
+        },
+        {
+          "path": "crates/matric-db/tests/metadata_predicates_sql_test.rs",
+          "sha256": "31b196215245033612cab89811cc3ffff5d6d2a555b661f97c55f5dcb1df076c",
+          "bytes": 11835
+        },
+        {
+          "path": "migrations/20260912000000_typed_metadata_search_indexes.sql",
+          "sha256": "7dd1acc8dd78b08ca8a8839ce94826a4b8830cd6a43e89e6d4857c57793d0485",
+          "bytes": 2359
+        },
+        {
+          "path": ".aiwg/planning/roadmap.md",
+          "sha256": "5773c795d2832b506629adb07ae4eac9dac6b14a11d21dad077d660134eb81fe",
+          "bytes": 337787
+        },
+        {
+          "path": "crates/matric-db/src/search_candidates.rs",
+          "sha256": "bd6e4ec9bc5790c66fc2460f2678959fadd9a78369fa7fbafca447ed7988fef6",
+          "bytes": 12088
+        },
+        {
+          "path": "crates/matric-db/src/embedding_sets.rs",
+          "sha256": "d3609cff120c37f354cdb3bd8d48de615edf56d473929b0012c30850cb4a7cef",
+          "bytes": 95879
+        },
+        {
+          "path": "crates/matric-search/src/hybrid.rs",
+          "sha256": "8870e3a106b380fce1752e84967f6dddc7d105aaa859fcb9e3217d9ef6e754bc",
+          "bytes": 50812
+        },
+        {
+          "path": "crates/matric-search/Cargo.toml",
+          "sha256": "37d8d39dfdea92ee1853a67832a59c3afa65652a2f1e31b9ae9e212ffe30624d",
+          "bytes": 815
+        },
+        {
+          "path": "crates/matric-search/tests/scoped_retrieval_test.rs",
+          "sha256": "2d43d52ad97e995e2327935731bc4b3daf28ae757d374d5149fec3e260aa697a",
+          "bytes": 20182
+        },
+        {
+          "path": "crates/matric-api/src/main.rs",
+          "sha256": "25ee81fd8a68d0ae40ccf19a41e71d717a6ded0d7f64165a84bd9f2ba5e63dde",
+          "bytes": 3205333
+        },
+        {
+          "path": "crates/matric-api/src/services/tag_resolver.rs",
+          "sha256": "0d1b0fbbb9f7d396068e59b594dccc0e50a3b18077bb341547c5a46e78997ff8",
+          "bytes": 31835
+        },
+        {
+          "path": ".aiwg/architecture/impact/typed-metadata-search.md",
+          "sha256": "d8794f99f1ff9c38635dedddc9c6f5b194635f3d33e0a8759ad7bd4428d82db2",
+          "bytes": 7389
+        },
+        {
+          "path": "crates/matric-api/src/route_policy.rs",
+          "sha256": "e7f390d64d30bb6c11db19be1c078065c6c08a182aee09f1c2bb6cece75bfe90",
+          "bytes": 70172
+        },
+        {
+          "path": "crates/matric-api/src/scoped_search_tests.rs",
+          "sha256": "5eb8840419f670324279cbfbc2747cfcc6e26c2863ddb3895bd607c3a67ef9db",
+          "bytes": 16121
+        },
+        {
+          "path": "migrations/20260912000100_tenant_embedding_names.sql",
+          "sha256": "ef04c817bb028be5ecc85eab8736d91385ef2ad3eb28031522f3cb8ac393e317",
+          "bytes": 1813
+        },
+        {
+          "path": "crates/matric-db/tests/tenant_embedding_names_test.rs",
+          "sha256": "f17a8688d4bbd2565191920eaf9fba0d8f45484047cc8b5a29eded3aca70cd2c",
+          "bytes": 3899
+        }
+      ]
+    },
+    "updated_at": "2026-09-12T06:31:19.485Z"
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:modification:lane-b-1091-search-candidate:045",
+    "type": "modification",
+    "started_at": "2026-09-12T04:00:00Z",
+    "ended_at": "2026-09-12T06:31:19.485Z",
+    "description": "Cycle45 consolidates no-metadata trait search scope and excludes sensitive tracing fields; 54 entry-point checks, captured spans and ten regression groups pass. No locator, Core consumer or released-runtime acceptance.",
+    "attributes": {
+      "previousActivity": {
+        "id": "urn:aiwg:activity:modification:lane-b-1091-search-candidate:044",
+        "type": "modification",
+        "started_at": "2026-09-12T04:00:00Z",
+        "ended_at": "2026-09-12T06:15:31.789Z",
+        "description": "Cycle44 hosted readiness, tenant embedding names and NULL-vector candidate corrections; fixture-authenticated router72, migration and ten regression groups pass. Not JWT/JWKS, Redis, GPU or released consumer acceptance.",
+        "attributes": {
+          "previousActivity": {
+            "id": "urn:aiwg:activity:modification:lane-b-1091-search-candidate:043",
+            "type": "modification",
+            "started_at": "2026-09-12T04:00:00Z",
+            "ended_at": "2026-09-12T05:49:56.435Z",
+            "description": "Cycle43 request-scoped pre-ranking retrieval candidate, full-migration native retrieval and default/hosted-auth compile checks; not released consumer acceptance.",
+            "attributes": {
+              "previousActivity": {
+                "id": "urn:aiwg:activity:generation:lane-b-1091-search-candidate:001",
+                "type": "generation",
+                "started_at": "2026-09-12T04:00:00Z",
+                "ended_at": "2026-09-12T05:02:58.432Z",
+                "description": "Cycle42 isolated SQL candidate and safe native fixture verification; not full application or release acceptance."
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex-gpt-5",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/README.md",
+      "activity": "urn:aiwg:activity:modification:lane-b-1091-search-candidate:045"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:modification:lane-b-1091-search-candidate:045",
+      "agent": "urn:aiwg:agent:codex-gpt-5"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:contracts/metadata-search/candidate/1.0.0/README.md",
+      "agent": "urn:aiwg:agent:codex-gpt-5"
+    }
+  }
+}

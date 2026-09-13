@@ -1662,7 +1662,7 @@ impl PgEmbeddingSetRepository {
     /// Get an embedding set by slug within a transaction.
     pub async fn get_by_slug_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut sqlx::PgConnection,
         slug: &str,
     ) -> Result<Option<EmbeddingSet>> {
         let row = sqlx::query(
@@ -1680,7 +1680,7 @@ impl PgEmbeddingSetRepository {
             "#,
         )
         .bind(slug)
-        .fetch_optional(&mut **tx)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -2335,7 +2335,7 @@ impl PgEmbeddingSetRepository {
     /// Get the default embedding config within a transaction.
     pub async fn get_default_config_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut sqlx::PgConnection,
     ) -> Result<Option<EmbeddingConfigProfile>> {
         let row = sqlx::query(
             r#"
@@ -2348,7 +2348,7 @@ impl PgEmbeddingSetRepository {
             LIMIT 1
             "#,
         )
-        .fetch_optional(&mut **tx)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -2395,7 +2395,7 @@ impl PgEmbeddingSetRepository {
     /// Get an embedding config by ID within a transaction.
     pub async fn get_config_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut sqlx::PgConnection,
         id: Uuid,
     ) -> Result<Option<EmbeddingConfigProfile>> {
         let row = sqlx::query(
@@ -2409,7 +2409,7 @@ impl PgEmbeddingSetRepository {
             "#,
         )
         .bind(id)
-        .fetch_optional(&mut **tx)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(Error::Database)?;
 

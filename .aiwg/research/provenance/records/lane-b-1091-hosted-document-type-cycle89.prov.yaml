@@ -1,0 +1,132 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-13T02:22:32.797Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-document-type-cycle89.json",
+    "type": "artifact_bundle",
+    "created_at": "2026-09-13T02:22:32.797Z",
+    "checksum": "sha256:af571bba9be772a542e07c796e0d9ba3b416af25d2101b2efd9a7d6fa6e041c9",
+    "size_bytes": 9515,
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "crates/matric-api/src/hosted_jobs.rs",
+          "bytes": 1971,
+          "sha256": "44a350a27bf9cc9e3216e825da43e8e5aa80a67cb01b984c805f1c6f3ce4186c"
+        },
+        {
+          "path": "crates/matric-api/src/lib.rs",
+          "bytes": 170,
+          "sha256": "cdf686660bbe4398a8b9a1516ae5b205fbc6fada15f1e217d6c51185101535fe"
+        },
+        {
+          "path": "crates/matric-api/tests/hosted_document_type_test.rs",
+          "bytes": 30076,
+          "sha256": "18594de22dd15dd32b724d21c4085b15810c0bb54473019bc8dab0e31f9c18bc"
+        },
+        {
+          "path": "crates/matric-db/src/document_types.rs",
+          "bytes": 31130,
+          "sha256": "def222d72fc0d0d0f5b4569363d891f38d0577684e0a80be84e0bbf34e55945d"
+        },
+        {
+          "path": "crates/matric-db/src/document_types/scoped.rs",
+          "bytes": 6313,
+          "sha256": "0b1d6452eb2383e422845f4ee94bf832f84461ff6ebc7ffa57f32b871b43e2de"
+        },
+        {
+          "path": "crates/matric-jobs/src/handler/hosted.rs",
+          "bytes": 1955,
+          "sha256": "df349d7e7013ac111601fa842e13aca80b057c68dcd87b5baca6a82717fa9b9c"
+        },
+        {
+          "path": "migrations/20260913000000_scoped_embedding_member_jobs.sql",
+          "bytes": 3776,
+          "sha256": "15ba4c99c1ffb9645eb8ca09e158f2f13f44c0d3661fb84181c1ed74aeecaa8e"
+        },
+        {
+          "path": ".aiwg/architecture/impact/typed-metadata-search.md",
+          "bytes": 19905,
+          "sha256": "1bc5cab7c75af65c7d8e00ea75f37a85bfa1488cf0138d5de9a130170927727e"
+        },
+        {
+          "path": ".aiwg/architecture/impact/hosted-worker-transactions.md",
+          "bytes": 17475,
+          "sha256": "20e280d1a7d87e14713b8d4f135e85cf754fe00bab4d96b549bde67c6b41ccbe"
+        },
+        {
+          "path": "docs/architecture/adr/ADR-090-multi-tenancy-model.md",
+          "bytes": 19177,
+          "sha256": "36900529b3c0c5a3f2cd0664dad271af96852003e1a4923f8438657e596b1185"
+        },
+        {
+          "path": "docs/content/authentication.md",
+          "bytes": 38644,
+          "sha256": "483ef9fe6ebc86a619a4dcace52d618b807c31e989195093f1f162e53d5445d6"
+        },
+        {
+          "path": "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md",
+          "bytes": 77992,
+          "sha256": "4d95d7c57016704c1dde3e0e45e63255cb734e8ccfff678236c4e35cf9a75bd2"
+        },
+        {
+          "path": ".aiwg/planning/roadmap.md",
+          "bytes": 342889,
+          "sha256": "b809f2ec934e2d7f139a07cbf336dce0c644498d1ce8ec40eaa19041197595c5"
+        },
+        {
+          "path": ".aiwg/activity.log",
+          "bytes": 6094,
+          "sha256": "44642cc2eb7f4e13d27a2eec9d0ddafcfc7d241d06298f3adc6998794a644470"
+        },
+        {
+          "path": ".aiwg/reports/lane-b-1091-hosted-document-type-cycle89.json",
+          "bytes": 9515,
+          "sha256": "af571bba9be772a542e07c796e0d9ba3b416af25d2101b2efd9a7d6fa6e041c9"
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:hosted-document-type:lane-b:089:server",
+    "type": "modification",
+    "started_at": "2026-09-13T01:56:13.906Z",
+    "ended_at": "2026-09-13T02:22:32.797Z",
+    "description": "Pool-free document-type handler, scoped atomic assignment/access/provenance and replay, tenant/archive native follow-up/statistics fixes; actual binary regression. Production registry/claim drain/events remain incomplete."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-document-type-cycle89.json",
+      "activity": "urn:aiwg:activity:hosted-document-type:lane-b:089:server"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:hosted-document-type:lane-b:089:server",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-document-type-cycle89.json",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-document-type-cycle89.json",
+        "source": "urn:gitea:Fortemi:fortemi:issue:1091"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-document-type-cycle89.json",
+        "source": "urn:gitea:Fortemi:fortemi-react:issue:405"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-document-type-cycle89.json",
+        "source": "urn:aiwg:artifact:docs/architecture/adr/ADR-090-multi-tenancy-model.md"
+      }
+    ]
+  }
+}

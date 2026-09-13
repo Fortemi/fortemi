@@ -1,0 +1,497 @@
+{
+  "cycle": 80,
+  "status": "VERIFIED_LOCAL_CANDIDATE_NOT_DELIVERED",
+  "recordedAt": "2026-09-12T21:36:42Z",
+  "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1091",
+  "linkedIssues": [
+    "https://git.integrolabs.net/Fortemi/fortemi-react/issues/405",
+    "https://git.integrolabs.net/Fortemi/fortemi/issues/1091"
+  ],
+  "source": {
+    "worktree": "/var/tmp/lane-b-server-1147",
+    "baseCommit": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+    "contractRevision": null,
+    "uncommitted": true
+  },
+  "role": "producer documentation acknowledgement; no runtime/schema changes",
+  "changes": [
+    "RemoteDataBackend.resolveEvidence uses the producer POST current-storage resolver, with a distinct resolution.receipt.json and all 21 shared wire cases.",
+    "Immutable locator, metadata, unknown option and encoded JSON validation before headers/I/O, including revalidation after caller-owned toJSON serialization.",
+    "Configured authentication/archive headers retained; caller tenant/archive/visibility fields rejected. Resolution predicates and archived inclusion do not widen the remote GET search subset.",
+    "Request no-store and redirect denial; response JSON/no-store/strict schema/well-formed UTF-8/exact span-length validation with a bounded growing buffer.",
+    "One 30-second deadline and optional AbortSignal cover header lookup, fetch and streaming. Bounded HTTP status or transport/aborted errors retain no raw response text, URL, cause or input.",
+    "Producer owns current authorization/unit/source/full-text digest checks; a partial response cannot independently prove the parent text digest. No detail rebinding.",
+    "Clean installed public package validates nine resolution checks plus existing evidence/REST/capability/shard gates. Historical evidence and GET REST receipts unchanged.",
+    "Current implementation receipt refreshed after build and complete portable conformance; published fixtures and releases not replaced."
+  ],
+  "verification": {
+    "status": "PASS",
+    "at": "2026-09-12T21:35:53.163Z",
+    "sourceFiles": 580,
+    "focusedAndSurrounding": 1001,
+    "portable": 1845,
+    "portableFiles": 27,
+    "total": 2846,
+    "testFiles": 40,
+    "verifierTests": 12,
+    "producerComparison": {
+      "prior": "cycle79/final-3-receipt.json",
+      "unchangedFiles": 820,
+      "changedDocumentation": [
+        "contracts/metadata-search/candidate/1.0.0/EVIDENCE.md",
+        "contracts/metadata-search/candidate/1.0.0/README.md"
+      ],
+      "testsRerun": false
+    },
+    "red": {
+      "passed": 0,
+      "failed": 43
+    },
+    "installed": {
+      "status": "PASS",
+      "bindingCases": 55,
+      "envelopeCases": 36,
+      "storageChecks": [
+        "text-exact-unit-resolution",
+        "text-adapter-forwarding",
+        "semantic-exact-unit-resolution",
+        "semantic-adapter-forwarding",
+        "hybrid-exact-unit-resolution",
+        "hybrid-adapter-forwarding",
+        "changed-text-rejected",
+        "deleted-note-unavailable"
+      ],
+      "remoteChecks": [
+        "fts-remote-evidence-no-rebinding",
+        "semantic-remote-evidence-no-rebinding",
+        "hybrid-remote-evidence-no-rebinding",
+        "both-semantic-entry-points",
+        "legacy-absence",
+        "unavailable-omission",
+        "all-hits-validated-before-enrichment"
+      ],
+      "restChecks": [
+        "malformed-before-enrichment-0",
+        "malformed-before-enrichment-1",
+        "malformed-before-enrichment-2",
+        "malformed-before-enrichment-3",
+        "malformed-before-enrichment-4",
+        "malformed-before-enrichment-5",
+        "malformed-before-enrichment-6",
+        "malformed-before-enrichment-7",
+        "malformed-before-enrichment-8",
+        "legacy-empty",
+        "legacy-hit",
+        "explicit-degradation",
+        "missing-query",
+        "missing-degradation",
+        "null-is-not-absent",
+        "wrong-effective-mode",
+        "null-evidence",
+        "unsupported-request-subset-before-io"
+      ],
+      "restFiles": [
+        {
+          "path": "rest.receipt.json",
+          "sha256": "79634446d7b33551595e0acf4d5947550cdb2e2db1680ab5d1eebf0dd648cfb7",
+          "bytes": 1920
+        },
+        {
+          "path": "search-rest.schema.json",
+          "sha256": "df4bdf5c61187a66cc90b760ce9ebc71d062688d67858ed519fbd27141db9470",
+          "bytes": 8658
+        },
+        {
+          "path": "search-rest-vectors.json",
+          "sha256": "eac3b3739aedf037671be4cbd4a89f336d405de8cf06ea7ddebae9d1e4e288f2",
+          "bytes": 2630
+        },
+        {
+          "path": "predicates.schema.json",
+          "sha256": "e325707ce20abb88ef3a8f4bbb0d02ab09501b1ffe9b48b0c92a96e97dda00c3",
+          "bytes": 6868
+        },
+        {
+          "path": "evidence-locator.schema.json",
+          "sha256": "cd8427c507bca1a08bdb68da0a5d2759d1d7805401db3c00372ab249652efb7a",
+          "bytes": 1977
+        },
+        {
+          "path": "evidence-set.schema.json",
+          "sha256": "da7e5d41bd563cb2cfe424cf7dfa92007a865ee0e1a9a4832ef669039d80717e",
+          "bytes": 836
+        }
+      ],
+      "resolutionChecks": [
+        "current-resolution",
+        "title-resolution",
+        "embedding-resolution",
+        "attachment-resolution",
+        "scope-rejected-before-io",
+        "typed-scope-wire",
+        "strict-response-span",
+        "unavailable-http-status",
+        "complete-capability-false"
+      ],
+      "resolutionFiles": [
+        {
+          "path": "resolution.receipt.json",
+          "sha256": "5739c26964b67846d451e105d27a374cd733c7d5a9cbedde37069561ecd77927",
+          "bytes": 2171
+        },
+        {
+          "path": "evidence-resolution.schema.json",
+          "sha256": "92c0cd616d26fad83e56e602d8393a8b6135175c849284d97721da146d923723",
+          "bytes": 839
+        },
+        {
+          "path": "evidence-resolution-vectors.json",
+          "sha256": "3d217a489a29be0eb152a8efb4f569e7942d4ae2af921218e295c0dba8a38aea",
+          "bytes": 9082
+        },
+        {
+          "path": "predicates.schema.json",
+          "sha256": "e325707ce20abb88ef3a8f4bbb0d02ab09501b1ffe9b48b0c92a96e97dda00c3",
+          "bytes": 6868
+        },
+        {
+          "path": "evidence-locator.schema.json",
+          "sha256": "cd8427c507bca1a08bdb68da0a5d2759d1d7805401db3c00372ab249652efb7a",
+          "bytes": 1977
+        }
+      ],
+      "files": [
+        {
+          "path": "contract.receipt.json",
+          "sha256": "970335ba6c711de51ef03cb852044f25b596c1fdfcc85272cb6da62751a0a536",
+          "bytes": 1618
+        },
+        {
+          "path": "predicates.schema.json",
+          "sha256": "e325707ce20abb88ef3a8f4bbb0d02ab09501b1ffe9b48b0c92a96e97dda00c3",
+          "bytes": 6868
+        },
+        {
+          "path": "predicate-vectors.json",
+          "sha256": "df9e129cab4708db71c3e22f87efd252fbcac144daa45a53ee1716f4a1a05ae7",
+          "bytes": 17855
+        },
+        {
+          "path": "sql-scope-vectors.json",
+          "sha256": "dcd35298a3bc485a6f1c87c6c87f136ee98121dad3f2b1c8b590b2e5381aa4d5",
+          "bytes": 21016
+        },
+        {
+          "path": "evidence-locator.schema.json",
+          "sha256": "cd8427c507bca1a08bdb68da0a5d2759d1d7805401db3c00372ab249652efb7a",
+          "bytes": 1977
+        },
+        {
+          "path": "evidence-vectors.json",
+          "sha256": "b532a4fa7697bdfc87e8541575fcee7c94a5b5ac53e4a6472438c49247e6b266",
+          "bytes": 40273
+        },
+        {
+          "path": "evidence-set.schema.json",
+          "sha256": "da7e5d41bd563cb2cfe424cf7dfa92007a865ee0e1a9a4832ef669039d80717e",
+          "bytes": 836
+        },
+        {
+          "path": "evidence-set-vectors.json",
+          "sha256": "b84061ee252d2ee25d744111d2a04dfcd2c490274d4285bac31f4bd0e91e47d7",
+          "bytes": 172197
+        }
+      ],
+      "scope": "Clean-installed local candidate; synthetic vectors and remote responses, not live producer, inference or hosted authorization acceptance",
+      "publicEntrySha256": "57a0b430c6c652be6d3e6eb18fe8c7ce2b51a63934f0286e77ac482d408ed1fe",
+      "packageVersion": "2026.9.5"
+    },
+    "package": {
+      "path": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260912-cycle80/candidate-package/fortemi-core-2026.9.5.tgz",
+      "sha256": "8df3a4f435b0235bd653d03b2a4769c630a5f79034d6cb6b06a2094dfe69e0a1"
+    },
+    "authorityByteIdentical": true,
+    "historicalEvidenceAndRestReceiptsUnchanged": true,
+    "currentImplementationReceiptVerified": true,
+    "openapiSha256": "240d4b16916d7218119937255c0646da8db3ea50bb4313137be9f2f9c42f1b01",
+    "scope": "Uncommitted candidate; synthetic responses/vectors and installed public API. Not launched producer HTTP, JWT/JWKS, model quality, published acceptance or capability promotion."
+  },
+  "cleanup": {
+    "at": "2026-09-12T21:35:54.821Z",
+    "jobs": [
+      {
+        "unit": "fortemi-local-test-1000-c7324c11-eadd-42de-9688-ea55b49f94ff.service",
+        "state": "failed",
+        "result": "exit-code",
+        "exitStatus": "1",
+        "memoryPeak": 403333120,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-e0b525c6-504b-4382-8430-dde422c1331e.service",
+        "state": "failed",
+        "result": "exit-code",
+        "exitStatus": "1",
+        "memoryPeak": 1369010176,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-1688be5a-dcc5-4e7f-b193-e585e0e7aaf8.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 1342500864,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-1da93161-1942-4a76-a3cf-b3cba61f5abe.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 1375465472,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-035dbf11-253e-44e2-ad3a-f17df2e7f983.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 1629937664,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-b8feac06-05ac-47e2-9b57-cfe15116e306.service",
+        "state": "failed",
+        "result": "exit-code",
+        "exitStatus": "1",
+        "memoryPeak": 1622470656,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-26ecc72d-4deb-43b4-a747-b1954dbb47d2.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 1626697728,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-3e8b9de9-a667-4eda-a132-1b0c4e6f908f.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 1584418816,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-c287444c-382c-468e-99d2-5b25659ca121.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 1719857152,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-8315c2e2-320c-4949-9b00-d8426b7b32ab.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 1669316608,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-0bff4de1-feed-41f4-bb89-e151c570eb70.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 1468092416,
+        "cgroupAbsent": true
+      },
+      {
+        "unit": "fortemi-local-test-1000-0c3adcf8-6a0f-439a-b62a-e3dd503b18b0.service",
+        "state": "inactive",
+        "result": "success",
+        "exitStatus": "0",
+        "memoryPeak": 1429721088,
+        "cgroupAbsent": true
+      }
+    ],
+    "peakBytes": 1719857152,
+    "services": {
+      "vllm": {
+        "ActiveState": "active",
+        "UnitFileState": "enabled",
+        "MainPID": "223555",
+        "NRestarts": "0"
+      },
+      "ollama": {
+        "ActiveState": "active",
+        "UnitFileState": "enabled",
+        "MainPID": "10457",
+        "NRestarts": "2"
+      },
+      "hostRunner": {
+        "ActiveState": "inactive",
+        "UnitFileState": "disabled",
+        "MainPID": "0",
+        "NRestarts": "0"
+      }
+    },
+    "preserved": [
+      "shared inference",
+      "models and caches",
+      "persistent data",
+      "WIP worktrees/branches",
+      "rollback artifacts",
+      "OpenBao custody"
+    ],
+    "scope": "Only owned isolated CPU jobs, local PGlite and clean installed package fixtures; no native PostgreSQL fixture in this cycle. No Docker, model load or shared-service mutation."
+  },
+  "releaseInventory": {
+    "observedAt": "2026-09-12 21:22:29 UTC",
+    "releases": [
+      {
+        "repository": "fortemi",
+        "tag": "v2026.9.9",
+        "id": 2324,
+        "assets": [
+          {
+            "id": 6233,
+            "name": "SHA256SUMS.txt",
+            "size": 400
+          },
+          {
+            "id": 6231,
+            "name": "matric-api-aarch64-apple-darwin",
+            "size": 61031584
+          },
+          {
+            "id": 6230,
+            "name": "matric-api-aarch64-unknown-linux-gnu",
+            "size": 68659392
+          },
+          {
+            "id": 6232,
+            "name": "matric-api-x86_64-apple-darwin",
+            "size": 65082640
+          },
+          {
+            "id": 6229,
+            "name": "matric-api-x86_64-unknown-linux-gnu",
+            "size": 72938328
+          },
+          {
+            "id": 6234,
+            "name": "sidecar-provenance.intoto.json",
+            "size": 1751
+          }
+        ],
+        "disposition": "CANDIDATE_PENDING_ACCEPTANCE_DELIVERY"
+      },
+      {
+        "repository": "fortemi-react",
+        "tag": "v2026.9.5",
+        "id": 2333,
+        "assets": [
+          {
+            "id": 6302,
+            "name": "SHA256SUMS",
+            "size": 278
+          },
+          {
+            "id": 6299,
+            "name": "fortemi-core-2026.9.5.tgz",
+            "size": 1257821
+          },
+          {
+            "id": 6300,
+            "name": "fortemi-graph-2026.9.5.tgz",
+            "size": 64363
+          },
+          {
+            "id": 6301,
+            "name": "fortemi-react-2026.9.5.tgz",
+            "size": 147087
+          }
+        ],
+        "disposition": "PARTIAL_PUBLICATION_AND_UNRELEASED_SOURCE"
+      },
+      {
+        "repository": "HotM",
+        "tag": "v2026.9.5",
+        "id": 2331,
+        "assets": [
+          {
+            "id": 6294,
+            "name": "HotM_2026.9.5_aarch64.dmg",
+            "size": 29201522
+          },
+          {
+            "id": 6296,
+            "name": "HotM_2026.9.5_amd64.AppImage",
+            "size": 109287928
+          },
+          {
+            "id": 6297,
+            "name": "HotM_2026.9.5_amd64.deb",
+            "size": 32747002
+          },
+          {
+            "id": 6295,
+            "name": "SHA256SUMS-macos.txt",
+            "size": 92
+          },
+          {
+            "id": 6298,
+            "name": "SHA256SUMS.txt",
+            "size": 268
+          },
+          {
+            "id": 6289,
+            "name": "hotm-ui-dist.tar.gz",
+            "size": 3246334
+          }
+        ],
+        "disposition": "NO_CHANGE"
+      }
+    ]
+  },
+  "evidenceRoot": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260912-cycle80",
+  "earlierFailures": [
+    {
+      "stage": "red",
+      "reason": "43 failures: missing remote.resolveEvidence operation",
+      "expected": true
+    },
+    {
+      "stage": "green",
+      "reason": "header-fixture union typing rejected by tsc despite 285 passing tests",
+      "expected": false
+    },
+    {
+      "stage": "prepare-2",
+      "reason": "DTS build required explicit post-schema type for serialized request",
+      "expected": false
+    }
+  ],
+  "remaining": [
+    "Launched HTTP producer-to-clean-installed Core consumer matrix under owned isolated fixtures.",
+    "Production JWT/JWKS and installed authorization/cache behavior; lifecycle-worker purge/crash/resume/restore-time re-erasure.",
+    "Native pg_bigm/index-plan/query-cost/performance and every declared consumer conformance.",
+    "Exact-head CI, repository delivery policies, authority/consumer pins and original full lane release/assets/mirrors/cleanup sweep."
+  ],
+  "claims": {
+    "completeEvidenceCapability": false,
+    "typedRemoteSearchCapability": false,
+    "promotedContract": false,
+    "liveProducerAcceptance": false,
+    "releasedRuntimeAcceptance": false,
+    "suiteAudit": "NO-GO"
+  },
+  "boundaries": {
+    "originalScope": "HotM M1/288; server1091/1092/1128/1129/1130/1131; Core405/406/412/417/418/419/420/421/422/423/424/425.",
+    "holds": "Prior escalations, gated C70 drafts, 1092/406/AIWG2242 holds, taxonomy and Titan Actions procedure questions unchanged.",
+    "releases": "No commit, PR, tag, publication, immutable overwrite, issue closure or capability promotion. Metadata inventory does not refresh artifact-byte/mirror proofs.",
+    "safety": "One detached bounded CPU job at a time. No model/GPU/Docker/shared-service use or native PostgreSQL fixture in C80; personal services, data, caches, WIP, rollback and OpenBao custody preserved."
+  }
+}

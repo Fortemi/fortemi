@@ -1,0 +1,187 @@
+{
+  "at": "2026-09-13T06:50:23.500Z",
+  "cycle": 96,
+  "status": "PROGRESS_CONTEXT_OWNED_VIEWS_REQUESTS_GATE_AND_BROWSER_NOTES_PASS",
+  "overallAcceptance": "NOT_PASS",
+  "producerFiles": 847,
+  "hotmFiles": 517,
+  "coreFiles": 580,
+  "changedProducerSource": [
+    "crates/matric-api/src/scoped_search_tests/installed_http.rs",
+    "crates/matric-api/src/scoped_search_tests/worker-sse-consumer.mjs"
+  ],
+  "changedHotmSource": [
+    "ui/src/App.tsx",
+    "ui/src/__tests__/App.context.test.tsx",
+    "ui/src/api/__tests__/client-context.test.ts",
+    "ui/src/api/__tests__/data-context.test.ts",
+    "ui/src/api/__tests__/systemCompatibility.test.ts",
+    "ui/src/api/client.ts",
+    "ui/src/api/data-context.ts",
+    "ui/src/api/systemCompatibility.ts",
+    "ui/src/components/embeddings/__tests__/MemberManager.test.tsx"
+  ],
+  "producerRuntimeUnchanged": true,
+  "coreSourceUnchanged": true,
+  "sourceHeads": {
+    "server": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+    "core": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7",
+    "hotm": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4"
+  },
+  "verification": {
+    "tests": {
+      "vitest.json": {
+        "passed": 400,
+        "failed": 0,
+        "skipped": 0,
+        "todo": 0
+      },
+      "full-vitest.json": {
+        "passed": 2133,
+        "failed": 0,
+        "skipped": 0,
+        "todo": 0
+      }
+    },
+    "typecheck": "PASS",
+    "build": "PASS",
+    "schemaAndConsumerVectors": 12,
+    "metadataRequests": 12,
+    "sseStreams": 6,
+    "sseEvents": 24,
+    "browserChecks": 11,
+    "browserEventBytes": 0,
+    "browserNoteAccesses": 3,
+    "coreEnrichmentReadsPerNote": 4,
+    "browserScreenshots": 2,
+    "coreCheckGroups": 220,
+    "coreHttpRequests": 293,
+    "durableAuditRows": 635,
+    "rustFunctions": 5,
+    "nativeContextRequestControls": 19,
+    "fixtureProfileTests": 4,
+    "allJobsTerminal": true,
+    "jobs": 8,
+    "passes": 3,
+    "preservedFailures": 5,
+    "peakBytes": 3474497536
+  },
+  "bundle": {
+    "status": "PASS",
+    "source": {
+      "src/api/events.ts": "55b86a18cfa350c80d76b04e3f03bc9fb311368c9671c089c6f55e589a8db922",
+      "src/api/errors.ts": "c282e128554e20dd1cace1d6e18d02262dd9a567e406bb3dc7141fdfe4697874",
+      "src/api/realtime-context.ts": "8b0702bd462bff9cf12b1138529b63f77a62b2aa3ea4ca89d1a6d0d9115b1b69",
+      "src/api/memory-context.ts": "d7e9c28791ee80bd5539cb29e6f27a20bca46bb7e2e9f702d29659a09863b45f",
+      "src/api/archives.ts": "e341057ddd82e00909bd0b315d03838b9d836d688d833949be397783ea6a703a",
+      "src/lib/runtime-config.ts": "3f0d24c2407339409493e623b05242326e25ccfd515b1002596e7a2f101f9eee",
+      "src/api/auth-context.ts": "fc501711e60770bb7880039546dcbb573ca2d190f1b5959ea28a4d7e6e7e5078",
+      "src/api/data-context.ts": "97d3171c2f504a114422fd45155e7f6437feb03d578da3f1cb84b45ad65c5046",
+      "src/api/client.ts": "3bdbf633bbdc2595c66aebf2ddf84a178e930064b557d3dc01da11a2c47662c0"
+    },
+    "virtualInputs": [
+      "owned:platform",
+      "owned-realtime-entry.ts",
+      "<define:import.meta.env>"
+    ],
+    "sha256": "eda00153d62c4ba4862808871bcfd31c0b59874c22d96cbe5992319c959aa58a",
+    "bytes": 33314,
+    "esbuildVersion": "0.28.1",
+    "esbuildSha256": "8331fe1d8b3a07381f33cc425fcfaa94776e263113653f80ec3ba433e9657e73",
+    "esbuildBinarySha256": "0c6588b092a2c291a72bab90659f3c9e0e25e0fe59c9ac12b4dae4d945e5548c",
+    "scope": "Real candidate archive resolver, HTTP client and SSE parser; only platform fetch bridge and entrypoint are fixture adapters. No archive-name rewrite, metadata or event decoder replacement."
+  },
+  "binary": {
+    "path": "/var/tmp/fortemi-release-target-2026.9.1/debug/matric-api",
+    "sha256": "f623fc6c11ec39410d10a5fcc50354fdb2d2640b138423b5a75016950888048c",
+    "features": [
+      "hosted-auth",
+      "kms-vault"
+    ]
+  },
+  "implementation": "Opaque effective-context revision keys desktop/mobile React subtree and media provider. Owned HTTP scopes abort and fence admission/retries/fetch/decode; ContextChangedError is terminal. Compatibility cache/reset and pending completions have independent generation fencing. No credentials in React keys/events; no persistent data removed. Already-dispatched mutations are not rolled back.",
+  "hostedProgress": "Actual production browser passes11stream/note controls using producer-owned note IDs in A/public,A/archive,B/public; foreign404 and logout401 clear old content. Exactly1browser access per note before4Core enrichment reads. Core220groups/293requests/635durable audit rows and worker12metadata/six streams24events pass.",
+  "residualTestRisk": "RED21view/request plus4gate regressions retained. Intermediate test-only Array.at target error fixed; full2129assertions pass with1uncaught Radix MemberManager DOM teardown timer, fixed by awaiting owned dialog cleanup without filtering errors. First browser passes11checks but enclosing HTTP fails old four-total access assertion; final checks browser baseline and Core delta independently.",
+  "applicationGap": {
+    "at": "2026-09-13T06:50:23.500Z",
+    "noteAndStreamControls": "PASS",
+    "fullSessionIsolation": "NOT_PASS",
+    "mobileUsability": "NOT_PASS",
+    "screenshots": [
+      {
+        "name": "desktop",
+        "width": 1440,
+        "height": 900,
+        "sha256": "07a4551c1f84e1656603273c48f704875ab13f9e8b7f238d9cfcd32661bc3de9",
+        "bytes": 84866,
+        "sampledColors": 913,
+        "layout": {
+          "rootChildren": 1,
+          "textLength": 915,
+          "width": 1440,
+          "scrollWidth": 1440
+        }
+      },
+      {
+        "name": "mobile",
+        "width": 390,
+        "height": 844,
+        "sha256": "6e3d0e38fcfa8a040026d72ddbaa14c630c4bd9a04890830b8f38f9de8aa8ab4",
+        "bytes": 29457,
+        "sampledColors": 487,
+        "layout": {
+          "rootChildren": 1,
+          "textLength": 781,
+          "width": 390,
+          "scrollWidth": 390
+        }
+      }
+    ],
+    "finding": "Actual note IDs match three producer-owned scopes; old content clears on foreign404/logout401. Mobile selected-note toolbar clips controls and compresses title despite matching document/viewport widths. External jobEventStore and other persisted state are not qualified by subtree remount.",
+    "boundary": "Eleven stream/note controls; zero application event bytes on browser streams. Worker live/seeded replay is separate. No full native/default-admin/lifecycle/mobile or released qualification."
+  },
+  "releases": {
+    "fortemi": {
+      "tag": "v2026.9.9",
+      "main": "36c1b8779166af712afd588dd00dec871a6a9e30",
+      "released": "e91c595a896275f835cb7ed1aef173cb26056206",
+      "tagObject": "312897944bac30b36e1a215afe34178610ae48f6",
+      "mergedUnreleased": 16,
+      "refs": "36c1b8779166af712afd588dd00dec871a6a9e30\trefs/heads/main\n312897944bac30b36e1a215afe34178610ae48f6\trefs/tags/v2026.9.9\ne91c595a896275f835cb7ed1aef173cb26056206\trefs/tags/v2026.9.9^{}\n",
+      "disposition": "CANDIDATE_UNRELEASED_FULL_ACCEPTANCE_AND_DELIVERY_PENDING",
+      "releaseId": 2324
+    },
+    "fortemi-react": {
+      "tag": "v2026.9.5",
+      "main": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7",
+      "released": "01b4a9c923af9cde24dc6a2d293d96194b6a6d7d",
+      "tagObject": "4e588d8bdb3e6e455e2d35ef9e49498542917de0",
+      "mergedUnreleased": 3,
+      "refs": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7\trefs/heads/main\n4e588d8bdb3e6e455e2d35ef9e49498542917de0\trefs/tags/v2026.9.5\n01b4a9c923af9cde24dc6a2d293d96194b6a6d7d\trefs/tags/v2026.9.5^{}\n",
+      "disposition": "CANDIDATE_UNRELEASED_FULL_ACCEPTANCE_AND_DELIVERY_PENDING",
+      "releaseId": 2333
+    },
+    "HotM": {
+      "tag": "v2026.9.5",
+      "main": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4",
+      "released": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4",
+      "tagObject": "8d4f756ed55afcf12120c9edffb76e70bc2b0a62",
+      "mergedUnreleased": 0,
+      "refs": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4\trefs/heads/main\n8d4f756ed55afcf12120c9edffb76e70bc2b0a62\trefs/tags/v2026.9.5\n2b0b4a7aa283a91aa1026521b3a41faa4e834ad4\trefs/tags/v2026.9.5^{}\n",
+      "disposition": "CANDIDATE_UNRELEASED_FULL_ACCEPTANCE_AND_DELIVERY_PENDING",
+      "releaseId": 2331
+    }
+  },
+  "releaseQualification": "Fresh metadata/source refs/ancestry only. No artifact-byte/mirror revalidation, signing, commit, PR, tag, release, closure or delivered-pin promotion. Candidate remains uncommitted/unreleased.",
+  "remaining": [
+    "external jobEventStore/persisted cache ownership and unfenced pause responses, other external stores and delayed callers/transports",
+    "mobile selected-note toolbar clipping/title compression; nonempty browser replay, same-tab controls, native and live default administration",
+    "remaining hosted handlers/follow-ups/index/queue, durable outbox/crash/restart/cancellation/purge/restore/revocation",
+    "every declared consumer/cache/EE/performance/named-profile/CI/delivery and full lane release sweep"
+  ],
+  "scope": "Original20 Lane B issues and all holds retained. Human92284 requires independent immutable delivered-axis receipts. Exact C82 draft unchanged HELD_NOT_POSTED. SuiteNO-GO/public readiness false/goalACTIVE; static index, named-profile shards and live persistence separate.",
+  "safety": "Eight serial bounded jobs terminal,3PASS/5failures preserved. Two owned PG18.6 hosted-http20 fixtures removed with zero slot refusals. Recorded PIDs/cgroups/private roots absent and shared inference unchanged. No model/GPU/Docker/production vault/signing. Six-calendar-month original model release policy remains.",
+  "evidenceBoundary": "Actual browser note identity/clearing and stream admission/replacement pass; external stores and mobile usability remain NOT_PASS. Browser streams have no application event bytes, so no nonempty browser replay or full lifecycle/native/default-admin/auth-parity/immutable delivery/full-suite claim.",
+  "owner": "server",
+  "evidence": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260913-cycle96"
+}

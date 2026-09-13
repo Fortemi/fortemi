@@ -11,6 +11,9 @@ pub enum Error {
     /// Database operation failed (wraps sqlx::Error)
     Database(sqlx::Error),
 
+    /// A bounded operation timed out; commit outcome may be indeterminate.
+    DeadlineExceeded,
+
     /// Resource not found
     NotFound(String),
 
@@ -71,6 +74,7 @@ impl fmt::Debug for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Database(err) => redacted_error_debug(f, "Database", &err.to_string()),
+            Self::DeadlineExceeded => f.write_str("DeadlineExceeded"),
             Self::NotFound(value) => redacted_error_debug(f, "NotFound", value),
             Self::NoteNotFound(_) => f
                 .debug_struct("NoteNotFound")
@@ -110,6 +114,9 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Database(err) => write_redacted_error(f, "Database error", &err.to_string()),
+            Self::DeadlineExceeded => {
+                f.write_str("Operation deadline exceeded; outcome may be indeterminate")
+            }
             Self::NotFound(value) => write_redacted_error(f, "Not found", value),
             Self::NoteNotFound(_) => f.write_str("Note not found: id_present=true"),
             Self::CollectionNotFound(_) => f.write_str("Collection not found: id_present=true"),
@@ -220,6 +227,16 @@ fn error_message_class(value: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deadline_error_preserves_indeterminate_outcome_without_payload() {
+        assert_eq!(format!("{:?}", Error::DeadlineExceeded), "DeadlineExceeded");
+        assert_eq!(
+            Error::DeadlineExceeded.to_string(),
+            "Operation deadline exceeded; outcome may be indeterminate"
+        );
+        assert!(Error::DeadlineExceeded.source().is_none());
+    }
     use uuid::Uuid;
 
     #[test]

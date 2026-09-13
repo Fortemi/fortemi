@@ -1,0 +1,132 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-13T05:16:53.585Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-selected-memory-context-cycle93.json",
+    "type": "artifact_bundle",
+    "created_at": "2026-09-13T05:16:53.585Z",
+    "checksum": "sha256:bed9edc76805e3f13702039b674121c18f98d432ef8f51baf203bc6993fe45b1",
+    "size_bytes": 6209,
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "contracts/openapi/openapi.sha256",
+          "bytes": 79,
+          "sha256": "1de38aa2a58bc3f9eb3968b4c1c50df06acb86082a1d69c108487bbb24f52c7a"
+        },
+        {
+          "path": "contracts/openapi/openapi.yaml",
+          "bytes": 400148,
+          "sha256": "0dd9b77e6d42c73197a489c575107c66d8f66755a2f8141a6788c7f4295c3cf1"
+        },
+        {
+          "path": "crates/matric-api/src/handlers/archives.rs",
+          "bytes": 32366,
+          "sha256": "603eeb84459c2e2d28f0f7d76f9c8532b0b7931875b0830428c2709d3be6cf20"
+        },
+        {
+          "path": "crates/matric-api/src/main.rs",
+          "bytes": 3209545,
+          "sha256": "c5360032ab3324e34a8c87fa7106cece7041f141db1df0358382eb8c53766509"
+        },
+        {
+          "path": "crates/matric-api/src/route_policy.rs",
+          "bytes": 72361,
+          "sha256": "db7e9bf68fa356d5889b2588223574f753ff32ff22effcd51f77ddc70dd1760a"
+        },
+        {
+          "path": "crates/matric-api/src/scoped_search_tests.rs",
+          "bytes": 25059,
+          "sha256": "3cb0c1ee631166cba6e339fda75336e34692c099d3523546b1235095bcc7cdbc"
+        },
+        {
+          "path": "crates/matric-api/src/scoped_search_tests/memory_context.rs",
+          "bytes": 10089,
+          "sha256": "339522bf0716c7bbe20cf89c28322698b8965e52c67cdadfa0055009df3b4203"
+        },
+        {
+          "path": "migrations/20260913000100_tenant_archive_default.sql",
+          "bytes": 441,
+          "sha256": "8bb4b36e9cebf279dd4e49c4a5f7f0b8615a43fde4313ee2252ae274dfdcf2ae"
+        },
+        {
+          "path": ".aiwg/architecture/impact/selected-memory-context.md",
+          "bytes": 4399,
+          "sha256": "54a4ea67ae19d02c64d0b95f8d9b3e8272e3395025639e318e32c385230a5b5b"
+        },
+        {
+          "path": ".aiwg/architecture/impact/typed-metadata-search.md",
+          "bytes": 21571,
+          "sha256": "3b603f97171413a89745efe12daee019b9b4a90ac108603ef53b7d58123a3537"
+        },
+        {
+          "path": "docs/architecture/adr/ADR-090-multi-tenancy-model.md",
+          "bytes": 21920,
+          "sha256": "3951ac74528cb809d25c37e5d5ffa728b33acc41c8b9032d79d785a3501d245c"
+        },
+        {
+          "path": "docs/content/authentication.md",
+          "bytes": 40253,
+          "sha256": "6b6511155baa5dec1aadf07b30e236771f9fdfef04bb8bbf1a1a07ac943abfa0"
+        },
+        {
+          "path": ".aiwg/planning/roadmap.md",
+          "bytes": 346357,
+          "sha256": "2748076ca2a0693e010b72d3bc16f857029de73a2b30c339ad13ca79fb15d1ca"
+        },
+        {
+          "path": ".aiwg/activity.log",
+          "bytes": 9488,
+          "sha256": "d44e5199aa8170342d5cc36e473c9261aa218aab4c82d892d8f093445358b26f"
+        },
+        {
+          "path": ".aiwg/reports/lane-b-server-selected-memory-context-cycle93.json",
+          "bytes": 6209,
+          "sha256": "bed9edc76805e3f13702039b674121c18f98d432ef8f51baf203bc6993fe45b1"
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:selected-memory-context:lane-b:093:server",
+    "type": "modification",
+    "started_at": "2026-09-13T04:51:05.392Z",
+    "ended_at": "2026-09-13T05:16:53.585Z",
+    "description": "Producer GET /api/v1/memory/context returns only authorized canonical name/schema_name from request-owned routing under read scope and no-store. Tenant-qualified partial unique index permits independent tenant defaults while preserving existing rows. Inventory/detail/statistics and management authority unchanged. Producer native/OpenAPI tests PASS; HotM adoption and actual hosted acceptance pending. Full scope retained."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-selected-memory-context-cycle93.json",
+      "activity": "urn:aiwg:activity:selected-memory-context:lane-b:093:server"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:selected-memory-context:lane-b:093:server",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-selected-memory-context-cycle93.json",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-selected-memory-context-cycle93.json",
+        "source": "urn:gitea:Fortemi:HotM:issue:1"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-selected-memory-context-cycle93.json",
+        "source": "urn:gitea:Fortemi:fortemi:issue:1091"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-selected-memory-context-cycle93.json",
+        "source": "urn:gitea:Fortemi:fortemi-react:issue:405"
+      }
+    ]
+  }
+}

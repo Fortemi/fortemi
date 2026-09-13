@@ -18,6 +18,8 @@ use crate::hashtag_extraction::extract_inline_hashtags;
 use crate::strict_filter::QueryParam;
 use crate::unified_filter::UnifiedFilterQueryBuilder;
 
+mod hosted;
+
 /// PostgreSQL implementation of NoteRepository.
 pub struct PgNoteRepository {
     pool: Pool<Postgres>,

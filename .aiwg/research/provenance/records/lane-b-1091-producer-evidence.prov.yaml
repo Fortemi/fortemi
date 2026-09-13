@@ -1,0 +1,199 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-12T18:36:03Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-producer-evidence.json",
+    "type": "artifact_bundle",
+    "created_at": "2026-09-12T18:36:03Z",
+    "checksum": "sha256:58eca7053eb1c479a38178fad8bbf8a7e7c7caeafdb6a1009d2b60774db56f09",
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "crates/matric-core/src/models.rs",
+          "sha256": "29829a32a6203ecfc08a35a1b2f2661be30d37c2730cbeefee0baa8185076049",
+          "size": 433316
+        },
+        {
+          "path": "crates/matric-core/src/search_evidence.rs",
+          "sha256": "797f711fffcba98f0941f02dcc74c916df6b45367ae7e282731b12f585dd9290",
+          "size": 19187
+        },
+        {
+          "path": "crates/matric-core/tests/search_hit_evidence_test.rs",
+          "sha256": "518b3d8976e1edf3d6aaf07788b5f7f17de2365d6643fd0baef6acd4c58a9b7a",
+          "size": 3667
+        },
+        {
+          "path": "crates/matric-db/src/lib.rs",
+          "sha256": "4eac3765fa3a9edf1dbbe91f19d879ea8cd60b011b8c4556b4a11c05028f1714",
+          "size": 37317
+        },
+        {
+          "path": "crates/matric-db/src/search_candidates.rs",
+          "sha256": "1de2ddc124f3f9c163aa6b64712cd5d98d35810fca814a3f4b23c8f925e8ad2d",
+          "size": 14995
+        },
+        {
+          "path": "crates/matric-db/src/metadata_predicates.rs",
+          "sha256": "b5ed6d5131112332986c0de9b55377cce8d5b46ada0de1478c59d95047fa2505",
+          "size": 10543
+        },
+        {
+          "path": "crates/matric-db/src/search_evidence_projection.rs",
+          "sha256": "8eea6e05d1e303452c08e9928631dd52f8dc027df87baec86d00f61474527976",
+          "size": 4379
+        },
+        {
+          "path": "crates/matric-db/src/search.rs",
+          "sha256": "71501282fcb7da6d4dce3b528b5cfbf44967a4f9c9cd5a646adeb466f3e6a30b",
+          "size": 28767
+        },
+        {
+          "path": "crates/matric-db/src/embeddings.rs",
+          "sha256": "9a3e011e718ccf4b7fa9806179ee401b0dab77055740d05dc8bd0cbb7cbea416",
+          "size": 31741
+        },
+        {
+          "path": "crates/matric-db/tests/search_evidence_projection_test.rs",
+          "sha256": "aa307e1543769f10773c501bd2296bd40ec49ac4fa0027c46926e80c2ad545cc",
+          "size": 6991
+        },
+        {
+          "path": "crates/matric-search/src/lib.rs",
+          "sha256": "c13e616ccbdb3f14ae57ee665a77c8068dffc8f7d7dca7f8c6c241dec27ce353",
+          "size": 2048
+        },
+        {
+          "path": "crates/matric-search/src/evidence.rs",
+          "sha256": "c1a91193479f818461406d43c408143322f6f37560e1abb11fe355339d24ba2f",
+          "size": 1033
+        },
+        {
+          "path": "crates/matric-search/src/rrf.rs",
+          "sha256": "2c87d3c9ea2f23e40c9477fcb32cf1e3f823432cc267ed71f9f4359b53386ff3",
+          "size": 22755
+        },
+        {
+          "path": "crates/matric-search/src/rsf.rs",
+          "sha256": "b7eca453dde878c048baa49382f18efa7d59f6155fbe9c34a57785069cb47c4e",
+          "size": 9402
+        },
+        {
+          "path": "crates/matric-search/src/mmr.rs",
+          "sha256": "1de1d17d40503db86a951214cd62d39350ef05ed151552011d1d0eaeefd049b2",
+          "size": 11198
+        },
+        {
+          "path": "crates/matric-search/src/deduplication.rs",
+          "sha256": "0ae3ddee4b9b89abaffa2244930908c5c92fb30fd7986d1731e0161167a4e11f",
+          "size": 17189
+        },
+        {
+          "path": "crates/matric-search/src/hybrid.rs",
+          "sha256": "31b70b13035a5d5b8755520e7ba4f634ce50743c992c344d92af6a7cd806973e",
+          "size": 50960
+        },
+        {
+          "path": "crates/matric-search/tests/search_evidence_test.rs",
+          "sha256": "71a3288d7d53df2f9596c4afdc9f44d1b7a9bc371a809c5ad250afbd4ec0422b",
+          "size": 5089
+        },
+        {
+          "path": "crates/matric-search/tests/scoped_retrieval_test.rs",
+          "sha256": "f1c9b635a3092aa2d31140a6599408fce39f17f0458b3582d9716e9f443f2597",
+          "size": 24287
+        },
+        {
+          "path": "crates/matric-api/src/main.rs",
+          "sha256": "39ad3927425d9a7a30e502517e9bcde5d2af863a94af3575bfccde180a863a82",
+          "size": 3205369
+        },
+        {
+          "path": "crates/matric-api/src/handlers/jobs.rs",
+          "sha256": "ad0dc83c92b19787af02e619bd40ef07d1990850a4f4573a335a43fa878e2558",
+          "size": 413158
+        },
+        {
+          "path": "crates/matric-api/src/search_dedup.rs",
+          "sha256": "656558e71d97cab2c7891eb018a1448009988c4a53f002846f6fcd1e11c2412e",
+          "size": 2776
+        },
+        {
+          "path": "crates/matric-api/src/scoped_search_tests.rs",
+          "sha256": "187fcb031d850aca81dbaac3dee00e7d58a0b9e01b55f817082f9261f7ed7ea6",
+          "size": 16635
+        },
+        {
+          "path": "contracts/metadata-search/candidate/1.0.0/EVIDENCE.md",
+          "sha256": "282f4e39edcd62527469eb3402ad8b18673cb7df033d76f54634c69643d062bf",
+          "size": 10693
+        },
+        {
+          "path": ".aiwg/architecture/impact/typed-metadata-search.md",
+          "sha256": "2ebc107db6df5640aadc6a234f6bc936f7fc201c8b09a8b1867e0d3c8b5cc607",
+          "size": 9114
+        },
+        {
+          "path": ".aiwg/planning/roadmap.md",
+          "sha256": "3a2f86b41261f79f37cff03c9e136fe9ddd8282d45c4fef262de2e396bdd8a6f",
+          "size": 338655
+        },
+        {
+          "path": ".aiwg/activity.log",
+          "sha256": "099d30274a07aef1af201b668858330d13ac5bda6129edd5ebf21e9ee34d63e7",
+          "size": 4818
+        },
+        {
+          "path": ".aiwg/reports/lane-b-1091-producer-evidence.json",
+          "sha256": "58eca7053eb1c479a38178fad8bbf8a7e7c7caeafdb6a1009d2b60774db56f09",
+          "size": 13062
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:modification:lane-b-producer-evidence:075",
+    "type": "modification",
+    "started_at": "2026-09-12T18:01:00Z",
+    "ended_at": "2026-09-12T18:36:03Z",
+    "description": "Candidate producer matched-unit SQL, validated wire field and fusion retention; source-bound local native and hosted fixture-auth acceptance, not released parity."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "name": "Codex",
+    "type": "ai_assistant"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-producer-evidence.json",
+      "activity": "urn:aiwg:activity:modification:lane-b-producer-evidence:075"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-producer-evidence.json",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:modification:lane-b-producer-evidence:075",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-producer-evidence.json",
+        "source": "urn:git:commit:a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+        "derivation_type": "derives_from"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-producer-evidence.json",
+        "source": "https://git.integrolabs.net/Fortemi/fortemi/issues/1091",
+        "derivation_type": "implements"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-producer-evidence.json",
+        "source": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-evidence-projection.json",
+        "derivation_type": "derives_from"
+      }
+    ]
+  }
+}

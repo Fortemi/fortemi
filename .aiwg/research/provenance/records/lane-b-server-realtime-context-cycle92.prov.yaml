@@ -1,0 +1,77 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-13T04:46:06.855Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-realtime-context-cycle92.json",
+    "type": "artifact_bundle",
+    "created_at": "2026-09-13T04:46:06.855Z",
+    "checksum": "sha256:95bf46a7d76c135710504198fc449c531ae54789b7a5a4aac4410c0b7e9d40e7",
+    "size_bytes": 8124,
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "crates/matric-api/src/scoped_search_tests/worker-sse-consumer.mjs",
+          "bytes": 9021,
+          "sha256": "b09ab3faaf827cd34768bc8a17bcc98560685d30928646baac3ce53ac821f669"
+        },
+        {
+          "path": ".aiwg/planning/roadmap.md",
+          "bytes": 345662,
+          "sha256": "634f13e4fdc48d2cabc895aa29b7b5dfc015643793c20b106a2cbe4723e0552c"
+        },
+        {
+          "path": ".aiwg/activity.log",
+          "bytes": 8766,
+          "sha256": "7fdf0a3cec44cb0431d0dd44f66f713b4b5e00b9ee20c20977dd9f5a71d61992"
+        },
+        {
+          "path": ".aiwg/reports/lane-b-server-realtime-context-cycle92.json",
+          "bytes": 8124,
+          "sha256": "95bf46a7d76c135710504198fc449c531ae54789b7a5a4aac4410c0b7e9d40e7"
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:realtime-context:lane-b:092:server",
+    "type": "modification",
+    "started_at": "2026-09-13T04:09:41.223Z",
+    "ended_at": "2026-09-13T04:46:06.855Z",
+    "description": "HotM request-name/event-schema separation, real metadata resolver, generation-fenced archive selection replacement, cursor and pending-event reset, queue view reset, strict scoped queue/control filtering. Producer harness consumes real candidate resolver/client/parser without name rewrite. Producer runtime and Core package unchanged this cycle. Local tests PASS; actual hosted metadata admission NOT_PASS. Full scope retained."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-realtime-context-cycle92.json",
+      "activity": "urn:aiwg:activity:realtime-context:lane-b:092:server"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:realtime-context:lane-b:092:server",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-realtime-context-cycle92.json",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-realtime-context-cycle92.json",
+        "source": "urn:gitea:Fortemi:HotM:issue:1"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-realtime-context-cycle92.json",
+        "source": "urn:gitea:Fortemi:fortemi:issue:1091"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-server-realtime-context-cycle92.json",
+        "source": "urn:gitea:Fortemi:fortemi-react:issue:405"
+      }
+    ]
+  }
+}

@@ -1001,6 +1001,13 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         PrivateUserData,
     ),
     r(
+        "/api/v1/memory/context",
+        TenantObject,
+        "memory_management",
+        Authenticated,
+        NoStore,
+    ),
+    r(
         "/api/v1/memory/info",
         AuthenticatedRead,
         "memory_management",
@@ -1365,6 +1372,13 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         PrivateUserData,
     ),
     r(
+        "/api/v1/search/evidence/resolve",
+        AuthenticatedRead,
+        "search",
+        Authenticated,
+        NoStore,
+    ),
+    r(
         "/api/v1/search/federated",
         TenantObject,
         "search",
@@ -1578,6 +1592,9 @@ pub fn hosted_tenant_transaction_ready(method: &Method, path: &str) -> bool {
     matches!(
         (method, policy.path),
         (&Method::GET, "/api/v1/events")
+            | (&Method::GET, "/api/v1/memory/context")
+            | (&Method::GET, "/api/v1/search")
+            | (&Method::POST, "/api/v1/search/evidence/resolve")
             | (&Method::GET, "/api/v1/notes")
             | (&Method::POST, "/api/v1/notes")
             | (&Method::POST, "/api/v1/notes/source-upsert")
@@ -2346,6 +2363,48 @@ mod tests {
     }
 
     #[test]
+    fn evidence_resolution_is_read_authorized_and_not_cacheable() {
+        let input = authorization_input_for_request(
+            &Method::POST,
+            "/api/v1/search/evidence/resolve",
+            Some("tenant-a"),
+        )
+        .unwrap();
+        assert_eq!(input.action.required_scopes, vec!["read"]);
+        assert_eq!(input.resource.kind, ResourceKind::Note);
+        assert_eq!(input.resource.tenant_id.as_deref(), Some("tenant-a"));
+        assert_eq!(input.policy.cache, CacheHeaderClass::NoStore);
+        assert!(!hosted_tenant_transaction_ready(
+            &Method::GET,
+            "/api/v1/search/evidence/resolve"
+        ));
+    }
+
+    #[test]
+    fn memory_context_preserves_read_and_admin_boundaries() {
+        let path = "/api/v1/memory/context";
+        let input = authorization_input_for_request(&Method::GET, path, Some("tenant-a")).unwrap();
+        assert_eq!(input.action.required_scopes, vec!["read"]);
+        assert_eq!(input.resource.tenant_id.as_deref(), Some("tenant-a"));
+        assert_eq!(input.policy.cache, CacheHeaderClass::NoStore);
+        assert!(!is_public_without_bearer(path));
+        assert!(hosted_tenant_transaction_ready(&Method::GET, path));
+        for method in [Method::POST, Method::PUT, Method::PATCH, Method::DELETE] {
+            assert!(!hosted_tenant_transaction_ready(&method, path));
+        }
+        for path in ["/api/v1/archives", "/api/v1/memories"] {
+            let input =
+                authorization_input_for_request(&Method::GET, path, Some("tenant-a")).unwrap();
+            assert_eq!(input.action.required_scopes, vec!["admin"]);
+            assert!(!hosted_tenant_transaction_ready(&Method::GET, path));
+        }
+        assert!(!hosted_tenant_transaction_ready(
+            &Method::GET,
+            "/api/v1/archives/research"
+        ));
+    }
+
+    #[test]
     fn hosted_tenant_transaction_gate_admits_only_migrated_methods() {
         for (method, path) in [
             (Method::GET, "/api/v1/notes"),
@@ -2362,6 +2421,8 @@ mod tests {
                 "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001/links",
             ),
             (Method::GET, "/api/v1/events"),
+            (Method::GET, "/api/v1/search"),
+            (Method::POST, "/api/v1/search/evidence/resolve"),
             (Method::POST, "/api/v1/notes"),
             (Method::POST, "/api/v1/collections"),
             (
@@ -2384,6 +2445,7 @@ mod tests {
 
         for (method, path) in [
             (Method::POST, "/api/v1/notes/bulk"),
+            (Method::POST, "/api/v1/search"),
             (
                 Method::PATCH,
                 "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001",

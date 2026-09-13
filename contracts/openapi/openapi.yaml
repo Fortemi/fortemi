@@ -4116,6 +4116,85 @@ paths:
           description: Global request rate limit exceeded
       security:
       - bearerAuth: []
+  /api/v1/memory/context:
+    get:
+      tags:
+      - Archives
+      summary: Resolve the selected memory using the same routing context as data requests.
+      description: |-
+        X-Fortemi-Memory selects a visible archive name; an absent header selects the
+        tenant's configured default or built-in public context. The response pins the
+        canonical name for later requests. This snapshot grants no continuing access:
+        every subsequent request is independently authorized. Hosted resolution uses
+        the request-owned transaction and never the process-wide default cache.
+        Inventory, metadata management and physical storage statistics are not exposed.
+        Authenticated hosted requests require the existing read scope.
+      operationId: get_memory_context
+      parameters:
+      - name: X-Fortemi-Memory
+        in: header
+        description: Visible memory name; absent selects the tenant default or public fallback
+        required: false
+        schema:
+          type:
+          - string
+          - 'null'
+      responses:
+        '200':
+          description: Authorized selected memory identity
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: no-store
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryContextResponse'
+        '400':
+          description: Invalid memory selection header
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '401':
+          description: Authentication required or invalid
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '403':
+          description: Tenant or read authorization denied
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '404':
+          description: Memory absent or not visible
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '500':
+          description: Memory resolution or context failed
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '503':
+          description: Authentication or tenant dependency unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
   /api/v1/memory/info:
     get:
       tags:
@@ -5900,6 +5979,10 @@ paths:
       responses:
         '200':
           description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchRestResponse'
         '429':
           content:
             application/problem+json:
@@ -5908,6 +5991,159 @@ paths:
           description: Global request rate limit exceeded
       security:
       - bearerAuth: []
+      parameters:
+      - in: query
+        name: created_after
+        required: false
+        schema:
+          format: date-time
+          type: string
+      - in: query
+        name: created_before
+        required: false
+        schema:
+          format: date-time
+          type: string
+      - in: query
+        name: diversity
+        required: false
+        schema:
+          description: Finite f32 input, clamped to [0,1] before MMR; zero is pure relevance.
+          maximum: 3.402823466385289e38
+          minimum: -3.402823466385289e38
+          type: number
+      - in: query
+        name: filters
+        required: false
+        schema:
+          description: Legacy filter expression; combined with comma-separated tags.
+          type: string
+      - in: query
+        name: limit
+        required: false
+        schema:
+          default: 20
+          maximum: 1000
+          minimum: 0
+          type: integer
+      - content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MetadataPredicates'
+              x-fortemi-max-encoded-utf8-bytes: 1048576
+        in: query
+        name: metadata_predicates
+        required: false
+      - in: query
+        name: mode
+        required: false
+        schema:
+          default: hybrid
+          description: fts selects lexical search, semantic selects vector search. hybrid, absent and other legacy values select hybrid; failures have explicit FTS degradation.
+          type: string
+      - in: query
+        name: q
+        required: true
+        schema:
+          description: Search expression. Empty text remains accepted.
+          type: string
+      - in: query
+        name: set
+        required: false
+        schema:
+          description: Embedding-set slug resolved within the authorized memory and tenant.
+          type: string
+      - in: query
+        name: since
+        required: false
+        schema:
+          description: Relative created-after time; explicit created_after wins. Unrecognized relative text retains legacy ignored behavior.
+          type: string
+      - content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchRestContract/$defs/StrictSearchFilterInput'
+        in: query
+        name: strict_filter
+        required: false
+      - in: query
+        name: tags
+        required: false
+        schema:
+          description: Comma-separated tags; trimmed nonempty entries are AND requirements.
+          type: string
+      - in: query
+        name: updated_after
+        required: false
+        schema:
+          format: date-time
+          type: string
+      - in: query
+        name: updated_before
+        required: false
+        schema:
+          format: date-time
+          type: string
+      - description: Select an accessible memory; middleware verifies tenant membership. This header is not an authorization grant.
+        in: header
+        name: X-Fortemi-Memory
+        required: false
+        schema:
+          type: string
+      x-fortemi-search-contract:
+        authority: contracts/metadata-search/candidate/1.0.0/search-rest.schema.json
+        consumer_issues:
+        - Fortemi/fortemi-react#405
+        evidence_complete_capability: false
+        scope_identity:
+        - verified_tenant
+        - active_memory
+        status: candidate-unpublished
+        total_semantics: returned-hits
+  /api/v1/search/evidence/resolve:
+    post:
+      tags:
+      - Search
+      operationId: resolve_search_evidence
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SearchEvidenceResolveRequest'
+        required: true
+      responses:
+        '200':
+          description: Exact authorized current-storage range
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchEvidenceResolveResponse'
+        '400':
+          description: SEARCH_EVIDENCE_INVALID
+        '404':
+          description: SEARCH_EVIDENCE_UNAVAILABLE
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
+      parameters:
+      - in: header
+        name: X-Fortemi-Memory
+        required: false
+        schema:
+          type: string
+      x-fortemi-evidence-resolution:
+        cache: no-store
+        evidence_complete_capability: false
+        max_request_bytes: 65536
+        max_unit_utf8_bytes: 16777216
+        required_scope: read
+        snapshot: current-authorized-statement
+        status: candidate-unpublished
   /api/v1/search/federated:
     post:
       tags:
@@ -10290,6 +10526,25 @@ components:
           items:
             $ref: '#/components/schemas/ProviderInfo'
           description: Registered inference providers.
+    MemoryContextResponse:
+      type: object
+      description: Selected memory identity, not an archive inventory or storage-statistics view.
+      required:
+      - name
+      - schema_name
+      properties:
+        name:
+          type: string
+          description: Canonical name to send in X-Fortemi-Memory for subsequent requests.
+          maxLength: 255
+          minLength: 1
+        schema_name:
+          type: string
+          description: Canonical schema carried by hosted realtime envelope memory fields.
+          maxLength: 63
+          minLength: 1
+          pattern: ^[a-z_][a-z0-9_]{0,62}$
+      additionalProperties: false
     MemoryHit:
       type: object
       description: A memory result with temporal and spatial context.
@@ -11294,38 +11549,44 @@ components:
         total:
           type: integer
           format: int64
-    SearchHit:
-      type: object
-      description: A search result hit.
-      required:
-      - note_id
-      - score
+    SearchEvidenceSet:
+      $schema: https://json-schema.org/draft/2020-12/schema
+      additionalProperties: false
+      if:
+        properties:
+          locators:
+            maxItems: 0
+            type: array
       properties:
-        embedding_status:
-          oneOf:
-          - type: 'null'
-          - $ref: '#/components/schemas/EmbeddingStatus'
-            description: Embedding status for this note
-        note_id:
-          type: string
-          format: uuid
-        score:
-          type: number
-          format: float
-        snippet:
-          type:
-          - string
-          - 'null'
-        tags:
-          type: array
+        locators:
           items:
-            type: string
-          description: Note tags
-        title:
-          type:
-          - string
-          - 'null'
-          description: Note title (generated or first line of content)
+            $ref: '#/components/schemas/SearchEvidenceLocator'
+          maxItems: 64
+          type: array
+          uniqueItems: true
+        omissions:
+          items:
+            enum:
+            - unavailable-unit
+            - locator-limit
+          maxItems: 2
+          type: array
+          uniqueItems: true
+        version:
+          const: 1.0.0
+      required:
+      - version
+      - locators
+      - omissions
+      then:
+        properties:
+          omissions:
+            minItems: 1
+            type: array
+      title: Candidate per-hit search evidence envelope
+      type: object
+    SearchHit:
+      $ref: '#/components/schemas/SearchRestContract/$defs/SearchHit'
     SearchMode:
       type: string
       description: Search mode for queries.
@@ -13662,6 +13923,548 @@ components:
           - 'null'
           description: 'Vision analysis depth: "standard" (scene only) or "full" (scene + characters + setting) (#550)'
     Value: {}
+    ChainSearchInfo:
+      $ref: '#/components/schemas/SearchRestContract/$defs/ChainSearchInfo'
+    EnhancedSearchHit:
+      $ref: '#/components/schemas/SearchRestContract/$defs/EnhancedSearchHit'
+    MetadataPredicates:
+      $defs:
+        bound:
+          oneOf:
+          - maxLength: 256
+            pattern: ^[^\u0000]*$
+            type: string
+          - maximum: 9007199254740991
+            minimum: -9007199254740991
+            type: number
+        predicate:
+          oneOf:
+          - additionalProperties: false
+            allOf:
+            - if:
+                properties:
+                  path:
+                    const: import_run_id
+              then:
+                properties:
+                  value:
+                    maxLength: 200
+                    minLength: 1
+                    pattern: ^[^\u0000]*$
+                    type: string
+            properties:
+              op:
+                const: eq
+              path:
+                enum:
+                - provider
+                - model
+                - role
+                - event_kind
+                - sensitivity
+                - import_run_id
+              value:
+                $ref: '#/components/schemas/MetadataPredicates/$defs/scalar'
+            required:
+            - path
+            - op
+            - value
+            type: object
+          - additionalProperties: false
+            allOf:
+            - if:
+                properties:
+                  path:
+                    const: import_run_id
+              then:
+                properties:
+                  value:
+                    items:
+                      maxLength: 200
+                      minLength: 1
+                      pattern: ^[^\u0000]*$
+                      type: string
+                    type: array
+            properties:
+              op:
+                const: in
+              path:
+                enum:
+                - provider
+                - model
+                - role
+                - event_kind
+                - sensitivity
+                - import_run_id
+              value:
+                items:
+                  $ref: '#/components/schemas/MetadataPredicates/$defs/scalar'
+                maxItems: 32
+                type: array
+            required:
+            - path
+            - op
+            - value
+            type: object
+          - additionalProperties: false
+            allOf:
+            - if:
+                properties:
+                  path:
+                    const: import_run_id
+              then:
+                properties:
+                  gte:
+                    maxLength: 200
+                    minLength: 1
+                    pattern: ^[^\u0000]*$
+                    type: string
+                  lte:
+                    maxLength: 200
+                    minLength: 1
+                    pattern: ^[^\u0000]*$
+                    type: string
+            anyOf:
+            - properties:
+                gte:
+                  $ref: '#/components/schemas/MetadataPredicates/$defs/bound'
+              required:
+              - gte
+            - properties:
+                lte:
+                  $ref: '#/components/schemas/MetadataPredicates/$defs/bound'
+              required:
+              - lte
+            oneOf:
+            - properties:
+                gte:
+                  maxLength: 256
+                  pattern: ^[^\u0000]*$
+                  type: string
+                lte:
+                  maxLength: 256
+                  pattern: ^[^\u0000]*$
+                  type: string
+            - properties:
+                gte:
+                  maximum: 9007199254740991
+                  minimum: -9007199254740991
+                  type: number
+                lte:
+                  maximum: 9007199254740991
+                  minimum: -9007199254740991
+                  type: number
+            properties:
+              gte:
+                $ref: '#/components/schemas/MetadataPredicates/$defs/bound'
+              lte:
+                $ref: '#/components/schemas/MetadataPredicates/$defs/bound'
+              op:
+                const: range
+              path:
+                enum:
+                - provider
+                - model
+                - role
+                - event_kind
+                - sensitivity
+                - import_run_id
+            required:
+            - path
+            - op
+            type: object
+          - additionalProperties: false
+            properties:
+              op:
+                const: exists
+              path:
+                enum:
+                - provider
+                - model
+                - role
+                - event_kind
+                - sensitivity
+                - import_run_id
+              value:
+                type: boolean
+            required:
+            - path
+            - op
+            type: object
+        scalar:
+          oneOf:
+          - maxLength: 256
+            pattern: ^[^\u0000]*$
+            type: string
+          - maximum: 9007199254740991
+            minimum: -9007199254740991
+            type: number
+          - type: boolean
+          - type: 'null'
+      $schema: https://json-schema.org/draft/2020-12/schema
+      items:
+        $ref: '#/components/schemas/MetadataPredicates/$defs/predicate'
+      maxItems: 8
+      title: Candidate typed metadata predicates
+      type: array
+    SearchDegradation:
+      $ref: '#/components/schemas/SearchRestContract/$defs/SearchDegradation'
+    SearchEvidenceLocator:
+      $defs:
+        digest:
+          pattern: ^sha256:[a-f0-9]{64}$
+          type: string
+        identifier:
+          maxLength: 200
+          minLength: 1
+          pattern: ^[^\u0000]+$
+          type: string
+      $schema: https://json-schema.org/draft/2020-12/schema
+      additionalProperties: false
+      properties:
+        content_digest:
+          $ref: '#/components/schemas/SearchEvidenceLocator/$defs/digest'
+        note_id:
+          $ref: '#/components/schemas/SearchEvidenceLocator/$defs/identifier'
+        source:
+          additionalProperties: false
+          properties:
+            external_id_hash:
+              $ref: '#/components/schemas/SearchEvidenceLocator/$defs/digest'
+            import_run_id:
+              $ref: '#/components/schemas/SearchEvidenceLocator/$defs/identifier'
+            namespace:
+              $ref: '#/components/schemas/SearchEvidenceLocator/$defs/identifier'
+            schema_version:
+              $ref: '#/components/schemas/SearchEvidenceLocator/$defs/identifier'
+          required:
+          - namespace
+          - external_id_hash
+          - import_run_id
+          - schema_version
+          type: object
+        span:
+          additionalProperties: false
+          properties:
+            end:
+              maximum: 16777216
+              minimum: 0
+              type: integer
+            start:
+              maximum: 16777216
+              minimum: 0
+              type: integer
+            unit:
+              const: utf8-bytes
+          required:
+          - unit
+          - start
+          - end
+          type: object
+        unit:
+          additionalProperties: false
+          if:
+            properties:
+              kind:
+                enum:
+                - current
+                - title
+                - attachment
+          properties:
+            id:
+              $ref: '#/components/schemas/SearchEvidenceLocator/$defs/identifier'
+            index:
+              maximum: 2147483647
+              minimum: 0
+              type: integer
+            kind:
+              enum:
+              - current
+              - title
+              - embedding
+              - attachment
+          required:
+          - kind
+          - id
+          - index
+          then:
+            properties:
+              index:
+                const: 0
+          type: object
+        version:
+          const: 1.0.0
+      required:
+      - version
+      - note_id
+      - unit
+      - content_digest
+      - span
+      title: Candidate search evidence locator
+      type: object
+    SearchEvidenceResolutionContract:
+      $defs:
+        SearchEvidenceResolveRequest:
+          additionalProperties: false
+          properties:
+            include_archived:
+              default: false
+              type: boolean
+            locator:
+              $ref: '#/components/schemas/SearchEvidenceLocator'
+            metadata_predicates:
+              $ref: '#/components/schemas/MetadataPredicates'
+          required:
+          - locator
+          type: object
+        SearchEvidenceResolveResponse:
+          additionalProperties: false
+          properties:
+            text:
+              maxLength: 16777216
+              type: string
+          required:
+          - text
+          type: object
+      $schema: https://json-schema.org/draft/2020-12/schema
+      title: Candidate current-storage evidence resolution
+    SearchEvidenceResolveRequest:
+      $ref: '#/components/schemas/SearchEvidenceResolutionContract/$defs/SearchEvidenceResolveRequest'
+    SearchEvidenceResolveResponse:
+      $ref: '#/components/schemas/SearchEvidenceResolutionContract/$defs/SearchEvidenceResolveResponse'
+    SearchRestContract:
+      $defs:
+        ChainSearchInfo:
+          additionalProperties: false
+          description: Legacy display aggregation. Index/count fields are currently heuristic, not native citation coordinates; use evidence for exact unit identity.
+          properties:
+            best_chunk_sequence:
+              maximum: 4294967295
+              minimum: 0
+              type: integer
+            chain_id:
+              format: uuid
+              type: string
+            chunks_matched:
+              minimum: 0
+              type: integer
+            original_title:
+              type: string
+            total_chunks:
+              maximum: 4294967295
+              minimum: 0
+              type: integer
+          required:
+          - chain_id
+          - original_title
+          - chunks_matched
+          - best_chunk_sequence
+          - total_chunks
+          type: object
+        EnhancedSearchHit:
+          allOf:
+          - $ref: '#/components/schemas/SearchRestContract/$defs/SearchHitFields'
+          - properties:
+              chain_info:
+                $ref: '#/components/schemas/SearchRestContract/$defs/ChainSearchInfo'
+            type: object
+          type: object
+          unevaluatedProperties: false
+        SearchDegradation:
+          additionalProperties: false
+          properties:
+            code:
+              pattern: ^[a-z][a-z0-9_]{0,63}$
+              type: string
+            effective_mode:
+              const: fts
+          required:
+          - code
+          - effective_mode
+          type: object
+        SearchHit:
+          allOf:
+          - $ref: '#/components/schemas/SearchRestContract/$defs/SearchHitFields'
+          type: object
+          unevaluatedProperties: false
+        SearchHitFields:
+          properties:
+            embedding_status:
+              enum:
+              - ready
+              - pending
+              - failed
+              - none
+            evidence:
+              $ref: '#/components/schemas/SearchEvidenceSet'
+            note_id:
+              format: uuid
+              type: string
+            score:
+              description: Finite retrieval/fusion score, not a probability.
+              type: number
+            snippet:
+              description: Display only; not citation text or coordinates.
+              type:
+              - string
+              - 'null'
+            tags:
+              items:
+                type: string
+              type: array
+            title:
+              type: string
+          required:
+          - note_id
+          - score
+          - snippet
+          type: object
+        SearchRestRequest:
+          additionalProperties: true
+          description: Decoded GET query parameters. JSON-content parameters are decoded to JSON values before this schema is applied. This is not a POST request body. Unknown query keys retain legacy ignored behavior and cannot grant tenant/archive authorization.
+          properties:
+            created_after:
+              format: date-time
+              type: string
+            created_before:
+              format: date-time
+              type: string
+            diversity:
+              description: Finite f32 input, clamped to [0,1] before MMR; zero is pure relevance.
+              maximum: 3.402823466385289e38
+              minimum: -3.402823466385289e38
+              type: number
+            filters:
+              description: Legacy filter expression; combined with comma-separated tags.
+              type: string
+            limit:
+              default: 20
+              maximum: 1000
+              minimum: 0
+              type: integer
+            metadata_predicates:
+              $ref: '#/components/schemas/MetadataPredicates'
+              x-fortemi-max-encoded-utf8-bytes: 1048576
+              x-fortemi-query-content: application/json
+            mode:
+              default: hybrid
+              description: fts selects lexical search, semantic selects vector search. hybrid, absent and other legacy values select hybrid; failures have explicit FTS degradation.
+              type: string
+            q:
+              description: Search expression. Empty text remains accepted.
+              type: string
+            set:
+              description: Embedding-set slug resolved within the authorized memory and tenant.
+              type: string
+            since:
+              description: Relative created-after time; explicit created_after wins. Unrecognized relative text retains legacy ignored behavior.
+              type: string
+            strict_filter:
+              $ref: '#/components/schemas/SearchRestContract/$defs/StrictSearchFilterInput'
+              x-fortemi-query-content: application/json
+            tags:
+              description: Comma-separated tags; trimmed nonempty entries are AND requirements.
+              type: string
+            updated_after:
+              format: date-time
+              type: string
+            updated_before:
+              format: date-time
+              type: string
+          required:
+          - q
+          type: object
+        SearchRestResponse:
+          additionalProperties: false
+          else:
+            not:
+              properties:
+                degradation: {}
+              required:
+              - degradation
+          if:
+            properties:
+              degraded:
+                const: true
+          properties:
+            degradation:
+              $ref: '#/components/schemas/SearchRestContract/$defs/SearchDegradation'
+            degraded:
+              type: boolean
+            query:
+              type: string
+            results:
+              items:
+                $ref: '#/components/schemas/SearchRestContract/$defs/EnhancedSearchHit'
+              maxItems: 1000
+              type: array
+            total:
+              description: Returned hit count, exactly results.length; not total matches in storage.
+              maximum: 1000
+              minimum: 0
+              type: integer
+          required:
+          - results
+          - query
+          - total
+          - degraded
+          then:
+            properties:
+              degradation: {}
+            required:
+            - degradation
+          type: object
+        StrictSearchFilterInput:
+          additionalProperties: true
+          description: Decoded strict_filter JSON. Unknown keys retain legacy ignored behavior. Sum of the five list lengths must not exceed 1000; name resolution still requires current authorized storage.
+          properties:
+            any_tags:
+              default: []
+              items:
+                type: string
+              maxItems: 1000
+              type: array
+            excluded_schemes:
+              default: []
+              items:
+                type: string
+              maxItems: 1000
+              type: array
+            excluded_tags:
+              default: []
+              items:
+                type: string
+              maxItems: 1000
+              type: array
+            include_untagged:
+              default: true
+              type: boolean
+            min_tag_count:
+              maximum: 2147483647
+              minimum: -2147483648
+              type:
+              - integer
+              - 'null'
+            required_schemes:
+              default: []
+              items:
+                type: string
+              maxItems: 1000
+              type: array
+            required_tags:
+              default: []
+              items:
+                type: string
+              maxItems: 1000
+              type: array
+          type: object
+      $schema: https://json-schema.org/draft/2020-12/schema
+      description: Producer authority candidate. Schema validation is supplemented by same-note/canonical evidence binding, exact returned totals, strict-filter aggregate count and metadata range semantics. No auth grant or complete capability promotion.
+      title: Candidate canonical GET search request and response
+    SearchRestRequest:
+      $ref: '#/components/schemas/SearchRestContract/$defs/SearchRestRequest'
+    SearchRestResponse:
+      $ref: '#/components/schemas/SearchRestContract/$defs/SearchRestResponse'
   securitySchemes:
     bearerAuth:
       bearerFormat: JWT

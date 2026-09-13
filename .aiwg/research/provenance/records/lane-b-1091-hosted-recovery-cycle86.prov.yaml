@@ -1,0 +1,122 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-13T00:55:05.642Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-recovery-cycle86.json",
+    "type": "artifact_bundle",
+    "created_at": "2026-09-13T00:55:05.642Z",
+    "checksum": "sha256:77238563e4f665acbc311ba53a77b1543750d0bf8888db4d824166b3960964ee",
+    "size_bytes": 9040,
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "crates/matric-api/src/main.rs",
+          "bytes": 3206564,
+          "sha256": "9bb661171e343cc477dacb664aef78be3cf9410a33883acb8289a22741e9ab87"
+        },
+        {
+          "path": "crates/matric-api/src/scoped_search_tests/binary_http.rs",
+          "bytes": 13820,
+          "sha256": "6452336781ce5c39f04110c3535b88d4727ab2fc01064f705cbcd1b3d2f4fc2b"
+        },
+        {
+          "path": "crates/matric-db/src/jobs.rs",
+          "bytes": 54955,
+          "sha256": "c813d6f91593d3514be9e4959f5b59cb2bab30935ab9e4bdaa605950df8afe5f"
+        },
+        {
+          "path": "crates/matric-db/src/jobs/scoped.rs",
+          "bytes": 13338,
+          "sha256": "1271d4eec285608419920b81046c15b3c86b0bf7d0a10dc56f34f44d30877f3c"
+        },
+        {
+          "path": "crates/matric-jobs/Cargo.toml",
+          "bytes": 2159,
+          "sha256": "f2d0d1e680fc8ad64cc2c6c4f024a0d506276168f726a3bedc56125ff0d5b492"
+        },
+        {
+          "path": "crates/matric-jobs/src/worker.rs",
+          "bytes": 80840,
+          "sha256": "4e29c1bda62f2481bf199f23a2ee03b7d94e30c3322c91a4521421714e9916c3"
+        },
+        {
+          "path": "crates/matric-jobs/src/worker/recovery.rs",
+          "bytes": 7505,
+          "sha256": "e55a5aedfe7fa4f332c15f875fe4e0f303180f9ad9b9b2677d188403c28ddc7f"
+        },
+        {
+          "path": "crates/matric-jobs/tests/hosted_recovery_test.rs",
+          "bytes": 10200,
+          "sha256": "083968c217ca127887438484e27321a1e607c4d35bea43fbbc410f83cb69a3be"
+        },
+        {
+          "path": ".aiwg/architecture/impact/typed-metadata-search.md",
+          "bytes": 17515,
+          "sha256": "2384ae2ed803c89a83cfa0ddd40ee8e3e50182bf48c1c6db63d2a6fab7b641d0"
+        },
+        {
+          "path": ".aiwg/architecture/impact/hosted-worker-transactions.md",
+          "bytes": 7601,
+          "sha256": "a2ceb72c42f5de221c971492d06b1cf4c0ec8cd61270e88e00783c6e3a7f81b8"
+        },
+        {
+          "path": "docs/architecture/adr/ADR-090-multi-tenancy-model.md",
+          "bytes": 16502,
+          "sha256": "c1b7ca954427c560e9cd58d6e4f2305e94a10658669701d74dbd5392ec78bbd5"
+        },
+        {
+          "path": "docs/content/authentication.md",
+          "bytes": 37841,
+          "sha256": "c2916d49ca6cbadd2ae2b5c1405eff16d679e08d335782077c8cfb024d5f3fa9"
+        },
+        {
+          "path": ".aiwg/reports/lane-b-1091-hosted-recovery-cycle86.json",
+          "bytes": 9040,
+          "sha256": "77238563e4f665acbc311ba53a77b1543750d0bf8888db4d824166b3960964ee"
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:hosted-recovery:lane-b:086:server",
+    "type": "modification",
+    "started_at": "2026-09-13T00:26:12.327Z",
+    "ended_at": "2026-09-13T00:55:05.642Z",
+    "description": "Bounded active-tenant recovery wired into JobWorker startup and periodic passes; owned database and actual-binary installed-consumer acceptance pass. Full claim and handler execution remain incomplete."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-recovery-cycle86.json",
+      "activity": "urn:aiwg:activity:hosted-recovery:lane-b:086:server"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:hosted-recovery:lane-b:086:server",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-recovery-cycle86.json",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-recovery-cycle86.json",
+        "source": "urn:gitea:Fortemi:fortemi:issue:1091"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-recovery-cycle86.json",
+        "source": "urn:gitea:Fortemi:fortemi-react:issue:405"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-hosted-recovery-cycle86.json",
+        "source": "urn:aiwg:artifact:docs/architecture/adr/ADR-090-multi-tenancy-model.md"
+      }
+    ]
+  }
+}

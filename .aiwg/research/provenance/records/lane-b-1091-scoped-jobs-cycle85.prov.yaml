@@ -1,0 +1,92 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-13T00:18:42.404Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-scoped-jobs-cycle85.json",
+    "type": "artifact_bundle",
+    "created_at": "2026-09-13T00:18:42.404Z",
+    "checksum": "sha256:e34aaea152ca1084af0f895d2d6fd7d86f981b30f8ea440bd50e29241a23f287",
+    "size_bytes": 4500,
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "crates/matric-db/src/jobs.rs",
+          "bytes": 54632,
+          "sha256": "5b8f28c95d49c121fe124cfb7ff81a9457c1b9de9a971f29869d60dae687f25f"
+        },
+        {
+          "path": "crates/matric-db/src/jobs/scoped.rs",
+          "bytes": 12538,
+          "sha256": "63448471cb030e482549e8d75d20709dc68c1251d3b8cccced7338eeb1269e54"
+        },
+        {
+          "path": "crates/matric-db/src/lib.rs",
+          "bytes": 37392,
+          "sha256": "340a6120ad1c7701c70549fb4383ee00b2dade674ba4ba84845932788aca8308"
+        },
+        {
+          "path": "crates/matric-db/tests/scoped_jobs_test.rs",
+          "bytes": 27923,
+          "sha256": "e992b3e511121ba88f217e19f5d1c9dcfd91a4df9621a157d483ba0195efd178"
+        },
+        {
+          "path": ".aiwg/architecture/impact/typed-metadata-search.md",
+          "bytes": 16808,
+          "sha256": "9418ae5df5dc00a7bb538ef11524df66483a531db61c7398223e8b9dd72b109a"
+        },
+        {
+          "path": ".aiwg/architecture/impact/hosted-worker-transactions.md",
+          "bytes": 4913,
+          "sha256": "c08c644404e0392bd68ef2fa46a49b90df77ad6f94c30cb3c6e518c77d82b1d5"
+        },
+        {
+          "path": ".aiwg/reports/lane-b-1091-scoped-jobs-cycle85.json",
+          "bytes": 4500,
+          "sha256": "e34aaea152ca1084af0f895d2d6fd7d86f981b30f8ea440bd50e29241a23f287"
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:scoped-jobs:lane-b:085:server",
+    "type": "modification",
+    "started_at": "2026-09-12T23:52:07.751Z",
+    "ended_at": "2026-09-13T00:18:42.404Z",
+    "description": "Tenant-scoped queue implementation and attempt UUID fencing with owned bounded acceptance; production worker integration remains incomplete."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-scoped-jobs-cycle85.json",
+      "activity": "urn:aiwg:activity:scoped-jobs:lane-b:085:server"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:scoped-jobs:lane-b:085:server",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-scoped-jobs-cycle85.json",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-scoped-jobs-cycle85.json",
+        "source": "urn:gitea:Fortemi:fortemi:issue:1091"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-scoped-jobs-cycle85.json",
+        "source": "urn:gitea:Fortemi:fortemi-react:issue:405"
+      },
+      {
+        "entity": "urn:aiwg:artifact:.aiwg/reports/lane-b-1091-scoped-jobs-cycle85.json",
+        "source": "urn:aiwg:artifact:docs/architecture/adr/ADR-090-multi-tenancy-model.md"
+      }
+    ]
+  }
+}

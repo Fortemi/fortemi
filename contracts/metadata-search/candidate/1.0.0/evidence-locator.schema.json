@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fortemi.com/contracts/metadata-search/candidate/1.0.0/evidence-locator.schema.json",
+  "title": "Candidate search evidence locator",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "note_id", "unit", "content_digest", "span"],
+  "properties": {
+    "version": { "const": "1.0.0" },
+    "note_id": { "$ref": "#/$defs/identifier" },
+    "unit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id", "index"],
+      "properties": {
+        "kind": { "enum": ["current", "title", "embedding", "attachment"] },
+        "id": { "$ref": "#/$defs/identifier" },
+        "index": { "type": "integer", "minimum": 0, "maximum": 2147483647 }
+      },
+      "if": { "properties": { "kind": { "enum": ["current", "title", "attachment"] } } },
+      "then": { "properties": { "index": { "const": 0 } } }
+    },
+    "content_digest": { "$ref": "#/$defs/digest" },
+    "span": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unit", "start", "end"],
+      "properties": {
+        "unit": { "const": "utf8-bytes" },
+        "start": { "type": "integer", "minimum": 0, "maximum": 16777216 },
+        "end": { "type": "integer", "minimum": 0, "maximum": 16777216 }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["namespace", "external_id_hash", "import_run_id", "schema_version"],
+      "properties": {
+        "namespace": { "$ref": "#/$defs/identifier" },
+        "external_id_hash": { "$ref": "#/$defs/digest" },
+        "import_run_id": { "$ref": "#/$defs/identifier" },
+        "schema_version": { "$ref": "#/$defs/identifier" }
+      }
+    }
+  },
+  "$defs": {
+    "identifier": { "type": "string", "minLength": 1, "maxLength": 200, "pattern": "^[^\\u0000]+$" },
+    "digest": { "type": "string", "pattern": "^sha256:[a-f0-9]{64}$" }
+  }
+}

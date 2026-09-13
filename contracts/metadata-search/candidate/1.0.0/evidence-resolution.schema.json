@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fortemi.com/contracts/metadata-search/candidate/1.0.0/evidence-resolution.schema.json",
+  "title": "Candidate current-storage evidence resolution",
+  "$defs": {
+    "SearchEvidenceResolveRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["locator"],
+      "properties": {
+        "locator": { "$ref": "evidence-locator.schema.json" },
+        "metadata_predicates": { "$ref": "predicates.schema.json" },
+        "include_archived": { "type": "boolean", "default": false }
+      }
+    },
+    "SearchEvidenceResolveResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["text"],
+      "properties": {
+        "text": { "type": "string", "maxLength": 16777216 }
+      }
+    }
+  }
+}

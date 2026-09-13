@@ -5,7 +5,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::Value as JsonValue;
-use sqlx::{Pool, Postgres, Row};
+use sqlx::{Executor, Pool, Postgres, Row};
 use tokio::sync::Notify;
 use uuid::Uuid;
 
@@ -13,6 +13,9 @@ use matric_core::{
     new_v7, Error, Job, JobFailureClass, JobRepository, JobRetryOutcome, JobRetryPolicy, JobStatus,
     JobType, QueueStats, Result, TierGroup,
 };
+
+mod scoped;
+pub use scoped::{ScopedClaimedJob, ScopedJobRepository};
 
 /// PostgreSQL implementation of JobRepository.
 pub struct PgJobRepository {
@@ -50,8 +53,39 @@ impl PgJobRepository {
         job_types: &[JobType],
         excluded_schemas: &[String],
     ) -> Result<Option<Job>> {
+        Ok(
+            Self::claim_for_tier_on(&self.pool, tier_group, job_types, excluded_schemas, None)
+                .await?
+                .map(|(job, _)| job),
+        )
+    }
+
+    async fn claim_for_tier_on<'e, E>(
+        executor: E,
+        tier_group: TierGroup,
+        job_types: &[JobType],
+        excluded_schemas: &[String],
+        tenant: Option<Uuid>,
+    ) -> Result<Option<(Job, Uuid)>>
+    where
+        E: Executor<'e, Database = Postgres>,
+    {
         let now = Utc::now();
         let type_strings = Self::claim_type_strings(job_types);
+        let tenant_guard = if tenant.is_some() {
+            "AND tenant_id=$4
+             AND EXISTS (SELECT 1 FROM public.tenant_registry t WHERE t.id=$4 AND t.status='active')
+             AND (payload IS NULL OR jsonb_typeof(payload)='object')
+             AND (NOT COALESCE(payload ? 'tenant_id',false) OR payload->'tenant_id'=to_jsonb($4::uuid::text))
+             AND (NOT COALESCE(payload ? 'schema',false) OR jsonb_typeof(payload->'schema')='string')
+             AND COALESCE(payload->>'schema','public') <> ALL($3::text[])
+             AND (COALESCE(payload->>'schema','public')='public' OR EXISTS (
+                 SELECT 1 FROM public.archive_registry a
+                 WHERE a.tenant_id=$4 AND a.schema_name=payload->>'schema'
+             ))"
+        } else {
+            ""
+        };
 
         let tier_clause = match tier_group {
             TierGroup::CpuAndAgnostic => "(cost_tier IS NULL OR cost_tier = 0)",
@@ -75,6 +109,7 @@ impl PgJobRepository {
                    AND job_type::text = ANY($2)
                    AND (payload->>'schema' IS NULL
                         OR payload->>'schema' NOT IN (SELECT unnest($3::text[])))
+                   {tenant_guard}
                  ORDER BY priority DESC, created_at ASC
                  LIMIT 1
                  FOR UPDATE SKIP LOCKED
@@ -97,21 +132,31 @@ impl PgJobRepository {
                             ELSE NULL
                         END
                  FROM claimed
-                 RETURNING job_id
+                 RETURNING job_id, id AS claim_attempt_id
              )
-             SELECT claimed.* FROM claimed
+             SELECT claimed.*, attempt.claim_attempt_id FROM claimed
              JOIN attempt ON attempt.job_id = claimed.id"
         );
 
-        let row = sqlx::query(&query)
+        let query = sqlx::query(&query)
             .bind(now)
             .bind(&type_strings)
-            .bind(excluded_schemas)
-            .fetch_optional(&self.pool)
+            .bind(excluded_schemas);
+        let query = if let Some(tenant) = tenant {
+            query.bind(tenant)
+        } else {
+            query
+        };
+        let row = query
+            .fetch_optional(executor)
             .await
             .map_err(Error::Database)?;
 
-        row.map(Self::parse_job_row).transpose()
+        row.map(|row| {
+            let attempt_id = row.try_get("claim_attempt_id").map_err(Error::Database)?;
+            Ok((Self::parse_job_row(row)?, attempt_id))
+        })
+        .transpose()
     }
 
     /// Convert JobType to string for database.
@@ -1094,9 +1139,33 @@ impl JobRepository for PgJobRepository {
         timeout_secs: u64,
         retry_policy: &JobRetryPolicy,
     ) -> Result<i64> {
-        let cutoff = Utc::now() - chrono::Duration::seconds(timeout_secs as i64);
+        reap_stale_on(&self.pool, timeout_secs, retry_policy, None, None).await
+    }
+}
 
-        let result = sqlx::query(
+async fn reap_stale_on<'e, E>(
+    executor: E,
+    timeout_secs: u64,
+    retry_policy: &JobRetryPolicy,
+    tenant: Option<Uuid>,
+    batch_limit: Option<u32>,
+) -> Result<i64>
+where
+    E: Executor<'e, Database = Postgres>,
+{
+    let tenant_guard = if tenant.is_some() {
+        "AND tenant_id=$5 AND EXISTS (SELECT 1 FROM public.tenant_registry t WHERE t.id=$5 AND t.status='active')"
+    } else {
+        ""
+    };
+    let cutoff = Utc::now() - chrono::Duration::seconds(timeout_secs as i64);
+    let batch_clause = if batch_limit.is_some() {
+        "ORDER BY started_at ASC,id ASC LIMIT $6"
+    } else {
+        ""
+    };
+
+    let query_sql = format!(
             "WITH stale AS (
                  SELECT id, retry_count, max_retries, started_at,
                         LEAST(
@@ -1106,6 +1175,8 @@ impl JobRepository for PgJobRepository {
                  FROM job_queue
                  WHERE status = 'running'::job_status
                    AND started_at < $1
+                   {tenant_guard}
+                   {batch_clause}
                  FOR UPDATE SKIP LOCKED
              ),
              scheduled AS (
@@ -1190,21 +1261,31 @@ impl JobRepository for PgJobRepository {
                  RETURNING job_attempt.job_id
              )
              SELECT (SELECT COUNT(*) FROM retried) + (SELECT COUNT(*) FROM exhausted) AS total",
-        )
+        );
+    let query = sqlx::query(&query_sql)
         .bind(cutoff)
         .bind(i64::try_from(retry_policy.max_delay_ms).map_err(|_| {
             Error::InvalidInput("Job retry maximum delay exceeds database bounds".to_string())
         })?)
-        .bind(i64::try_from(retry_policy.stale_worker_base_delay_ms).map_err(|_| {
-            Error::InvalidInput("Stale-worker retry delay exceeds database bounds".to_string())
-        })?)
-        .bind(i64::from(retry_policy.jitter_percent))
-        .fetch_one(&self.pool)
-        .await
-        .map_err(Error::Database)?;
+        .bind(
+            i64::try_from(retry_policy.stale_worker_base_delay_ms).map_err(|_| {
+                Error::InvalidInput("Stale-worker retry delay exceeds database bounds".to_string())
+            })?,
+        )
+        .bind(i64::from(retry_policy.jitter_percent));
+    let query = if let Some(tenant) = tenant {
+        query.bind(tenant)
+    } else {
+        query
+    };
+    let query = if let Some(limit) = batch_limit {
+        query.bind(i64::from(limit))
+    } else {
+        query
+    };
+    let result = query.fetch_one(executor).await.map_err(Error::Database)?;
 
-        Ok(result.get::<i64, _>("total"))
-    }
+    Ok(result.get::<i64, _>("total"))
 }
 
 #[cfg(test)]

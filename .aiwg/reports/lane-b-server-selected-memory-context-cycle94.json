@@ -1,0 +1,136 @@
+{
+  "at": "2026-09-13T05:36:54.087Z",
+  "cycle": 94,
+  "status": "PROGRESS_HOTM_CONTEXT_AND_ACTUAL_SERVER_SSE_PASS",
+  "overallAcceptance": "NOT_PASS",
+  "producerFiles": 847,
+  "hotmFiles": 513,
+  "coreFiles": 580,
+  "changedProducerSource": [
+    "crates/matric-api/src/scoped_search_tests/worker-sse-consumer.mjs"
+  ],
+  "changedHotmSource": [
+    "ui/src/api/__tests__/realtime-context.test.ts",
+    "ui/src/api/archives.ts",
+    "ui/src/api/realtime-context.ts",
+    "ui/src/services/__tests__/websocket-archive-context.test.ts"
+  ],
+  "producerRuntimeUnchanged": true,
+  "coreSourceUnchanged": true,
+  "sourceHeads": {
+    "server": "a701847db779a0a3adfa36a09dfa1055a10a0a0a",
+    "core": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7",
+    "hotm": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4"
+  },
+  "verification": {
+    "tests": {
+      "vitest.json": {
+        "passed": 308,
+        "failed": 0,
+        "skipped": 0,
+        "todo": 0
+      },
+      "full-vitest.json": {
+        "passed": 2090,
+        "failed": 0,
+        "skipped": 0,
+        "todo": 0
+      }
+    },
+    "typecheck": "PASS",
+    "build": "PASS",
+    "schemaAndConsumerVectors": 12,
+    "metadataRequests": 12,
+    "sseStreams": 6,
+    "sseEvents": 24,
+    "coreCheckGroups": 220,
+    "coreHttpRequests": 293,
+    "durableAuditRows": 609,
+    "rustFunctions": 5,
+    "nativeContextRequestControls": 19,
+    "fixtureProfileTests": 4,
+    "allJobsTerminal": true,
+    "jobs": 4,
+    "passes": 3,
+    "preservedFailures": 1,
+    "peakBytes": 2331480064
+  },
+  "bundle": {
+    "status": "PASS",
+    "source": {
+      "src/api/events.ts": "55b86a18cfa350c80d76b04e3f03bc9fb311368c9671c089c6f55e589a8db922",
+      "src/api/errors.ts": "c282e128554e20dd1cace1d6e18d02262dd9a567e406bb3dc7141fdfe4697874",
+      "src/api/realtime-context.ts": "8b0702bd462bff9cf12b1138529b63f77a62b2aa3ea4ca89d1a6d0d9115b1b69",
+      "src/api/memory-context.ts": "1a5e1c84725b10c22fe1b15f5aa777725abcb7e0571d51edf87c4306fc8c4fdc",
+      "src/api/archives.ts": "e341057ddd82e00909bd0b315d03838b9d836d688d833949be397783ea6a703a",
+      "src/lib/runtime-config.ts": "3f0d24c2407339409493e623b05242326e25ccfd515b1002596e7a2f101f9eee",
+      "src/api/auth-context.ts": "dfd5baa65af99a545c03813b28c1f5d5bbb3660a1dcf324aad784faf675077b1",
+      "src/api/client.ts": "5d051f585baa371868deacd688b794e72947ed088b94972dbc7b8d3003069fe7"
+    },
+    "virtualInputs": [
+      "owned:platform",
+      "owned-realtime-entry.ts",
+      "<define:import.meta.env>"
+    ],
+    "sha256": "ab4edd56029a26972bead0a9afae3f4880725baf8e9582a526fe5793d24f8ec4",
+    "bytes": 29000,
+    "esbuildVersion": "0.28.1",
+    "esbuildSha256": "8331fe1d8b3a07381f33cc425fcfaa94776e263113653f80ec3ba433e9657e73",
+    "esbuildBinarySha256": "0c6588b092a2c291a72bab90659f3c9e0e25e0fe59c9ac12b4dae4d945e5548c",
+    "scope": "Real candidate archive resolver, HTTP client and SSE parser; only platform fetch bridge and entrypoint are fixture adapters. No archive-name rewrite, metadata or event decoder replacement."
+  },
+  "binary": {
+    "path": "/var/tmp/fortemi-release-target-2026.9.1/debug/matric-api",
+    "sha256": "f623fc6c11ec39410d10a5fcc50354fdb2d2640b138423b5a75016950888048c",
+    "features": [
+      "hosted-auth",
+      "kms-vault"
+    ]
+  },
+  "implementation": "HotM reads only selected-memory endpoint through bounded4096byte real HTTP client and exact JSON decoder. Preserves name/schema separation, server-returned public/default semantics and generation/session/selection fencing. No inventory, retry, guessed schema or failed-lookup fallback. Producer harness uses current real consumer without translation.",
+  "hostedProgress": "Actual daemon uses real HTTPS JWT verifier and tenant store; six live/seeded-replay streams and12metadata requests pass with current consumer. Generated producer schema agrees on12vectors. Cycle92 failed GET503 receipt remains historical, not overwritten.",
+  "residualTestRisk": "Second full run exited1 despite2090passing JSON assertions; cause not established and receipt remains NOT_PASS. Unchanged-source third full run exited0 with2090passes and explicit zero unhandled errors. No test suppression or guard weakening.",
+  "releases": {
+    "fortemi": {
+      "tag": "v2026.9.9",
+      "main": "36c1b8779166af712afd588dd00dec871a6a9e30",
+      "released": "e91c595a896275f835cb7ed1aef173cb26056206",
+      "tagObject": "312897944bac30b36e1a215afe34178610ae48f6",
+      "mergedUnreleased": 16,
+      "refs": "36c1b8779166af712afd588dd00dec871a6a9e30\trefs/heads/main\n312897944bac30b36e1a215afe34178610ae48f6\trefs/tags/v2026.9.9\ne91c595a896275f835cb7ed1aef173cb26056206\trefs/tags/v2026.9.9^{}\n",
+      "disposition": "CANDIDATE_UNRELEASED_FULL_ACCEPTANCE_AND_DELIVERY_PENDING",
+      "releaseId": 2324
+    },
+    "fortemi-react": {
+      "tag": "v2026.9.5",
+      "main": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7",
+      "released": "01b4a9c923af9cde24dc6a2d293d96194b6a6d7d",
+      "tagObject": "4e588d8bdb3e6e455e2d35ef9e49498542917de0",
+      "mergedUnreleased": 3,
+      "refs": "f7f09a63e69ec04b5f6b2a8dca5cb5f840ef05f7\trefs/heads/main\n4e588d8bdb3e6e455e2d35ef9e49498542917de0\trefs/tags/v2026.9.5\n01b4a9c923af9cde24dc6a2d293d96194b6a6d7d\trefs/tags/v2026.9.5^{}\n",
+      "disposition": "CANDIDATE_UNRELEASED_FULL_ACCEPTANCE_AND_DELIVERY_PENDING",
+      "releaseId": 2333
+    },
+    "HotM": {
+      "tag": "v2026.9.5",
+      "main": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4",
+      "released": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4",
+      "tagObject": "8d4f756ed55afcf12120c9edffb76e70bc2b0a62",
+      "mergedUnreleased": 0,
+      "refs": "2b0b4a7aa283a91aa1026521b3a41faa4e834ad4\trefs/heads/main\n8d4f756ed55afcf12120c9edffb76e70bc2b0a62\trefs/tags/v2026.9.5\n2b0b4a7aa283a91aa1026521b3a41faa4e834ad4\trefs/tags/v2026.9.5^{}\n",
+      "disposition": "CANDIDATE_UNRELEASED_FULL_ACCEPTANCE_AND_DELIVERY_PENDING",
+      "releaseId": 2331
+    }
+  },
+  "releaseQualification": "Fresh metadata/source refs/ancestry only. No asset-byte or mirror revalidation, signing, commit, PR, tag, release, closure, pin or readiness promotion. Source-bound OpenAPI candidate reconciliation is not immutable delivered authority.",
+  "remaining": [
+    "launched HotM browser/native session and archive lifecycle qualification, independent tenant defaults through the live application and delivered authority pins",
+    "remaining hosted handlers/follow-ups/index/queue events and durable outbox/crash/restart/cancellation/purge/restore/revocation",
+    "all declared consumers/cache/EE/performance/named-profile/CI/delivery and full lane release sweep"
+  ],
+  "scope": "Original20 Lane B issues and every prior hold/escalation retained. HotM human92284 requires separate immutable delivered receipts per axis. C82 held draft remains HELD_NOT_POSTED and unchanged. Suite NO-GO, public readiness false and goalACTIVE remain. Static index, named-profile shard transfer and live persistence remain separate.",
+  "safety": "Four serial detached bounded jobs; one owned PG18.6 HTTP fixture capped at20connections stopped/removed with zero slot refusals in bounded tail. Seven owned PIDs absent and bootstrap/install/private roots removed. Shared inference unchanged. No model/GPU/Docker/production vault/signing action. Original model release must be within six calendar months at use, not a quantization date.",
+  "evidenceBoundary": "UI service tests mock metadata/network; actual daemon exercises real resolver/HTTP/parser with a platform bridge and seeded replay. Not a launched browser/native application, automatic reconnect scheduler, full lifecycle/outbox, full suite, supported-platform, auth parity or release qualification. Independent tenant default native controls are not live application default-change proof.",
+  "owner": "server",
+  "evidence": "/home/roctinam/dev/fortemi-suite/.aiwg/working/lane-b/evidence/lane-b-delivery-20260913-cycle94"
+}
