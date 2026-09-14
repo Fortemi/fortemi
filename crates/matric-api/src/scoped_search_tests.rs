@@ -313,8 +313,9 @@ async fn run_scoped_fixture(admin: PgPool, installed_http: bool) {
     let a_archive = seed(&db, &archive.schema_name, a, "tenant-a-archive").await;
 
     let role = format!("search_{}", Uuid::new_v4().simple());
+    let password = Uuid::new_v4().simple().to_string();
     sqlx::query(&format!(
-        "CREATE ROLE {role} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT"
+        "CREATE ROLE {role} LOGIN PASSWORD '{password}' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT"
     ))
     .execute(&admin)
     .await
@@ -329,7 +330,12 @@ async fn run_scoped_fixture(admin: PgPool, installed_http: bool) {
     }
     let runtime = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
-        .connect_with((*admin.connect_options()).clone().username(&role))
+        .connect_with(
+            (*admin.connect_options())
+                .clone()
+                .username(&role)
+                .password(&password),
+        )
         .await
         .unwrap();
     let privileged: bool = sqlx::query_scalar(

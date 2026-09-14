@@ -111,8 +111,9 @@ async fn hosted_execution_fairness_callbacks_errors_and_shutdown(admin: PgPool) 
             .bind(tenant).bind(format!("worker-{tenant}")).execute(&admin).await.unwrap();
     }
     let role = format!("execution_{}", Uuid::new_v4().simple());
+    let password = Uuid::new_v4().simple().to_string();
     sqlx::query(&format!(
-        "CREATE ROLE {role} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT"
+        "CREATE ROLE {role} LOGIN PASSWORD '{password}' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT"
     ))
     .execute(&admin)
     .await
@@ -122,7 +123,12 @@ async fn hosted_execution_fairness_callbacks_errors_and_shutdown(admin: PgPool) 
     }
     let runtime = PgPoolOptions::new()
         .max_connections(1)
-        .connect_with((*admin.connect_options()).clone().username(&role))
+        .connect_with(
+            (*admin.connect_options())
+                .clone()
+                .username(&role)
+                .password(&password),
+        )
         .await
         .unwrap();
     let backend: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")

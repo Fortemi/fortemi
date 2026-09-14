@@ -68,8 +68,9 @@ async fn hosted_dispatch_commits_fences_bounds_and_authority(admin: PgPool) {
         .unwrap();
     }
     let role = format!("dispatch_{}", Uuid::new_v4().simple());
+    let password = Uuid::new_v4().simple().to_string();
     sqlx::query(&format!(
-        "CREATE ROLE {role} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT"
+        "CREATE ROLE {role} LOGIN PASSWORD '{password}' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT"
     ))
     .execute(&admin)
     .await
@@ -79,7 +80,12 @@ async fn hosted_dispatch_commits_fences_bounds_and_authority(admin: PgPool) {
     }
     let runtime = PgPoolOptions::new()
         .max_connections(1)
-        .connect_with((*admin.connect_options()).clone().username(&role))
+        .connect_with(
+            (*admin.connect_options())
+                .clone()
+                .username(&role)
+                .password(&password),
+        )
         .await
         .unwrap();
     let backend: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
@@ -297,7 +303,12 @@ async fn hosted_dispatch_commits_fences_bounds_and_authority(admin: PgPool) {
     let two = pending(&admin, a, 0, JobType::Linking, None, 1).await;
     let other = PgPoolOptions::new()
         .max_connections(1)
-        .connect_with((*admin.connect_options()).clone().username(&role))
+        .connect_with(
+            (*admin.connect_options())
+                .clone()
+                .username(&role)
+                .password(&password),
+        )
         .await
         .unwrap();
     let first = dispatcher(&runtime).await;

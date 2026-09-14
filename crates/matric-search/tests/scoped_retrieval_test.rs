@@ -248,7 +248,8 @@ async fn public_entry_points_keep_scope_without_metadata(pool: PgPool) {
     tx.commit().await.unwrap();
 
     let role = format!("public_search_{}", Uuid::new_v4().simple());
-    sqlx::raw_sql(&format!("CREATE ROLE {role} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT; GRANT USAGE ON SCHEMA public TO {role}; GRANT SELECT ON ALL TABLES IN SCHEMA public TO {role};"))
+    let password = Uuid::new_v4().simple().to_string();
+    sqlx::raw_sql(&format!("CREATE ROLE {role} LOGIN PASSWORD '{password}' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT; GRANT USAGE ON SCHEMA public TO {role}; GRANT SELECT ON ALL TABLES IN SCHEMA public TO {role};"))
         .execute(&pool).await.unwrap();
     let runtime = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
@@ -262,7 +263,12 @@ async fn public_entry_points_keep_scope_without_metadata(pool: PgPool) {
                 Ok(())
             })
         })
-        .connect_with((*pool.connect_options()).clone().username(&role))
+        .connect_with(
+            (*pool.connect_options())
+                .clone()
+                .username(&role)
+                .password(&password),
+        )
         .await
         .unwrap();
     let privileged: bool = sqlx::query_scalar(

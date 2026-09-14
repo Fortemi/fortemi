@@ -255,8 +255,9 @@ async fn hosted_document_type_native_handler_atomic_replay_and_followups(admin: 
             .bind(set).bind(tenant).bind(json!({"include_all":true})).execute(&admin).await.unwrap();
     }
     let role = format!("doctype_{}", Uuid::new_v4().simple());
+    let password = Uuid::new_v4().simple().to_string();
     sqlx::query(&format!(
-        "CREATE ROLE {role} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT"
+        "CREATE ROLE {role} LOGIN PASSWORD '{password}' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT"
     ))
     .execute(&admin)
     .await
@@ -285,7 +286,12 @@ async fn hosted_document_type_native_handler_atomic_replay_and_followups(admin: 
     }
     let runtime = PgPoolOptions::new()
         .max_connections(1)
-        .connect_with((*admin.connect_options()).clone().username(&role))
+        .connect_with(
+            (*admin.connect_options())
+                .clone()
+                .username(&role)
+                .password(&password),
+        )
         .await
         .unwrap();
     let backend: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
@@ -309,7 +315,12 @@ async fn hosted_document_type_native_handler_atomic_replay_and_followups(admin: 
                 Ok(())
             })
         })
-        .connect_with((*admin.connect_options()).clone().username(&role))
+        .connect_with(
+            (*admin.connect_options())
+                .clone()
+                .username(&role)
+                .password(&password),
+        )
         .await
         .unwrap();
     let detector = PgDocumentTypeRepository::new(legacy.clone());

@@ -486,8 +486,9 @@ async fn scoped_jobs_claim_recovery_admission_and_transaction_isolation(admin: P
         schemas.push(archive.schema_name);
     }
     let role = format!("jobs_{}", Uuid::new_v4().simple());
+    let password = Uuid::new_v4().simple().to_string();
     sqlx::query(&format!(
-        "CREATE ROLE {role} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT"
+        "CREATE ROLE {role} LOGIN PASSWORD '{password}' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT"
     ))
     .execute(&admin)
     .await
@@ -503,7 +504,10 @@ async fn scoped_jobs_claim_recovery_admission_and_transaction_isolation(admin: P
             .await
             .unwrap();
     }
-    let options = (*admin.connect_options()).clone().username(&role);
+    let options = (*admin.connect_options())
+        .clone()
+        .username(&role)
+        .password(&password);
     let runtime = PgPoolOptions::new()
         .max_connections(1)
         .connect_with(options.clone())

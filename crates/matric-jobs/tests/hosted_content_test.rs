@@ -142,8 +142,9 @@ async fn hosted_content_scope_fences_atomicity_and_handler_contract(admin: PgPoo
     seed(&admin, ba, b, note, "foreign-archive").await;
     seed(&admin, "public", b, foreign, "foreign-public").await;
     let role = format!("content_{}", Uuid::new_v4().simple());
+    let password = Uuid::new_v4().simple().to_string();
     sqlx::query(&format!(
-        "CREATE ROLE {role} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT"
+        "CREATE ROLE {role} LOGIN PASSWORD '{password}' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT"
     ))
     .execute(&admin)
     .await
@@ -175,12 +176,22 @@ async fn hosted_content_scope_fences_atomicity_and_handler_contract(admin: PgPoo
     }
     let runtime = PgPoolOptions::new()
         .max_connections(1)
-        .connect_with((*admin.connect_options()).clone().username(&role))
+        .connect_with(
+            (*admin.connect_options())
+                .clone()
+                .username(&role)
+                .password(&password),
+        )
         .await
         .unwrap();
     let other = PgPoolOptions::new()
         .max_connections(1)
-        .connect_with((*admin.connect_options()).clone().username(&role))
+        .connect_with(
+            (*admin.connect_options())
+                .clone()
+                .username(&role)
+                .password(&password),
+        )
         .await
         .unwrap();
     let backend: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
