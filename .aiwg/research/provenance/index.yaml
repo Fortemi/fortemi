@@ -1904,3 +1904,7 @@ records:
     record: records/lane-b-source-delivery-cycle99.prov.yaml
   - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-source-delivery-cycle99.json
     record: records/lane-b-source-delivery-cycle99.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-jobs/src/handler/hosted.rs
+    record: records/lane-b-server-clippy-cycle118.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-search/src/hybrid.rs
+    record: records/lane-b-server-clippy-cycle118.prov.yaml

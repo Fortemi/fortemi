@@ -361,7 +361,7 @@ impl HybridSearchEngine {
             lexical_on_connection, vector_on_connection, LexicalStrategy, SearchCandidateScope,
         };
         let start = Instant::now();
-        if limit < 0 || limit > 1000 {
+        if !(0..=1000).contains(&limit) {
             return Err(matric_core::Error::InvalidInput(
                 "search limit must be between 0 and 1000".into(),
             ));

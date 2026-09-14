@@ -1,0 +1,55 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-14T01:30:23.424Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:crates/matric-jobs/src/handler/hosted.rs",
+    "type": "code",
+    "created_at": "2026-09-14T01:30:23.424Z",
+    "checksum": "sha256:ed1e28f60527c373d3b37229f14b8ce5d8e6ef333b83b2db52d43d7d599169d4"
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:lane-b-clippy-correction:118",
+    "type": "modification",
+    "started_at": "2026-09-14T01:30:23.424Z",
+    "ended_at": "2026-09-14T01:30:23.424Z",
+    "description": "Reuse existing progress callback type, move unchanged hosted tests after production items, and express existing search limit validation using inclusive range containment. No runtime semantics, wire schema, contract authority, dependencies or lint policy changes."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:crates/matric-jobs/src/handler/hosted.rs",
+      "activity": "urn:aiwg:activity:lane-b-clippy-correction:118"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:lane-b-clippy-correction:118",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:crates/matric-jobs/src/handler/hosted.rs",
+      "agent": "urn:aiwg:agent:codex"
+    }
+  },
+  "artifacts": {
+    "crates/matric-jobs/src/handler/hosted.rs": "ed1e28f60527c373d3b37229f14b8ce5d8e6ef333b83b2db52d43d7d599169d4",
+    "crates/matric-search/src/hybrid.rs": "038e4ac4bccaa5a8347ed077f77b7c3f2c70fc73e0be55eb73fe830e89b95016"
+  },
+  "verification": {
+    "unit": "fortemi-local-test-1000-57481358-28f4-452a-9251-a05ee2b78580.service",
+    "toolchain": "Rust1.92.0",
+    "clippy": "matric-jobs and matric-search all-targets/all-features -D warnings PASS",
+    "unitTests": {
+      "jobs": 577,
+      "search": 223,
+      "failed": 0,
+      "ignored": 0
+    },
+    "format": "Rustfmt1.98 changed files PASS",
+    "limitation": "Whole-workspace offline Clippy refused missing cached aws-config1.8.14; no network enabled. Exact remote CI, release and current-artifact qualification remain required."
+  }
+}

@@ -6,7 +6,7 @@ use matric_db::TenantScopedConn;
 use serde_json::Value;
 use uuid::Uuid;
 
-use super::JobResult;
+use super::{JobResult, ProgressCallback};
 use crate::worker::HostedClaim;
 
 /// Only typed transport/deadline errors and reviewed SQLSTATEs are retryable.
@@ -36,59 +36,11 @@ fn sqlstate_failure(code: Option<&str>) -> JobResult {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn hosted_database_failure_uses_typed_codes_not_messages() {
-        for code in [
-            "57014", "25P03", "25P04", "55P03", "40001", "40P01", "40003", "08000", "08001",
-            "08003", "08006", "08007", "53300", "57P01", "57P02", "57P03",
-        ] {
-            assert!(
-                matches!(sqlstate_failure(Some(code)), JobResult::Retry(_)),
-                "{code}"
-            );
-        }
-        for code in [
-            None,
-            Some("23514"),
-            Some("23505"),
-            Some("42501"),
-            Some("28P01"),
-            Some("08004"),
-            Some("08P01"),
-            Some("XX000"),
-            Some("timeout"),
-        ] {
-            assert!(matches!(sqlstate_failure(code), JobResult::Failed(_)));
-        }
-        for e in [
-            Error::DeadlineExceeded,
-            Error::Database(sqlx::Error::PoolTimedOut),
-            Error::Database(sqlx::Error::Io(std::io::Error::from(
-                std::io::ErrorKind::ConnectionReset,
-            ))),
-        ] {
-            assert!(matches!(hosted_database_failure(&e), JobResult::Retry(_)));
-        }
-        for e in [
-            Error::InvalidInput("timeout".into()),
-            Error::Forbidden("connection timeout".into()),
-            Error::Config("timeout".into()),
-            Error::Database(sqlx::Error::PoolClosed),
-            Error::Database(sqlx::Error::RowNotFound),
-        ] {
-            assert!(matches!(hosted_database_failure(&e), JobResult::Failed(_)));
-        }
-    }
-}
-
 /// A hosted handler can receive only a committed capability, never an arbitrary
 /// Job plus ambient database or global event sender. Worker retains settlement.
 pub struct HostedJobContext {
     claim: Arc<HostedClaim>,
-    progress: Option<Arc<dyn Fn(i32, Option<&str>) + Send + Sync>>,
+    progress: Option<ProgressCallback>,
 }
 
 impl HostedJobContext {
@@ -151,4 +103,52 @@ impl HostedJobContext {
 pub trait HostedJobHandler: Send + Sync {
     fn job_type(&self) -> JobType;
     async fn execute(&self, ctx: HostedJobContext) -> JobResult;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn hosted_database_failure_uses_typed_codes_not_messages() {
+        for code in [
+            "57014", "25P03", "25P04", "55P03", "40001", "40P01", "40003", "08000", "08001",
+            "08003", "08006", "08007", "53300", "57P01", "57P02", "57P03",
+        ] {
+            assert!(
+                matches!(sqlstate_failure(Some(code)), JobResult::Retry(_)),
+                "{code}"
+            );
+        }
+        for code in [
+            None,
+            Some("23514"),
+            Some("23505"),
+            Some("42501"),
+            Some("28P01"),
+            Some("08004"),
+            Some("08P01"),
+            Some("XX000"),
+            Some("timeout"),
+        ] {
+            assert!(matches!(sqlstate_failure(code), JobResult::Failed(_)));
+        }
+        for e in [
+            Error::DeadlineExceeded,
+            Error::Database(sqlx::Error::PoolTimedOut),
+            Error::Database(sqlx::Error::Io(std::io::Error::from(
+                std::io::ErrorKind::ConnectionReset,
+            ))),
+        ] {
+            assert!(matches!(hosted_database_failure(&e), JobResult::Retry(_)));
+        }
+        for e in [
+            Error::InvalidInput("timeout".into()),
+            Error::Forbidden("connection timeout".into()),
+            Error::Config("timeout".into()),
+            Error::Database(sqlx::Error::PoolClosed),
+            Error::Database(sqlx::Error::RowNotFound),
+        ] {
+            assert!(matches!(hosted_database_failure(&e), JobResult::Failed(_)));
+        }
+    }
 }
