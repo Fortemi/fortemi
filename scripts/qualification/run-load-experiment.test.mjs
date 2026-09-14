@@ -25,6 +25,7 @@ function setup() {
     expectedBaseline: baseline, expectedAfter: baseline, minimumSettleMs: c.cleanup.settleMs };
   const fixtures = [{ id: 'one-0', operation: 'query', path: '/api/v1/search?q=synthetic' }];
   Object.assign(c.environment, { target: 'target', generator: 'generator', observer: 'observer', runtimeRevision: 'a'.repeat(40),
+    runtimeVersion: '2026.9.10',
     fixtureDigest: jsonDigest({ fixtures, statePlan }) });
   const records = [], calls = [];
   const adapters = { fixtures, statePlan,
@@ -55,6 +56,24 @@ test('repetitions reset the workload and inventory while budgets count the whole
   const result = await runLoadExperiment(f.compile(), f.adapters);
   assert.equal(result.trials.length, 2); assert.equal(result.httpUsage.logicalOperations, 2);
   assert.equal(f.calls.filter(c => c === 'delete').length, 2);
+});
+test('runtime identities reach authorization and evidence separately; incomplete versions invoke no adapters', async () => {
+  const f = setup();
+  f.adapters.authorize = async ({ environment }) => {
+    assert.equal(environment.runtimeRevision, 'a'.repeat(40));
+    assert.equal(environment.runtimeVersion, '2026.9.10');
+    return true;
+  };
+  const result = await runLoadExperiment(f.compile(), f.adapters);
+  assert.equal(result.trials[0].abortReason, null);
+  const plan = f.records.find(r => r.kind === 'compiled-plan').value;
+  assert.equal(plan.config.environment.runtimeVersion, '2026.9.10');
+  assert.equal(plan.config.environment.runtimeRevision, 'a'.repeat(40));
+  const missing = setup(); missing.document.defaults.environment.runtimeVersion = null;
+  for (const [name, value] of Object.entries(missing.adapters)) {
+    if (typeof value === 'function') missing.adapters[name] = () => assert.fail(`unexpected adapter: ${name}`);
+  }
+  await assert.rejects(runLoadExperiment(missing.compile(), missing.adapters), /complete validated configuration/);
 });
 test('early timer wakeups still satisfy the full cleanup settling interval', async t => {
   const f = setup();

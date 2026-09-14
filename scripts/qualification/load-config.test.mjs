@@ -7,7 +7,7 @@ function selected() {
   const document = loadConfigTemplate(), d = document.defaults;
   document.profiles.qualification.phases.forEach(p => { p.ratePerSecond = 1; });
   Object.assign(d.environment, { target: 'target', generator: 'generator', observer: 'observer',
-    runtimeRevision: 'a'.repeat(40), fixtureDigest: `sha256:${'b'.repeat(64)}` });
+    runtimeRevision: 'a'.repeat(40), runtimeVersion: '2026.9.10', fixtureDigest: `sha256:${'b'.repeat(64)}` });
   for (const bound of Object.values(d.operationBounds)) Object.assign(bound,
     { httpRequests: 2, providerAttempts: 1, evidenceBytes: 100, deadlineMs: 1000 });
   d.provider = { maxCostUsd: '0', priceRevision: 'synthetic-no-provider' };
@@ -24,6 +24,7 @@ test('incomplete template compiles honestly without mutating or inventing select
   assert.equal(result.executionAuthorized, false);
   assert.equal(result.admitted, false);
   assert.ok(result.missing.includes('environment.target'));
+  assert.ok(result.missing.includes('environment.runtimeVersion'));
   assert.ok(result.missing.includes('perOperation.ingest.latencyP99.limit'));
   assert.equal(result.config.perOperation.ingest.latencyP99.limit, null);
   assert.ok(result.warnings.length);
@@ -62,6 +63,26 @@ test('digest is deterministic and binds changed selected parameters and sparse o
   assert.notEqual(a.digest, compileLoadConfig(d, 'calibration', ['runner.maxConcurrency=2']).digest);
   assert.notEqual(a.digest, compileLoadConfig(d, 'calibration', ['perOperation.ingest.latencyP99.limit=2']).digest);
   assert.equal(a.ready, true);
+});
+
+test('runtime source revision and semantic version remain distinct digest-bound selections', () => {
+  const d = selected(), original = compileLoadConfig(d, 'calibration');
+  for (const version of ['2026.9.11', '1.0.0-rc.1+fixture']) {
+    const changed = compileLoadConfig(d, 'calibration', [`environment.runtimeVersion=${JSON.stringify(version)}`]);
+    assert.equal(changed.ready, true);
+    assert.equal(changed.config.environment.runtimeVersion, version);
+    assert.equal(changed.config.environment.runtimeRevision, 'a'.repeat(40));
+    assert.notEqual(changed.digest, original.digest);
+  }
+  const changedRevision = compileLoadConfig(d, 'calibration', [`environment.runtimeRevision="${'b'.repeat(40)}"`]);
+  assert.equal(changedRevision.config.environment.runtimeVersion, '2026.9.10');
+  assert.notEqual(changedRevision.digest, original.digest);
+  for (const version of ['a'.repeat(40), '1.0', 'v1.0.0', '01.0.0', '1.0.0-01', '1.0.0\n', '9007199254740992.0.0']) {
+    assert.throws(() => compileLoadConfig(d, 'calibration', [`environment.runtimeVersion=${JSON.stringify(version)}`]), /semantic version/);
+  }
+  const incomplete = compileLoadConfig(d, 'calibration', ['environment.runtimeVersion=null']);
+  assert.equal(incomplete.ready, false);
+  assert.ok(incomplete.missing.includes('environment.runtimeVersion'));
 });
 
 test('override typos, malformed replacements, duplicate paths and prototype keys reject', () => {

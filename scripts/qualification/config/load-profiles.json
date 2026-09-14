@@ -249,6 +249,7 @@
       "generator": null,
       "observer": null,
       "runtimeRevision": null,
+      "runtimeVersion": null,
       "fixtureDigest": null,
       "runtimeTenants": [
         "load-a",

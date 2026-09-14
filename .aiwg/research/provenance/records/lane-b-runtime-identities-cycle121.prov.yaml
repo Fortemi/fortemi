@@ -1,0 +1,67 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-14T15:41:29.502Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:scripts/qualification/load-config.mjs",
+    "type": "code",
+    "created_at": "2026-09-14T15:41:29.502Z",
+    "checksum": "sha256:9c2bcc6be0e2ccc7a59a41a1f3649df9a8c039b654c184e4e9c735178b491a0e"
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:lane-b-runtime-identities:121",
+    "type": "modification",
+    "started_at": "2026-09-14T15:41:29.502Z",
+    "ended_at": "2026-09-14T15:41:29.502Z",
+    "description": "Separate exact runtime Git revision and semantic version in local load configuration and orchestrator. Reuse existing capability validator. Both identities bind configuration digest, authorization and evidence; missing version remains incomplete, malformed version rejects before callbacks. No wire authority or admission changes."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:scripts/qualification/load-config.mjs",
+      "activity": "urn:aiwg:activity:lane-b-runtime-identities:121"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:lane-b-runtime-identities:121",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:scripts/qualification/load-config.mjs",
+      "agent": "urn:aiwg:agent:codex"
+    }
+  },
+  "artifacts": {
+    "scripts/qualification/README.md": "52fbf9fe861bdb11cc8447697b933c7d3e244d7e93f1b50402557b2750bf4b23",
+    "scripts/qualification/config/load-profiles.json": "eecd139e8bd76de171162c0fd1c35a425b80b5a1696b2e1d4988839afddcd699",
+    "scripts/qualification/load-config.mjs": "9c2bcc6be0e2ccc7a59a41a1f3649df9a8c039b654c184e4e9c735178b491a0e",
+    "scripts/qualification/load-config.test.mjs": "0e42b32ed5f47615e96d5a41526a3b8fe57f2c60494c6de02ce1d035c0195da4",
+    "scripts/qualification/run-load-experiment.mjs": "50cc1d21f9ca5813e60924d18e084fbe118cf1fb7e66af15032e4b722ae1ca1d",
+    "scripts/qualification/run-load-experiment.test.mjs": "f8c6ba6145fa40fc49d1bc706161f44447ef7763dd664812a4a7ea658b439fcb"
+  },
+  "verification": {
+    "unit": "fortemi-local-test-1000-8a681aa8-17ea-45b9-b78e-8ffa1db2abc2.service",
+    "qualification": {
+      "passed": 349,
+      "failed": 0,
+      "skipped": 0
+    },
+    "mcp": {
+      "passed": 136,
+      "failed": 0,
+      "skipped": 1
+    },
+    "contractTests": {
+      "passed": 105,
+      "failed": 0,
+      "skipped": 0
+    },
+    "contractVerifiers": 5,
+    "baseline": "Reproduced14descriptor failures after locked offline dependency installation. Earlier missing-Ajv baseline preserved separately.",
+    "limitation": "Local Node24; remote Node22 CI and real load qualification remain separate. No live providers, production load, publication or acceptance closure."
+  }
+}

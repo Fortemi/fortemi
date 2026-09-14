@@ -35,7 +35,7 @@ export async function runLoadExperiment(compiled, adapters) {
     || jsonDigest(statePlan.controlNamespaces) !== jsonDigest([config.environment.controlNamespace])
     || statePlan.minimumSettleMs !== config.cleanup.settleMs) throw Error('state scope/settling configuration mismatch');
   evaluateLoadState({ plan: statePlan }); // Validate all expectations before any callback.
-  createLoadWorkload({ fixtures, apiRequest: adapters.apiRequest, runtimeVersion: config.environment.runtimeRevision,
+  createLoadWorkload({ fixtures, apiRequest: adapters.apiRequest, runtimeVersion: config.environment.runtimeVersion,
     verifyOutcome: adapters.verifyOutcome, recordObservation: () => {} }); // Validate routes and payloads before authorization.
 
   const origin = performance.now(), now = () => Math.floor(performance.now() - origin);
@@ -97,7 +97,7 @@ export async function runLoadExperiment(compiled, adapters) {
     let after, clean, settled, workloadStarted = false;
     const phaseEvidence = {}, phaseContext = { name: null };
     const counts = new Map();
-    const execute = createLoadWorkload({ fixtures, runtimeVersion: config.environment.runtimeRevision,
+    const execute = createLoadWorkload({ fixtures, runtimeVersion: config.environment.runtimeVersion,
       apiRequest: async (method, path, body, options = {}) => {
         const operation = byId.get(options.logicalOperationId)?.operation;
         if (!operation) throw Error('unbound HTTP operation');

@@ -53,7 +53,15 @@ selected. It never reduces floors or drops windows to make a run fit.
 | `telemetry` | Complete resource thresholds, maximum sample gap and age |
 | `provider` | Exact decimal USD ceiling and explicit pricing revision |
 | `budgets` | Logical entries per trial; whole-run HTTP/provider attempts, bytes, files and elapsed time |
-| `environment` | Separate target/generator/observer identities, exact runtime revision, fixture digest, two runtime tenants and control namespace |
+| `environment` | Separate target/generator/observer identities, exact runtime revision, runtime semantic version, fixture digest, two runtime tenants and control namespace |
+
+Select `environment.runtimeRevision` as the exact 40-character Git revision and
+`environment.runtimeVersion` as that runtime's semantic version (for example,
+`2026.9.10`). They are separate identities, both bound into the compiled digest
+and authorization input. A revision is not a version, and the compiler never
+derives or invents one from the other. Version validation uses the existing
+capability contract rules. Existing local config files must add the version field;
+`null` remains incomplete and malformed versions reject before any adapter runs.
 
 The effective config, full schedule, actual planned per-operation/window counts,
 feasibility totals and SHA-256 digest are emitted in canonical JSON. Repeat trials

@@ -1914,3 +1914,15 @@ records:
     record: records/lane-b-server-clippy-cycle120.prov.yaml
   - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/resolution_checks.rs
     record: records/lane-b-server-clippy-cycle120.prov.yaml
+  - entity: urn:aiwg:artifact:scripts/qualification/README.md
+    record: records/lane-b-runtime-identities-cycle121.prov.yaml
+  - entity: urn:aiwg:artifact:scripts/qualification/config/load-profiles.json
+    record: records/lane-b-runtime-identities-cycle121.prov.yaml
+  - entity: urn:aiwg:artifact:scripts/qualification/load-config.mjs
+    record: records/lane-b-runtime-identities-cycle121.prov.yaml
+  - entity: urn:aiwg:artifact:scripts/qualification/load-config.test.mjs
+    record: records/lane-b-runtime-identities-cycle121.prov.yaml
+  - entity: urn:aiwg:artifact:scripts/qualification/run-load-experiment.mjs
+    record: records/lane-b-runtime-identities-cycle121.prov.yaml
+  - entity: urn:aiwg:artifact:scripts/qualification/run-load-experiment.test.mjs
+    record: records/lane-b-runtime-identities-cycle121.prov.yaml

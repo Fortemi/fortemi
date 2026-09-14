@@ -3,6 +3,7 @@ import { LOAD_PHASES, evaluateLoadRequests } from './evaluate-load-requests.mjs'
 import { LOAD_TELEMETRY, evaluateLoadTelemetry } from './evaluate-load-telemetry.mjs';
 import { canonicalJson, jsonDigest } from './canonical-json.mjs';
 import { compareLoadUsd } from './load-attempt-budget.mjs';
+import { compareCapabilityVersions } from '../../mcp-server/lib/dataset-capability-validation.js';
 
 const object = x => x !== null && typeof x === 'object' && !Array.isArray(x) && Object.getPrototypeOf(x) === Object.prototype;
 const integer = (n, min, max, name) => { if (!Number.isSafeInteger(n) || n < min || n > max) throw Error(`invalid ${name}`); };
@@ -30,7 +31,7 @@ export function loadConfigTemplate() {
     perOperation: Object.fromEntries(LOAD_OPERATIONS.map(op => [op, {}])),
     telemetry: { maxGapMs: 1000, maxAgeMs: 1000,
       thresholds: Object.fromEntries(Object.entries(LOAD_TELEMETRY).map(([metric, [unit, direction]]) => [metric, threshold(direction === 'lower' ? 'gte' : 'lte', unit)])) },
-    environment: { target: null, generator: null, observer: null, runtimeRevision: null, fixtureDigest: null,
+    environment: { target: null, generator: null, observer: null, runtimeRevision: null, runtimeVersion: null, fixtureDigest: null,
       runtimeTenants: ['load-a', 'load-b'], controlNamespace: 'load-control' },
   }, profiles: { calibration: {}, qualification: { stage: 'qualification', repetitions: 3,
     phases: LOAD_PHASES.map(name => ({ name, ratePerSecond: 2, durationMs: 120000, windowMs: 120000 })) } } };
@@ -134,8 +135,8 @@ export function compileLoadConfig(document, profile, overrides = []) {
     }
     if (bounds.deadlineMs !== null && bounds.deadlineMs > config.runner.drainMs) throw Error(`deadline exceeds drain: ${op}`);
   }
-  keys(config.environment, ['target', 'generator', 'observer', 'runtimeRevision', 'fixtureDigest', 'runtimeTenants', 'controlNamespace'], 'environment');
-  for (const k of ['target', 'generator', 'observer', 'runtimeRevision', 'fixtureDigest']) {
+  keys(config.environment, ['target', 'generator', 'observer', 'runtimeRevision', 'runtimeVersion', 'fixtureDigest', 'runtimeTenants', 'controlNamespace'], 'environment');
+  for (const k of ['target', 'generator', 'observer', 'runtimeRevision', 'runtimeVersion', 'fixtureDigest']) {
     const value = config.environment[k];
     if (value === null) missing.push(`environment.${k}`);
     else if (typeof value !== 'string' || value.length > 256 || !value.length) throw Error(`invalid environment.${k}`);
@@ -143,6 +144,7 @@ export function compileLoadConfig(document, profile, overrides = []) {
   const domains = ['target', 'generator', 'observer'].map(k => config.environment[k]).filter(x => x !== null);
   if (new Set(domains).size !== domains.length) throw Error('distinct target/generator/observer domains required');
   if (config.environment.runtimeRevision !== null && !/^[a-f0-9]{40}$/.test(config.environment.runtimeRevision)) throw Error('exact runtime revision required');
+  if (config.environment.runtimeVersion !== null && compareCapabilityVersions(config.environment.runtimeVersion, config.environment.runtimeVersion) !== 0) throw Error('valid runtime semantic version required');
   if (config.environment.fixtureDigest !== null && !/^sha256:[a-f0-9]{64}$/.test(config.environment.fixtureDigest)) throw Error('fixture digest required');
   const tenants = config.environment.runtimeTenants;
   if (!Array.isArray(tenants) || tenants.length !== 2 || !tenants.every(id) || tenants[0] === tenants[1]
