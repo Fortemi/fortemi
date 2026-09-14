@@ -60,11 +60,15 @@ async fn run_driver(root: &std::path::Path, phase: &str) {
     );
 }
 
+pub(super) struct HttpRouters<'a> {
+    pub app: &'a Router,
+    pub denied: &'a Router,
+    pub untrusted: Option<&'a Router>,
+    pub cold: Option<&'a Router>,
+}
+
 pub(super) async fn verify(
-    app: &Router,
-    denied: &Router,
-    untrusted: Option<&Router>,
-    cold: Option<&Router>,
+    routers: HttpRouters<'_>,
     admin: &PgPool,
     runtime: &PgPool,
     a: Uuid,
@@ -72,6 +76,12 @@ pub(super) async fn verify(
     archive: &str,
     embeddings: &str,
 ) {
+    let HttpRouters {
+        app,
+        denied,
+        untrusted,
+        cold,
+    } = routers;
     let root = std::path::PathBuf::from(
         std::env::var("FORTEMI_HTTP_ARTIFACTS").expect("HTTP artifact directory required"),
     );

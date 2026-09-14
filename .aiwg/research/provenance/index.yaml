@@ -1908,3 +1908,9 @@ records:
     record: records/lane-b-server-clippy-cycle118.prov.yaml
   - entity: urn:aiwg:artifact:crates/matric-search/src/hybrid.rs
     record: records/lane-b-server-clippy-cycle118.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests.rs
+    record: records/lane-b-server-clippy-cycle120.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/installed_http.rs
+    record: records/lane-b-server-clippy-cycle120.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests/resolution_checks.rs
+    record: records/lane-b-server-clippy-cycle120.prov.yaml

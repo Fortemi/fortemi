@@ -1,0 +1,61 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-14T02:43:21Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests.rs",
+    "type": "code",
+    "created_at": "2026-09-14T02:43:21Z",
+    "checksum": "sha256:a6fee615f6fed760f8aa7ce250c52e116f7790f76b3540d624fd8fc8f78c9bf3"
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:lane-b-api-clippy:120",
+    "type": "modification",
+    "started_at": "2026-09-14T02:43:21Z",
+    "ended_at": "2026-09-14T02:43:21Z",
+    "description": "Group test-only HTTP routers and note IDs into named structs. Preserve complete helper assertion bodies and all test cases. No production semantics, wire schema, dependencies or lint policy changes."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests.rs",
+      "activity": "urn:aiwg:activity:lane-b-api-clippy:120"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:lane-b-api-clippy:120",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:crates/matric-api/src/scoped_search_tests.rs",
+      "agent": "urn:aiwg:agent:codex"
+    }
+  },
+  "artifacts": {
+    "crates/matric-api/src/scoped_search_tests.rs": "a6fee615f6fed760f8aa7ce250c52e116f7790f76b3540d624fd8fc8f78c9bf3",
+    "crates/matric-api/src/scoped_search_tests/installed_http.rs": "84aa6f2a188c9103b15e63ace3139acd2ccfb5242926ba49fe0ca0f434448f75",
+    "crates/matric-api/src/scoped_search_tests/resolution_checks.rs": "4188e3e40804404b34bf6e3e7928a7563a3f29a9f833cc11bf929f7ab3bbfee7"
+  },
+  "verification": {
+    "unit": "fortemi-local-test-1000-8131144f-2898-4900-85de-b008cc40783f.service",
+    "clippy": "Rust1.92 API all-targets hosted-auth,kms-vault -D warnings PASS",
+    "format": "Rustfmt1.98 changed files PASS",
+    "pairingUnit": "fortemi-local-test-1000-adff8350-056a-40f0-9a0c-aa5f6b9f4e52.service",
+    "scopedTests": 4,
+    "installedClientGroups": 220,
+    "httpRequests": 293,
+    "durableAuditRows": 655,
+    "sseStreams": 6,
+    "sseEvents": 24,
+    "browserGroups": 18,
+    "layoutGroups": 24,
+    "screenshots": 10,
+    "helperBodiesUnchanged": true,
+    "cleanup": "10 fixture PIDs and cgroup absent; shared inference unchanged",
+    "limitation": "AWS all-features dependencies unavailable offline; exact remote CI, publication and published pairing remain required. Candidate package is not a published artifact."
+  }
+}

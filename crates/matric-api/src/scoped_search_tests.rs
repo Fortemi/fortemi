@@ -545,9 +545,11 @@ async fn run_scoped_fixture(admin: PgPool, installed_http: bool) {
         a,
         b,
         &archive.schema_name,
-        a_public,
-        b_public,
-        a_archive,
+        resolution_checks::FixtureNotes {
+            a_public,
+            b_public,
+            a_archive,
+        },
     )
     .await;
     assert_eq!(
@@ -607,10 +609,12 @@ async fn run_scoped_fixture(admin: PgPool, installed_http: bool) {
         assert!(admin.options().get_max_connections() <= 5);
         assert_eq!(runtime.options().get_max_connections(), 1);
         installed_http::verify(
-            &http_app,
-            &http_denied,
-            untrusted.as_ref(),
-            cold.as_ref(),
+            installed_http::HttpRouters {
+                app: &http_app,
+                denied: &http_denied,
+                untrusted: untrusted.as_ref(),
+                cold: cold.as_ref(),
+            },
             &admin,
             &runtime,
             a,

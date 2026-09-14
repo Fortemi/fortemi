@@ -57,16 +57,25 @@ async fn expect(
     1
 }
 
+pub(super) struct FixtureNotes {
+    pub a_public: Uuid,
+    pub b_public: Uuid,
+    pub a_archive: Uuid,
+}
+
 pub(super) async fn verify(
     app: &Router,
     admin: &PgPool,
     a: Uuid,
     b: Uuid,
     archive: &str,
-    a_public: Uuid,
-    b_public: Uuid,
-    a_archive: Uuid,
+    notes: FixtureNotes,
 ) -> usize {
+    let FixtureNotes {
+        a_public,
+        b_public,
+        a_archive,
+    } = notes;
     let mut checks = 0;
     // The same native UUID and text may exist in two archive tables. A source
     // digest from one archive must not resolve as the other archive's identity.
