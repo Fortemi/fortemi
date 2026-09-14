@@ -5,7 +5,8 @@
   },
   "entity": {
     "id": "urn:aiwg:artifact:crates/matric-core/src/models.rs",
-    "type": "file",
+    "type": "code",
+    "created_at": "2026-09-13T22:32:20.823Z",
     "checksum": "sha256:9c48aa725b96febb69ec6380dfaa09dbabb4a1c9940700e9902eccb7655b014e"
   },
   "activity": {
