@@ -1,0 +1,50 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-14T17:05:17.539Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:Cargo.lock",
+    "type": "code",
+    "created_at": "2026-09-14T17:05:17.539Z",
+    "checksum": "sha256:437a98db2432c0794dce535a7dc6385e10c50e52c150aa7e97c06cd461c9ad64"
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:lane-b-tls-security:server:123",
+    "type": "modification",
+    "started_at": "2026-09-14T17:05:17.539Z",
+    "ended_at": "2026-09-14T17:05:17.539Z",
+    "description": "Resolve RUSTSEC-2026-0285 with rustls0.23.45 and required verified transitive packages. Cargo-generated lock changes only; no advisory waiver, contract/pin change or new acceptance claim."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "type": "ai_assistant",
+    "name": "Codex"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:Cargo.lock",
+      "activity": "urn:aiwg:activity:lane-b-tls-security:server:123"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:lane-b-tls-security:server:123",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:Cargo.lock",
+      "agent": "urn:aiwg:agent:codex"
+    }
+  },
+  "artifacts": {
+    "Cargo.lock": "437a98db2432c0794dce535a7dc6385e10c50e52c150aa7e97c06cd461c9ad64",
+    "tests/fortemi-auth-consumer/Cargo.lock": "aa980c07ee24dbd8d5f52ba2582ce75f08ad73bfd2ca35ee82c2950de80b6012"
+  },
+  "verification": {
+    "unit": "fortemi-local-test-1000-f0483942-450e-44b1-9855-557079eee5b5.service",
+    "nativeCases": 10,
+    "clippy": "Rust1.92 hosted-auth,kms-vault all-targets PASS",
+    "authConsumer": "NOT_PASS locally: async-trait0.1.91 not cached; unchanged CI audit/deny/auth-consumer gates required",
+    "sourceProvenance": "Four archives match sparse-index checksums and embedded upstream commit manifests; six old archives independently checksum-verified. Suite Cycle123 retains inventories, source diffs and failures.",
+    "limitation": "CI and release gates still required. Suite NO-GO, named profiles and human holds unchanged."
+  }
+}

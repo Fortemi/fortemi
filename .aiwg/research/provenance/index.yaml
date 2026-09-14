@@ -1,6 +1,6 @@
 metadata:
   schema_version: 1.0.0
-  updated_at: 2026-09-14T16:14:24.107Z
+  updated_at: 2026-09-14T17:05:17.539Z
 records:
   - entity: urn:aiwg:artifact:crates/matric-core/src/models.rs
     record: records/lane-b-server-clippy-cycle109.prov.yaml
@@ -1942,3 +1942,7 @@ records:
     record: records/lane-b-native-fixture-passwords-cycle122.prov.yaml
   - entity: urn:aiwg:artifact:crates/matric-jobs/tests/hosted_recovery_test.rs
     record: records/lane-b-native-fixture-passwords-cycle122.prov.yaml
+  - entity: urn:aiwg:artifact:Cargo.lock
+    record: records/lane-b-tls-security-cycle123.prov.yaml
+  - entity: urn:aiwg:artifact:tests/fortemi-auth-consumer/Cargo.lock
+    record: records/lane-b-tls-security-cycle123.prov.yaml
