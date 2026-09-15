@@ -4073,6 +4073,116 @@ paths:
           description: Global request rate limit exceeded
       security:
       - bearerAuth: []
+  /api/v1/lifecycle-purge:
+    post:
+      tags:
+      - Notes
+      operationId: lifecycle_purge_begin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PurgeRequest'
+        required: true
+      responses:
+        '202':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurgeStatus'
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
+  /api/v1/lifecycle-purge/preview:
+    post:
+      tags:
+      - Notes
+      operationId: lifecycle_purge_preview
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PurgeSelector'
+        required: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurgePreview'
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
+  /api/v1/lifecycle-purge/{operation_id}:
+    get:
+      tags:
+      - Notes
+      operationId: lifecycle_purge_status
+      parameters:
+      - name: operation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurgeStatus'
+        '404':
+          description: ''
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
+  /api/v1/lifecycle-purge/{operation_id}/resume:
+    post:
+      tags:
+      - Notes
+      operationId: lifecycle_purge_resume
+      parameters:
+      - name: operation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PurgeStatus'
+        '404':
+          description: ''
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
   /api/v1/memories/overview:
     get:
       tags:
@@ -9284,6 +9394,30 @@ components:
           - string
           - 'null'
           description: Human-readable title for the backup
+    DeletionReceipt:
+      type: object
+      required:
+      - contract_version
+      - operation_id
+      - outcome
+      - counts
+      - completed_at
+      - policy
+      properties:
+        completed_at:
+          type: string
+          format: date-time
+        contract_version:
+          type: string
+        counts:
+          $ref: '#/components/schemas/PurgeCounts'
+        operation_id:
+          type: string
+          format: uuid
+        outcome:
+          $ref: '#/components/schemas/PurgeOutcome'
+        policy:
+          $ref: '#/components/schemas/PurgeReceiptPolicy'
     DetectDocumentTypeRequest:
       type: object
       description: Request body for document type detection.
@@ -11340,6 +11474,167 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ProviderInfo'
+    PurgeCounts:
+      type: object
+      required:
+      - notes
+      - revisions
+      - links
+      - tags
+      - embeddings
+      - attachments
+      - blobs
+      - graph_edges
+      - provenance_edges
+      - source_identities
+      properties:
+        attachments:
+          type: integer
+          format: int64
+          minimum: 0
+        blobs:
+          type: integer
+          format: int64
+          description: Blobs that become unreferenced, not every blob touched by the selector.
+          minimum: 0
+        embeddings:
+          type: integer
+          format: int64
+          minimum: 0
+        graph_edges:
+          type: integer
+          format: int64
+          minimum: 0
+        links:
+          type: integer
+          format: int64
+          minimum: 0
+        notes:
+          type: integer
+          format: int64
+          minimum: 0
+        provenance_edges:
+          type: integer
+          format: int64
+          minimum: 0
+        revisions:
+          type: integer
+          format: int64
+          minimum: 0
+        source_identities:
+          type: integer
+          format: int64
+          minimum: 0
+        tags:
+          type: integer
+          format: int64
+          minimum: 0
+    PurgeOutcome:
+      type: string
+      enum:
+      - cleanup_pending
+      - completed
+    PurgePreview:
+      type: object
+      required:
+      - contract_version
+      - preview_id
+      - counts
+      - expires_at
+      properties:
+        contract_version:
+          type: string
+        counts:
+          $ref: '#/components/schemas/PurgeCounts'
+        expires_at:
+          type: string
+          format: date-time
+        preview_id:
+          type: string
+          format: uuid
+    PurgeReceiptPolicy:
+      type: object
+      required:
+      - authority
+      - mode
+      - receipt_contains_content
+      - backup_disposition
+      - restore_reerasure
+      properties:
+        authority:
+          type: string
+        backup_disposition:
+          type: string
+        mode:
+          type: string
+        receipt_contains_content:
+          type: boolean
+        restore_reerasure:
+          type: boolean
+    PurgeRequest:
+      type: object
+      required:
+      - operation_id
+      - preview_id
+      properties:
+        operation_id:
+          type: string
+          format: uuid
+        preview_id:
+          type: string
+          format: uuid
+    PurgeSelector:
+      type: object
+      properties:
+        note_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+        source:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/PurgeSourceSelector'
+    PurgeSourceSelector:
+      type: object
+      required:
+      - namespace
+      properties:
+        external_id:
+          type:
+          - string
+          - 'null'
+        namespace:
+          type: string
+    PurgeStatus:
+      type: object
+      required:
+      - contract_version
+      - operation_id
+      - outcome
+      - counts
+      - blob_cleanup_pending
+      - search_cleanup_pending
+      properties:
+        blob_cleanup_pending:
+          type: integer
+          format: int64
+          minimum: 0
+        contract_version:
+          type: string
+        counts:
+          $ref: '#/components/schemas/PurgeCounts'
+        operation_id:
+          type: string
+          format: uuid
+        outcome:
+          $ref: '#/components/schemas/PurgeOutcome'
+        receipt:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/DeletionReceipt'
+        search_cleanup_pending:
+          type: boolean
     ReprocessNoteBody:
       type: object
       properties:

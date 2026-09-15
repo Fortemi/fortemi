@@ -45,6 +45,7 @@ pub mod hashtag_extraction;
 pub mod inbound_sources;
 pub mod incoming_webhooks;
 pub mod jobs;
+pub mod lifecycle_purge;
 pub mod links;
 pub mod memory_search;
 pub mod metadata_predicates;
@@ -130,6 +131,7 @@ pub use file_storage::{
     StagedShardBlobPromotion, StorageBackend, FILE_COPY_BUFFER_BYTES,
 };
 pub use jobs::{get_extraction_stats, PgJobRepository, ScopedClaimedJob, ScopedJobRepository};
+pub use lifecycle_purge::{LifecyclePurgeBlobCleanup, PgLifecyclePurgeRepository};
 pub use links::{
     CoarseCommunityResult, DiagnosticsComparison, DiagnosticsSnapshot, GraphDiagnostics, GraphEdge,
     GraphMeta, GraphNode, GraphResult, LinkCreateResult, PfnetResult, PgLinkRepository, SnnResult,
@@ -247,6 +249,8 @@ pub struct Database {
     pub call_sessions: PgCallSessionRepository,
     /// Source-addressed atomic note upsert repository (Issue #1090).
     pub source_upserts: PgSourceUpsertRepository,
+    /// Previewable, resumable lifecycle purge authority (Issue #1092).
+    pub lifecycle_purge: PgLifecyclePurgeRepository,
 }
 
 impl Database {
@@ -286,6 +290,7 @@ impl Database {
             tus: PgTusRepository::new(pool.clone()),
             call_sessions: PgCallSessionRepository::new(pool.clone()),
             source_upserts: PgSourceUpsertRepository::new(pool.clone()),
+            lifecycle_purge: PgLifecyclePurgeRepository::new(),
             pool,
         }
     }
@@ -752,6 +757,7 @@ impl Clone for Database {
             tus: PgTusRepository::new(self.pool.clone()),
             call_sessions: PgCallSessionRepository::new(self.pool.clone()),
             source_upserts: PgSourceUpsertRepository::new(self.pool.clone()),
+            lifecycle_purge: PgLifecyclePurgeRepository::new(),
         }
     }
 }

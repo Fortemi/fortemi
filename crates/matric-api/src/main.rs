@@ -1325,7 +1325,8 @@ impl AppState {
         health_check, system_compatibility, get_notes_timeline, get_notes_activity, get_knowledge_health,
         get_orphan_tags, get_stale_notes, get_unlinked_notes, get_tag_cooccurrence, get_access_frequency,
         list_notes, create_note, source_upsert_notes, bulk_create_notes, get_note,
-        update_note, delete_note, purge_note, update_note_status,
+        update_note, delete_note, purge_note, lifecycle_purge_preview, lifecycle_purge_begin,
+        lifecycle_purge_status, lifecycle_purge_resume, update_note_status,
         restore_note, reprocess_note, bulk_reprocess_notes, get_note_tags, set_note_tags,
         list_tags, list_concept_schemes, create_concept_scheme, get_concept_scheme,
         update_concept_scheme, delete_concept_scheme, get_top_concepts, search_concepts,
@@ -1456,6 +1457,10 @@ impl AppState {
             matric_core::SourceUpsertItem, matric_core::SourceUpsertItemOutcome,
             matric_core::SourceUpsertItemResult, matric_core::SourceUpsertPolicy,
             matric_core::SourceUpsertRequest, matric_core::SourceUpsertResponse,
+            matric_core::PurgeSourceSelector, matric_core::PurgeSelector,
+            matric_core::PurgeCounts, matric_core::PurgePreview, matric_core::PurgeRequest,
+            matric_core::PurgeOutcome, matric_core::PurgeReceiptPolicy,
+            matric_core::DeletionReceipt, matric_core::PurgeStatus,
             matric_core::TwoStageSearchConfig,
             matric_core::UpdateCollectionMembersRequest, matric_core::UpdateConceptRequest, matric_core::UpdateConceptSchemeRequest,
             matric_core::UpdateDocumentTypeRequest, matric_core::UpdateEmbeddingConfigRequest, matric_core::UpdateEmbeddingSetRequest,
@@ -4433,6 +4438,19 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/v1/notes/{id}/restore", post(restore_note))
         .route("/api/v1/notes/{id}/purge", post(purge_note))
+        .route(
+            "/api/v1/lifecycle-purge/preview",
+            post(lifecycle_purge_preview),
+        )
+        .route("/api/v1/lifecycle-purge", post(lifecycle_purge_begin))
+        .route(
+            "/api/v1/lifecycle-purge/{operation_id}",
+            get(lifecycle_purge_status),
+        )
+        .route(
+            "/api/v1/lifecycle-purge/{operation_id}/resume",
+            post(lifecycle_purge_resume),
+        )
         .route("/api/v1/notes/{id}/reprocess", post(reprocess_note))
         .route("/api/v1/notes/reprocess", post(bulk_reprocess_notes))
         .route(
@@ -14968,6 +14986,222 @@ async fn delete_note(
     state.search_cache.invalidate_all().await;
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn complete_lifecycle_purge_cleanup(
+    state: &AppState,
+    scope: Option<TenantRequestScope>,
+    schema: &str,
+    operation_id: Uuid,
+) -> Result<matric_core::PurgeStatus, ApiError> {
+    let repository = state.db.lifecycle_purge.clone();
+    let cleanup = with_request_schema(
+        state,
+        scope.clone(),
+        schema.to_string(),
+        move |connection| {
+            Box::pin(async move {
+                repository
+                    .pending_blob_cleanup_tx(connection, operation_id)
+                    .await
+            })
+        },
+    )
+    .await?;
+
+    if !cleanup.is_empty() {
+        let storage = state.db.file_storage.as_ref().ok_or_else(|| {
+            ApiError::ServiceUnavailable(
+                "Lifecycle purge has pending blob cleanup but file storage is unavailable."
+                    .to_string(),
+            )
+        })?;
+        for item in &cleanup {
+            if let Err(error) = storage.delete_lifecycle_purge_blob(item).await {
+                let failure_class = if matches!(error, matric_core::Error::InvalidInput(_)) {
+                    "invalid_storage_path"
+                } else {
+                    "filesystem"
+                };
+                let blob_id = item.blob_id;
+                let repository = state.db.lifecycle_purge.clone();
+                with_request_schema(
+                    state,
+                    scope.clone(),
+                    schema.to_string(),
+                    move |connection| {
+                        Box::pin(async move {
+                            repository
+                                .record_blob_cleanup_failure_tx(
+                                    connection,
+                                    operation_id,
+                                    blob_id,
+                                    failure_class,
+                                )
+                                .await
+                        })
+                    },
+                )
+                .await?;
+                return Err(error.into());
+            }
+        }
+
+        let completed_blob_ids = cleanup.iter().map(|item| item.blob_id).collect::<Vec<_>>();
+        let repository = state.db.lifecycle_purge.clone();
+        with_request_schema(
+            state,
+            scope.clone(),
+            schema.to_string(),
+            move |connection| {
+                Box::pin(async move {
+                    for blob_id in completed_blob_ids {
+                        repository
+                            .mark_blob_cleanup_complete_tx(connection, operation_id, blob_id)
+                            .await?;
+                    }
+                    Ok(())
+                })
+            },
+        )
+        .await?;
+    }
+
+    // The relational deletion was committed by the initiating request. Clear
+    // the cache before acknowledging search cleanup so terminal status cannot
+    // race a cache containing the deleted records.
+    state.search_cache.invalidate_all().await;
+    let repository = state.db.lifecycle_purge.clone();
+    with_request_schema(state, scope, schema.to_string(), move |connection| {
+        Box::pin(async move {
+            repository
+                .mark_search_cleanup_complete_tx(connection, operation_id)
+                .await?;
+            repository.finalize_tx(connection, operation_id).await?;
+            repository
+                .status_tx(connection, operation_id)
+                .await?
+                .ok_or_else(|| {
+                    matric_core::Error::NotFound(
+                        "Lifecycle purge operation was not found.".to_string(),
+                    )
+                })
+        })
+    })
+    .await
+    .map_err(Into::into)
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/lifecycle-purge/preview",
+    tag = "Notes",
+    request_body = matric_core::PurgeSelector,
+    responses((status = 200, body = matric_core::PurgePreview))
+)]
+async fn lifecycle_purge_preview(
+    _auth: Auth,
+    State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Json(selector): Json<matric_core::PurgeSelector>,
+) -> Result<Json<matric_core::PurgePreview>, ApiError> {
+    let repository = state.db.lifecycle_purge.clone();
+    let preview = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema,
+        move |connection| {
+            Box::pin(async move { repository.preview_tx(connection, selector).await })
+        },
+    )
+    .await?;
+    Ok(Json(preview))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/lifecycle-purge",
+    tag = "Notes",
+    request_body = matric_core::PurgeRequest,
+    responses((status = 202, body = matric_core::PurgeStatus))
+)]
+async fn lifecycle_purge_begin(
+    _auth: Auth,
+    State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Json(request): Json<matric_core::PurgeRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    let repository = state.db.lifecycle_purge.clone();
+    let status = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema,
+        move |connection| Box::pin(async move { repository.begin_tx(connection, request).await }),
+    )
+    .await?;
+    Ok((StatusCode::ACCEPTED, Json(status)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/lifecycle-purge/{operation_id}",
+    tag = "Notes",
+    params(("operation_id" = Uuid, Path)),
+    responses((status = 200, body = matric_core::PurgeStatus), (status = 404))
+)]
+async fn lifecycle_purge_status(
+    _auth: Auth,
+    State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Path(operation_id): Path<Uuid>,
+) -> Result<Json<matric_core::PurgeStatus>, ApiError> {
+    let repository = state.db.lifecycle_purge.clone();
+    let status = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema,
+        move |connection| {
+            Box::pin(async move {
+                repository
+                    .status_tx(connection, operation_id)
+                    .await?
+                    .ok_or_else(|| {
+                        matric_core::Error::NotFound(
+                            "Lifecycle purge operation was not found.".to_string(),
+                        )
+                    })
+            })
+        },
+    )
+    .await?;
+    Ok(Json(status))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/lifecycle-purge/{operation_id}/resume",
+    tag = "Notes",
+    params(("operation_id" = Uuid, Path)),
+    responses((status = 200, body = matric_core::PurgeStatus), (status = 404))
+)]
+async fn lifecycle_purge_resume(
+    _auth: Auth,
+    State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Path(operation_id): Path<Uuid>,
+) -> Result<Json<matric_core::PurgeStatus>, ApiError> {
+    let status = complete_lifecycle_purge_cleanup(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        &archive_ctx.schema,
+        operation_id,
+    )
+    .await?;
+    Ok(Json(status))
 }
 
 /// Permanently delete a note by queuing a purge job.
@@ -39309,6 +39543,7 @@ async fn apply_validated_shard_components(
         Vec<Uuid>,
         Vec<(Uuid, Uuid)>,
         usize,
+        Vec<Uuid>,
     ),
     ApiError,
 > {
@@ -40150,6 +40385,21 @@ async fn apply_validated_shard_components(
         .map_err(|error| shard_operation_failed("delete orphaned reference blobs", error))?;
     }
 
+    let (reerasure_operation_ids, reerased_note_ids) = if opts.dry_run {
+        (Vec::new(), Vec::new())
+    } else {
+        state
+            .db
+            .lifecycle_purge
+            .reerase_restored_tx(&mut tx)
+            .await
+            .map_err(|error| shard_operation_failed("re-erase restored purge targets", error))?
+    };
+    if !reerased_note_ids.is_empty() {
+        queued_note_ids.retain(|note_id| !reerased_note_ids.contains(note_id));
+        pending_attachment_scans.retain(|(note_id, _)| !reerased_note_ids.contains(note_id));
+    }
+
     let mut promotions = Vec::new();
     let storage_backend = if used_staged_blobs.is_empty() {
         None
@@ -40283,6 +40533,7 @@ async fn apply_validated_shard_components(
         queued_note_ids,
         pending_attachment_scans,
         bypassed_attachments,
+        reerasure_operation_ids,
     ))
 }
 
@@ -40525,8 +40776,18 @@ where
     } else if let Some(backend) = state.db.filesystem_storage_backend() {
         discard_staged_shard_sidecars(&backend, &staged_blobs).await;
     }
-    let (imported, skipped, queued_note_ids, pending_attachment_scans, bypassed_attachments) =
-        apply_result?;
+    let (
+        imported,
+        skipped,
+        queued_note_ids,
+        pending_attachment_scans,
+        bypassed_attachments,
+        reerasure_operation_ids,
+    ) = apply_result?;
+
+    for operation_id in reerasure_operation_ids {
+        complete_lifecycle_purge_cleanup(state, None, schema, operation_id).await?;
+    }
 
     for (note_id, attachment_id) in pending_attachment_scans {
         queue_attachment_scan_job(

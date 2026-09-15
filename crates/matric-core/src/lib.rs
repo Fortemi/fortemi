@@ -20,6 +20,7 @@ pub mod exif;
 pub mod fair;
 pub mod file_safety;
 pub mod hardware;
+pub mod lifecycle_purge;
 pub mod logging;
 pub mod metadata_search;
 pub mod metering;
@@ -52,6 +53,7 @@ pub use file_safety::{
     detect_content_type, is_valid_mime_type, sanitize_filename, validate_file, ValidationResult,
 };
 pub use hardware::{ContextBudget, HardwareConfig};
+pub use lifecycle_purge::*;
 pub use metering::*;
 pub use models::*;
 pub use search::*;

@@ -1,6 +1,6 @@
 metadata:
   schema_version: 1.0.0
-  updated_at: 2026-09-14T17:05:17.539Z
+  updated_at: 2026-09-15T04:02:33Z
 records:
   - entity: urn:aiwg:artifact:crates/matric-core/src/models.rs
     record: records/lane-b-server-clippy-cycle109.prov.yaml
@@ -1946,3 +1946,15 @@ records:
     record: records/lane-b-tls-security-cycle123.prov.yaml
   - entity: urn:aiwg:artifact:tests/fortemi-auth-consumer/Cargo.lock
     record: records/lane-b-tls-security-cycle123.prov.yaml
+  - entity: urn:aiwg:artifact:.aiwg/architecture/lifecycle-purge-sad.md
+    record: records/lifecycle-purge-authority-1092.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/lifecycle-purge/conformance/v1.json
+    record: records/lifecycle-purge-authority-1092.prov.yaml
+  - entity: urn:aiwg:artifact:docs/architecture/adr/ADR-108-previewable-lifecycle-purge.md
+    record: records/lifecycle-purge-authority-1092.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-core/src/lifecycle_purge.rs
+    record: records/lifecycle-purge-authority-1092.prov.yaml
+  - entity: urn:aiwg:artifact:crates/matric-db/src/lifecycle_purge.rs
+    record: records/lifecycle-purge-authority-1092.prov.yaml
+  - entity: urn:aiwg:artifact:migrations/20260915010000_lifecycle_purge.sql
+    record: records/lifecycle-purge-authority-1092.prov.yaml

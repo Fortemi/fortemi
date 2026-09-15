@@ -1644,6 +1644,28 @@ pub struct PgFileStorageRepository {
 }
 
 impl PgFileStorageRepository {
+    /// Remove one blob sidecar selected by the lifecycle purge authority.
+    ///
+    /// The persisted path is accepted only when it exactly matches the
+    /// canonical path derived from the blob UUID. This keeps a corrupted task
+    /// from escaping the configured blob namespace.
+    pub async fn delete_lifecycle_purge_blob(
+        &self,
+        cleanup: &crate::LifecyclePurgeBlobCleanup,
+    ) -> Result<()> {
+        let expected = generate_storage_path(&cleanup.blob_id);
+        if cleanup.storage_path() != expected {
+            return Err(Error::InvalidInput(
+                "Lifecycle purge storage path is not canonical.".to_string(),
+            ));
+        }
+        match self.backend.delete(cleanup.storage_path()).await {
+            Ok(()) => Ok(()),
+            Err(Error::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error),
+        }
+    }
+
     /// Create a new file storage repository.
     ///
     /// # Arguments

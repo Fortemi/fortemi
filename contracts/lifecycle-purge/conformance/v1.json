@@ -1,0 +1,73 @@
+{
+  "contract_version": "1.0.0",
+  "authority": "Fortemi/fortemi#1092",
+  "selector_semantics": "intersection",
+  "preview_ttl_seconds": 900,
+  "max_note_ids": 500,
+  "count_fields": [
+    "notes", "revisions", "links", "tags", "embeddings",
+    "attachments", "blobs", "graph_edges", "provenance_edges", "source_identities"
+  ],
+  "receipt_allowed_fields": [
+    "contract_version", "operation_id", "outcome", "counts", "completed_at", "policy"
+  ],
+  "receipt_forbidden_fields": [
+    "selector", "selector_hash", "selector_fingerprint", "tenant_id", "archive_id",
+    "note_ids", "source", "external_id", "operation_key", "storage_path",
+    "provider_payload", "content_digest"
+  ],
+  "cases": [
+    {
+      "id": "shared-blob",
+      "expectation": "Only blobs with no surviving primary or preview attachment reference are counted and deleted.",
+      "expected_counts": {
+        "notes": 1,
+        "revisions": 0,
+        "links": 0,
+        "tags": 0,
+        "embeddings": 1,
+        "attachments": 2,
+        "blobs": 1,
+        "graph_edges": 0,
+        "provenance_edges": 0,
+        "source_identities": 0
+      }
+    },
+    {
+      "id": "stale-preview",
+      "expectation": "A changed selected graph rejects execution and leaves all selected records intact."
+    },
+    {
+      "id": "exact-replay",
+      "expectation": "Repeating an operation ID with the same preview returns status without another relational delete or receipt."
+    },
+    {
+      "id": "cleanup-crash",
+      "expectation": "Repeating an external delete after a crash before acknowledgement converges to one terminal receipt."
+    },
+    {
+      "id": "restore-reerasure",
+      "expectation": "A restored retained target is re-erased before indexing and returns the operation to cleanup_pending until external cleanup completes."
+    },
+    {
+      "id": "source-intersection",
+      "expectation": "Combined note and source selectors intersect; a partial source purge retains shared journals and a whole-source purge removes them after the final identity is erased.",
+      "expected_counts": {
+        "notes": 1,
+        "revisions": 0,
+        "links": 0,
+        "tags": 0,
+        "embeddings": 1,
+        "attachments": 0,
+        "blobs": 0,
+        "graph_edges": 0,
+        "provenance_edges": 0,
+        "source_identities": 1
+      }
+    },
+    {
+      "id": "expired-preview-cleanup",
+      "expectation": "Creating a new preview removes expired unconsumed selector snapshots within the same tenant and memory."
+    }
+  ]
+}

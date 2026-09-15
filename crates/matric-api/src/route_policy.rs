@@ -1001,6 +1001,34 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         PrivateUserData,
     ),
     r(
+        "/api/v1/lifecycle-purge",
+        AuthenticatedWrite,
+        "note",
+        Authenticated,
+        NoStore,
+    ),
+    r(
+        "/api/v1/lifecycle-purge/preview",
+        AuthenticatedWrite,
+        "note",
+        Authenticated,
+        NoStore,
+    ),
+    r(
+        "/api/v1/lifecycle-purge/{operation_id}",
+        TenantObject,
+        "note",
+        Authenticated,
+        NoStore,
+    ),
+    r(
+        "/api/v1/lifecycle-purge/{operation_id}/resume",
+        TenantObject,
+        "note",
+        Authenticated,
+        NoStore,
+    ),
+    r(
         "/api/v1/memory/context",
         TenantObject,
         "memory_management",
@@ -1598,6 +1626,13 @@ pub fn hosted_tenant_transaction_ready(method: &Method, path: &str) -> bool {
             | (&Method::GET, "/api/v1/notes")
             | (&Method::POST, "/api/v1/notes")
             | (&Method::POST, "/api/v1/notes/source-upsert")
+            | (&Method::POST, "/api/v1/lifecycle-purge/preview")
+            | (&Method::POST, "/api/v1/lifecycle-purge")
+            | (&Method::GET, "/api/v1/lifecycle-purge/{operation_id}")
+            | (
+                &Method::POST,
+                "/api/v1/lifecycle-purge/{operation_id}/resume"
+            )
             | (&Method::GET, "/api/v1/notes/{id}")
             | (&Method::DELETE, "/api/v1/notes/{id}")
             | (&Method::POST, "/api/v1/notes/{id}/move")
@@ -1862,6 +1897,14 @@ fn requires_backing_resource_normalization(
     method: &Method,
     param_name: &str,
 ) -> bool {
+    if policy
+        .path
+        .starts_with("/api/v1/lifecycle-purge/{operation_id}")
+    {
+        // The opaque operation ID is checked by tenant RLS in the same scoped
+        // transaction as status/resume. It is not a note ID.
+        return false;
+    }
     if policy.action_family == "user_secret" {
         // DELETE is intentionally idempotent and non-enumerating. Tenant RLS and
         // the user predicate are the ownership boundary for this opaque UUID.
@@ -2424,6 +2467,16 @@ mod tests {
             (Method::GET, "/api/v1/search"),
             (Method::POST, "/api/v1/search/evidence/resolve"),
             (Method::POST, "/api/v1/notes"),
+            (Method::POST, "/api/v1/lifecycle-purge/preview"),
+            (Method::POST, "/api/v1/lifecycle-purge"),
+            (
+                Method::GET,
+                "/api/v1/lifecycle-purge/018fd1a0-0000-7000-8000-000000000004",
+            ),
+            (
+                Method::POST,
+                "/api/v1/lifecycle-purge/018fd1a0-0000-7000-8000-000000000004/resume",
+            ),
             (Method::POST, "/api/v1/collections"),
             (
                 Method::GET,
@@ -2468,6 +2521,35 @@ mod tests {
                 !hosted_tenant_transaction_ready(&method, path),
                 "unmigrated hosted route was admitted: {method} {path}"
             );
+        }
+    }
+
+    #[test]
+    fn lifecycle_purge_operation_is_tenant_scoped_without_note_normalization() {
+        let operation_id = "018fd1a0-0000-7000-8000-000000000004";
+        for (method, suffix, scopes) in [
+            (Method::GET, "", vec!["read"]),
+            (Method::POST, "/resume", vec!["write"]),
+        ] {
+            let input = authorization_input_for_request(
+                &method,
+                &format!("/api/v1/lifecycle-purge/{operation_id}{suffix}"),
+                Some("tenant-a"),
+            )
+            .expect("lifecycle purge route policy");
+            assert_eq!(input.policy.class, TenantObject);
+            assert_eq!(input.action.required_scopes, scopes);
+            assert_eq!(input.resource.kind, ResourceKind::Note);
+            assert_eq!(input.resource.id.as_deref(), Some(operation_id));
+            assert_eq!(input.resource.tenant_id.as_deref(), Some("tenant-a"));
+            assert_eq!(
+                input.resource.attrs["requires_backing_resource_normalization"],
+                false
+            );
+            assert!(hosted_tenant_transaction_ready(
+                &method,
+                &format!("/api/v1/lifecycle-purge/{operation_id}{suffix}")
+            ));
         }
     }
 

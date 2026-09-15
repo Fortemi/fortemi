@@ -7,7 +7,13 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
-## [2026.9.10] - 2026-09-11
+## [2026.9.10] - 2026-09-15
+
+### Added
+
+- Add the versioned lifecycle-purge authority with bounded previews, atomic
+  relational erasure, resumable blob/search cleanup, content-free terminal
+  receipts and restore-time re-erasure (`Fortemi/fortemi#1092`).
 
 ### Fixed
 
@@ -36,6 +42,9 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Testing
 
+- Add synthetic PostgreSQL/archive conformance for exact preview outcomes,
+  concurrent replay, shared blobs, duplicate cleanup, stale/expired previews,
+  source journals and restore retry after a post-commit crash.
 - Add producer-owned REST read and mutation fixtures for the React remote adapter
   (#1146), plus fixed cross-runtime relationship and native-restore corpora.
 - Bootstrap fresh CI databases through the actual SQLx migration runner, checking
@@ -46,8 +55,9 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Compatibility And Upgrade
 
-- Apply the 16 forward migrations after 2026.9.9 through migration209 using the
-  normal migration runner. Previously applied migrations are unchanged.
+- Apply the 21 forward migrations after 2026.9.9 through the lifecycle-purge
+  migration using the normal migration runner. Previously applied migrations
+  are unchanged.
 - Knowledge Shard schema/profile authorities, REST/AsyncAPI contracts and
   consumer advertisement receipts are unchanged. These runtime corrections do
   not expand `core-v1`, `full-v1` or `record-v1`.
