@@ -294,10 +294,6 @@ async fn hosted_document_type_native_handler_atomic_replay_and_followups(admin: 
         )
         .await
         .unwrap();
-    let backend: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
-        .fetch_one(&runtime)
-        .await
-        .unwrap();
     let original_path: String = sqlx::query_scalar("SHOW search_path")
         .fetch_one(&runtime)
         .await
@@ -902,6 +898,21 @@ async fn hosted_document_type_native_handler_atomic_replay_and_followups(admin: 
     handle.shutdown().await.unwrap();
     println!("hosted_worker_native: production registry and claim drain; global/archive pause; public and two-tenant archive events; committed progress and settlement; legacy followups remain pending; shutdown acknowledged");
 
+    // Failed and cancelled SQLx transactions may retire their connection. Use
+    // a controlled scope to prove cleanup on a connection that remains live.
+    let backend: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&runtime)
+        .await
+        .unwrap();
+    let mut restored_scope = TenantScopedConn::begin(&runtime, a).await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()")
+            .fetch_one(restored_scope.executor())
+            .await
+            .unwrap(),
+        backend
+    );
+    restored_scope.rollback().await.unwrap();
     assert_eq!(
         sqlx::query_scalar::<_, i32>("SELECT pg_backend_pid()")
             .fetch_one(&runtime)
