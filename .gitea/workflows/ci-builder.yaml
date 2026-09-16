@@ -1059,45 +1059,42 @@ jobs:
           git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
-      - name: Verify GPU Access
-        run: nvidia-smi
-
-      - name: Require shared-host GPU test capacity
-        run: python3 scripts/ci/check-gpu-test-capacity.py
-
-      - name: Verify Ollama
+      - name: Run integration tests under the Titan GPU lease
         run: |
           set -euo pipefail
-          HOST_GATEWAY_IP=$(docker network inspect bridge \
-            --format '{{(index .IPAM.Config 0).Gateway}}')
-          if [ -z "${HOST_GATEWAY_IP}" ]; then
-            echo "ERROR: Docker host-gateway address could not be resolved" >&2
-            exit 1
-          fi
-          OLLAMA_HOST="http://${HOST_GATEWAY_IP}:11434"
-          curl -fsS \
-            --connect-timeout 3 \
-            --max-time 10 \
-            "${OLLAMA_HOST}/api/tags" |
-            jq -er '.models[].name'
-          echo "OLLAMA_HOST=${OLLAMA_HOST}" >> "${GITHUB_ENV}"
+          # The host lease waits for active Titan Actions tasks, prevents the
+          # ROKO runners from accepting new work, and restores them on exit.
+          # Capacity can still change due to inference services; refuse rather
+          # than evict a model or count an unavailable GPU as a passing test.
+          sudo /usr/local/sbin/titan-gpu-ci-lease run -- bash -lc '
+            set -euo pipefail
+            nvidia-smi
+            python3 scripts/ci/check-gpu-test-capacity.py
 
-      - name: Run integration tests
-        run: |
-          set -euo pipefail
-          source ~/.cargo/env
-          # Capacity can change while earlier steps run. Refuse, never evict a
-          # personal vLLM/Ollama model or silently count an unavailable GPU as PASS.
-          python3 scripts/ci/check-gpu-test-capacity.py
-          # Serial execution: parallel GPU requests can cause empty responses
-          # when Ollama can't serve concurrent chat completions
-          cargo test \
-            --package matric-inference \
-            --features integration \
-            --lib \
-            --locked \
-            -- \
-            --test-threads=1
+            HOST_GATEWAY_IP=$(docker network inspect bridge \
+              --format "{{(index .IPAM.Config 0).Gateway}}")
+            if [ -z "${HOST_GATEWAY_IP}" ]; then
+              echo "ERROR: Docker host-gateway address could not be resolved" >&2
+              exit 1
+            fi
+            export OLLAMA_HOST="http://${HOST_GATEWAY_IP}:11434"
+            curl -fsS \
+              --connect-timeout 3 \
+              --max-time 10 \
+              "${OLLAMA_HOST}/api/tags" |
+              jq -er ".models[].name"
+
+            source ~/.cargo/env
+            # Serial execution: parallel GPU requests can cause empty responses
+            # when Ollama cannot serve concurrent chat completions.
+            cargo test \
+              --package matric-inference \
+              --features integration \
+              --lib \
+              --locked \
+              -- \
+              --test-threads=1
+          '
 
   # Release image - pushes on version tags only
   publish-release:
