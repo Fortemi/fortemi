@@ -83,7 +83,7 @@ pub fn build_asyncapi_spec(version: &str, server_url: &str) -> Value {
             "summary": m.description,
             "contentType": "application/json",
             "payload": {
-                "$ref": format!("#/components/schemas/EventEnvelope")
+                "$ref": "#/components/schemas/EventEnvelope"
             },
             "x-event-type": m.namespaced_type,
             "x-entity-type": m.entity_type,
