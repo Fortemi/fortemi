@@ -118,8 +118,9 @@ async fn hosted_memory_context_is_tenant_bound_and_read_only(admin: PgPool) {
         .fetch_one(&admin).await.unwrap();
     assert!(forced);
     let role = format!("memory_context_{}", Uuid::new_v4().simple());
+    let password = Uuid::new_v4().simple().to_string();
     sqlx::query(&format!(
-        "CREATE ROLE {role} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT"
+        "CREATE ROLE {role} LOGIN PASSWORD '{password}' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT"
     ))
     .execute(&admin)
     .await
@@ -136,7 +137,12 @@ async fn hosted_memory_context_is_tenant_bound_and_read_only(admin: PgPool) {
     .unwrap();
     let runtime = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
-        .connect_with((*admin.connect_options()).clone().username(&role))
+        .connect_with(
+            (*admin.connect_options())
+                .clone()
+                .username(&role)
+                .password(&password),
+        )
         .await
         .unwrap();
     assert!(!sqlx::query_scalar::<_, bool>(
