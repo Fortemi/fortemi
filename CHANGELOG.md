@@ -7,7 +7,7 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
-## [2026.9.10] - 2026-09-15
+## [2026.9.10] - 2026-09-17
 
 ### Added
 
@@ -52,6 +52,10 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   databases instead of fabricating a migration ledger.
 - Refresh the concurrent-writer test observer's activity snapshot on each poll,
   preserving real transaction barriers and final graph assertions.
+- Serialize library tests that share the disposable PostgreSQL fixture and give
+  hosted least-privilege role checks explicit per-test credentials.
+- Run Titan GPU integration under the host lease, preserving the existing
+  capacity refusal and restoring paused idle runners on every exit path.
 
 ### Compatibility And Upgrade
 
