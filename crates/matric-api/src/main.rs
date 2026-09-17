@@ -11565,6 +11565,7 @@ where
     input
 }
 
+#[allow(clippy::result_large_err)]
 async fn authorize_policy_input(
     policy: &dyn AuthorizationPolicy,
     audit_sink: &dyn AuditSink,
@@ -61172,7 +61173,7 @@ not-json
         let mut duplicate =
             serde_json::from_slice::<serde_json::Value>(&files["embeddings.jsonl"]).unwrap();
         duplicate["id"] = serde_json::json!(Uuid::now_v7());
-        files.get_mut("embeddings.jsonl").unwrap().extend([b'\n']);
+        files.get_mut("embeddings.jsonl").unwrap().extend(*b"\n");
         files
             .get_mut("embeddings.jsonl")
             .unwrap()
@@ -61186,7 +61187,7 @@ not-json
         duplicate_identity["id"] = serde_json::json!(embedding_id);
         duplicate_identity["chunk_index"] = serde_json::json!(1);
         let (mut files, note_ids, ..) = valid_shard_embedding_relationship_fixture();
-        files.get_mut("embeddings.jsonl").unwrap().extend([b'\n']);
+        files.get_mut("embeddings.jsonl").unwrap().extend(*b"\n");
         files
             .get_mut("embeddings.jsonl")
             .unwrap()

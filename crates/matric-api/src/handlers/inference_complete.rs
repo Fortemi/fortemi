@@ -374,6 +374,7 @@ const INFERENCE_FAILURE_MESSAGE: &str =
         (status = 200, description = "Available inference providers", body = ProvidersResponse),
     )
 )]
+#[allow(clippy::result_large_err)]
 pub async fn list_providers(
     State(state): State<AppState>,
     auth: Auth,
@@ -559,6 +560,7 @@ fn approved_profile_models(
         (status = 502, description = "Inference provider failure"),
     )
 )]
+#[allow(clippy::result_large_err)]
 pub async fn complete(
     State(state): State<AppState>,
     auth: Auth,
@@ -696,6 +698,7 @@ pub async fn complete(
         (status = 502, description = "Inference provider failure"),
     )
 )]
+#[allow(clippy::result_large_err)]
 pub async fn embed_stored(
     State(state): State<AppState>,
     auth: Auth,
@@ -1100,6 +1103,7 @@ fn inference_usage_event(
         (status = 502, description = "Inference provider failure"),
     )
 )]
+#[allow(clippy::result_large_err)]
 pub async fn stream(
     State(state): State<AppState>,
     auth: Auth,

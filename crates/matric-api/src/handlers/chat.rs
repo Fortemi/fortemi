@@ -415,6 +415,7 @@ pub async fn chat_handler(
 
 /// Validate that the requested model slug is installed on Ollama and is a
 /// language-capable model (not embedding-only or vision-only).
+#[allow(clippy::result_large_err)]
 async fn validate_chat_model(
     model_slug: &str,
     _state: &AppState,

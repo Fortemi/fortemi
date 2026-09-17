@@ -1340,6 +1340,7 @@ pub async fn ingest_stream_handler(
 /// zero skip boundary. The skip boundary is the server's *stored* last line —
 /// authoritative over the client's echoed value — so already-stored lines are
 /// never re-inserted.
+#[allow(clippy::result_large_err)]
 async fn resolve_resumption(
     headers: &HeaderMap,
     cursor_store: &IngestCursorStore,
@@ -1369,6 +1370,7 @@ fn gone(message: &str) -> Response {
 /// archive it was minted for). With no/invalid token: `Err(401)` when
 /// `INGEST_REQUIRE_TOKEN=true` (the default), else `Ok((request archive schema,
 /// 0 = unlimited))` for the open single-user/dev mode.
+#[allow(clippy::result_large_err)]
 async fn resolve_stream_token(
     headers: &HeaderMap,
     state: &AppState,
