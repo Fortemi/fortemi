@@ -51,10 +51,9 @@ fn decode_fixture_pcm_le(payload: &[u8], channels: u8) -> Result<Vec<i16>> {
             "PCM fixture payload must contain whole i16 samples".to_string(),
         ));
     }
-    let samples: Vec<i16> = payload
-        .chunks_exact(2)
-        .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
-        .collect();
+    let (pairs, remainder) = payload.as_chunks::<2>();
+    debug_assert!(remainder.is_empty());
+    let samples: Vec<i16> = pairs.iter().map(|pair| i16::from_le_bytes(*pair)).collect();
     Ok(downmix_mono(&samples, channels))
 }
 
@@ -64,10 +63,9 @@ fn decode_l16_be(payload: &[u8], channels: u8) -> Result<Vec<i16>> {
             "L16 payload must contain whole i16 samples".to_string(),
         ));
     }
-    let samples: Vec<i16> = payload
-        .chunks_exact(2)
-        .map(|chunk| i16::from_be_bytes([chunk[0], chunk[1]]))
-        .collect();
+    let (pairs, remainder) = payload.as_chunks::<2>();
+    debug_assert!(remainder.is_empty());
+    let samples: Vec<i16> = pairs.iter().map(|pair| i16::from_be_bytes(*pair)).collect();
     Ok(downmix_mono(&samples, channels))
 }
 
