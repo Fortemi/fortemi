@@ -158,8 +158,9 @@ jobs:
           DB_PORT=$((15332 + (GITHUB_RUN_ID % 1000)))
           export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
           export INTEGRATION_TEST_DB=1
-          # Run lib tests and doc tests separately (can't mix --lib and --doc)
-          cargo test --lib --workspace
+          # Library tests include database-backed cases sharing this fixture.
+          # Serialize test cases as in the integration and builder workflows.
+          cargo test --lib --workspace -- --test-threads=1
           cargo test --locked -p matric-crypto --features kms-vault --lib
           cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api kms::tests
           cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api verified_tenant_policy_context
