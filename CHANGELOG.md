@@ -7,6 +7,26 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.9.11] - 2026-09-20
+
+### Contracts
+
+- Publish the validation `1.0.1` authority declaration for the independent
+  `@fortemi/react` dataset execution consumer at signed implementation commit
+  `6718e9f930193a12b8aed27b61ebf9c47871ac44` (#1131,
+  `Fortemi/fortemi-react#412`).
+- Refresh the authority manifest digest without changing wire schemas,
+  canonical vectors, negative vectors, runtime behavior, or maturity.
+
+### Verification And Boundaries
+
+- Re-run the producer contract verifier across all 11 manifest files and the
+  positive, degradation, schema, capability, resource, tamper, and producer
+  receipt vectors.
+- Published-package and actual live-service qualification remain consumer-owned.
+  This metadata release does not promote the alpha live persistence boundary,
+  does not change any Knowledge Shard profile, and does not clear suite `NO-GO`.
+
 ## [2026.9.10] - 2026-09-17
 
 ### Added
@@ -2520,7 +2540,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.9.10...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.9.11...HEAD
+[2026.9.11]: https://github.com/fortemi/fortemi/compare/v2026.9.10...v2026.9.11
 [2026.9.10]: https://github.com/fortemi/fortemi/compare/v2026.9.9...v2026.9.10
 [2026.9.9]: https://github.com/fortemi/fortemi/compare/v2026.9.8...v2026.9.9
 [2026.9.8]: https://github.com/fortemi/fortemi/compare/v2026.9.7...v2026.9.8

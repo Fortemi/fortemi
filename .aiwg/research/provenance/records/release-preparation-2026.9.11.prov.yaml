@@ -1,0 +1,72 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-20T14:28:00Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:docs/releases/v2026.9.11-announcement.md",
+    "type": "document",
+    "created_at": "2026-09-20T14:28:00Z",
+    "attributes": {
+      "release_parent": "0651ca75abd058cd5000b8ba782da3aba67c21d1",
+      "declared_consumer_commit": "6718e9f930193a12b8aed27b61ebf9c47871ac44",
+      "artifacts": [
+        { "path": "Cargo.toml", "sha256": "618fc343a0151503742e3d7687c8820e08d63dbdca7d5fc7a8f15ff8ef9611b6" },
+        { "path": "Cargo.lock", "sha256": "149012e2fe7f450d24e69ae76e9a95b762b239b458528e4d9c6050d7d79c4241" },
+        { "path": "mcp-server/package.json", "sha256": "7b7e591706038fdc9c46198ea006037ed7fc0cfa62a897e5a9fd784718c0de36" },
+        { "path": "mcp-server/package-lock.json", "sha256": "8a0ac4305a201123b93291bda4c2516ca8b3e5dffa27b95b874668c94951ba50" },
+        { "path": "CHANGELOG.md", "sha256": "3dc83064f9996b9fb5b91ea893bcba0b03997bd28c08e879779dcacf181a4a9f" },
+        { "path": "docs/releases/v2026.9.11-announcement.md", "sha256": "9a61fc9c748c9cc4ea6c62ca85988fafe8670b0b63f789de7ef89cc2940f789c" },
+        { "path": "contracts/dataset-execution/validation/1.0.1/authority.json", "sha256": "6af4f13e2af251934eccd25f057e38789110e142d6c692093f7a7413c88fcc6c" },
+        { "path": "contracts/dataset-execution/validation/1.0.1/manifest.json", "sha256": "78958b3218546481df4b38b9cb222d854ce9f39afe4a5eed5c87add209eb4431" }
+      ],
+      "boundaries": [
+        "Release metadata and consumer declaration only; wire schemas, vectors, runtime, migrations and dependencies unchanged",
+        "Published React package and bounded released-server qualification remain consumer-owned",
+        "Alpha live-persistence maturity and suite NO-GO remain unchanged"
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:modification:release-preparation-2026.9.11:001",
+    "type": "modification",
+    "started_at": "2026-09-20T14:26:00Z",
+    "ended_at": "2026-09-20T14:28:00Z",
+    "description": "Prepare Fortemi 2026.9.11 metadata release for the declared React dataset receipt consumer."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "name": "Codex",
+    "type": "ai_assistant"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:docs/releases/v2026.9.11-announcement.md",
+      "activity": "urn:aiwg:activity:modification:release-preparation-2026.9.11:001",
+      "time": "2026-09-20T14:28:00Z"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:docs/releases/v2026.9.11-announcement.md",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:modification:release-preparation-2026.9.11:001",
+      "agent": "urn:aiwg:agent:codex",
+      "role": "primary_implementer"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:docs/releases/v2026.9.11-announcement.md",
+        "source": "urn:gitea:issue:Fortemi/fortemi:1131",
+        "derivation_type": "implements",
+        "activity": "urn:aiwg:activity:modification:release-preparation-2026.9.11:001"
+      },
+      {
+        "entity": "urn:aiwg:artifact:docs/releases/v2026.9.11-announcement.md",
+        "source": "urn:gitea:issue:Fortemi/fortemi-react:412",
+        "derivation_type": "coordinates",
+        "activity": "urn:aiwg:activity:modification:release-preparation-2026.9.11:001"
+      }
+    ]
+  }
+}
