@@ -4,7 +4,7 @@
   "files": [
     {
       "path": "authority.json",
-      "sha256": "71a9dfb75a737409e0fbd8b7b6bdde11ba9ae5bba6257250f3b1e8fe89ef5e54"
+      "sha256": "6af4f13e2af251934eccd25f057e38789110e142d6c692093f7a7413c88fcc6c"
     },
     {
       "path": "canonical-vectors.json",

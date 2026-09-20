@@ -1,0 +1,55 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-09-20T14:17:39Z"
+  description: "Declare Fortemi React as a dataset receipt validation 1.0.1 consumer"
+entity:
+  id: "urn:aiwg:artifact:contracts/dataset-execution/validation/1.0.1/react-consumer:sha256:9f115288fd0783b9d3b5e78aaf9b1e7c15aa6ca63613f84b52c1dbdcc17a6bb3"
+  type: contract_authority_metadata
+  created_at: "2026-09-20T14:17:39Z"
+  checksum: "sha256:9f115288fd0783b9d3b5e78aaf9b1e7c15aa6ca63613f84b52c1dbdcc17a6bb3"
+  size_bytes: 5257
+  attributes:
+    producer_issue: "Fortemi/fortemi#1131"
+    consumer_issue: "Fortemi/fortemi-react#412"
+    consumer_commit: "6718e9f930193a12b8aed27b61ebf9c47871ac44"
+    validation_revision: "1.0.1"
+    wire_schema_changed: false
+    artifacts:
+      contracts/dataset-execution/validation/1.0.1/authority.json: "sha256:6af4f13e2af251934eccd25f057e38789110e142d6c692093f7a7413c88fcc6c"
+      contracts/dataset-execution/validation/1.0.1/manifest.json: "sha256:78958b3218546481df4b38b9cb222d854ce9f39afe4a5eed5c87add209eb4431"
+      contracts/dataset-execution/validation/1.0.1/README.md: "sha256:8720b26805d048f1c26ee65037ccc6949c0e218c808bff4f930f8b09fc61b8fd"
+activity:
+  id: "urn:aiwg:activity:modification:dataset-validation-react-consumer-1131:001"
+  type: modification
+  started_at: "2026-09-20T14:15:00Z"
+  ended_at: "2026-09-20T14:17:39Z"
+  description: "Link the signed React consumer implementation without changing wire schemas or vectors"
+  attributes:
+    verification:
+      - "dataset execution contract verifier: 11 manifest files and all executable vectors passed"
+    claim_boundary: "Authority metadata only; independent published-package qualification remains consumer-owned"
+agent:
+  id: "urn:aiwg:agent:codex-gpt-5"
+  type: ai_assistant
+  name: "Codex"
+  version: "gpt-5"
+  tool: "codex"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:contracts/dataset-execution/validation/1.0.1/react-consumer:sha256:9f115288fd0783b9d3b5e78aaf9b1e7c15aa6ca63613f84b52c1dbdcc17a6bb3"
+    activity: "urn:aiwg:activity:modification:dataset-validation-react-consumer-1131:001"
+    time: "2026-09-20T14:17:39Z"
+  used:
+    - activity: "urn:aiwg:activity:modification:dataset-validation-react-consumer-1131:001"
+      entity: "urn:gitea:commit:Fortemi/fortemi-react:6718e9f930193a12b8aed27b61ebf9c47871ac44"
+      role: consumer_implementation
+    - activity: "urn:aiwg:activity:modification:dataset-validation-react-consumer-1131:001"
+      entity: "urn:gitea:issue:Fortemi/fortemi:1131"
+      role: authority_requirement
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:modification:dataset-validation-react-consumer-1131:001"
+    agent: "urn:aiwg:agent:codex-gpt-5"
+    role: primary_author
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:contracts/dataset-execution/validation/1.0.1/react-consumer:sha256:9f115288fd0783b9d3b5e78aaf9b1e7c15aa6ca63613f84b52c1dbdcc17a6bb3"
+    agent: "urn:aiwg:agent:codex-gpt-5"
