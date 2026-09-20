@@ -1,7 +1,11 @@
 metadata:
   schema_version: 1.0.0
-  updated_at: 2026-09-20T14:28:00Z
+  updated_at: 2026-09-20T17:24:16Z
 records:
+  - entity: urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard
+    record: records/release-docs-shard-2026.9.11.prov.yaml
+  - entity: urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard.receipt.json
+    record: records/release-docs-shard-2026.9.11.prov.yaml
   - entity: urn:aiwg:artifact:docs/releases/v2026.9.11-announcement.md
     record: records/release-preparation-2026.9.11.prov.yaml
   - entity: urn:aiwg:artifact:contracts/dataset-execution/validation/1.0.1/authority.json

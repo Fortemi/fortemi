@@ -1,0 +1,80 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-09-20T17:24:16Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard",
+    "type": "document",
+    "created_at": "2026-09-20T17:23:16.037216179Z",
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "docker/seed-data/fortemi-docs.shard",
+          "sha256": "4c578290ad891dca9e35316e34320cdc8c74890162ff0d35c18be32bfe447039"
+        },
+        {
+          "path": "docker/seed-data/fortemi-docs.shard.receipt.json",
+          "sha256": "11167b413742c7a50cf005ed738ed6b75b41687169f8ac08dd083e9588b8a5c8"
+        }
+      ],
+      "source_commit": "b5f4dbebca289ebfee0dca88d2766700cd4c85df",
+      "server_image": "lane-b-docs-api:2026.9.11",
+      "release_binary_sha256": "24f2ad8ddbdc9dcbf20c39bf2b0c3f69f6b20b02a1fb0225d358989249351d9a",
+      "builder_image_id": "sha256:6085c2c99024e5a94bc67e38c4c769733a56bc15bd06ba7bb238c45bb6cf48f5",
+      "builder_image_digest": "ghcr.io/fortemi/fortemi-builder@sha256:2136535f0631d37329c8b0d8ed233fe208f0142e4677320350646f6163509005",
+      "base_image_id": "sha256:1466c9782813061cc7ed498300adf529290d2097b0a51f831962b95b8b3b5a78",
+      "base_image_digest": "ghcr.io/fortemi/fortemi@sha256:2a7031753fd9410a6317e7c2146615c0c52f96b899aeab3ff275d27c26e27c75",
+      "testdb_image_id": "sha256:5717e3656e292683ca8dbfc358569cae996257a840f32d5848fbf68607be7bc5",
+      "testdb_image_digest": "ghcr.io/fortemi/fortemi-testdb@sha256:e8bc2cb81a67c8bc821fa1191200985d85d0ba42dbac71591a95e71c577cb923",
+      "boundaries": [
+        "442/442 tracked documentation sources imported with zero failures through the source-bound API generator",
+        "Manifest 1.2.0 core-v1 documentation seed; this artifact does not establish full-v1 or record-v1 compatibility",
+        "Builder, API and database fixtures were bounded, network-isolated where applicable, and removed after generation",
+        "Suite portability remains NO-GO"
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:generation:release-docs-shard-2026.9.11:001",
+    "type": "generation",
+    "started_at": "2026-09-20T17:22:00Z",
+    "ended_at": "2026-09-20T17:23:16.037216179Z",
+    "description": "Regenerate the 2026.9.11 documentation seed through the exact source-bound API after the release freshness gate rejected the prior shard."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex",
+    "name": "Codex",
+    "type": "ai_assistant"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard",
+      "activity": "urn:aiwg:activity:generation:release-docs-shard-2026.9.11:001",
+      "time": "2026-09-20T17:23:16.037216179Z"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard",
+      "agent": "urn:aiwg:agent:codex"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:generation:release-docs-shard-2026.9.11:001",
+      "agent": "urn:aiwg:agent:codex",
+      "role": "primary_implementer"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard",
+        "source": "urn:git:commit:b5f4dbebca289ebfee0dca88d2766700cd4c85df",
+        "derivation_type": "generated_from",
+        "activity": "urn:aiwg:activity:generation:release-docs-shard-2026.9.11:001"
+      },
+      {
+        "entity": "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard",
+        "source": "urn:gitea:issue:Fortemi/fortemi:1131",
+        "derivation_type": "implements",
+        "activity": "urn:aiwg:activity:generation:release-docs-shard-2026.9.11:001"
+      }
+    ]
+  }
+}
