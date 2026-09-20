@@ -1,7 +1,13 @@
 metadata:
   schema_version: 1.0.0
-  updated_at: 2026-09-15T04:02:33Z
+  updated_at: 2026-09-20T14:17:39Z
 records:
+  - entity: urn:aiwg:artifact:contracts/dataset-execution/validation/1.0.1/authority.json
+    record: records/dataset-validation-react-consumer-1131.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/dataset-execution/validation/1.0.1/manifest.json
+    record: records/dataset-validation-react-consumer-1131.prov.yaml
+  - entity: urn:aiwg:artifact:contracts/dataset-execution/validation/1.0.1/README.md
+    record: records/dataset-validation-react-consumer-1131.prov.yaml
   - entity: urn:aiwg:artifact:crates/matric-core/src/models.rs
     record: records/lane-b-server-clippy-cycle109.prov.yaml
   - entity: urn:aiwg:artifact:.aiwg/reports/lane-b-1146-native-operations.json

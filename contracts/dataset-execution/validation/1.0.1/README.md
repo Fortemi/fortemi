@@ -1,6 +1,8 @@
 # Dataset validation and request binding revision 1.0.1
 
-Fortemi #1131 owns this revision; roctinam/aiwg#2242 owns the independent consumer.
+Fortemi #1131 owns this revision. Independent consumers are tracked by
+roctinam/aiwg#2242 and Fortemi/fortemi-react#412; each consumer retains its own
+delivery and qualification evidence.
 The original `../../1.0.0` bundle is immutable. This directory supplies stricter
 validation for its wire schema and corrected request binding, advertised through
 `capabilities.receiptValidation`.
