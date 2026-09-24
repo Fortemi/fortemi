@@ -1,0 +1,25 @@
+{
+  "id": "fortemi-monthly-report",
+  "type": "extension",
+  "name": "fortemi-monthly-report",
+  "version": "0.1.0",
+  "description": "Author a Fortémi monthly report as a docsite blog post: gather what shipped that month from git history, CHANGELOG, and release announcements, then write it up for users in plain language and publish to the Pagenary blog collection.",
+  "manifestVersion": "1",
+  "platforms": {
+    "claude": "full"
+  },
+  "keywords": [
+    "extension",
+    "project-local",
+    "monthly-report",
+    "blog",
+    "docsite",
+    "pagenary",
+    "release-notes",
+    "changelog",
+    "announcement"
+  ],
+  "deployment": {
+    "pathTemplate": ".{platform}/skills/{id}/SKILL.md"
+  }
+}
