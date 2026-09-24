@@ -1,0 +1,49 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-09-24T15:27:31Z"
+  description: "Provenance for the 30-day Python sidecar lock review renewal that unblocks main CI Lint"
+entity:
+  id: "urn:aiwg:artifact:docker/python-sidecar-locks.json:sha256:95875939fd3423cef0d3087f044817f2b9915a4ead3b1597a5445b62ce0791bb"
+  type: configuration
+  created_at: "2026-09-24T15:27:31Z"
+  updated_at: "2026-09-24T15:27:31Z"
+  checksum: "sha256:95875939fd3423cef0d3087f044817f2b9915a4ead3b1597a5445b62ce0791bb"
+  size_bytes: 3064
+  attributes:
+    format: json
+    change_type: review_renewal
+activity:
+  id: "urn:aiwg:activity:review:python-sidecar-locks-review-renewal-2026-09-24:001"
+  type: review
+  started_at: "2026-09-24T15:25:00Z"
+  ended_at: "2026-09-24T15:27:31Z"
+  description: "Revalidate the exact GLiNER and pyannote requirement and lock hashes, reviewed package feeds, and platform constraints, then renew review dates without changing package graphs"
+  attributes:
+    verification:
+      - "PyPI and PyTorch CPU/CUDA 12.6 feeds returned HTTP 200 over HTTPS"
+      - "python3 scripts/ci/verify-python-sidecar-locks.py (recorded requirements and lock SHA-256 values matched)"
+      - "python3 -m unittest tests/test_verify_python_sidecar_locks.py"
+      - "Remaining ci-builder Lint steps (excluding clippy) passed locally"
+agent:
+  id: "urn:aiwg:agent:claude-opus-5-5"
+  type: ai_assistant
+  name: "Claude"
+  version: "opus-5.5"
+  tool: "claude-code"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docker/python-sidecar-locks.json:sha256:95875939fd3423cef0d3087f044817f2b9915a4ead3b1597a5445b62ce0791bb"
+    activity: "urn:aiwg:activity:review:python-sidecar-locks-review-renewal-2026-09-24:001"
+    time: "2026-09-24T15:27:31Z"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docker/python-sidecar-locks.json:sha256:95875939fd3423cef0d3087f044817f2b9915a4ead3b1597a5445b62ce0791bb"
+      source: "urn:aiwg:artifact:.aiwg/research/provenance/records/python-sidecar-locks-review-renewal-1098.prov.yaml"
+      derivation_type: refines
+      activity: "urn:aiwg:activity:review:python-sidecar-locks-review-renewal-2026-09-24:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:review:python-sidecar-locks-review-renewal-2026-09-24:001"
+    agent: "urn:aiwg:agent:claude-opus-5-5"
+    role: reviewer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docker/python-sidecar-locks.json:sha256:95875939fd3423cef0d3087f044817f2b9915a4ead3b1597a5445b62ce0791bb"
+    agent: "urn:aiwg:agent:claude-opus-5-5"
