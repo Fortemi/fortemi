@@ -1,0 +1,48 @@
+metadata:
+  schema_version: "1.0.0"
+  created_at: "2026-09-24T15:16:26Z"
+  description: "Provenance for the 30-day immutable third-party image review renewal that unblocks main CI Lint"
+entity:
+  id: "urn:aiwg:artifact:docker/third-party-dependencies.json:sha256:d65c6249cbac5df60ddf08a3aa0999a69e09f001ae575322eacce8f03cff41de"
+  type: configuration
+  created_at: "2026-09-24T15:16:26Z"
+  updated_at: "2026-09-24T15:16:26Z"
+  checksum: "sha256:d65c6249cbac5df60ddf08a3aa0999a69e09f001ae575322eacce8f03cff41de"
+  size_bytes: 12218
+  attributes:
+    format: json
+    change_type: review_renewal
+activity:
+  id: "urn:aiwg:activity:review:third-party-dependencies-review-renewal-2026-09-24:001"
+  type: review
+  started_at: "2026-09-24T15:12:00Z"
+  ended_at: "2026-09-24T15:16:26Z"
+  description: "Revalidate the recorded immutable image digests and supported platforms, then renew the expired 30-day review dates without changing dependency versions or digests"
+  attributes:
+    verification:
+      - "docker buildx imagetools inspect: all 11 30-day image digests matched and exposed supported Linux manifests"
+      - "python3 scripts/ci/verify-third-party-dependencies.py"
+      - "python3 -m unittest tests/test_verify_third_party_dependencies.py"
+agent:
+  id: "urn:aiwg:agent:claude-opus-5-5"
+  type: ai_assistant
+  name: "Claude"
+  version: "opus-5.5"
+  tool: "claude-code"
+relationships:
+  wasGeneratedBy:
+    entity: "urn:aiwg:artifact:docker/third-party-dependencies.json:sha256:d65c6249cbac5df60ddf08a3aa0999a69e09f001ae575322eacce8f03cff41de"
+    activity: "urn:aiwg:activity:review:third-party-dependencies-review-renewal-2026-09-24:001"
+    time: "2026-09-24T15:16:26Z"
+  wasDerivedFrom:
+    - entity: "urn:aiwg:artifact:docker/third-party-dependencies.json:sha256:d65c6249cbac5df60ddf08a3aa0999a69e09f001ae575322eacce8f03cff41de"
+      source: "urn:aiwg:artifact:.aiwg/research/provenance/records/third-party-dependencies-review-renewal-1098.prov.yaml"
+      derivation_type: refines
+      activity: "urn:aiwg:activity:review:third-party-dependencies-review-renewal-2026-09-24:001"
+  wasAssociatedWith:
+    activity: "urn:aiwg:activity:review:third-party-dependencies-review-renewal-2026-09-24:001"
+    agent: "urn:aiwg:agent:claude-opus-5-5"
+    role: reviewer
+  wasAttributedTo:
+    entity: "urn:aiwg:artifact:docker/third-party-dependencies.json:sha256:d65c6249cbac5df60ddf08a3aa0999a69e09f001ae575322eacce8f03cff41de"
+    agent: "urn:aiwg:agent:claude-opus-5-5"

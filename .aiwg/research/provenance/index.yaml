@@ -1,6 +1,6 @@
 metadata:
   schema_version: 1.0.0
-  updated_at: 2026-09-20T17:24:16Z
+  updated_at: 2026-09-24T15:16:30Z
 records:
   - entity: urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard
     record: records/release-docs-shard-2026.9.11.prov.yaml
@@ -1167,7 +1167,7 @@ records:
   - entity: docker/python-sidecar-locks.json
     record: records/python-sidecar-locks-review-renewal-1098.prov.yaml
   - entity: docker/third-party-dependencies.json
-    record: records/third-party-dependencies-review-renewal-1098.prov.yaml
+    record: records/third-party-dependencies-review-renewal-2026-09-24.prov.yaml
   - entity: crates/matric-jobs/src/worker.rs
     record: records/matric-jobs-worker-bounded-recovery-1098.prov.yaml
   - entity: crates/matric-jobs/src/lib.rs
