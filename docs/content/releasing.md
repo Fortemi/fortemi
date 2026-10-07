@@ -65,6 +65,20 @@ tools/release/cut-tag.sh YYYY.M.PATCH -m "vYYYY.M.PATCH - Release title"
 git push origin vYYYY.M.PATCH
 ```
 
+Then push the same commit and tag to the GitHub backup mirror:
+
+```bash
+git push github main vYYYY.M.PATCH
+```
+
+`core.sshCommand` is set to `tools/git/ssh-route.sh`. It sends `origin`
+(Gitea) traffic through the OpenBao-held deploy key and `github` traffic through
+the operator's own GitHub SSH keys, so neither remote needs per-command
+overrides. The routing values live in the local `aiwg.vault.*` Git config and
+are listed in `.aiwg/aiwg.config` under `remotes.transport`. Run
+`tools/git/push-origin.sh --check` to confirm the Gitea key resolves and is
+accepted before pushing.
+
 The wrapper accepts stable CalVer versions. It does not replace CI, lockfile or
 publication verification. Do not bypass it with a raw annotated tag or publish
 unrelated local tags. A failed gate leaves the release incomplete.
