@@ -607,6 +607,7 @@ jobs:
             tests/output-sanitizer.test.js \
             tests/schema-validation.test.js \
             tests/inference-requests.test.js \
+            tests/memory-export.test.js \
             tests/uat-core-coverage.test.js \
             tests/branding.test.js \
             tests/error-responses.test.js \

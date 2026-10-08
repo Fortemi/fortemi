@@ -5,7 +5,7 @@ This document records the audited boundary between Fortemi's REST API and the MC
 ## Surface Modes
 
 - **Core MCP mode** exposes 45 agent-oriented tools. Fourteen are consolidated tools with an `action` discriminator.
-- **Full MCP mode** exposes 207 tools, including low-level administrative operations.
+- **Full MCP mode** exposes 208 tools, including low-level administrative operations.
 - **REST** remains the canonical transport API and includes streaming, realtime, webhook, upload, and OAuth surfaces that are intentionally not modeled as request/response MCP tools.
 
 The core inventory is defined once in `mcp-server/constants/core-tools.js`; production filtering and schema tests import that same list.
@@ -63,6 +63,11 @@ These endpoints do not belong in the core request/response MCP surface:
 
 Some non-streaming administration remains available in full MCP mode even when it is not in core mode, including detailed versioning, document types, API keys, and low-level SKOS relations.
 
+Point-in-time memory export (`POST /api/v1/memory/export`, `memory-export/1.0.0`)
+is available in full mode as `export_memory_snapshot`. The tool forwards the
+same request body. The API owns the snapshot, the high-water mark, and the
+hashes. See `contracts/memory-export/README.md`.
+
 ## Known Portability Limitation
 
 The REST export route is reference-only by default and supports verified
@@ -75,7 +80,7 @@ recovery.
 
 ## Verification
 
-- `npm run validate:schemas` validates all 207 schemas.
+- `npm run validate:schemas` validates all 208 schemas.
 - `npm run test:schema` verifies that every one of the 45 core names exists and that filtering returns exactly 45 tools.
 - `node scripts/ci/verify-dataset-execution-contract.mjs` verifies pinned authority, fixture hashes, canonical serialization, fail-closed cases, and the cross-runtime RunReceipt vector.
 - `node --test tests/inference-requests.test.js` verifies provider fields, dry-run/atomic flags, explicit-null embedding routing, audit filters, and connection timeout mapping.

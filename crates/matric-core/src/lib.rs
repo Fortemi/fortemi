@@ -22,6 +22,7 @@ pub mod file_safety;
 pub mod hardware;
 pub mod lifecycle_purge;
 pub mod logging;
+pub mod memory_export;
 pub mod metadata_search;
 pub mod metering;
 pub mod models;
@@ -55,6 +56,7 @@ pub use file_safety::{
 };
 pub use hardware::{ContextBudget, HardwareConfig};
 pub use lifecycle_purge::*;
+pub use memory_export::*;
 pub use metering::*;
 pub use models::*;
 pub use search::*;

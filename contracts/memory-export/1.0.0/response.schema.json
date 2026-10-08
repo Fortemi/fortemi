@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fortemi.dev/contracts/memory-export/1.0.0/response.schema.json",
+  "title": "Fortemi memory export response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["manifest", "records"],
+  "properties": {
+    "manifest": {"$ref": "manifest.schema.json"},
+    "records": {"type": "array", "items": {"$ref": "record.schema.json"}}
+  }
+}

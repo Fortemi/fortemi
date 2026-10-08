@@ -42,6 +42,11 @@ name = "lifecycle_purge_contract_test"
 path = "tests/lifecycle_purge_contract_test.rs"
 required-features = ["migrations"]
 
+[[test]]
+name = "memory_export_contract_test"
+path = "tests/memory_export_contract_test.rs"
+required-features = ["migrations"]
+
 [dependencies]
 # Internal
 matric-core.workspace = true

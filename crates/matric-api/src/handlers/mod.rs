@@ -12,6 +12,7 @@ pub mod inference_config;
 pub mod ingest_stream;
 pub mod ingest_tokens;
 pub mod jobs;
+pub mod memory_export;
 pub mod models;
 pub mod pke;
 pub mod provenance;

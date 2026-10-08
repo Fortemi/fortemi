@@ -1043,6 +1043,13 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         NoStore,
     ),
     r(
+        "/api/v1/memory/export",
+        AuthenticatedRead,
+        "memory_management",
+        Authenticated,
+        NoStore,
+    ),
+    r(
         "/api/v1/memory/info",
         AuthenticatedRead,
         "memory_management",
@@ -1628,6 +1635,7 @@ pub fn hosted_tenant_transaction_ready(method: &Method, path: &str) -> bool {
         (method, policy.path),
         (&Method::GET, "/api/v1/events")
             | (&Method::GET, "/api/v1/memory/context")
+            | (&Method::POST, "/api/v1/memory/export")
             | (&Method::GET, "/api/v1/search")
             | (&Method::POST, "/api/v1/search/evidence/resolve")
             | (&Method::GET, "/api/v1/notes")
@@ -2455,6 +2463,21 @@ mod tests {
             &Method::GET,
             "/api/v1/archives/research"
         ));
+    }
+
+    #[test]
+    fn memory_export_is_read_scoped_no_store_and_tenant_transaction_ready() {
+        let path = "/api/v1/memory/export";
+        let input = authorization_input_for_request(&Method::POST, path, Some("tenant-a")).unwrap();
+        assert_eq!(input.policy.class, AuthenticatedRead);
+        assert_eq!(input.action.required_scopes, vec!["read"]);
+        assert_eq!(input.resource.tenant_id.as_deref(), Some("tenant-a"));
+        assert_eq!(input.policy.cache, CacheHeaderClass::NoStore);
+        assert!(!is_public_without_bearer(path));
+        assert!(hosted_tenant_transaction_ready(&Method::POST, path));
+        for method in [Method::GET, Method::PUT, Method::PATCH, Method::DELETE] {
+            assert!(!hosted_tenant_transaction_ready(&method, path));
+        }
     }
 
     #[test]

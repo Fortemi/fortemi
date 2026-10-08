@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fortemi.dev/contracts/memory-export/1.0.0/manifest.schema.json",
+  "title": "Fortemi memory export manifest",
+  "description": "Every field except generated_at is a deterministic function of the memory contents at the high-water mark, the selection, and the producer build.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract", "export_version", "schema_version", "memory", "mode", "since",
+    "high_water_mark", "window", "selection", "entities", "record_count",
+    "content_sha256", "producer", "generated_at"
+  ],
+  "properties": {
+    "contract": {"const": "memory-export"},
+    "export_version": {"const": "1.0.0"},
+    "schema_version": {"type": "string", "pattern": "^[0-9]+$"},
+    "memory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "schema", "tenant_id"],
+      "properties": {
+        "name": {"type": ["string", "null"]},
+        "schema": {"type": "string"},
+        "tenant_id": {"type": "string", "format": "uuid"}
+      }
+    },
+    "mode": {"type": "string", "enum": ["full", "incremental"]},
+    "since": {"anyOf": [{"$ref": "#/$defs/mark"}, {"type": "null"}]},
+    "high_water_mark": {"$ref": "#/$defs/mark"},
+    "window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": {
+        "from": {"anyOf": [{"$ref": "#/$defs/mark"}, {"type": "null"}]},
+        "to": {"$ref": "#/$defs/mark"}
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entity_types", "fields"],
+      "properties": {
+        "entity_types": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/entity_type"}},
+        "fields": {
+          "type": "object",
+          "propertyNames": {"$ref": "#/$defs/entity_type"},
+          "additionalProperties": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "entities": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/entity_type"},
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["upserts", "deletes", "sha256"],
+        "properties": {
+          "upserts": {"type": "integer", "minimum": 0},
+          "deletes": {"type": "integer", "minimum": 0},
+          "sha256": {"$ref": "#/$defs/digest"}
+        }
+      }
+    },
+    "record_count": {"type": "integer", "minimum": 0},
+    "content_sha256": {"$ref": "#/$defs/digest"},
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "git_sha"],
+      "properties": {
+        "name": {"type": "string"},
+        "version": {"type": "string"},
+        "git_sha": {"type": "string"}
+      }
+    },
+    "generated_at": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {
+    "mark": {"type": "string", "pattern": "^[0-9]{1,20}$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "entity_type": {
+      "type": "string",
+      "enum": ["collection", "note", "note_original", "note_revised_current", "note_tag", "link"]
+    }
+  }
+}

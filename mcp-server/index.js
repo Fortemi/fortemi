@@ -28,6 +28,7 @@ import {
 } from "./lib/output-sanitizer.js";
 import { buildProtectedResourceMetadata } from "./lib/resource-metadata.js";
 import { mustReject, validateBearer } from "./lib/bearer-validation.js";
+import { exportMemorySnapshot } from "./lib/memory-export.js";
 import {
   ATTACHMENT_TOOL_NAMES,
   attachmentsDisabledError,
@@ -752,6 +753,10 @@ function createMcpServer() {
           result = await apiRequest("GET", `/api/v1/notes/${args.id}/related?${relParams}`);
           break;
         }
+
+        case "export_memory_snapshot":
+          result = await exportMemorySnapshot(apiRequest, args);
+          break;
 
         case "export_note": {
           const exportParams = new URLSearchParams();

@@ -1380,6 +1380,7 @@ impl AppState {
         get_backup_metadata, update_backup_metadata, memory_info,
         // handlers::archives
         handlers::archives::get_memory_context,
+        handlers::memory_export::export_memory,
         handlers::archives::list_archives, handlers::archives::get_archive,
         handlers::archives::create_archive, handlers::archives::update_archive,
         handlers::archives::delete_archive, handlers::archives::set_default_archive,
@@ -1473,6 +1474,12 @@ impl AppState {
             matric_core::PurgeCounts, matric_core::PurgePreview, matric_core::PurgeRequest,
             matric_core::PurgeOutcome, matric_core::PurgeReceiptPolicy,
             matric_core::DeletionReceipt, matric_core::PurgeStatus,
+            matric_core::MemoryExportRequest, matric_core::MemoryExport,
+            matric_core::MemoryExportManifest, matric_core::MemoryExportSelection,
+            matric_core::MemoryExportWindow, matric_core::MemoryExportMemory,
+            matric_core::MemoryExportProducer, matric_core::MemoryExportMode,
+            matric_core::EntityExportStats, matric_core::ExportEntityType,
+            matric_core::ExportRecord, matric_core::ExportOp, matric_core::HighWaterMark,
             matric_core::TwoStageSearchConfig,
             matric_core::UpdateCollectionMembersRequest, matric_core::UpdateConceptRequest, matric_core::UpdateConceptSchemeRequest,
             matric_core::UpdateDocumentTypeRequest, matric_core::UpdateEmbeddingConfigRequest, matric_core::UpdateEmbeddingSetRequest,
@@ -4757,6 +4764,10 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/v1/document-types/detect", post(detect_document_type))
         // Archives
         .route("/api/v1/memory/context", get(get_memory_context))
+        .route(
+            "/api/v1/memory/export",
+            post(handlers::memory_export::export_memory),
+        )
         .route("/api/v1/archives", get(list_archives).post(create_archive))
         .route(
             "/api/v1/archives/{name}",
@@ -63543,8 +63554,11 @@ not-json
         .unwrap();
         let mut snapshot = serde_json::Map::new();
         for table in tables {
+            // `export_change_xid` names the last writing transaction (ADR-109);
+            // a rewrite with identical content legitimately moves it.
             let rows = sqlx::query_scalar::<_, serde_json::Value>(&format!(
-                "SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text), '[]'::jsonb)
+                "SELECT COALESCE(jsonb_agg(to_jsonb(t) - 'export_change_xid'
+                     ORDER BY (to_jsonb(t) - 'export_change_xid')::text), '[]'::jsonb)
                  FROM {table} t"
             ))
             .fetch_one(&mut *tx)

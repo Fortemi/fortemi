@@ -7,6 +7,30 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+### Export
+
+- `POST /api/v1/memory/export` (`read` scope) and the MCP tool
+  `export_memory_snapshot` export the active memory from one consistent
+  snapshot under the new `memory-export/1.0.0` contract (#1157). Records are
+  canonical JSON lines in a fixed order. The manifest carries per-type counts,
+  SHA-256 digests, the selection, the producer version and git SHA, the
+  schema (migration) version, and a monotonic high-water mark.
+  `mode: "incremental"` with `since` returns changed records plus delete
+  tombstones. Applying it to the previous full export equals a full export at
+  the new mark.
+- The high-water mark comes from per-row `xid8` change stamps bounded by the
+  snapshot's `xmin`. A writer that commits after the export has read cannot
+  slip below the mark, so concurrent writes never tear an export or go missing
+  from the next incremental. Exports run read-only: hosted requests use the
+  tenant transaction, and community requests run in `REPEATABLE READ READ
+  ONLY`. See ADR-109 and `contracts/memory-export/`.
+- Migration `20261008000000_memory_export_change_tracking` adds
+  `export_change_xid` and stamp/tombstone triggers to `note`,
+  `note_original`, `note_revised_current`, `note_tag`, `link` and
+  `collection`, in `public` and every archive. It also adds a tenant-scoped,
+  RLS-forced `export_tombstone` table. Existing rows are stamped `0` without a
+  table rewrite. After restoring a database backup, take a fresh full export.
+
 ### Deployment
 
 - Document managed PostgreSQL compatibility in

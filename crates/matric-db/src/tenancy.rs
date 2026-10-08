@@ -51,6 +51,7 @@ pub const TENANT_SCOPED_TABLES: &[&str] = &[
     "embedding_set_member",
     "entity_stats",
     "event_outbox",
+    "export_tombstone",
     "file_upload_audit",
     "fine_tuning_dataset",
     "fine_tuning_sample",

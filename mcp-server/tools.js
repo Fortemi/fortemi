@@ -1788,6 +1788,44 @@ export default [
     annotations: {"readOnlyHint":true},
   },
   {
+    name: "export_memory_snapshot",
+    description: "Export the active memory from one consistent database snapshot as canonical record lines plus a manifest (counts, sha256 hashes, high_water_mark). Use mode='full' first, then mode='incremental' with since=<previous high_water_mark> to receive only changed records and delete tombstones. Read-only; requires read scope. See contracts/memory-export.",
+    inputSchema: {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["full", "incremental"],
+          "description": "full = every selected record; incremental = changes at or after `since`. Defaults to incremental when `since` is given, else full."
+        },
+        "since": {
+          "type": "string",
+          "pattern": "^[0-9]{1,20}$",
+          "description": "high_water_mark from a previous export of the same memory (decimal string)."
+        },
+        "entity_types": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "enum": ["collection", "note", "note_original", "note_revised_current", "note_tag", "link"]
+          },
+          "description": "Entity types to export (default: all)."
+        },
+        "fields": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "description": "Optional per-entity field subset, e.g. {\"note\": [\"title\"]}. Key fields are always included."
+        }
+      }
+    },
+    annotations: {"readOnlyHint":true},
+  },
+  {
     name: "export_note",
     description: `Export a note as markdown with optional YAML frontmatter. See \`get_documentation(topic='versioning')\`.`,
     inputSchema: {

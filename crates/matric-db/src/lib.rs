@@ -47,6 +47,7 @@ pub mod incoming_webhooks;
 pub mod jobs;
 pub mod lifecycle_purge;
 pub mod links;
+pub mod memory_export;
 pub mod memory_search;
 pub mod metadata_predicates;
 pub mod notes;
@@ -137,6 +138,7 @@ pub use links::{
     GraphMeta, GraphNode, GraphResult, LinkCreateResult, PfnetResult, PgLinkRepository, SnnResult,
     SnnSafetyPolicy, SnnStatus, TopologyStats,
 };
+pub use memory_export::{derive_high_water_mark, MemoryExportContext, PgMemoryExportRepository};
 pub use memory_search::{MemorySearchRepository, PgMemorySearchRepository};
 pub use notes::{
     KnowledgeHealthCounts, ListNotesWithFilterRequest, ListNotesWithFilterResponse,
@@ -367,6 +369,17 @@ impl Database {
         self.repair_legacy_migration_history().await?;
         self.run_migrations_with_legacy_repairs().await?;
         Ok(())
+    }
+
+    /// Version of the newest embedded migration (the export `schema_version`).
+    #[cfg(feature = "migrations")]
+    pub fn latest_migration_version() -> i64 {
+        sqlx::migrate!("../../migrations")
+            .iter()
+            .filter(|migration| !migration.migration_type.is_down_migration())
+            .map(|migration| migration.version)
+            .max()
+            .unwrap_or_default()
     }
 
     #[cfg(feature = "migrations")]

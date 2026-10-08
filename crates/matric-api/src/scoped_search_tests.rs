@@ -9,6 +9,7 @@ use tower::ServiceExt;
 mod binary_http;
 mod installed_http;
 mod memory_context;
+mod memory_export;
 mod resolution_checks;
 
 struct FixtureIdentity(Uuid, Uuid);

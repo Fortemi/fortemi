@@ -282,6 +282,7 @@ fn is_export_route(path: &str) -> bool {
             | "/api/v1/backup/export"
             | "/api/v1/backup/import"
             | "/api/v1/backup/memory/{name}"
+            | "/api/v1/memory/export"
     ) || path.starts_with("/api/v1/backup/knowledge-shard")
         || path.starts_with("/api/v1/backup/knowledge-archive")
 }

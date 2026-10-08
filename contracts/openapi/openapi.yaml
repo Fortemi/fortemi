@@ -4305,6 +4305,39 @@ paths:
           description: Global request rate limit exceeded
       security:
       - bearerAuth: []
+  /api/v1/memory/export:
+    post:
+      tags:
+      - Archives
+      summary: Export the active memory from one consistent snapshot.
+      description: |-
+        `full` returns every selected record; `incremental` returns records changed
+        at or after `since` plus delete tombstones. Apply semantics and the
+        high-water-mark guarantees are defined by `contracts/memory-export`.
+      operationId: export_memory
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemoryExportRequest'
+        required: true
+      responses:
+        '200':
+          description: Deterministic export with manifest
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryExport'
+        '400':
+          description: Invalid selection or cursor
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
   /api/v1/memory/info:
     get:
       tags:
@@ -10190,6 +10223,24 @@ components:
       - pending
       - failed
       - none
+    EntityExportStats:
+      type: object
+      required:
+      - upserts
+      - deletes
+      - sha256
+      properties:
+        deletes:
+          type: integer
+          format: int64
+          minimum: 0
+        sha256:
+          type: string
+          description: '`sha256:` over this type''s canonical lines, each followed by `\n`.'
+        upserts:
+          type: integer
+          format: int64
+          minimum: 0
     EntityStats:
       type: object
       description: Entity statistics for IDF weighting.
@@ -10226,6 +10277,42 @@ components:
       - workofart
       - language
       - other
+    ExportEntityType:
+      type: string
+      description: Exported entity types, in canonical line order.
+      enum:
+      - collection
+      - note
+      - note_original
+      - note_revised_current
+      - note_tag
+      - link
+    ExportOp:
+      type: string
+      enum:
+      - upsert
+      - delete
+    ExportRecord:
+      type: object
+      description: One export line. `record` is present for upserts and absent for deletes.
+      required:
+      - entity
+      - key
+      - op
+      properties:
+        entity:
+          $ref: '#/components/schemas/ExportEntityType'
+        key:
+          type: array
+          items:
+            type: string
+          description: JSON array of key field values, in `key_fields` order.
+        op:
+          $ref: '#/components/schemas/ExportOp'
+        record:
+          type:
+          - object
+          - 'null'
     ExportedKeyset:
       type: object
       description: Exported keyset data.
@@ -10490,6 +10577,10 @@ components:
           description: |-
             Steps to run. Default: ["normalize", "snn", "pfnet", "snapshot"].
             Valid values: "normalize", "snn", "pfnet", "snapshot".
+    HighWaterMark:
+      type: string
+      description: Monotonic xid8 high-water mark encoded as a decimal string.
+      pattern: ^[0-9]{1,20}$
     ImportKeysetRequest:
       type: object
       required:
@@ -10679,6 +10770,154 @@ components:
           minLength: 1
           pattern: ^[a-z_][a-z0-9_]{0,62}$
       additionalProperties: false
+    MemoryExport:
+      type: object
+      required:
+      - manifest
+      - records
+      properties:
+        manifest:
+          $ref: '#/components/schemas/MemoryExportManifest'
+        records:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExportRecord'
+    MemoryExportManifest:
+      type: object
+      required:
+      - contract
+      - export_version
+      - schema_version
+      - memory
+      - mode
+      - high_water_mark
+      - window
+      - selection
+      - entities
+      - record_count
+      - content_sha256
+      - producer
+      - generated_at
+      properties:
+        content_sha256:
+          type: string
+          description: '`sha256:` over every canonical line in order, each followed by `\n`.'
+        contract:
+          type: string
+        entities:
+          type: object
+        export_version:
+          type: string
+        generated_at:
+          type: string
+          format: date-time
+          description: Wall-clock capture time; the only field excluded from determinism.
+        high_water_mark:
+          $ref: '#/components/schemas/HighWaterMark'
+        memory:
+          $ref: '#/components/schemas/MemoryExportMemory'
+        mode:
+          $ref: '#/components/schemas/MemoryExportMode'
+        producer:
+          $ref: '#/components/schemas/MemoryExportProducer'
+        record_count:
+          type: integer
+          format: int64
+          minimum: 0
+        schema_version:
+          type: string
+          description: Latest database migration version the producer was built with.
+        selection:
+          $ref: '#/components/schemas/MemoryExportSelection'
+        since:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/HighWaterMark'
+        window:
+          $ref: '#/components/schemas/MemoryExportWindow'
+    MemoryExportMemory:
+      type: object
+      required:
+      - schema
+      - tenant_id
+      properties:
+        name:
+          type:
+          - string
+          - 'null'
+          description: Archive name, or `null` for the unnamed default memory.
+        schema:
+          type: string
+        tenant_id:
+          type: string
+          format: uuid
+    MemoryExportMode:
+      type: string
+      enum:
+      - full
+      - incremental
+    MemoryExportProducer:
+      type: object
+      required:
+      - name
+      - version
+      - git_sha
+      properties:
+        git_sha:
+          type: string
+        name:
+          type: string
+        version:
+          type: string
+    MemoryExportRequest:
+      type: object
+      properties:
+        entity_types:
+          type:
+          - array
+          - 'null'
+          items:
+            $ref: '#/components/schemas/ExportEntityType'
+          description: Entity types to export. Defaults to every type.
+        fields:
+          type:
+          - object
+          - 'null'
+          description: Optional per-type field subset. Key fields are always included.
+        mode:
+          $ref: '#/components/schemas/MemoryExportMode'
+        since:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/HighWaterMark'
+            description: Required for `incremental`; the `high_water_mark` of a previous export.
+      additionalProperties: false
+    MemoryExportSelection:
+      type: object
+      description: The validated selection an export ran with, echoed in the manifest.
+      required:
+      - entity_types
+      - fields
+      properties:
+        entity_types:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExportEntityType'
+        fields:
+          type: object
+    MemoryExportWindow:
+      type: object
+      required:
+      - to
+      properties:
+        from:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/HighWaterMark'
+            description: Inclusive lower bound (`since`); absent for full exports.
+        to:
+          $ref: '#/components/schemas/HighWaterMark'
+          description: Exclusive upper bound; equals `high_water_mark`.
     MemoryHit:
       type: object
       description: A memory result with temporal and spatial context.

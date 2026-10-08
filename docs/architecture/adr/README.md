@@ -64,7 +64,7 @@ This directory contains Architecture Decision Records (ADRs) documenting signifi
 | [ADR-029](ADR-029-shard-schema-versioning.md) | Shard Schema Versioning | Partially superseded by ADR-102/103 | 2026-02-01 |
 | [ADR-030](ADR-030-migration-downgrade-upgrade-ux.md) | Migration Downgrade/Upgrade UX | Accepted | 2026-02-01 |
 
-### Cross-Repository Data Contracts (ADR-102 to ADR-108)
+### Cross-Repository Data Contracts (ADR-102 to ADR-109)
 
 | ADR | Title | Status | Date |
 |-----|-------|--------|------|
@@ -75,6 +75,7 @@ This directory contains Architecture Decision Records (ADRs) documenting signifi
 | [ADR-106](ADR-106-source-addressed-note-upsert.md) | Source-Addressed Atomic Note Upsert Contract | Accepted | 2026-09-03 |
 | [ADR-107](ADR-107-versioned-mcp-dataset-execution.md) | Versioned MCP Dataset Execution Contract | Accepted | 2026-09-05 |
 | [ADR-108](ADR-108-previewable-lifecycle-purge.md) | Previewable Lifecycle Purge and Content-Free Receipts | Accepted | 2026-09-15 |
+| [ADR-109](ADR-109-point-in-time-memory-export.md) | Point-in-Time Memory Export with a Transaction-Safe High-Water Mark | Accepted | 2026-10-08 |
 
 ### File Handling (ADR-031 to ADR-036)
 

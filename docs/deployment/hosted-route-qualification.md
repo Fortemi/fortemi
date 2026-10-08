@@ -76,7 +76,7 @@ is qualified.
 | `notes` | yes | partial | 13 | 12 | 0 | 0 |
 | `links_graph` | yes | partial | 1 | 14 | 0 | 0 |
 | `archives_memories` | yes | partial | 1 | 18 | 0 | 0 |
-| `export` | yes | partial | 1 | 9 | 0 | 0 |
+| `export` | yes | partial | 2 | 9 | 0 | 0 |
 | `jobs_embeddings` | yes | gap | 0 | 27 | 0 | 0 |
 | `realtime_mcp` | yes | partial | 1 | 2 | 0 | 0 |
 | `collections` | yes | partial | 6 | 1 | 0 | 0 |
@@ -90,7 +90,7 @@ is qualified.
 | `knowledge_health` | no | excluded | 0 | 0 | 7 | 0 |
 | `operator` | no | excluded | 0 | 0 | 55 | 2 |
 | `public_protocol` | no | public | 0 | 0 | 0 | 17 |
-| **total** | | | 34 | 85 | 145 | 20 |
+| **total** | | | 35 | 85 | 145 | 20 |
 
 ```json
 {
@@ -168,6 +168,7 @@ is qualified.
     {"method":"POST","path":"/api/v1/backup/knowledge-shard/upload","class":"export","status":"gap","enforcement":"hosted_503"},
     {"method":"GET","path":"/api/v1/backup/memory/{name}","class":"export","status":"gap","enforcement":"hosted_503"},
     {"method":"GET","path":"/api/v1/collections/{id}/export","class":"export","status":"qualified","enforcement":"tenant_transaction"},
+    {"method":"POST","path":"/api/v1/memory/export","class":"export","status":"qualified","enforcement":"tenant_transaction"},
     {"method":"GET","path":"/api/v1/notes/{id}/export","class":"export","status":"gap","enforcement":"hosted_503"},
     {"method":"GET","path":"/api/v1/embedding-configs","class":"jobs_embeddings","status":"gap","enforcement":"hosted_503"},
     {"method":"POST","path":"/api/v1/embedding-configs","class":"jobs_embeddings","status":"gap","enforcement":"hosted_503"},

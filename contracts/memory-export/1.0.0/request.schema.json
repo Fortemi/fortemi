@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fortemi.dev/contracts/memory-export/1.0.0/request.schema.json",
+  "title": "Fortemi memory export request",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "mode": {"type": "string", "enum": ["full", "incremental"], "default": "full"},
+    "since": {"$ref": "#/$defs/mark"},
+    "entity_types": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/entity_type"}
+    },
+    "fields": {
+      "type": "object",
+      "propertyNames": {"$ref": "#/$defs/entity_type"},
+      "additionalProperties": {"type": "array", "items": {"type": "string"}}
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"mode": {"const": "incremental"}}, "required": ["mode"]},
+      "then": {"required": ["since"]},
+      "else": {"not": {"required": ["since"]}}
+    }
+  ],
+  "$defs": {
+    "mark": {"type": "string", "pattern": "^[0-9]{1,20}$"},
+    "entity_type": {
+      "type": "string",
+      "enum": ["collection", "note", "note_original", "note_revised_current", "note_tag", "link"]
+    }
+  }
+}
