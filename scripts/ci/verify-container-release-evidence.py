@@ -27,9 +27,11 @@ WIRED_CONTROL_FIELDS = (
 )
 RUST_DOCKERFILES = (Path("Dockerfile"), Path("Dockerfile.bundle"))
 MINIMUM_RUST_STACK_BYTES = 268_435_456
-EXPECTED_FAMILIES = {"api", "bundle", "mcp", "gliner", "pyannote", "builder", "testdb"}
+EXPECTED_FAMILIES = {"api", "bundle", "mcp", "hosted", "gliner", "pyannote", "builder", "testdb"}
 EXPECTED_REGISTRIES = {"git.integrolabs.net", "ghcr.io"}
-EXPECTED_BUILD_ARGS = {"VERSION", "GIT_SHA", "BUILD_DATE"}
+# FORTEMI_API_FEATURES selects compiled Cargo features (hosted variant, #1172);
+# it is public build configuration and never carries a secret.
+EXPECTED_BUILD_ARGS = {"VERSION", "GIT_SHA", "BUILD_DATE", "FORTEMI_API_FEATURES"}
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 
@@ -171,7 +173,7 @@ def main() -> int:
                 failures.append(f"{family_id}: {workflow} does not upload its evidence artifact")
             if "retention-days: 365" not in text:
                 failures.append(f"{family_id}: {workflow} does not retain evidence for 365 days")
-            build_args = set(re.findall(r"--build-arg\\s+[\"']?([A-Z][A-Z0-9_]*)", text))
+            build_args = set(re.findall(r"--build-arg\s+[\"']?([A-Z][A-Z0-9_]*)", text))
             unexpected_args = build_args - EXPECTED_BUILD_ARGS
             if unexpected_args:
                 failures.append(
@@ -187,10 +189,11 @@ def main() -> int:
         "scripts/ci/verify-multiarch-image.sh",
         "-f Dockerfile.mcp",
         "-f Dockerfile.bundle",
+        "--build-arg FORTEMI_API_FEATURES=hosted-auth,otel,kms-aws,kms-vault",
     ):
         if required not in release_build:
             failures.append(f"multi-platform release build is missing: {required}")
-    if release_build.count('--platform "${PLATFORMS}"') < 3:
+    if release_build.count('--platform "${PLATFORMS}"') < 4:
         failures.append("every release image family must build for both platforms")
     if "--provenance=false" in release_build:
         provenance = controls.get("provenance", {})
@@ -273,6 +276,8 @@ def main() -> int:
         'verify_labels "${TARGET_IMAGE}:bundle-${VERSION}"',
         '--immutable-ref "${MCP_TARGET_IMAGE}:${VERSION}"',
         'verify_labels "${MCP_TARGET_IMAGE}:${VERSION}"',
+        '--immutable-ref "${TARGET_IMAGE}:${VERSION}-hosted"',
+        'verify_labels "${TARGET_IMAGE}:${VERSION}-hosted"',
         "scripts/ci/verify-multiarch-image.sh",
     ):
         if required not in public_verifier:

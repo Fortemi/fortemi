@@ -161,6 +161,7 @@ bundle images under QEMU and requires `/health` before GHCR is touched.
 - `{version}` - Semantic version (e.g., `2026.2.0`)
 - `latest` - Latest stable release
 - `bundle-{version}`, `bundle-latest` - All-in-one images
+- `{version}-hosted`, `latest-hosted` - Hosted single-tenant API (KMS backends compiled in)
 - `git.integrolabs.net/fortemi/fortemi-mcp`: `{version}`, `latest` - Standalone MCP server
 
 `latest` and `bundle-latest` are mutable convenience aliases. Release verification records immutable digest references from the versioned tags:
@@ -187,7 +188,7 @@ platform digests. Nothing is rebuilt:
 
 ```yaml
 IMAGE: ghcr.io/fortemi/fortemi
-Tags: {version}, latest, bundle-{version}, bundle-latest
+Tags: {version}, latest, {version}-hosted, latest-hosted, bundle-{version}, bundle-latest
 IMAGE: ghcr.io/fortemi/fortemi-mcp
 Tags: {version}, latest
 Platforms: linux/amd64, linux/arm64

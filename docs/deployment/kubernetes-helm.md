@@ -38,6 +38,7 @@ serve the same index and per-platform digests.
 | Profile | Image | Tags | Chart value / Kustomize image |
 |---|---|---|---|
 | API, worker, migrations (Community Edition) | `ghcr.io/fortemi/fortemi` | `<version>`, `latest` | `image.*` / `fortemi/server` |
+| API, worker, migrations (hosted single-tenant, `FORTEMI_MULTI_TENANT=true`) | `ghcr.io/fortemi/fortemi` | `<version>-hosted`, `latest-hosted` | `image.*` / `fortemi/server` |
 | MCP server | `ghcr.io/fortemi/fortemi-mcp` | `<version>`, `latest` | `mcp.image.*` / `fortemi/mcp` |
 | All-in-one Docker bundle (not used by the chart) | `ghcr.io/fortemi/fortemi` | `bundle-<version>`, `bundle-latest` | — |
 
@@ -55,10 +56,17 @@ docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile.mcp \
   -t registry.example.com/fortemi/fortemi-mcp:2026.9.11 --push .
 ```
 
-Hosted mode also needs a KMS backend compiled in. The default `Dockerfile`
-build enables only `hosted-auth`; build hosted images with
-`--build-arg FORTEMI_API_FEATURES=hosted-auth,kms-aws` (AWS KMS) or
-`hosted-auth,kms-vault` (OpenBao Transit).
+Hosted mode also needs a KMS backend compiled in: startup fails closed when
+`FORTEMI_MULTI_TENANT=true` and no key provider is available. The `-hosted`
+image is the same `Dockerfile` built with
+`FORTEMI_API_FEATURES=hosted-auth,otel,kms-aws,kms-vault`, so one image serves
+`FORTEMI_KEY_PROVIDER=aws-kms` and `vault-transit`. The plain `<version>` image
+builds `hosted-auth,otel` only. Release CI starts the published `-hosted`
+image for both platforms in hosted mode against a disposable OpenBao Transit
+server and requires `/readyz` to report `key_provider` ready
+(`scripts/ci/smoke-hosted-image.sh`). To build it yourself, add
+`--build-arg FORTEMI_API_FEATURES=hosted-auth,otel,kms-aws,kms-vault` to the
+build above.
 
 ## Prerequisites
 

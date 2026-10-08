@@ -20,6 +20,7 @@ container  node:22-bookworm-slim  sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6
 container    otel/opentelemetry-collector  sha256:b6d2b9a85b1029d05b5ad913150c1f014eed4ae99be81a1813ca5ade4a191913  0.161.0  2026-10-08   initial pin (scripts/test-otel-collector.sh, test.yml OTLP collector integration) (#1156)
 container  tonistiigi/binfmt  sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0  qemu-v10.2.3-68  2026-10-08   #623 arm64 binfmt handler for multi-platform release builds and arm64 smoke tests (scripts/ci/setup-multiarch-buildx.sh); index digest, same as qemu-v10.2.3
 container  moby/buildkit      sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea  v0.33.1          2026-10-08   #623 docker-container buildx driver image for release builds (scripts/ci/setup-multiarch-buildx.sh); same digest as buildx-stable-1 on the pin date
+container  quay.io/openbao/openbao  sha256:41dc3e47da01575e1ffea70aa635180b57ff999264398313334c259a697bf7a2  2.3.1  2026-10-08   #1172 disposable OpenBao Transit for the hosted image smoke (scripts/ci/smoke-hosted-image.sh; hosted-image-smoke job and release smoke); same pin as Fortemi-Enterprise/kms scripts/qualify-openbao.py
 #
 # Residual hardening:
 #   collect live Gitea CI evidence for guarded pull-request and release/tag runs

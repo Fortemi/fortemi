@@ -16,6 +16,7 @@ its workflow coverage with
 | Family | Intended exposure | Gitea registry | GHCR | Expected platform |
 |---|---|---|---|---|
 | API | Public runtime | Direct multi-platform build and push | Copy of the exact Gitea index by digest | `linux/amd64`, `linux/arm64` |
+| Hosted API (`<version>-hosted`) | Public runtime | Direct multi-platform build and push | Copy of the exact Gitea index by digest | `linux/amd64`, `linux/arm64` |
 | MCP (`fortemi-mcp`) | Public runtime | Direct multi-platform build and push | Copy of the exact Gitea index by digest | `linux/amd64`, `linux/arm64` |
 | Bundle | Public runtime | Direct multi-platform build and push | Copy of the exact Gitea index by digest | `linux/amd64`, `linux/arm64` |
 | GLiNER | Public optional runtime | Direct multi-platform push | Direct multi-platform push | `linux/amd64`, `linux/arm64` |
@@ -30,7 +31,10 @@ Debian bookworm cross toolchain (`docker/rust-cross-build.sh`), so only the
 arm64 runtime stages (package installs and file copies) run under QEMU. The
 release job then starts the arm64 API and bundle images under QEMU and checks
 `/health` before GHCR is touched; that is emulated evidence, not a native arm64
-run. GHCR receives each index with `docker buildx imagetools create` from the
+run. It also starts the hosted variant for both platforms in hosted mode
+against a disposable OpenBao Transit server and requires `/readyz` to report
+`key_provider` ready. Smoke receipts are uploaded as
+`container-smoke-evidence-<run-id>`. GHCR receives each index with `docker buildx imagetools create` from the
 Gitea digest, so both registries hold identical indexes and platform digests,
 and GHCR is the public source of truth for pulls.
 
@@ -46,7 +50,8 @@ threads, following the Rust 1.92 compiler diagnostic from CI run 54869 after a
 SIGSEGV with 128 MiB. This mitigation keeps the locked dependency graph
 unchanged; successful image builds remain the verification gate.
 `FORTEMI_API_FEATURES` is non-secret image build configuration and defaults to
-`hosted-auth`; selecting compiled features does not bypass runtime admission. The release builders are pinned to Rust
+`hosted-auth,otel`; the hosted variant uses `hosted-auth,otel,kms-aws,kms-vault`.
+Selecting compiled features does not bypass runtime admission. The release builders are pinned to Rust
 1.92. Registry credentials, the Hugging Face token, and all other secrets
 remain runtime or login inputs and must not be passed as Docker build
 arguments.

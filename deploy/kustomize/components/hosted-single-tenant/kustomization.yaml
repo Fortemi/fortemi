@@ -10,9 +10,9 @@
 #   - the KMS setting for FORTEMI_KEY_PROVIDER: FORTEMI_AWS_KMS_KEY_ID for
 #     aws-kms, plus workload identity on the `fortemi` ServiceAccount; or the
 #     FORTEMI_VAULT_* settings for vault-transit (docs/content/openbao-kms.md);
-#   - a server image built with FORTEMI_API_FEATURES including a KMS backend
-#     (hosted-auth,kms-aws or hosted-auth,kms-vault); the published image has
-#     none, and hosted startup refuses to run without one.
+#   - the hosted server image, ghcr.io/fortemi/fortemi:<version>-hosted (KMS
+#     backends compiled in), pinned by digest in `images:`; the plain
+#     <version> image has none, and hosted startup refuses to run without one.
 #
 # Secrets this component names (created by the platform, never committed):
 #   fortemi-database-migrate  MIGRATION_DATABASE_URL   migration role

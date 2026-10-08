@@ -59,6 +59,30 @@ class VerifyContainerReleaseEvidenceTests(unittest.TestCase):
         result = self.run_verifier()
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_unreviewed_build_arg_fails_closed(self) -> None:
+        workflow = self.root / ".gitea/workflows/ci-builder.yaml"
+        workflow.write_text(
+            workflow.read_text().replace(
+                "--build-arg FORTEMI_API_FEATURES=",
+                "--build-arg HF_TOKEN=leak --build-arg FORTEMI_API_FEATURES=",
+                1,
+            )
+        )
+        result = self.run_verifier()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("unreviewed build args ['HF_TOKEN']", result.stderr)
+
+    def test_single_platform_release_build_fails_closed(self) -> None:
+        workflow = self.root / ".gitea/workflows/ci-builder.yaml"
+        workflow.write_text(
+            workflow.read_text().replace(
+                "PLATFORMS=linux/amd64,linux/arm64", "PLATFORMS=linux/amd64", 1
+            )
+        )
+        result = self.run_verifier()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("PLATFORMS=linux/amd64,linux/arm64", result.stderr)
+
     def test_missing_family_fails_closed(self) -> None:
         policy = self.policy()
         del policy["families"]["builder"]

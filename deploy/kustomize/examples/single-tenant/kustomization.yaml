@@ -61,8 +61,8 @@ patches:
 #
 # The digests below are DELIBERATE PLACEHOLDERS, not real images. Replace each
 # with the digest of the image you built and pushed:
-#   server: a hosted build (FORTEMI_API_FEATURES with a KMS backend); the
-#           published ghcr.io/fortemi/fortemi image has none.
+#   server: ghcr.io/fortemi/fortemi:<version>-hosted (KMS backends compiled
+#           in); the plain <version> image has none.
 #   mcp:    ghcr.io/fortemi/fortemi-mcp:<version> (multi-arch index digest).
 #   docker buildx imagetools inspect <registry>/<repo>:<tag> --format '{{json .Manifest.Digest}}'
 images:

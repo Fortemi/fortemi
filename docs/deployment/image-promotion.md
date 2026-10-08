@@ -28,7 +28,8 @@ predicates and a per-digest receipt are uploaded as the
 `container-supply-chain-evidence-<run-id>` CI artifact, retained for 365 days.
 
 Image families come from the receipt list: the API image (also used by the
-worker and migration Job), the MCP image `fortemi-mcp` and the bundle. Every
+worker and migration Job), the hosted API variant (`<version>-hosted`), the
+MCP image `fortemi-mcp` and the bundle. Every
 release tag is a `linux/amd64` + `linux/arm64` index, so the index and both
 platform manifests are signed, and each platform manifest carries its own
 SBOM. A new family is covered as soon as its publication job records a

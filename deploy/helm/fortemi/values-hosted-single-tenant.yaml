@@ -7,9 +7,11 @@
 #     --set env.FORTEMI_AUTH_AUDIENCE=fortemi-api
 #
 # Requirements outside this file (see docs/deployment/kubernetes-helm.md):
-#   - Server image built with FORTEMI_API_FEATURES="hosted-auth,kms-aws" (or
-#     "hosted-auth,kms-vault" for OpenBao). The default Dockerfile build only
-#     enables hosted-auth, and hosted startup fails closed without a KMS backend.
+#   - The hosted server image, ghcr.io/fortemi/fortemi:<version>-hosted
+#     (hosted-auth, otel, kms-aws and kms-vault compiled in; amd64 + arm64):
+#       --set image.tag=<version>-hosted   (or image.digest=<index digest>)
+#     The plain <version> image has no KMS backend, and hosted startup fails
+#     closed without one.
 #   - Secrets created beforehand (names below); this file never holds values.
 #   - Distinct migration and runtime PostgreSQL roles per
 #     docs/deployment/hosted-postgresql-role.md.

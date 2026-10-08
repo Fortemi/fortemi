@@ -45,6 +45,14 @@ python3 scripts/ci/capture-container-release-evidence.py \
     --output "${OUTPUT_DIR}/ghcr-bundle-public-release.json"
 
 python3 scripts/ci/capture-container-release-evidence.py \
+    --family hosted \
+    --source-revision "$GITHUB_SHA" \
+    --channel release \
+    --immutable-ref "${TARGET_IMAGE}:${VERSION}-hosted" \
+    --alias "${TARGET_IMAGE}:latest-hosted" \
+    --output "${OUTPUT_DIR}/ghcr-hosted-public-release.json"
+
+python3 scripts/ci/capture-container-release-evidence.py \
     --family mcp \
     --source-revision "$GITHUB_SHA" \
     --channel release \
@@ -83,12 +91,14 @@ verify_labels() {
 verify_labels "${TARGET_IMAGE}:${VERSION}"
 verify_labels "${TARGET_IMAGE}:bundle-${VERSION}"
 verify_labels "${MCP_TARGET_IMAGE}:${VERSION}"
+verify_labels "${TARGET_IMAGE}:${VERSION}-hosted"
 
 # Every public family is a linux/amd64 + linux/arm64 index whose platform
 # images both carry the release revision and version (#623).
 for reference in \
     "${TARGET_IMAGE}:${VERSION}" \
     "${TARGET_IMAGE}:bundle-${VERSION}" \
+    "${TARGET_IMAGE}:${VERSION}-hosted" \
     "${MCP_TARGET_IMAGE}:${VERSION}"; do
     scripts/ci/verify-multiarch-image.sh "$reference" "$GITHUB_SHA" "$VERSION"
 done
@@ -96,4 +106,5 @@ done
 echo "Public GHCR release verified (linux/amd64, linux/arm64)"
 echo "  API:    ${TARGET_IMAGE}:${VERSION}, ${TARGET_IMAGE}:latest"
 echo "  Bundle: ${TARGET_IMAGE}:bundle-${VERSION}, ${TARGET_IMAGE}:bundle-latest"
+echo "  Hosted: ${TARGET_IMAGE}:${VERSION}-hosted, ${TARGET_IMAGE}:latest-hosted"
 echo "  MCP:    ${MCP_TARGET_IMAGE}:${VERSION}, ${MCP_TARGET_IMAGE}:latest"

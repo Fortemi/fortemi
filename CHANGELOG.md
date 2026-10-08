@@ -194,6 +194,28 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   private GHCR package. An organization owner must make it public once; until
   then `verify-ghcr-release` fails its anonymous pull and the release is not
   finalized (`docs/deployment/image-promotion.md#public-ghcr-packages`).
+- Release CI publishes a hosted image variant, `fortemi:<version>-hosted` and
+  `fortemi:latest-hosted`, built from the same `Dockerfile` with
+  `FORTEMI_API_FEATURES=hosted-auth,otel,kms-aws,kms-vault` (#1172). It is a
+  `linux/amd64` + `linux/arm64` index in both registries, gets a release
+  receipt (new `hosted` evidence family) and is signed with SBOM and
+  provenance attestations like the other images. Use it for
+  `FORTEMI_MULTI_TENANT=true` with `FORTEMI_KEY_PROVIDER=aws-kms` or
+  `vault-transit`; the plain `<version>` image has no KMS backend and hosted
+  startup refuses to run on it. Image per profile: Community Edition API,
+  worker and migrations `fortemi:<version>`; hosted single-tenant
+  `fortemi:<version>-hosted`; MCP `fortemi-mcp:<version>`; all-in-one bundle
+  `fortemi:bundle-<version>`.
+- New `scripts/ci/smoke-hosted-image.sh` starts a hosted image in hosted mode
+  against a disposable OpenBao 2.3.1 Transit server (TLS from a per-run CA,
+  derived non-exportable key, least-privilege runtime token), PostgreSQL with
+  the two hosted roles, and Redis, and fails unless `/readyz` returns 200 with
+  `key_provider` ready. A new `hosted-image-smoke` CI job runs it on every
+  pull request and main build; release tags run it on the published amd64 and
+  arm64 (QEMU) images before GHCR promotion. `FORTEMI_API_FEATURES` joins the
+  reviewed public build arguments, and the release-evidence verifier's
+  build-argument check now actually matches workflow text (its pattern
+  previously required a literal backslash and never fired).
 
 ### Hosted
 

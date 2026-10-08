@@ -767,7 +767,7 @@ jobs:
         with:
           name: al-sys04-05-asset-lifecycle-receipt
           path: target/al-sys04-05-asset-lifecycle-receipt.json
-          retention-days: 30
+          retention-days: 365
 
       - name: Capture AL-PERF01 asset lifecycle receipt
         run: |
@@ -819,7 +819,7 @@ jobs:
         with:
           name: al-perf01-asset-lifecycle-receipts
           path: target/al-perf01-receipts/*.json
-          retention-days: 30
+          retention-days: 365
 
       - name: Run doc tests
         run: cargo test --doc
@@ -858,6 +858,49 @@ jobs:
 
           echo "Built image: matric-memory:test"
           docker images matric-memory:test
+
+  # Build the hosted image variant (#1172) and prove it starts in hosted mode
+  # against a disposable OpenBao Transit server with /readyz reporting
+  # key_provider ready. Release tags repeat this on the published amd64 and
+  # arm64 images before GHCR promotion.
+  hosted-image-smoke:
+    name: Hosted Image Smoke (OpenBao Transit)
+    runs-on: matric-builder
+    needs: build-image
+    steps:
+      - name: Checkout
+        run: |
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
+
+      - name: Build hosted image variant
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${CHAIN_SOURCE_SHA:0:7}"
+          docker build \
+            --build-arg FORTEMI_API_FEATURES=hosted-auth,otel,kms-aws,kms-vault \
+            --build-arg VERSION=test-${SHORT_SHA} \
+            --build-arg GIT_SHA=${CHAIN_SOURCE_SHA} \
+            --build-arg BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+            -t matric-memory:hosted-test .
+
+      - name: Start hosted image against OpenBao Transit
+        run: |
+          set -euo pipefail
+          docker build -f build/Dockerfile.testdb -t matric-testdb:local .
+          scripts/ci/smoke-hosted-image.sh --image matric-memory:hosted-test \
+            --output hosted-image-smoke/hosted-amd64-smoke.json
+
+      - name: Upload hosted image smoke evidence
+        if: always()
+        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
+        with:
+          name: hosted-image-smoke-${{ github.run_id }}
+          path: hosted-image-smoke/
+          retention-days: 365
 
   test-container:
     name: Test Container (Isolated)
@@ -1148,7 +1191,7 @@ jobs:
   publish-release:
     name: Publish Release Image
     runs-on: matric-builder
-    needs: [verify-release-ref, sync-github-source, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix, helm-chart]
+    needs: [verify-release-ref, sync-github-source, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix, helm-chart, hosted-image-smoke]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout
@@ -1223,6 +1266,20 @@ jobs:
             --push .
           scripts/ci/verify-multiarch-image.sh "${IMAGE}:${VERSION}" "${CHAIN_SOURCE_SHA}" "${VERSION}"
 
+          # Hosted single-tenant variant (#1172): the same Dockerfile with the
+          # hosted OIDC verifier, OTLP export and both KMS backends compiled in,
+          # so FORTEMI_MULTI_TENANT=true can pass its key-provider startup check
+          # on AWS KMS or OpenBao Transit.
+          build_and_push hosted --no-cache --platform "${PLATFORMS}" \
+            --provenance=false --sbom=false \
+            --build-arg FORTEMI_API_FEATURES=hosted-auth,otel,kms-aws,kms-vault \
+            --build-arg VERSION=${VERSION} \
+            --build-arg GIT_SHA=${CHAIN_SOURCE_SHA} \
+            --build-arg BUILD_DATE=${BUILD_DATE} \
+            -t ${IMAGE}:${VERSION}-hosted -t ${IMAGE}:latest-hosted \
+            --push .
+          scripts/ci/verify-multiarch-image.sh "${IMAGE}:${VERSION}-hosted" "${CHAIN_SOURCE_SHA}" "${VERSION}"
+
           # Standalone MCP server image referenced by the Helm chart and the
           # Kustomize base (#1153).
           build_and_push mcp --no-cache --platform "${PLATFORMS}" \
@@ -1263,6 +1320,13 @@ jobs:
             --alias "${IMAGE}:latest" \
             --output container-release-evidence/gitea-api-release.json
           python3 scripts/ci/capture-container-release-evidence.py \
+            --family hosted \
+            --source-revision "${CHAIN_SOURCE_SHA}" \
+            --channel release \
+            --immutable-ref "${IMAGE}:${VERSION}-hosted" \
+            --alias "${IMAGE}:latest-hosted" \
+            --output container-release-evidence/gitea-hosted-release.json
+          python3 scripts/ci/capture-container-release-evidence.py \
             --family mcp \
             --source-revision "${CHAIN_SOURCE_SHA}" \
             --channel release \
@@ -1282,6 +1346,7 @@ jobs:
 
           echo "Published release images (linux/amd64, linux/arm64):"
           echo "  API-only: ${IMAGE}:${VERSION}, ${IMAGE}:latest"
+          echo "  Hosted:   ${IMAGE}:${VERSION}-hosted, ${IMAGE}:latest-hosted"
           echo "  MCP:      ${MCP_IMAGE}:${VERSION}, ${MCP_IMAGE}:latest"
           echo "  Bundle:   ${IMAGE}:bundle-${VERSION}, ${IMAGE}:bundle-latest"
 
@@ -1301,6 +1366,20 @@ jobs:
           scripts/ci/smoke-image-platform.sh --kind bundle --platform linux/arm64 \
             --image "${IMAGE}:bundle-${VERSION}" \
             --output container-smoke-evidence/arm64-bundle-smoke.json
+
+      # The published hosted variant must start in hosted mode against a
+      # disposable OpenBao Transit server and report key_provider ready on
+      # /readyz, natively (amd64) and under QEMU (arm64) (#1172).
+      - name: Smoke-test hosted release image against OpenBao Transit
+        run: |
+          set -euo pipefail
+          IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          VERSION="${GITHUB_REF_NAME#v}"
+          for platform in linux/amd64 linux/arm64; do
+            scripts/ci/smoke-hosted-image.sh --platform "${platform}" \
+              --image "${IMAGE}:${VERSION}-hosted" \
+              --output "container-smoke-evidence/hosted-${platform#linux/}-smoke.json"
+          done
 
       - name: Upload release image smoke evidence
         uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
@@ -1366,6 +1445,8 @@ jobs:
           export API_TARGET_TAGS="${VERSION} latest"
           export BUNDLE_TARGET_TAGS="bundle-${VERSION} bundle-latest"
           export MCP_TARGET_TAGS="${VERSION} latest"
+          export HOSTED_SOURCE_TAG="${VERSION}-hosted"
+          export HOSTED_TARGET_TAGS="${VERSION}-hosted latest-hosted"
           scripts/ci/promote-ghcr-images.sh
 
           mkdir -p container-release-evidence
@@ -1390,12 +1471,20 @@ jobs:
             --immutable-ref "${MCP_TARGET_IMAGE}:${VERSION}" \
             --alias "${MCP_TARGET_IMAGE}:latest" \
             --output container-release-evidence/ghcr-mcp-release.json
+          python3 scripts/ci/capture-container-release-evidence.py \
+            --family hosted \
+            --source-revision "${CHAIN_SOURCE_SHA}" \
+            --channel release \
+            --immutable-ref "${TARGET_IMAGE}:${VERSION}-hosted" \
+            --alias "${TARGET_IMAGE}:latest-hosted" \
+            --output container-release-evidence/ghcr-hosted-release.json
 
           # Sidecar images (GLiNER, pyannote) are released independently
           # via build-gliner.yaml and build-pyannote.yaml workflows
 
           echo "Published to GitHub Container Registry (linux/amd64, linux/arm64):"
           echo "  API-only: ${TARGET_IMAGE}:${VERSION}, ${TARGET_IMAGE}:latest"
+          echo "  Hosted:   ${TARGET_IMAGE}:${VERSION}-hosted, ${TARGET_IMAGE}:latest-hosted"
           echo "  MCP:      ${MCP_TARGET_IMAGE}:${VERSION}, ${MCP_TARGET_IMAGE}:latest"
           echo "  Bundle:   ${TARGET_IMAGE}:bundle-${VERSION}, ${TARGET_IMAGE}:bundle-latest"
 
@@ -1691,7 +1780,7 @@ jobs:
   main-validation:
     name: Main Validation Complete
     runs-on: matric-builder
-    needs: [sync-github-source, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix, helm-chart]
+    needs: [sync-github-source, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix, helm-chart, hosted-image-smoke]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     steps:
       - name: Record validation-only completion

@@ -15,7 +15,7 @@
     "retention_days": 365
   },
   "build_inputs": {
-    "allowed_public_build_args": ["VERSION", "GIT_SHA", "BUILD_DATE"],
+    "allowed_public_build_args": ["VERSION", "GIT_SHA", "BUILD_DATE", "FORTEMI_API_FEATURES"],
     "secrets_as_build_args_allowed": false
   },
   "verification_samples": [
@@ -61,7 +61,8 @@
       "families": [
         "api",
         "bundle",
-        "mcp"
+        "mcp",
+        "hosted"
       ],
       "workflow": ".gitea/workflows/ci-builder.yaml",
       "job": "sign-release-images",
@@ -79,7 +80,8 @@
       "families": [
         "api",
         "bundle",
-        "mcp"
+        "mcp",
+        "hosted"
       ],
       "workflow": ".gitea/workflows/ci-builder.yaml",
       "job": "sign-release-images",
@@ -97,7 +99,8 @@
       "families": [
         "api",
         "bundle",
-        "mcp"
+        "mcp",
+        "hosted"
       ],
       "workflow": ".gitea/workflows/ci-builder.yaml",
       "job": "sign-release-images",
@@ -160,6 +163,22 @@
         }
       },
       "immutable_tag_patterns": ["^bundle-[0-9a-f]{7}$", "^bundle-sha-[0-9a-f]{7}$", "^bundle-[0-9]{4}\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"]
+    },
+    "hosted": {
+      "exposure": "public-runtime",
+      "sbom_scope": "final-stage runtime filesystem of the API image built with hosted-auth, otel, kms-aws and kms-vault",
+      "workflows": [".gitea/workflows/ci-builder.yaml"],
+      "registries": {
+        "git.integrolabs.net": {
+          "platforms": ["linux/amd64", "linux/arm64"],
+          "publish_path_profile": "gitea-direct"
+        },
+        "ghcr.io": {
+          "platforms": ["linux/amd64", "linux/arm64"],
+          "publish_path_profile": "ghcr-from-gitea-pat"
+        }
+      },
+      "immutable_tag_patterns": ["^[0-9]{4}\\.[0-9]+\\.[0-9]+-hosted$"]
     },
     "mcp": {
       "exposure": "public-runtime",

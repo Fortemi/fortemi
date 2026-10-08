@@ -117,9 +117,11 @@ class VerifyGhcrPublicationTests(unittest.TestCase):
         self.assertIn("ghcr-api-public-release.json", commands)
         self.assertIn("ghcr-bundle-public-release.json", commands)
         self.assertIn("ghcr-mcp-public-release.json", commands)
-        self.assertEqual(commands.count("docker pull --quiet"), 3)
+        self.assertIn("ghcr-hosted-public-release.json", commands)
+        self.assertEqual(commands.count("docker pull --quiet"), 4)
+        self.assertIn("ghcr.io/fortemi/fortemi:2026.7.19-hosted", commands)
         self.assertIn("ghcr.io/fortemi/fortemi-mcp:2026.7.19", commands)
-        self.assertEqual(commands.count("imagetools inspect --raw"), 3)
+        self.assertEqual(commands.count("imagetools inspect --raw"), 4)
         configs = {
             line.rsplit(" config=", 1)[1]
             for line in commands.splitlines()
