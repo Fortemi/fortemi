@@ -446,6 +446,7 @@ curl http://localhost:3001/.well-known/oauth-protected-resource
 | `MCP_TRANSPORT` | `http` (bundle) | No | Transport mode: `http` for bundle deployment, `stdio` for local development. |
 | `MCP_PORT` | `3001` | No | MCP server listening port inside container. |
 | `MCP_BASE_URL` | `${ISSUER_URL}/mcp` | No | External MCP URL. Claude Code uses this for OAuth discovery. |
+| `MCP_RESOURCE_URI` | `MCP_BASE_URL` | No | RFC 9728 `resource` identifier. With an external OIDC issuer, set it to the API's `FORTEMI_AUTH_AUDIENCE`. |
 | `FORTEMI_URL` | `http://localhost:3000` | No | Internal API URL for MCP→API calls. Avoids nginx hairpin routing. |
 | `MCP_RESOURCE_DOCUMENTATION_URL` | Fortemi MCP guide | No | Public curated MCP documentation URL advertised in protected-resource metadata. Must use HTTP(S) and must not contain credentials. |
 

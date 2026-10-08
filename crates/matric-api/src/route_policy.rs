@@ -217,6 +217,13 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         NoStore,
     ),
     r(
+        "/api/v1/auth/token-info",
+        AuthenticatedRead,
+        "token_verification",
+        Hidden,
+        NoStore,
+    ),
+    r(
         "/api/v1/backup/database",
         AdminOperator,
         "backup_restore",
@@ -1653,6 +1660,7 @@ pub fn hosted_tenant_transaction_ready(method: &Method, path: &str) -> bool {
             | (&Method::POST, "/api/v1/inference/embed")
             | (&Method::GET, "/api/v1/inference/providers")
             | (&Method::POST, "/api/v1/inference/stream")
+            | (&Method::GET, "/api/v1/auth/token-info")
             | (&Method::GET, "/api/v1/user/secrets")
             | (&Method::POST, "/api/v1/user/secrets")
             | (&Method::DELETE, "/api/v1/user/secrets/{id}")
@@ -1833,7 +1841,7 @@ fn resource_kind_for_action_family(action_family: &str) -> ResourceKind {
         "collection" => ResourceKind::Collection,
         "credential_management" => ResourceKind::ApiKey,
         "document_type_catalog" => ResourceKind::DocumentType,
-        "health_diagnostics" | "system_diagnostics" => ResourceKind::System,
+        "health_diagnostics" | "system_diagnostics" | "token_verification" => ResourceKind::System,
         "inbound_connector" | "webhook_control" | "webhook_receiver" => ResourceKind::Webhook,
         "job_control" => ResourceKind::Job,
         "memory_management" => ResourceKind::Archive,

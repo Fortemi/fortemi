@@ -140,6 +140,36 @@ In Keycloak, add an audience mapper so access tokens carry
 `<DEPLOYMENT_AUDIENCE>` in `aud`, and a claim mapper that writes the tenant id
 to `fortemi:tenant_id`.
 
+#### MCP with an external issuer
+
+The MCP server never parses or verifies external JWTs itself. For any bearer that
+is not a Fortemi `mm_at_`/`mm_key_` token, it calls the API's hidden
+`GET /api/v1/auth/token-info` route with that bearer. The request passes through
+the same middleware as REST: issuer, audience, JWKS signature, expiry, tenant
+claim and active tenant, plus the central authorization policy (which requires
+`read`). The MCP server then requires `mcp` (or `admin`) in the returned scopes.
+
+| Presented token | MCP result |
+|---|---|
+| Valid for `FORTEMI_AUTH_AUDIENCE`, active tenant, `mcp` and `read` scopes | Accepted |
+| Wrong issuer, wrong audience, bad signature or expired | 401 `invalid_token` |
+| Unknown or inactive tenant, or missing `read` | 403 |
+| Verified but without `mcp` | 403 `insufficient_scope` (`WWW-Authenticate: ... error="insufficient_scope", scope="mcp"`) |
+| Any refresh token (`mm_rt_…`, or introspection `token_type` other than `Bearer`) | 401 |
+| Verifier unreachable | 503 `temporarily_unavailable` |
+
+A presented external token that fails is always rejected; it never downgrades to
+anonymous access. `FORTEMI_MULTI_TENANT=true` makes the MCP server require
+authentication regardless of `REQUIRE_AUTH`. Fortemi-issued tokens keep the
+self-hosted introspection path unchanged, apart from the refresh-token rejection.
+Token values are never logged.
+
+Configure the MCP container with the same `ISSUER_URL` as the API and set
+`MCP_RESOURCE_URI` to the API's `FORTEMI_AUTH_AUDIENCE`. RFC 9728 metadata at
+`/.well-known/oauth-protected-resource` then advertises the external
+authorization server and the audience clients must request. The server logs a
+startup warning when the two values differ.
+
 #### Hosted note and event qualification
 
 The migrated hosted routes include ordinary `POST /api/v1/notes`, note list,

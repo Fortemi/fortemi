@@ -39,3 +39,23 @@ test("resource documentation rejects unsafe URL forms", () => {
     assert.throws(() => resolveResourceDocumentationUrl(value));
   }
 });
+
+test("RFC 9728 metadata covers self-issued and external-issuer profiles (#1151)", () => {
+  const selfIssued = buildProtectedResourceMetadata({
+    resource: "https://memory.example.com/mcp",
+    authorizationServer: "https://memory.example.com",
+  });
+  assert.equal(selfIssued.resource, "https://memory.example.com/mcp");
+  assert.deepEqual(selfIssued.authorization_servers, ["https://memory.example.com"]);
+
+  // External issuer: ISSUER_URL is the IdP realm and MCP_RESOURCE_URI equals
+  // FORTEMI_AUTH_AUDIENCE, so clients obtain tokens the API's verifier accepts.
+  const external = buildProtectedResourceMetadata({
+    resource: "https://memory.example.com",
+    authorizationServer: "https://idp.example.com/realms/acme",
+  });
+  assert.equal(external.resource, "https://memory.example.com");
+  assert.deepEqual(external.authorization_servers, ["https://idp.example.com/realms/acme"]);
+  assert.deepEqual(external.scopes_supported, ["mcp"]);
+  assert.deepEqual(external.bearer_methods_supported, ["header"]);
+});

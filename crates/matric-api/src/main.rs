@@ -5092,6 +5092,11 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1/backup/metadata/{filename}",
             put(update_backup_metadata),
         )
+        // Verified token description for the MCP server (#1151)
+        .route(
+            "/api/v1/auth/token-info",
+            get(handlers::token_info::token_info),
+        )
         // Memory info
         .route("/api/v1/memory/info", get(memory_info))
         // WebSocket events (Issue #39)

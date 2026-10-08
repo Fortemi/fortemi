@@ -584,7 +584,9 @@ jobs:
             tests/uat-core-coverage.test.js \
             tests/branding.test.js \
             tests/error-responses.test.js \
-            tests/session-expiry.test.js
+            tests/session-expiry.test.js \
+            tests/bearer-validation.test.js \
+            tests/resource-metadata.test.js
           cd ..
           node scripts/ci/verify-dataset-execution-contract.mjs
           node scripts/ci/verify-dataset-qualification-graph.mjs

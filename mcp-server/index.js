@@ -27,6 +27,7 @@ import {
   sanitizeMcpText,
 } from "./lib/output-sanitizer.js";
 import { buildProtectedResourceMetadata } from "./lib/resource-metadata.js";
+import { mustReject, validateBearer } from "./lib/bearer-validation.js";
 import {
   ATTACHMENT_TOOL_NAMES,
   attachmentsDisabledError,
@@ -78,6 +79,9 @@ const isAttachmentsEnabled = createAttachmentsCapabilityProbe(async () => {
 
 const MCP_PORT = parseInt(process.env.MCP_PORT || String(DEFAULTS.MCP_DEFAULT_PORT), 10);
 const MCP_BASE_URL = process.env.MCP_BASE_URL || `http://localhost:${MCP_PORT}`;
+// RFC 9728 resource identifier. With an external OIDC issuer, set it to the
+// audience the API verifies (FORTEMI_AUTH_AUDIENCE) so clients request tokens for it.
+const MCP_RESOURCE_URI = process.env.MCP_RESOURCE_URI || MCP_BASE_URL;
 const MAX_UPLOAD_SIZE = parseInt(process.env.MATRIC_MAX_UPLOAD_SIZE_BYTES || String(DEFAULTS.MAX_UPLOAD_SIZE_BYTES), 10);
 
 /** Coerce a value to number if defined, otherwise return undefined (stripped by JSON.stringify). */
@@ -5835,60 +5839,37 @@ if (MCP_TRANSPORT === "http") {
   }
 
   /**
-   * Validate bearer token from Authorization header.
-   * Returns { valid: true, token } or { valid: false }.
+   * Send 403 for a verified token that lacks the MCP transport scope (RFC 6750 §3.1).
    */
-  async function validateBearerToken(authHeader) {
-    if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return { valid: false };
-    }
-
-    const token = authHeader.slice(7);
-
-    try {
-      const response = await fetch(`${API_BASE}/oauth/introspect`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "Authorization": `Basic ${Buffer.from(`${process.env.MCP_CLIENT_ID}:${process.env.MCP_CLIENT_SECRET}`).toString("base64")}`,
-        },
-        body: `token=${encodeURIComponent(token)}`,
-      });
-
-      if (!response.ok) {
-        return { valid: false };
-      }
-
-      const introspection = await response.json();
-      if (!introspection.active) {
-        return { valid: false };
-      }
-
-      // Check for MCP transport scope or at minimum read scope. Mutations are
-      // still enforced by the Fortemi API's route/action policy.
-      const scopes = (introspection.scope || "").split(" ");
-      if (!scopes.includes("mcp") && !scopes.includes("read") && !scopes.includes("admin")) {
-        return { valid: false };
-      }
-
-      return { valid: true, token };
-    } catch (error) {
-      console.error("Token validation error:", error);
-      return { valid: false };
-    }
+  function send403(res) {
+    res.status(403)
+      .set('WWW-Authenticate', `Bearer realm="mcp", error="insufficient_scope", scope="mcp", resource_metadata="${MCP_BASE_URL}/.well-known/oauth-protected-resource"`)
+      .json({ error: "insufficient_scope", error_description: "The token lacks the mcp scope" });
   }
 
-  // OAuth token validation middleware
-  // Respects REQUIRE_AUTH env var: when false, allows unauthenticated MCP access
-  // but still extracts token if provided (for API call forwarding)
+  const bearerValidationOptions = {
+    apiBase: API_BASE,
+    clientId: process.env.MCP_CLIENT_ID,
+    clientSecret: process.env.MCP_CLIENT_SECRET,
+    fetchImpl: (...args) => fetch(...args),
+  };
+
+  // OAuth token validation middleware.
+  // Fortemi-issued tokens keep the self-hosted REQUIRE_AUTH behavior. External OIDC
+  // tokens are verified by the API's hosted verifier and are always rejected when
+  // invalid (#1151). Hosted multi-tenant deployments always require authentication.
   async function validateToken(req, res, next) {
-    const requireAuth = process.env.REQUIRE_AUTH === 'true';
+    const requireAuth = process.env.REQUIRE_AUTH === 'true' || process.env.FORTEMI_MULTI_TENANT === 'true';
 
     if (req.headers.authorization) {
-      const result = await validateBearerToken(req.headers.authorization);
+      const result = await validateBearer(req.headers.authorization, bearerValidationOptions);
       if (result.valid) {
         req.accessToken = result.token;
-      } else if (requireAuth) {
+      } else if (mustReject(result, requireAuth)) {
+        if (result.status === 403) return send403(res);
+        if (result.status === 503) {
+          return res.status(503).json({ error: "temporarily_unavailable", error_description: "Token verification is unavailable" });
+        }
         return send401(res, "Valid bearer token required");
       }
     } else if (requireAuth) {
@@ -6115,11 +6096,16 @@ if (MCP_TRANSPORT === "http") {
   // Clients SHOULD request "mcp" scope to enable full read/write functionality.
   app.get("/.well-known/oauth-protected-resource", (req, res) => {
     res.json(buildProtectedResourceMetadata({
-      resource: MCP_BASE_URL,
+      resource: MCP_RESOURCE_URI,
       authorizationServer: process.env.ISSUER_URL || API_BASE,
       resourceDocumentation: process.env.MCP_RESOURCE_DOCUMENTATION_URL,
     }));
   });
+
+  if (process.env.FORTEMI_AUTH_AUDIENCE && process.env.FORTEMI_AUTH_AUDIENCE !== MCP_RESOURCE_URI) {
+    console.warn("WARNING: MCP_RESOURCE_URI does not match FORTEMI_AUTH_AUDIENCE");
+    console.warn("  External-issuer tokens requested for the advertised resource will fail audience validation");
+  }
 
   // Validate MCP OAuth credentials on startup
   if (!process.env.MCP_CLIENT_ID || !process.env.MCP_CLIENT_SECRET) {

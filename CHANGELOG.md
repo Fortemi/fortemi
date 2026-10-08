@@ -53,6 +53,16 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Authentication
 
+- The MCP server accepts externally issued OIDC tokens by delegating
+  verification to a new hidden `GET /api/v1/auth/token-info` route, so MCP and
+  REST share one verifier contract (#1151). Verified tokens need `mcp` scope at
+  the MCP transport (403 `insufficient_scope` otherwise); invalid external tokens
+  are always rejected, and `FORTEMI_MULTI_TENANT=true` forces MCP authentication.
+  New `MCP_RESOURCE_URI` sets the RFC 9728 resource to the API audience.
+- The MCP server rejects refresh tokens presented as bearer credentials
+  (`mm_rt_…` or introspection `token_type` other than `Bearer`). Previously an
+  active self-issued refresh token was admitted to an MCP session.
+
 - Accept path-bearing HTTPS OIDC issuers such as Keycloak's
   `https://idp.example.com/realms/<name>` without `FORTEMI_ALLOW_LOCAL_ISSUER`
   (#1155). Trailing slashes are removed; the token `iss` must match the rest

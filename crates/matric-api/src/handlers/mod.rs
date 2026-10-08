@@ -15,6 +15,7 @@ pub mod jobs;
 pub mod models;
 pub mod pke;
 pub mod provenance;
+pub mod token_info;
 #[cfg(feature = "hosted-auth")]
 pub mod user_secrets;
 pub mod vision;
