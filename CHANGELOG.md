@@ -50,6 +50,16 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   attachments fail closed; `/health`, `/api/v1/system/compatibility`, the
   operator OpenAPI document and the MCP attachment tools reflect the disabled
   state. Re-enabling restores the existing scanner prerequisites.
+- Add `matric-api admin bootstrap`, an idempotent tenant and first-operator
+  provisioning command run with `MIGRATION_DATABASE_URL` (#1159). It creates or
+  updates the active `tenant_registry` row (explicit `--tenant-id`, or a stable
+  UUIDv5 derived from `--slug`) and seeds the tenant's default memory baseline
+  (default embedding configuration, embedding set and SKOS scheme) under the
+  tenant's own scope, then prints the value to configure for
+  `FORTEMI_AUTH_TENANT_CLAIM`. A repeated run reports `unchanged`; `--dry-run`
+  plans in a rolled-back transaction; `--json` emits machine-readable output.
+  Output never contains database URLs or credentials. See
+  `docs/deployment/hosted-bootstrap.md`.
 
 ### Authentication
 

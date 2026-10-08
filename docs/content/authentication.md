@@ -170,6 +170,21 @@ Configure the MCP container with the same `ISSUER_URL` as the API and set
 authorization server and the audience clients must request. The server logs a
 startup warning when the two values differ.
 
+#### Tenant bootstrap
+
+Admission requires the claim's tenant to exist as an `active` row in
+`tenant_registry`; unknown, suspended and soft-deleted tenants are rejected.
+Provision tenants with the idempotent bootstrap command instead of SQL:
+
+```bash
+MIGRATION_DATABASE_URL=<MIGRATION_DATABASE_URL> \
+  matric-api admin bootstrap --slug acme --display-name "Acme" --json
+```
+
+The command prints the tenant id to emit in the configured tenant claim and
+seeds the tenant's default memory. See
+[Hosted tenant bootstrap](../deployment/hosted-bootstrap.md).
+
 #### Hosted note and event qualification
 
 The migrated hosted routes include ordinary `POST /api/v1/notes`, note list,
@@ -182,7 +197,8 @@ September 8 tenant tag migrations with the migration identity before upgrading
 the API. They qualify default scheme notation and flat tag identity by tenant;
 existing data and tenant-qualified foreign-key guards are preserved. Provision
 any required default SKOS scheme or document types under the intended tenant,
-not by sharing the personal tenant's seed rows.
+not by sharing the personal tenant's seed rows; `matric-api admin bootstrap`
+seeds the default scheme, embedding configuration and embedding set.
 
 Hosted stale-running job recovery now enumerates active tenants through the
 service control plane and updates each tenant in a short scoped transaction.

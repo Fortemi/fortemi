@@ -3193,6 +3193,9 @@ async fn main() -> anyhow::Result<()> {
     if export_contract_if_requested()? {
         return Ok(());
     }
+    if matric_api::admin_bootstrap::run_if_requested().await? {
+        return Ok(());
+    }
 
     // Load environment variables
     dotenvy::dotenv().ok();

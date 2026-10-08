@@ -590,3 +590,6 @@ async fn hosted_creation_postgres_atomicity_and_tenant_isolation() {
         .unwrap();
     admin.close().await;
 }
+
+#[path = "hosted_bootstrap_request_tests.rs"]
+mod bootstrap_request;
