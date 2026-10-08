@@ -8,7 +8,10 @@
 #     -v fortemi-data:/var/lib/postgresql/data fortemi:bundle
 #
 # Build stage for Rust API
-FROM rust:1.92.0-slim-bookworm@sha256:f1f73538ebe623fd3673a35aff3df358ae1084c64c55646516e5b17b321b6c9b AS builder
+# The builder runs on the build host's platform and cross-compiles for the
+# image platform (docker/rust-cross-build.sh), so the linux/arm64 bundle never
+# compiles Rust under QEMU emulation (#623).
+FROM --platform=$BUILDPLATFORM rust:1.92.0-slim-bookworm@sha256:f1f73538ebe623fd3673a35aff3df358ae1084c64c55646516e5b17b321b6c9b AS builder
 
 ARG VERSION=dev
 ARG GIT_SHA=unknown
@@ -23,11 +26,8 @@ ARG TARGETARCH
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    pkg-config \
-    libssl-dev \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+COPY docker/rust-cross-build.sh /usr/local/bin/rust-cross-build
+RUN rust-cross-build install-deps
 
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
@@ -41,9 +41,9 @@ ENV MATRIC_BUILD_DATE=${BUILD_DATE}
 RUN --mount=type=cache,id=fortemi-bundle-cargo-registry-${TARGETARCH},target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,id=fortemi-bundle-target-${TARGETARCH},target=/app/target,sharing=locked \
     RUST_MIN_STACK="${RUST_MIN_STACK}" \
-    cargo build --locked --release --jobs ${CARGO_BUILD_JOBS} --package matric-api --package matric-crypto --features "${FORTEMI_API_FEATURES}" && \
-    cp target/release/matric-api /app/matric-api && \
-    cp target/release/matric-pke /app/matric-pke
+    rust-cross-build cargo build --locked --release --jobs ${CARGO_BUILD_JOBS} --package matric-api --package matric-crypto --features "${FORTEMI_API_FEATURES}" && \
+    cp "target/$(rust-cross-build triple)/release/matric-api" /app/matric-api && \
+    cp "target/$(rust-cross-build triple)/release/matric-pke" /app/matric-pke
 
 # Node runtime source. Copying from the official digest-pinned image avoids
 # adding an external package feed to the final bundle build.

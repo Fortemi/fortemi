@@ -14,7 +14,8 @@ from typing import Any
 
 MANIFEST = Path("docker/third-party-dependencies.json")
 DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
-FROM = re.compile(r"^\s*FROM\s+([^\s]+)", re.IGNORECASE | re.MULTILINE)
+# A leading --platform flag (cross-compiling builder stages) is not the image.
+FROM = re.compile(r"^\s*FROM\s+(?:--platform=\S+\s+)?([^\s]+)", re.IGNORECASE | re.MULTILINE)
 COMPOSE_IMAGE = re.compile(r"^\s*image:\s*(\S.*?)\s*$", re.MULTILINE)
 DEFAULT_VALUE = re.compile(r"\$\{[^{}]*:-([^{}]*)\}")
 URL = re.compile(r"https://[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+")

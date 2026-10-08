@@ -48,6 +48,19 @@ class ThirdPartyDependencyTests(unittest.TestCase):
 
             self.assertEqual(MODULE.verify(root, today=TODAY), [])
 
+    def test_platform_flag_does_not_hide_the_base_image(self) -> None:
+        with self.fixture_root() as root:
+            dockerfile = root / "Dockerfile.cross"
+            dockerfile.write_text(
+                "FROM --platform=$BUILDPLATFORM attacker/example:latest AS builder\n",
+                encoding="utf-8",
+            )
+
+            errors = "\n".join(MODULE.verify(root, today=TODAY))
+
+            self.assertIn("attacker/example:latest", errors)
+            self.assertNotIn("--platform", errors)
+
     def test_unknown_digest_is_rejected(self) -> None:
         with self.fixture_root() as root:
             compose = root / "docker-compose.bundle.yml"

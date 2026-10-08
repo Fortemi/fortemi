@@ -27,14 +27,32 @@ run when that URL is missing or equal to `DATABASE_URL`, the same rule API
 startup enforces. In Community Edition it uses `MIGRATION_DATABASE_URL` when set
 and `DATABASE_URL` otherwise.
 
-The release pipeline publishes the server image as
-`ghcr.io/fortemi/fortemi:<version>`. It does not yet publish an MCP image: build
-`Dockerfile.mcp`, push it to your registry, and set `mcp.image.repository` and
-`mcp.image.tag` (or `mcp.image.digest`).
+### Published images
+
+Signed release tags publish these images to `ghcr.io` (public) and
+`git.integrolabs.net` (internal). Each tag is a `linux/amd64` + `linux/arm64`
+index, so arm64 nodes (for example AWS Graviton with Bottlerocket) pull the
+native image. GHCR receives the internal indexes by digest, so both registries
+serve the same index and per-platform digests.
+
+| Profile | Image | Tags | Chart value / Kustomize image |
+|---|---|---|---|
+| API, worker, migrations (Community Edition) | `ghcr.io/fortemi/fortemi` | `<version>`, `latest` | `image.*` / `fortemi/server` |
+| MCP server | `ghcr.io/fortemi/fortemi-mcp` | `<version>`, `latest` | `mcp.image.*` / `fortemi/mcp` |
+| All-in-one Docker bundle (not used by the chart) | `ghcr.io/fortemi/fortemi` | `bundle-<version>`, `bundle-latest` | — |
+
+Pin the index digest (`image.digest`, or `digest:` in `images:`); the runtime
+selects the platform member. The per-platform digests are in the release's
+`container-release-evidence-*` artifact, and every digest is signed with SBOM
+and SLSA provenance attestations ([image promotion](image-promotion.md)).
+To build your own images, both Dockerfiles cross-compile for the target
+platform:
 
 ```bash
-docker build -t registry.example.com/fortemi/fortemi:2026.9.11 .
-docker build -f Dockerfile.mcp -t registry.example.com/fortemi/fortemi-mcp:2026.9.11 .
+docker buildx build --platform linux/amd64,linux/arm64 \
+  -t registry.example.com/fortemi/fortemi:2026.9.11 --push .
+docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile.mcp \
+  -t registry.example.com/fortemi/fortemi-mcp:2026.9.11 --push .
 ```
 
 Hosted mode also needs a KMS backend compiled in. The default `Dockerfile`

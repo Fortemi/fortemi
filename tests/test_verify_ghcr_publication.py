@@ -46,6 +46,26 @@ class VerifyGhcrPublicationTests(unittest.TestCase):
             [[ -n "${DOCKER_CONFIG:-}" && -d "$DOCKER_CONFIG" ]]
             case "$1 $2" in
                 "pull --quiet") exit 0 ;;
+                "buildx imagetools")
+                    case "$*" in
+                        *--raw*)
+                            printf '{"manifests":['
+                            first=1
+                            for platform in ${FAKE_PLATFORMS:-linux/amd64 linux/arm64}; do
+                                [[ $first == 1 ]] || printf ','
+                                first=0
+                                printf '{"platform":{"os":"linux","architecture":"%s"}}' "${platform#linux/}"
+                            done
+                            printf ']}\n'
+                            ;;
+                        *".Manifest"*) printf '{"digest":"sha256:%064d"}\n' 1 ;;
+                        *".Image"*)
+                            printf '{"linux/amd64":{"architecture":"amd64","config":{"Labels":{"org.opencontainers.image.revision":"%s","org.opencontainers.image.version":"%s"}}},' "$GITHUB_SHA" "$VERSION"
+                            printf '"linux/arm64":{"architecture":"arm64","config":{"Labels":{"org.opencontainers.image.revision":"%s","org.opencontainers.image.version":"%s"}}}}\n' "${FAKE_ARM64_REVISION:-$GITHUB_SHA}" "$VERSION"
+                            ;;
+                        *) exit 2 ;;
+                    esac
+                    ;;
                 "image inspect")
                     if [[ "$4" == *revision* ]]; then
                         printf '%s\n' "${FAKE_REVISION:-$GITHUB_SHA}"
@@ -73,6 +93,7 @@ class VerifyGhcrPublicationTests(unittest.TestCase):
                 "PATH": f"{self.bin}:{env['PATH']}",
                 "FAKE_COMMAND_LOG": str(self.log),
                 "TARGET_IMAGE": "ghcr.io/fortemi/fortemi",
+                "MCP_TARGET_IMAGE": "ghcr.io/fortemi/fortemi-mcp",
                 "VERSION": "2026.7.19",
                 "GITHUB_SHA": REVISION,
                 "OUTPUT_DIR": str(self.output),
@@ -89,13 +110,16 @@ class VerifyGhcrPublicationTests(unittest.TestCase):
             stderr=subprocess.PIPE,
         )
 
-    def test_verifies_both_families_with_anonymous_client(self) -> None:
+    def test_verifies_every_family_with_anonymous_client(self) -> None:
         result = self.run_verifier()
         self.assertEqual(result.returncode, 0, result.stderr)
         commands = self.log.read_text()
         self.assertIn("ghcr-api-public-release.json", commands)
         self.assertIn("ghcr-bundle-public-release.json", commands)
-        self.assertEqual(commands.count("docker pull --quiet"), 2)
+        self.assertIn("ghcr-mcp-public-release.json", commands)
+        self.assertEqual(commands.count("docker pull --quiet"), 3)
+        self.assertIn("ghcr.io/fortemi/fortemi-mcp:2026.7.19", commands)
+        self.assertEqual(commands.count("imagetools inspect --raw"), 3)
         configs = {
             line.rsplit(" config=", 1)[1]
             for line in commands.splitlines()
@@ -108,6 +132,16 @@ class VerifyGhcrPublicationTests(unittest.TestCase):
         result = self.run_verifier(FAKE_REVISION="b" * 40)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("does not match", result.stderr)
+
+    def test_rejects_single_platform_index(self) -> None:
+        result = self.run_verifier(FAKE_PLATFORMS="linux/amd64")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("platforms", result.stderr)
+
+    def test_rejects_stale_arm64_revision_label(self) -> None:
+        result = self.run_verifier(FAKE_ARM64_REVISION="c" * 40)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("linux/arm64 revision", result.stderr)
 
     def test_rejects_prefixed_version(self) -> None:
         result = self.run_verifier(VERSION="v2026.7.19")

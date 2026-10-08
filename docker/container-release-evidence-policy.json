@@ -60,7 +60,8 @@
       "verification_command": "cosign verify-attestation --key docs/security/cosign.pub --insecure-ignore-tlog=true --type spdxjson <repository>@<digest>",
       "families": [
         "api",
-        "bundle"
+        "bundle",
+        "mcp"
       ],
       "workflow": ".gitea/workflows/ci-builder.yaml",
       "job": "sign-release-images",
@@ -72,12 +73,13 @@
       "status": "pending-activation",
       "owner": "release-engineering",
       "revisit_by": "2026-11-15",
-      "reason": "Provenance is authenticated by the OpenBao-held release key, not by Gitea OIDC (unavailable); buildx provenance stays disabled during promotion.",
+      "reason": "Provenance is authenticated by the OpenBao-held release key, not by Gitea OIDC (unavailable); buildx provenance and SBOM attestations stay disabled in the release builds so each index holds exactly the linux/amd64 and linux/arm64 images.",
       "method": "SLSA v1 predicate generated from Gitea Actions context and signed with the release cosign key; not an OIDC-authenticated identity",
       "verification_command": "cosign verify-attestation --key docs/security/cosign.pub --insecure-ignore-tlog=true --type slsaprovenance1 <repository>@<digest>",
       "families": [
         "api",
-        "bundle"
+        "bundle",
+        "mcp"
       ],
       "workflow": ".gitea/workflows/ci-builder.yaml",
       "job": "sign-release-images",
@@ -94,7 +96,8 @@
       "verification_command": "cosign verify --key docs/security/cosign.pub --insecure-ignore-tlog=true <repository>@<digest>",
       "families": [
         "api",
-        "bundle"
+        "bundle",
+        "mcp"
       ],
       "workflow": ".gitea/workflows/ci-builder.yaml",
       "job": "sign-release-images",
@@ -132,11 +135,11 @@
       "workflows": [".gitea/workflows/ci-builder.yaml"],
       "registries": {
         "git.integrolabs.net": {
-          "platforms": ["linux/amd64"],
+          "platforms": ["linux/amd64", "linux/arm64"],
           "publish_path_profile": "gitea-direct"
         },
         "ghcr.io": {
-          "platforms": ["linux/amd64"],
+          "platforms": ["linux/amd64", "linux/arm64"],
           "publish_path_profile": "ghcr-from-gitea-pat"
         }
       },
@@ -148,7 +151,7 @@
       "workflows": [".gitea/workflows/ci-builder.yaml"],
       "registries": {
         "git.integrolabs.net": {
-          "platforms": ["linux/amd64"],
+          "platforms": ["linux/amd64", "linux/arm64"],
           "publish_path_profile": "gitea-direct"
         },
         "ghcr.io": {
@@ -157,6 +160,22 @@
         }
       },
       "immutable_tag_patterns": ["^bundle-[0-9a-f]{7}$", "^bundle-sha-[0-9a-f]{7}$", "^bundle-[0-9]{4}\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"]
+    },
+    "mcp": {
+      "exposure": "public-runtime",
+      "sbom_scope": "final-stage Node.js MCP server runtime filesystem",
+      "workflows": [".gitea/workflows/ci-builder.yaml"],
+      "registries": {
+        "git.integrolabs.net": {
+          "platforms": ["linux/amd64", "linux/arm64"],
+          "publish_path_profile": "gitea-direct"
+        },
+        "ghcr.io": {
+          "platforms": ["linux/amd64", "linux/arm64"],
+          "publish_path_profile": "ghcr-from-gitea-pat"
+        }
+      },
+      "immutable_tag_patterns": ["^[0-9]{4}\\.[0-9]+\\.[0-9]+(?:-[0-9A-Za-z.-]+)?$"]
     },
     "gliner": {
       "exposure": "public-optional-runtime",

@@ -1,20 +1,32 @@
 #!/usr/bin/env bash
-# Promote exact-revision internal images to GHCR without rebuilding amd64.
+# Promote exact-revision internal release images to GHCR by digest (#623).
+#
+# publish-release builds every family once, as a linux/amd64 + linux/arm64
+# index, in the internal Gitea registry. This job copies each index by digest,
+# so GHCR serves byte-identical manifests (same index and per-platform digests)
+# and nothing is rebuilt. Each family is described by three variables:
+#
+#   <FAMILY>_SOURCE_TAG   tag in SOURCE_IMAGE (or MCP_SOURCE_IMAGE for MCP)
+#   <FAMILY>_TARGET_TAGS  space-separated tags to create in the target repository
+#
+# Families: API, BUNDLE (SOURCE_IMAGE -> TARGET_IMAGE) and MCP
+# (MCP_SOURCE_IMAGE -> MCP_TARGET_IMAGE).
 set -euo pipefail
 
 SOURCE_IMAGE="${SOURCE_IMAGE:?SOURCE_IMAGE is required}"
 TARGET_IMAGE="${TARGET_IMAGE:?TARGET_IMAGE is required}"
+MCP_SOURCE_IMAGE="${MCP_SOURCE_IMAGE:?MCP_SOURCE_IMAGE is required}"
+MCP_TARGET_IMAGE="${MCP_TARGET_IMAGE:?MCP_TARGET_IMAGE is required}"
 API_SOURCE_TAG="${API_SOURCE_TAG:?API_SOURCE_TAG is required}"
 BUNDLE_SOURCE_TAG="${BUNDLE_SOURCE_TAG:?BUNDLE_SOURCE_TAG is required}"
+MCP_SOURCE_TAG="${MCP_SOURCE_TAG:?MCP_SOURCE_TAG is required}"
 API_TARGET_TAGS="${API_TARGET_TAGS:?API_TARGET_TAGS is required}"
 BUNDLE_TARGET_TAGS="${BUNDLE_TARGET_TAGS:?BUNDLE_TARGET_TAGS is required}"
+MCP_TARGET_TAGS="${MCP_TARGET_TAGS:?MCP_TARGET_TAGS is required}"
 VERSION="${VERSION:?VERSION is required}"
 GITHUB_SHA="${GITHUB_SHA:?GITHUB_SHA is required}"
 
-SHORT_SHA="${GITHUB_SHA:0:7}"
-SOURCE_API="${SOURCE_IMAGE}:${API_SOURCE_TAG}"
-SOURCE_BUNDLE="${SOURCE_IMAGE}:${BUNDLE_SOURCE_TAG}"
-ARM64_CACHE="${TARGET_IMAGE}:bundle-buildcache-linux-arm64"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 retry() {
     local attempt
@@ -29,101 +41,50 @@ retry() {
     return 1
 }
 
-verify_revision() {
-    local image="$1"
-    local revision
-    revision="$(docker image inspect \
-        --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' \
-        "$image")"
-    if [[ "$revision" != "$GITHUB_SHA" ]]; then
-        echo "ERROR: ${image} revision ${revision:-<missing>} does not match ${GITHUB_SHA}" >&2
+index_digest() {
+    docker buildx imagetools inspect --format '{{json .Manifest}}' "$1" | jq -r .digest
+}
+
+promote() {
+    local family="$1" source_ref="$2" target_repo="$3" target_tags="$4"
+    local -a tags tag_args
+    local tag source_digest target_digest
+
+    read -r -a tags <<<"$target_tags"
+    if (( ${#tags[@]} == 0 )); then
+        echo "ERROR: ${family} needs at least one target tag" >&2
         return 1
     fi
-}
 
-push_aliases() {
-    local source="$1"
-    local tag
-    shift
-    for tag in "$@"; do
-        docker tag "$source" "${TARGET_IMAGE}:${tag}"
-        retry docker push "${TARGET_IMAGE}:${tag}"
+    echo "Promoting ${family}: ${source_ref}"
+    "${SCRIPT_DIR}/verify-multiarch-image.sh" "$source_ref" "$GITHUB_SHA" "$VERSION"
+    source_digest="$(index_digest "$source_ref")"
+    if [[ ! "$source_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+        echo "ERROR: cannot resolve the ${family} source index digest" >&2
+        return 1
+    fi
+
+    tag_args=()
+    for tag in "${tags[@]}"; do
+        tag_args+=(--tag "${target_repo}:${tag}")
     done
+    # A single index source is copied unchanged (children and index by digest).
+    retry docker buildx imagetools create "${tag_args[@]}" \
+        "${source_ref%:*}@${source_digest}"
+
+    for tag in "${tags[@]}"; do
+        target_digest="$(index_digest "${target_repo}:${tag}")"
+        if [[ "$target_digest" != "$source_digest" ]]; then
+            echo "ERROR: ${target_repo}:${tag} is ${target_digest}, expected ${source_digest}" >&2
+            return 1
+        fi
+    done
+    "${SCRIPT_DIR}/verify-multiarch-image.sh" "${target_repo}:${tags[0]}" "$GITHUB_SHA" "$VERSION"
+    echo "${family}: ${target_repo} ${target_tags} -> ${source_digest}"
 }
 
-read -r -a api_tags <<<"$API_TARGET_TAGS"
-read -r -a bundle_tags <<<"$BUNDLE_TARGET_TAGS"
-if (( ${#api_tags[@]} == 0 || ${#bundle_tags[@]} == 0 )); then
-    echo "ERROR: at least one API and bundle target tag is required" >&2
-    exit 1
-fi
+promote api "${SOURCE_IMAGE}:${API_SOURCE_TAG}" "$TARGET_IMAGE" "$API_TARGET_TAGS"
+promote bundle "${SOURCE_IMAGE}:${BUNDLE_SOURCE_TAG}" "$TARGET_IMAGE" "$BUNDLE_TARGET_TAGS"
+promote mcp "${MCP_SOURCE_IMAGE}:${MCP_SOURCE_TAG}" "$MCP_TARGET_IMAGE" "$MCP_TARGET_TAGS"
 
-echo "Promoting exact API image ${SOURCE_API}"
-retry docker pull --platform linux/amd64 "$SOURCE_API"
-verify_revision "$SOURCE_API"
-push_aliases "$SOURCE_API" "${api_tags[@]}"
-
-echo "Promoting exact amd64 bundle image ${SOURCE_BUNDLE}"
-retry docker pull --platform linux/amd64 "$SOURCE_BUNDLE"
-verify_revision "$SOURCE_BUNDLE"
-
-BUILD_DATE="$(docker image inspect \
-    --format '{{index .Config.Labels "org.opencontainers.image.created"}}' \
-    "$SOURCE_BUNDLE")"
-if [[ -z "$BUILD_DATE" || "$BUILD_DATE" == "<no value>" ]]; then
-    echo "ERROR: ${SOURCE_BUNDLE} has no build-date label" >&2
-    exit 1
-fi
-
-# The internal bundle contains the shard regenerated by the gated publication
-# job. Reuse it so the arm64 image carries the same exact seed data.
-seed_container="$(docker create "$SOURCE_BUNDLE")"
-cleanup() {
-    docker rm -f "$seed_container" >/dev/null 2>&1 || true
-}
-trap cleanup EXIT
-find docker/seed-data -mindepth 1 -maxdepth 1 -exec rm -rf {} +
-docker cp "${seed_container}:/app/seed-data/." docker/seed-data/
-cleanup
-trap - EXIT
-
-immutable_bundle_tag="${bundle_tags[0]}"
-amd64_tag="${immutable_bundle_tag}-linux-amd64"
-arm64_tag="${immutable_bundle_tag}-linux-arm64"
-push_aliases "$SOURCE_BUNDLE" "$amd64_tag"
-
-echo "Building the required arm64 bundle variant with a verified registry cache"
-retry docker buildx build \
-    --platform linux/arm64 \
-    --provenance=false \
-    -f Dockerfile.bundle \
-    --build-arg "VERSION=${VERSION}" \
-    --build-arg "GIT_SHA=${GITHUB_SHA}" \
-    --build-arg "BUILD_DATE=${BUILD_DATE}" \
-    --cache-from "type=registry,ref=${ARM64_CACHE}" \
-    --cache-to "type=registry,ref=${ARM64_CACHE},mode=max,image-manifest=true" \
-    -t "${TARGET_IMAGE}:${arm64_tag}" \
-    --push .
-
-manifest_args=()
-for tag in "${bundle_tags[@]}"; do
-    manifest_args+=(--tag "${TARGET_IMAGE}:${tag}")
-done
-retry docker buildx imagetools create \
-    "${manifest_args[@]}" \
-    "${TARGET_IMAGE}:${amd64_tag}" \
-    "${TARGET_IMAGE}:${arm64_tag}"
-
-manifest="$(
-    docker buildx imagetools inspect \
-        --raw "${TARGET_IMAGE}:${immutable_bundle_tag}"
-)"
-jq -e '
-    [.manifests[].platform | "\(.os)/\(.architecture)"] | sort
-    == ["linux/amd64", "linux/arm64"]
-' <<<"$manifest" >/dev/null
-
-echo "Promoted ${TARGET_IMAGE} at ${GITHUB_SHA} (${SHORT_SHA})"
-echo "API tags: ${API_TARGET_TAGS}"
-echo "Bundle tags: ${BUNDLE_TARGET_TAGS}"
-echo "Bundle platforms: linux/amd64, linux/arm64"
+echo "Promoted ${TARGET_IMAGE} and ${MCP_TARGET_IMAGE} at ${GITHUB_SHA} (linux/amd64, linux/arm64)"

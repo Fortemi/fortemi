@@ -200,7 +200,7 @@ docker run --rm \
 
 The bundle image bakes `docker/seed-data/fortemi-docs.shard` (the in-product support memory archive) into `/app/seed-data` so first-boot seeding has a known-good corpus to import.
 
-**CI rebuild (automatic):** `ci-builder.yaml`'s `publish-dev` and `publish-release` jobs run `scripts/ci/rebuild-shard-in-ci.sh ${IMAGE}:<tag>` after building the API-only image and before building the bundle. The helper stands up a transient Postgres + API stack on an isolated Docker network, waits for `/health` (the API auto-runs sqlx migrations on startup), runs `scripts/rebuild-docs-shard.sh` to import the current source tree, and tears the stack down. Bundle builds fail loudly if the rebuild fails — we never ship a stale shard. See issue #652.
+**CI rebuild (automatic):** `ci-builder.yaml`'s `publish-release` job runs `scripts/ci/rebuild-shard-in-ci.sh ${IMAGE}:<tag>` after pushing the multi-platform API-only image (the helper runs its amd64 member) and before building the bundle. The helper stands up a transient Postgres + API stack on an isolated Docker network, waits for `/health` (the API auto-runs sqlx migrations on startup), runs `scripts/rebuild-docs-shard.sh` to import the current source tree, and tears the stack down. Bundle builds fail loudly if the rebuild fails — we never ship a stale shard. See issue #652.
 
 **Manual rebuild (ad-hoc testing):** with a Fortémi instance already running locally:
 

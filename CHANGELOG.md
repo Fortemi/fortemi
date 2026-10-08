@@ -165,6 +165,35 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   promotion by digest into ECR or other private registries with signatures
   and attestations (`oras copy -r`), Kyverno and policy-controller admission,
   and key provisioning and rotation.
+- Release images are multi-architecture (#623). `publish-release` builds the
+  API image (`fortemi:<version>`, also used by the worker and migration Job),
+  the new standalone MCP image (`fortemi-mcp:<version>`, referenced by the
+  Helm chart and Kustomize base) and the bundle (`fortemi:bundle-<version>`)
+  once each, as `linux/amd64` + `linux/arm64` indexes, and pushes them to the
+  Gitea registry. `publish-github` then copies each index to GHCR by digest
+  with `docker buildx imagetools create`, so both registries serve identical
+  index and platform digests; the old GHCR-side arm64 bundle rebuild and its
+  registry cache are gone. The release-evidence policy now expects both
+  platforms for every family in both registries, and `verify-ghcr-release`
+  checks both platform images' revision and version labels anonymously.
+- The Rust builder stages of `Dockerfile` and `Dockerfile.bundle` run on the
+  build host's platform and cross-compile with the Debian bookworm cross
+  toolchain (`docker/rust-cross-build.sh`), so arm64 images never compile Rust
+  under QEMU; only the arm64 runtime stages (package installs, copies) are
+  emulated. A full no-cache two-platform build takes about 4 minutes for the
+  API image and 6 minutes for the bundle on the release runner, against about
+  70 minutes for the previous emulated arm64 bundle build. Local
+  `docker build` keeps working for the host platform.
+- Before anything reaches GHCR, the release job runs the arm64 API and bundle
+  images under QEMU, requires `/health`, and uploads receipts with the index
+  and platform digests (`container-smoke-evidence-<run-id>`). This is emulated
+  arm64 evidence; there is no native arm64 runner.
+- The binfmt handler and the BuildKit image used for release builds are now
+  pinned by digest (`scripts/ci/setup-multiarch-buildx.sh`, `ci/digests.txt`).
+- The first release that publishes `ghcr.io/fortemi/fortemi-mcp` creates a
+  private GHCR package. An organization owner must make it public once; until
+  then `verify-ghcr-release` fails its anonymous pull and the release is not
+  finalized (`docs/deployment/image-promotion.md#public-ghcr-packages`).
 
 ### Hosted
 

@@ -27,7 +27,7 @@ WIRED_CONTROL_FIELDS = (
 )
 RUST_DOCKERFILES = (Path("Dockerfile"), Path("Dockerfile.bundle"))
 MINIMUM_RUST_STACK_BYTES = 268_435_456
-EXPECTED_FAMILIES = {"api", "bundle", "gliner", "pyannote", "builder", "testdb"}
+EXPECTED_FAMILIES = {"api", "bundle", "mcp", "gliner", "pyannote", "builder", "testdb"}
 EXPECTED_REGISTRIES = {"git.integrolabs.net", "ghcr.io"}
 EXPECTED_BUILD_ARGS = {"VERSION", "GIT_SHA", "BUILD_DATE"}
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -178,7 +178,21 @@ def main() -> int:
                     f"{family_id}: {workflow} uses unreviewed build args {sorted(unexpected_args)}"
                 )
 
-    if "--provenance=false" in Path("scripts/ci/promote-ghcr-images.sh").read_text():
+    ci_workflow = CI_WORKFLOW.read_text()
+    release_build = ci_workflow.split("- name: Build and push release images", 1)[-1].split(
+        "- name: Upload internal release image evidence", 1
+    )[0]
+    for required in (
+        "PLATFORMS=linux/amd64,linux/arm64",
+        "scripts/ci/verify-multiarch-image.sh",
+        "-f Dockerfile.mcp",
+        "-f Dockerfile.bundle",
+    ):
+        if required not in release_build:
+            failures.append(f"multi-platform release build is missing: {required}")
+    if release_build.count('--platform "${PLATFORMS}"') < 3:
+        failures.append("every release image family must build for both platforms")
+    if "--provenance=false" in release_build:
         provenance = controls.get("provenance", {})
         if "OIDC" not in provenance.get("reason", "") or provenance.get("status") not in {
             "deferred",
@@ -191,7 +205,6 @@ def main() -> int:
         ):
             failures.append("provenance without OIDC must be authenticated by the release key")
 
-    ci_workflow = CI_WORKFLOW.read_text()
     wired = [
         name
         for name in ("sbom", "provenance", "signature")
@@ -258,6 +271,9 @@ def main() -> int:
         '--alias "${TARGET_IMAGE}:bundle-latest"',
         'verify_labels "${TARGET_IMAGE}:${VERSION}"',
         'verify_labels "${TARGET_IMAGE}:bundle-${VERSION}"',
+        '--immutable-ref "${MCP_TARGET_IMAGE}:${VERSION}"',
+        'verify_labels "${MCP_TARGET_IMAGE}:${VERSION}"',
+        "scripts/ci/verify-multiarch-image.sh",
     ):
         if required not in public_verifier:
             failures.append(f"public GHCR verifier is missing: {required}")

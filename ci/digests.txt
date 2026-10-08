@@ -18,6 +18,8 @@ tool       kubeconform       9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d
 tool       kustomize         029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d    v5.8.1            2026-10-08   #1153 follow-up Kustomize base render + Helm parity (helm-chart job); kustomize_v5.8.1_linux_amd64.tar.gz sha256 from release checksums.txt; scripts/ci/kustomize-helm-parity.sh
 container  node:22-bookworm-slim  sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3  22-bookworm-slim  2026-10-08   #1153 Dockerfile.mcp base (same pin as Dockerfile.bundle node-runtime stage); not a workflow reference
 container    otel/opentelemetry-collector  sha256:b6d2b9a85b1029d05b5ad913150c1f014eed4ae99be81a1813ca5ade4a191913  0.161.0  2026-10-08   initial pin (scripts/test-otel-collector.sh, test.yml OTLP collector integration) (#1156)
+container  tonistiigi/binfmt  sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0  qemu-v10.2.3-68  2026-10-08   #623 arm64 binfmt handler for multi-platform release builds and arm64 smoke tests (scripts/ci/setup-multiarch-buildx.sh); index digest, same as qemu-v10.2.3
+container  moby/buildkit      sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea  v0.33.1          2026-10-08   #623 docker-container buildx driver image for release builds (scripts/ci/setup-multiarch-buildx.sh); same digest as buildx-stable-1 on the pin date
 #
 # Residual hardening:
 #   collect live Gitea CI evidence for guarded pull-request and release/tag runs

@@ -268,6 +268,7 @@ For local sidecar/dev rollback only, set both `REQUIRE_AUTH=false` and `I_UNDERS
 Current automation (implemented):
 
 - [x] Docker image publishing on tag push (ghcr.io and internal registry)
+- [x] Multi-architecture (`linux/amd64`, `linux/arm64`) API, MCP and bundle images
 - [x] GitHub Release creation with changelog
 - [x] Gitea Release creation with changelog
 
@@ -275,4 +276,3 @@ Planned improvements:
 
 - [ ] Automatic CHANGELOG generation from commits
 - [ ] Release notification webhooks
-- [ ] Multi-architecture Docker builds (arm64)

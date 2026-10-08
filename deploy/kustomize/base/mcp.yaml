@@ -1,8 +1,9 @@
 ---
 # MCP server (Dockerfile.mcp, Node, user `node` uid 1000), HTTP transport on
 # :3001. It reaches the API in-cluster through the fortemi-api Service; the
-# public issuer stays ISSUER_URL. The image is not yet published by release CI:
-# build Dockerfile.mcp and pin it in the overlay's `images:`. The read-only
+# public issuer stays ISSUER_URL. Release CI publishes the image as
+# ghcr.io/fortemi/fortemi-mcp:<version> (linux/amd64 + linux/arm64); pin its
+# index digest in the overlay's `images:`. The read-only
 # root was verified by running that image with a read-only root and /tmp as
 # tmpfs: /health answered (2026-10-08). components/without-mcp removes it.
 apiVersion: apps/v1

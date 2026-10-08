@@ -27,9 +27,22 @@ that the provenance subject is the signed digest and that the provenance
 predicates and a per-digest receipt are uploaded as the
 `container-supply-chain-evidence-<run-id>` CI artifact, retained for 365 days.
 
-Image families come from the receipt list. The API and bundle images are
-covered today. Split API, worker and MCP images get the same treatment once
-their publication jobs record a receipt. The workflow needs no other change.
+Image families come from the receipt list: the API image (also used by the
+worker and migration Job), the MCP image `fortemi-mcp` and the bundle. Every
+release tag is a `linux/amd64` + `linux/arm64` index, so the index and both
+platform manifests are signed, and each platform manifest carries its own
+SBOM. A new family is covered as soon as its publication job records a
+receipt; the workflow needs no other change.
+
+### Public GHCR packages
+
+GHCR creates a new package as private. `ghcr.io/fortemi/fortemi` is public.
+`ghcr.io/fortemi/fortemi-mcp` is created by the first release that publishes
+it, and an organization owner must then set it to public once (GitHub →
+Fortemi organization → Packages → `fortemi-mcp` → Package settings → Change
+visibility → Public). Until then `verify-ghcr-release` fails its anonymous
+pull and the release entries are not finalized; re-run that job after the
+change.
 
 ### Trust model
 
@@ -149,7 +162,8 @@ aws ecr get-login-password --region us-east-1 |
 aws ecr get-login-password --region us-east-1 |
   docker login --username AWS --password-stdin "${DST%%/*}"
 
-# 3. Copy the exact digest plus signatures and attestations
+# 3. Copy the exact digest plus signatures and attestations. For a
+#    multi-platform index this copies both platform images as well.
 oras copy -r "${SRC}@${DIGEST}" "${DST}:bundle-2026.10.0"
 
 # 4. Re-verify at the destination by digest; the digest must not change

@@ -57,9 +57,11 @@ env:
   # Internal Gitea registry
   REGISTRY: git.integrolabs.net
   IMAGE_NAME: fortemi/fortemi
+  MCP_IMAGE_NAME: fortemi/fortemi-mcp
   # GitHub Container Registry (public releases)
   GHCR_REGISTRY: ghcr.io
   GHCR_IMAGE_NAME: fortemi/fortemi
+  GHCR_MCP_IMAGE_NAME: fortemi/fortemi-mcp
   VAULT_ADDR: ${{ vars.VAULT_ADDR }}
   GH_PUBLISH_TOKEN_VAULT_PATH: ${{ vars.GH_PUBLISH_TOKEN_VAULT_PATH }}
   GH_PUBLISH_TOKEN_VAULT_FIELD: ${{ vars.GH_PUBLISH_TOKEN_VAULT_FIELD }}
@@ -1173,64 +1175,84 @@ jobs:
       - name: Log in to registry
         run: printf '%s\n' "${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" | docker login ${REGISTRY} -u ${{ gitea.actor }} --password-stdin
 
+      # Every release family is built once, here, as a linux/amd64 + linux/arm64
+      # index and pushed straight to the internal registry; GHCR receives the
+      # same indexes by digest (publish-github). Rust is cross-compiled on the
+      # amd64 runner (docker/rust-cross-build.sh); only the arm64 runtime stages
+      # (package installs, copies) run under QEMU (#623).
+      - name: Set up multi-platform buildx
+        run: scripts/ci/setup-multiarch-buildx.sh
+
       - name: Build and push release images
         run: |
           set -euo pipefail
           IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          MCP_IMAGE="${REGISTRY}/${MCP_IMAGE_NAME}"
           VERSION="${GITHUB_REF_NAME#v}"
           BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          PLATFORMS=linux/amd64,linux/arm64
 
-          # Retry function for transient registry errors
-          push_with_retry() {
-            local image=$1
-            local max_attempts=3
-            local attempt=1
-            while [ $attempt -le $max_attempts ]; do
-              echo "Pushing ${image} (attempt ${attempt}/${max_attempts})..."
-              if docker push "${image}"; then
+          # Build and push one multi-platform index, retrying transient
+          # registry failures, then prove both platforms and their labels.
+          build_and_push() {
+            local label="$1" attempt=1
+            shift
+            while true; do
+              echo "Building ${label} for ${PLATFORMS} (attempt ${attempt}/3)"
+              if docker buildx build "$@"; then
                 return 0
               fi
-              echo "Push failed, waiting before retry..."
+              if [ "${attempt}" -ge 3 ]; then
+                echo "${label} multi-platform build failed after ${attempt} attempts" >&2
+                exit 1
+              fi
               sleep $((attempt * 5))
               attempt=$((attempt + 1))
             done
-            echo "Failed to push ${image} after ${max_attempts} attempts"
-            exit 1
           }
 
-          echo "Building release images for version: ${VERSION}"
+          echo "Building release images for version: ${VERSION} (${PLATFORMS})"
 
-          # Build API-only image (for Kubernetes/external DB deployments)
-          docker build --no-cache \
+          # API-only image (for Kubernetes/external DB deployments)
+          build_and_push api --no-cache --platform "${PLATFORMS}" \
+            --provenance=false --sbom=false \
             --build-arg VERSION=${VERSION} \
             --build-arg GIT_SHA=${CHAIN_SOURCE_SHA} \
             --build-arg BUILD_DATE=${BUILD_DATE} \
-            -t ${IMAGE}:${VERSION} .
+            -t ${IMAGE}:${VERSION} -t ${IMAGE}:latest \
+            --push .
+          scripts/ci/verify-multiarch-image.sh "${IMAGE}:${VERSION}" "${CHAIN_SOURCE_SHA}" "${VERSION}"
 
-          docker tag ${IMAGE}:${VERSION} ${IMAGE}:latest
-
-          push_with_retry ${IMAGE}:${VERSION}
-          push_with_retry ${IMAGE}:latest
+          # Standalone MCP server image referenced by the Helm chart and the
+          # Kustomize base (#1153).
+          build_and_push mcp --no-cache --platform "${PLATFORMS}" \
+            --provenance=false --sbom=false \
+            -f Dockerfile.mcp \
+            --build-arg VERSION=${VERSION} \
+            --build-arg GIT_SHA=${CHAIN_SOURCE_SHA} \
+            --build-arg BUILD_DATE=${BUILD_DATE} \
+            -t ${MCP_IMAGE}:${VERSION} -t ${MCP_IMAGE}:latest \
+            --push .
+          scripts/ci/verify-multiarch-image.sh "${MCP_IMAGE}:${VERSION}" "${CHAIN_SOURCE_SHA}" "${VERSION}"
 
           # Regenerate fortemi-docs.shard against the freshly-built API image
           # so the bundle ships an up-to-date in-product help archive (#652).
           # Failure here aborts the bundle build — we never ship a stale shard
-          # in a tagged release.
+          # in a tagged release. The runner pulls the amd64 member of the index.
           scripts/ci/rebuild-shard-in-ci.sh ${IMAGE}:${VERSION}
 
-          # Build bundle image (all-in-one with embedded PostgreSQL).
-          # COPYs docker/seed-data which now contains the fresh shard.
-          docker build --no-cache \
+          # Bundle image (all-in-one with embedded PostgreSQL). COPYs
+          # docker/seed-data, which now contains the fresh shard, into both
+          # platform images.
+          build_and_push bundle --no-cache --platform "${PLATFORMS}" \
+            --provenance=false --sbom=false \
             -f Dockerfile.bundle \
             --build-arg VERSION=${VERSION} \
             --build-arg GIT_SHA=${CHAIN_SOURCE_SHA} \
             --build-arg BUILD_DATE=${BUILD_DATE} \
-            -t ${IMAGE}:bundle-${VERSION} .
-
-          docker tag ${IMAGE}:bundle-${VERSION} ${IMAGE}:bundle-latest
-
-          push_with_retry ${IMAGE}:bundle-${VERSION}
-          push_with_retry ${IMAGE}:bundle-latest
+            -t ${IMAGE}:bundle-${VERSION} -t ${IMAGE}:bundle-latest \
+            --push .
+          scripts/ci/verify-multiarch-image.sh "${IMAGE}:bundle-${VERSION}" "${CHAIN_SOURCE_SHA}" "${VERSION}"
 
           mkdir -p container-release-evidence
           python3 scripts/ci/capture-container-release-evidence.py \
@@ -1240,6 +1262,13 @@ jobs:
             --immutable-ref "${IMAGE}:${VERSION}" \
             --alias "${IMAGE}:latest" \
             --output container-release-evidence/gitea-api-release.json
+          python3 scripts/ci/capture-container-release-evidence.py \
+            --family mcp \
+            --source-revision "${CHAIN_SOURCE_SHA}" \
+            --channel release \
+            --immutable-ref "${MCP_IMAGE}:${VERSION}" \
+            --alias "${MCP_IMAGE}:latest" \
+            --output container-release-evidence/gitea-mcp-release.json
           python3 scripts/ci/capture-container-release-evidence.py \
             --family bundle \
             --source-revision "${CHAIN_SOURCE_SHA}" \
@@ -1251,9 +1280,34 @@ jobs:
           # Sidecar images (GLiNER, pyannote) are released independently
           # via build-gliner.yaml and build-pyannote.yaml workflows
 
-          echo "Published release images:"
+          echo "Published release images (linux/amd64, linux/arm64):"
           echo "  API-only: ${IMAGE}:${VERSION}, ${IMAGE}:latest"
+          echo "  MCP:      ${MCP_IMAGE}:${VERSION}, ${MCP_IMAGE}:latest"
           echo "  Bundle:   ${IMAGE}:bundle-${VERSION}, ${IMAGE}:bundle-latest"
+
+      # Run the arm64 members of the pushed API and bundle indexes under QEMU
+      # before anything reaches GHCR. The runner is amd64; this is emulated,
+      # not native, arm64 evidence (#623).
+      - name: Smoke-test arm64 release images (QEMU)
+        run: |
+          set -euo pipefail
+          IMAGE="${REGISTRY}/${IMAGE_NAME}"
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Receipts stay out of container-release-evidence/: the signing job
+          # treats every file there as a publication receipt.
+          scripts/ci/smoke-image-platform.sh --kind api --platform linux/arm64 \
+            --image "${IMAGE}:${VERSION}" \
+            --output container-smoke-evidence/arm64-api-smoke.json
+          scripts/ci/smoke-image-platform.sh --kind bundle --platform linux/arm64 \
+            --image "${IMAGE}:bundle-${VERSION}" \
+            --output container-smoke-evidence/arm64-bundle-smoke.json
+
+      - name: Upload release image smoke evidence
+        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
+        with:
+          name: container-smoke-evidence-${{ github.run_id }}
+          path: container-smoke-evidence/
+          retention-days: 365
 
       - name: Upload internal release image evidence
         uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
@@ -1296,22 +1350,22 @@ jobs:
           printf '%s\n' "${GH_PUBLISH_TOKEN:?GH_PUBLISH_TOKEN is required}" |
             docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
 
-      - name: Set up Docker buildx
-        run: |
-          docker run --privileged --rm tonistiigi/binfmt --install arm64
-          docker buildx create --name fortemi-multiarch --use 2>/dev/null || docker buildx use fortemi-multiarch
-          docker buildx inspect --bootstrap
-
+      # Copies the internal multi-platform indexes by digest; nothing is
+      # rebuilt and GHCR serves the same index and platform digests (#623).
       - name: Promote release images to ghcr.io
         run: |
           set -euo pipefail
           export VERSION="${GITHUB_REF_NAME#v}"
           export SOURCE_IMAGE="${REGISTRY}/${IMAGE_NAME}"
           export TARGET_IMAGE="${GHCR_REGISTRY}/${GHCR_IMAGE_NAME}"
+          export MCP_SOURCE_IMAGE="${REGISTRY}/${MCP_IMAGE_NAME}"
+          export MCP_TARGET_IMAGE="${GHCR_REGISTRY}/${GHCR_MCP_IMAGE_NAME}"
           export API_SOURCE_TAG="${VERSION}"
           export BUNDLE_SOURCE_TAG="bundle-${VERSION}"
+          export MCP_SOURCE_TAG="${VERSION}"
           export API_TARGET_TAGS="${VERSION} latest"
           export BUNDLE_TARGET_TAGS="bundle-${VERSION} bundle-latest"
+          export MCP_TARGET_TAGS="${VERSION} latest"
           scripts/ci/promote-ghcr-images.sh
 
           mkdir -p container-release-evidence
@@ -1329,12 +1383,20 @@ jobs:
             --immutable-ref "${TARGET_IMAGE}:bundle-${VERSION}" \
             --alias "${TARGET_IMAGE}:bundle-latest" \
             --output container-release-evidence/ghcr-bundle-release.json
+          python3 scripts/ci/capture-container-release-evidence.py \
+            --family mcp \
+            --source-revision "${CHAIN_SOURCE_SHA}" \
+            --channel release \
+            --immutable-ref "${MCP_TARGET_IMAGE}:${VERSION}" \
+            --alias "${MCP_TARGET_IMAGE}:latest" \
+            --output container-release-evidence/ghcr-mcp-release.json
 
           # Sidecar images (GLiNER, pyannote) are released independently
           # via build-gliner.yaml and build-pyannote.yaml workflows
 
-          echo "Published to GitHub Container Registry:"
+          echo "Published to GitHub Container Registry (linux/amd64, linux/arm64):"
           echo "  API-only: ${TARGET_IMAGE}:${VERSION}, ${TARGET_IMAGE}:latest"
+          echo "  MCP:      ${MCP_TARGET_IMAGE}:${VERSION}, ${MCP_TARGET_IMAGE}:latest"
           echo "  Bundle:   ${TARGET_IMAGE}:bundle-${VERSION}, ${TARGET_IMAGE}:bundle-latest"
 
       - name: Upload GHCR release image evidence
@@ -1459,6 +1521,7 @@ jobs:
         run: |
           set -euo pipefail
           export TARGET_IMAGE="${GHCR_REGISTRY}/${GHCR_IMAGE_NAME}"
+          export MCP_TARGET_IMAGE="${GHCR_REGISTRY}/${GHCR_MCP_IMAGE_NAME}"
           export VERSION="${GITHUB_REF_NAME#v}"
           scripts/ci/verify-ghcr-publication.sh
 

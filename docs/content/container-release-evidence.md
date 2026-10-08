@@ -15,12 +15,24 @@ its workflow coverage with
 
 | Family | Intended exposure | Gitea registry | GHCR | Expected platform |
 |---|---|---|---|---|
-| API | Public runtime | Direct build and push | Promotion from the exact Gitea image | `linux/amd64` |
-| Bundle | Public runtime | Direct build and push | Gitea amd64 promotion plus arm64 build | Gitea: `linux/amd64`; GHCR: `linux/amd64`, `linux/arm64` |
+| API | Public runtime | Direct multi-platform build and push | Copy of the exact Gitea index by digest | `linux/amd64`, `linux/arm64` |
+| MCP (`fortemi-mcp`) | Public runtime | Direct multi-platform build and push | Copy of the exact Gitea index by digest | `linux/amd64`, `linux/arm64` |
+| Bundle | Public runtime | Direct multi-platform build and push | Copy of the exact Gitea index by digest | `linux/amd64`, `linux/arm64` |
 | GLiNER | Public optional runtime | Direct multi-platform push | Direct multi-platform push | `linux/amd64`, `linux/arm64` |
 | pyannote | Public optional runtime | Direct push | Direct push | `linux/amd64` |
 | Builder | Public CI infrastructure, not an end-user runtime | Direct push | Direct push | `linux/amd64` |
 | Test database | Public CI infrastructure, not an end-user runtime | Direct push | Direct push | `linux/amd64` |
+
+The API, MCP and bundle images are built once per release on the amd64
+runner with `docker buildx` and pushed to Gitea as two-platform indexes. The
+Rust builder stages cross-compile for `aarch64-unknown-linux-gnu` with the
+Debian bookworm cross toolchain (`docker/rust-cross-build.sh`), so only the
+arm64 runtime stages (package installs and file copies) run under QEMU. The
+release job then starts the arm64 API and bundle images under QEMU and checks
+`/health` before GHCR is touched; that is emulated evidence, not a native arm64
+run. GHCR receives each index with `docker buildx imagetools create` from the
+Gitea digest, so both registries hold identical indexes and platform digests,
+and GHCR is the public source of truth for pulls.
 
 Gitea is the source-control and workflow origin for every path. Registry
 credentials are fetched from Vault. The GitHub PAT authorizes writes to GHCR;

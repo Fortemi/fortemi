@@ -63,7 +63,7 @@ patches:
 # with the digest of the image you built and pushed:
 #   server: a hosted build (FORTEMI_API_FEATURES with a KMS backend); the
 #           published ghcr.io/fortemi/fortemi image has none.
-#   mcp:    Dockerfile.mcp; release CI does not publish an MCP image yet.
+#   mcp:    ghcr.io/fortemi/fortemi-mcp:<version> (multi-arch index digest).
 #   docker buildx imagetools inspect <registry>/<repo>:<tag> --format '{{json .Manifest.Digest}}'
 images:
   - name: fortemi/server

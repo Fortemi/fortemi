@@ -7,7 +7,10 @@
 # For all-in-one deployment with embedded PostgreSQL, use Dockerfile.bundle instead.
 #
 # Build stage
-FROM rust:1.92.0-slim-bookworm@sha256:f1f73538ebe623fd3673a35aff3df358ae1084c64c55646516e5b17b321b6c9b AS builder
+# The builder runs on the build host's platform and cross-compiles for the
+# image platform (docker/rust-cross-build.sh), so linux/arm64 images never
+# compile Rust under QEMU emulation (#623).
+FROM --platform=$BUILDPLATFORM rust:1.92.0-slim-bookworm@sha256:f1f73538ebe623fd3673a35aff3df358ae1084c64c55646516e5b17b321b6c9b AS builder
 
 # Build arguments for version stamping
 ARG VERSION=dev
@@ -24,28 +27,14 @@ ARG RUST_MIN_STACK=268435456
 
 WORKDIR /app
 
-# Install build dependencies. Retry the verified update/install transaction to
-# tolerate short-lived repository/proxy failures without disabling APT
-# signature or TLS validation.
-RUN set -eux; \
-    attempt=1; \
-    while true; do \
-        if apt-get -o Acquire::Retries=3 update && \
-            apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
-                pkg-config \
-                libssl-dev \
-                curl; then \
-            break; \
-        fi; \
-        if [ "${attempt}" -ge 3 ]; then \
-            echo "APT build dependency installation failed after ${attempt} attempts" >&2; \
-            exit 1; \
-        fi; \
-        rm -rf /var/lib/apt/lists/*; \
-        sleep $((attempt * 5)); \
-        attempt=$((attempt + 1)); \
-    done; \
-    rm -rf /var/lib/apt/lists/*
+# Image platform supplied by BuildKit (amd64 or arm64).
+ARG TARGETARCH
+
+# Install the build toolchain (plus the Debian cross toolchain and target
+# libssl when TARGETARCH differs from the build host). The helper retries the
+# verified APT transaction without disabling signature or TLS validation.
+COPY docker/rust-cross-build.sh /usr/local/bin/rust-cross-build
+RUN rust-cross-build install-deps
 
 # Copy workspace files
 COPY Cargo.toml Cargo.lock ./
@@ -59,8 +48,8 @@ ENV MATRIC_GIT_SHA=${GIT_SHA}
 ENV MATRIC_BUILD_DATE=${BUILD_DATE}
 
 RUN RUST_MIN_STACK="${RUST_MIN_STACK}" \
-    cargo build --locked --release --package matric-api --features "${FORTEMI_API_FEATURES}" && \
-    cp target/release/matric-api /app/matric-api
+    rust-cross-build cargo build --locked --release --package matric-api --features "${FORTEMI_API_FEATURES}" && \
+    cp "target/$(rust-cross-build triple)/release/matric-api" /app/matric-api
 
 # Runtime stage
 FROM debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818 AS runtime

@@ -151,12 +151,17 @@ is reserved for versioned release refs.
 
 ### 7. Publish Release (runs on: matric-builder)
 
-Publishes release images to internal registry on version tags:
+Builds every release image once with `docker buildx` as a `linux/amd64` +
+`linux/arm64` index and pushes it to the internal registry on version tags.
+Rust is cross-compiled on the amd64 runner (`docker/rust-cross-build.sh`); only
+the arm64 runtime stages run under QEMU. The job then starts the arm64 API and
+bundle images under QEMU and requires `/health` before GHCR is touched.
 
-**Tags published**:
+**Tags published** (`git.integrolabs.net/fortemi/fortemi` unless noted):
 - `{version}` - Semantic version (e.g., `2026.2.0`)
 - `latest` - Latest stable release
 - `bundle-{version}`, `bundle-latest` - All-in-one images
+- `git.integrolabs.net/fortemi/fortemi-mcp`: `{version}`, `latest` - Standalone MCP server
 
 `latest` and `bundle-latest` are mutable convenience aliases. Release verification records immutable digest references from the versioned tags:
 
@@ -176,11 +181,16 @@ Production deployments should pin `ghcr.io/fortemi/fortemi@sha256:...` reference
 
 ### 8. Publish to GitHub (ghcr.io)
 
-Publishes release images to GitHub Container Registry for public distribution:
+Copies the internal indexes to GitHub Container Registry by digest
+(`docker buildx imagetools create`), so GHCR serves the same index and
+platform digests. Nothing is rebuilt:
 
 ```yaml
 IMAGE: ghcr.io/fortemi/fortemi
 Tags: {version}, latest, bundle-{version}, bundle-latest
+IMAGE: ghcr.io/fortemi/fortemi-mcp
+Tags: {version}, latest
+Platforms: linux/amd64, linux/arm64
 ```
 
 **Dependencies**: Requires `test-container` and `integration-test` jobs to pass
@@ -433,6 +443,7 @@ Verify the `GH_PUBLISH_TOKEN` secret:
 
 - [ ] Add test coverage reporting
 - [ ] Cache cargo dependencies between runs
-- [ ] Multi-architecture Docker builds (arm64, armv7)
+- [x] Multi-architecture Docker builds (arm64) for the API, MCP and bundle images
+- [ ] armv7 images
 - [ ] Security scanning (cargo-audit, trivy)
 - [ ] Automatic SBOM generation
