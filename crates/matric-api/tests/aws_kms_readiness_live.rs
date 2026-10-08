@@ -170,7 +170,7 @@ fn kms_points(metrics: &[ResourceMetrics]) -> Vec<BTreeMap<String, String>> {
 fn has_point(points: &[BTreeMap<String, String>], expected: [&str; 4]) -> bool {
     points.iter().any(|point| {
         point.get("fortemi.kms.operation").map(String::as_str) == Some(expected[0])
-            && point.get("outcome").map(String::as_str) == Some(expected[1])
+            && point.get("fortemi.outcome").map(String::as_str) == Some(expected[1])
             && point.get("fortemi.kms.failure_class").map(String::as_str) == Some(expected[2])
             && point.get("fortemi.kms.retryability").map(String::as_str) == Some(expected[3])
     })
@@ -343,7 +343,7 @@ async fn live_aws_kms_readiness_and_metrics() {
             "fortemi.kms.failure_class",
             "fortemi.kms.operation",
             "fortemi.kms.retryability",
-            "outcome",
+            "fortemi.outcome",
         ])
     );
     let dump = format!("{latest:?}");
