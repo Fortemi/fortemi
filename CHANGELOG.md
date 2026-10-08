@@ -7,6 +7,16 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+### Deployment
+
+- Document managed PostgreSQL compatibility in
+  `docs/deployment/managed-postgres-compatibility.md`: PostgreSQL 18 is the
+  minimum because migrations use the built-in `uuidv7()`; required extensions,
+  who must create them, and an RDS / Aurora / CloudNativePG / self-managed
+  matrix. `pg_bigm` is optional and CJK search falls back to `pg_trgm` without
+  it. CI now fails when a migration adds a `CREATE EXTENSION` that the matrix
+  does not list (#1161).
+
 ### Authentication
 
 - Accept path-bearing HTTPS OIDC issuers such as Keycloak's

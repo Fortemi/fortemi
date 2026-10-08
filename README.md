@@ -324,12 +324,14 @@ Clean reset: `docker compose -f docker-compose.bundle.yml down -v && docker comp
 ### From Source
 
 ```bash
-# Prerequisites: Rust 1.70+, PostgreSQL 18+ with pgvector + PostGIS, Ollama (optional)
+# Prerequisites: Rust 1.70+, PostgreSQL 18+ with pgvector + PostGIS (pg_bigm optional), Ollama (optional)
 psql -c "CREATE EXTENSION IF NOT EXISTS vector;"
 psql -c "CREATE EXTENSION IF NOT EXISTS postgis;"
 for f in migrations/*.sql; do psql -d matric -f "$f"; done
 DATABASE_URL="postgres://matric:matric@localhost/matric" cargo run --release -p matric-api
 ```
+
+PostgreSQL 18 is the minimum (migrations use the built-in `uuidv7()`). `pg_bigm` is optional: without it CJK search falls back to `pg_trgm`. For managed databases (RDS, Aurora, CloudNativePG), required extensions and privileges, see [Managed PostgreSQL compatibility](docs/deployment/managed-postgres-compatibility.md).
 
 > **First build fails with "missing graph"?** Fortemi uses `sqlx::query!` compile-time checks. Either `export DATABASE_URL=...` against a Postgres with migrations applied, or generate offline metadata once with `cargo sqlx prepare --workspace` and build with `SQLX_OFFLINE=true`. See [CONTRIBUTING.md → sqlx compile-time query checks](CONTRIBUTING.md#sqlx-compile-time-query-checks).
 

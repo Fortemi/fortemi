@@ -337,6 +337,11 @@ jobs:
       - name: Check migration immutability
         run: python3 scripts/ci/verify-migration-immutability.py
 
+      - name: Check managed PostgreSQL extension matrix
+        run: |
+          python3 scripts/ci/verify-postgres-extension-matrix.py
+          python3 -m unittest tests/test_verify_postgres_extension_matrix.py
+
       - name: Check pre-migration backup gate
         run: python3 scripts/ci/verify-pre-migration-backup-gate.py
 
