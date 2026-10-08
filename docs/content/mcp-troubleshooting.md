@@ -203,7 +203,7 @@ curl -X POST http://localhost:3001/ \
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `ISSUER_URL` | Yes for hosted/multi-tenant | External URL. Hosted deployments must use public HTTPS; local `http://localhost:3000` requires `FORTEMI_ALLOW_LOCAL_ISSUER=true`. |
-| `FORTEMI_ALLOW_LOCAL_ISSUER` | Local only | Allows non-HTTPS/local issuer URLs for development. Never enable for hosted deployments. |
+| `FORTEMI_ALLOW_LOCAL_ISSUER` | Local only | Allows local or private issuer hosts (HTTP or HTTPS) for development. Never permits plain HTTP to a public host. Never enable for hosted deployments. |
 | `MCP_CLIENT_ID` | No | OAuth client ID (auto-managed by default) |
 | `MCP_CLIENT_SECRET` | No | OAuth client secret (auto-managed by default) |
 | `MCP_BASE_URL` | No | Defaults to `${ISSUER_URL}/mcp` |

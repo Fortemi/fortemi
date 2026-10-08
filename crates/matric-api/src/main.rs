@@ -2497,34 +2497,70 @@ fn validated_issuer_url_with_value(
     }
 }
 
+/// Validate `ISSUER_URL` (#1155).
+///
+/// Public issuers must use HTTPS and may carry a path such as Keycloak's
+/// `/realms/<name>`. The value is normalized only by removing trailing
+/// slashes; the token `iss` must then equal it exactly, and discovery reads
+/// `<issuer>/.well-known/openid-configuration`. Userinfo, query, fragment,
+/// dot segments and empty segments are rejected because they make the exact
+/// `iss` comparison ambiguous.
+///
+/// `FORTEMI_ALLOW_LOCAL_ISSUER` governs local/private destinations only: it
+/// permits a loopback, private or single-label host, over HTTP or HTTPS. It
+/// never permits plain HTTP to a public host.
 fn validate_configured_issuer_url(raw: &str, allow_local_issuer: bool) -> anyhow::Result<String> {
     let url = reqwest::Url::parse(raw)
         .map_err(|err| anyhow::anyhow!("ISSUER_URL must be a valid absolute URL: {err}"))?;
-    if !allow_local_issuer && url.scheme() != "https" {
-        anyhow::bail!("ISSUER_URL must use https unless FORTEMI_ALLOW_LOCAL_ISSUER=true");
+    if !matches!(url.scheme(), "https" | "http") {
+        anyhow::bail!("ISSUER_URL must use https");
     }
     if !url.username().is_empty() || url.password().is_some() {
         anyhow::bail!("ISSUER_URL must not contain userinfo");
     }
-    if url.query().is_some() || url.fragment().is_some() {
+    if url.query().is_some() || url.fragment().is_some() || raw.contains(['?', '#']) {
         anyhow::bail!("ISSUER_URL must not contain query or fragment components");
     }
-    if !allow_local_issuer && url.path() != "/" && !url.path().is_empty() {
-        anyhow::bail!("ISSUER_URL path components are not supported for hosted metadata");
+    let host = url
+        .host_str()
+        .ok_or_else(|| anyhow::anyhow!("ISSUER_URL must include a host"))?;
+    let local = is_local_or_private_issuer_host(host);
+    if local && !allow_local_issuer {
+        anyhow::bail!(
+            "ISSUER_URL host must be public and non-loopback unless \
+             FORTEMI_ALLOW_LOCAL_ISSUER=true"
+        );
     }
-    if !allow_local_issuer {
-        let host = url
-            .host_str()
-            .ok_or_else(|| anyhow::anyhow!("ISSUER_URL must include a host"))?;
-        if is_local_or_private_issuer_host(host) {
-            anyhow::bail!(
-                "ISSUER_URL host must be public and non-loopback unless \
-                 FORTEMI_ALLOW_LOCAL_ISSUER=true"
-            );
-        }
+    if url.scheme() != "https" && !local {
+        anyhow::bail!(
+            "ISSUER_URL must use https for a public host; FORTEMI_ALLOW_LOCAL_ISSUER \
+             only permits http for local or private hosts"
+        );
     }
+    validate_issuer_path(raw, url.path())?;
     let normalized = url.as_str().trim_end_matches('/').to_string();
     Ok(normalized)
+}
+
+/// Reject issuer paths whose meaning would change between the configured
+/// text, URL normalization and the token's literal `iss` claim.
+fn validate_issuer_path(raw: &str, parsed_path: &str) -> anyhow::Result<()> {
+    let trimmed = parsed_path.trim_end_matches('/');
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    let ambiguous = trimmed
+        .split('/')
+        .skip(1)
+        .any(|segment| segment.is_empty() || segment == "." || segment == "..");
+    // `Url::parse` silently resolves dot segments, so also check the raw text.
+    let raw_dot_segment = raw
+        .split('/')
+        .any(|segment| segment == "." || segment == "..");
+    if ambiguous || raw_dot_segment || trimmed.contains('%') {
+        anyhow::bail!("ISSUER_URL path must not contain empty, dot or percent-encoded segments");
+    }
+    Ok(())
 }
 
 fn is_local_or_private_issuer_host(host: &str) -> bool {
@@ -2532,15 +2568,25 @@ fn is_local_or_private_issuer_host(host: &str) -> bool {
     if matches!(lower.as_str(), "localhost" | "0.0.0.0" | "::" | "::1") {
         return true;
     }
-    if lower.ends_with(".localhost") || lower.ends_with(".local") {
+    if [".localhost", ".local", ".internal", ".lan", ".home.arpa"]
+        .iter()
+        .any(|suffix| lower.ends_with(suffix))
+    {
         return true;
     }
     match lower.parse::<IpAddr>() {
         Ok(IpAddr::V4(addr)) => {
             addr.is_loopback() || addr.is_private() || addr.is_link_local() || addr.is_unspecified()
         }
-        Ok(IpAddr::V6(addr)) => addr.is_loopback() || addr.is_unspecified(),
-        Err(_) => false,
+        Ok(IpAddr::V6(addr)) => {
+            let first = addr.segments()[0];
+            addr.is_loopback()
+                || addr.is_unspecified()
+                || (first & 0xfe00) == 0xfc00
+                || (first & 0xffc0) == 0xfe80
+        }
+        // Single-label names (`fortemi`, `nas`) only resolve on a local network.
+        Err(_) => !lower.contains('.'),
     }
 }
 
@@ -70676,6 +70722,87 @@ not-json
 
         let issuer = validated_issuer_url_with_value("127.0.0.1", 3000, &config, None).unwrap();
         assert_eq!(issuer, "http://127.0.0.1:3000");
+    }
+
+    #[test]
+    fn validated_issuer_accepts_realm_path_without_local_override() {
+        // #1155: Keycloak realm issuers must not require the local override.
+        let issuer =
+            validate_configured_issuer_url("https://idp.example.com/realms/acme", false).unwrap();
+        assert_eq!(issuer, "https://idp.example.com/realms/acme");
+        let nested =
+            validate_configured_issuer_url("https://idp.example.com/auth/realms/acme-prod", false)
+                .unwrap();
+        assert_eq!(nested, "https://idp.example.com/auth/realms/acme-prod");
+    }
+
+    #[test]
+    fn validated_issuer_normalizes_trailing_slash_only() {
+        let issuer =
+            validate_configured_issuer_url("https://idp.example.com/realms/acme/", false).unwrap();
+        assert_eq!(issuer, "https://idp.example.com/realms/acme");
+        let root = validate_configured_issuer_url("https://idp.example.com///", false).unwrap();
+        assert_eq!(root, "https://idp.example.com");
+        // Case and path are preserved: the token `iss` must match exactly.
+        let cased =
+            validate_configured_issuer_url("https://idp.example.com/realms/Acme", false).unwrap();
+        assert_ne!(cased, "https://idp.example.com/realms/acme");
+    }
+
+    #[test]
+    fn validated_issuer_rejects_ambiguous_paths_and_components() {
+        for raw in [
+            "https://idp.example.com/realms/acme?x=1",
+            "https://idp.example.com/realms/acme?",
+            "https://idp.example.com/realms/acme#frag",
+            "https://idp.example.com/realms/acme#",
+            "https://user:pass@idp.example.com/realms/acme",
+            "https://user@idp.example.com/realms/acme",
+            "https://idp.example.com/realms//acme",
+            "https://idp.example.com/realms/../admin",
+            "https://idp.example.com/realms/./acme",
+            "https://idp.example.com/realms/ac%2Fme",
+            "ftp://idp.example.com/realms/acme",
+        ] {
+            assert!(
+                validate_configured_issuer_url(raw, false).is_err(),
+                "{raw} must be rejected"
+            );
+            assert!(
+                validate_configured_issuer_url(raw, true).is_err(),
+                "{raw} must be rejected even with the local override"
+            );
+        }
+    }
+
+    #[test]
+    fn validated_issuer_override_governs_only_local_destinations() {
+        // Public HTTP is rejected with or without the override.
+        assert!(
+            validate_configured_issuer_url("http://idp.example.com/realms/acme", false).is_err()
+        );
+        assert!(
+            validate_configured_issuer_url("http://idp.example.com/realms/acme", true).is_err()
+        );
+        // Local and private hosts need the override, over HTTP or HTTPS.
+        for raw in [
+            "http://localhost:3000",
+            "https://localhost:8443/realms/dev",
+            "http://192.168.1.20:3000",
+            "http://10.0.0.5/realms/dev",
+            "http://fortemi:3000",
+            "http://nas.lan:3000",
+            "http://[fd00::1]:3000",
+        ] {
+            assert!(
+                validate_configured_issuer_url(raw, false).is_err(),
+                "{raw} must require the override"
+            );
+            assert!(
+                validate_configured_issuer_url(raw, true).is_ok(),
+                "{raw} must be allowed with the override"
+            );
+        }
     }
 
     #[test]

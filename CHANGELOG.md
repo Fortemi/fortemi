@@ -7,6 +7,19 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+### Authentication
+
+- Accept path-bearing HTTPS OIDC issuers such as Keycloak's
+  `https://idp.example.com/realms/<name>` without `FORTEMI_ALLOW_LOCAL_ISSUER`
+  (#1155). Trailing slashes are removed; the token `iss` must match the rest
+  exactly. Query, fragment, userinfo, dot, empty and percent-encoded path
+  segments are rejected.
+- `FORTEMI_ALLOW_LOCAL_ISSUER` now governs only local and private issuer hosts
+  (loopback, RFC 1918, IPv6 unique-local and link-local, single-label names,
+  `.local`, `.lan`, `.internal`, `.home.arpa`). It no longer permits plain HTTP
+  to a public host. Deployments that relied on that combination must move the
+  issuer to HTTPS.
+
 ## [2026.9.11] - 2026-09-20
 
 ### Contracts

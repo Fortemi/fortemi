@@ -190,8 +190,8 @@ rejected.
 | `REQUIRE_AUTH` | Boolean | `true` | Require authentication on protected endpoints. Anonymous local sidecar/dev mode requires `REQUIRE_AUTH=false` plus `I_UNDERSTAND_NO_AUTH=true`. Security booleans accept only `true`, `false`, `1`, or `0`; invalid values fail startup. |
 | `I_UNDERSTAND_NO_AUTH` | Boolean | `false` | Required companion flag for anonymous local sidecar/dev mode. Invalid values fail startup. |
 | `FORTEMI_MULTI_TENANT` | Boolean | `false` | Hosted/multi-tenant mode. Requires authentication and an explicit hosted-safe `ISSUER_URL`; invalid values fail startup. |
-| `FORTEMI_ALLOW_LOCAL_ISSUER` | Boolean | `false` | Local-development override that permits non-HTTPS or local issuer URLs. Do not enable for hosted deployments. |
-| `ISSUER_URL` | String | `http://<HOST>:<PORT>` local fallback only | External base URL for OAuth, MCP, and AsyncAPI metadata (e.g., https://memory.example.com). Required when `FORTEMI_MULTI_TENANT=true`; hosted values must be public HTTPS with no query, fragment, userinfo, private/listen/loopback host, or unsupported path. |
+| `FORTEMI_ALLOW_LOCAL_ISSUER` | Boolean | `false` | Permits a local or private issuer host (loopback, private address, single-label name, `.local`/`.lan`/`.internal`), over HTTP or HTTPS. It never permits plain HTTP to a public host and is not needed for path-bearing issuers. Do not enable for hosted deployments. |
+| `ISSUER_URL` | String | `http://<HOST>:<PORT>` local fallback only | External base URL for OAuth, MCP, and AsyncAPI metadata (e.g., https://memory.example.com). Required when `FORTEMI_MULTI_TENANT=true`; hosted values must be public HTTPS with no query, fragment, userinfo or private/listen/loopback host. A path such as Keycloak's `/realms/<name>` is allowed; trailing slashes are removed and the token `iss` must match the rest exactly. See [Issuer URL rules](#/security-authentication). |
 | `OAUTH_TOKEN_LIFETIME_SECS` | Integer | `3600` | OAuth access token lifetime in seconds (1 hour). Shorter = more secure; longer = less re-authentication friction. |
 | `OAUTH_MCP_TOKEN_LIFETIME_SECS` | Integer | `86400` | MCP OAuth access token lifetime in seconds (24 hours). MCP sessions are interactive — shorter tokens cause mid-session disconnects. |
 
@@ -270,7 +270,7 @@ The standard Dockerfiles include `hosted-auth` through the
 `FORTEMI_API_FEATURES` build argument; runtime hosted mode remains opt-in and
 the separate KMS and service admission checks still apply. See
 [custom OIDC trust](#/security-authentication) for image
-build selection and the current Keycloak realm-path qualification prerequisite.
+build selection and the issuer URL rules, including Keycloak realm paths.
 
 These are configuration names, not example credential values. Inject database,
 Redis, identity-provider, and cloud credentials from the hosted secret manager.

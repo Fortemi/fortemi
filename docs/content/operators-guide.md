@@ -146,7 +146,7 @@ Set in `.env` file (project root):
 | `API_HOST_BIND` / `MCP_HOST_BIND` | No | Default to `127.0.0.1`. Non-loopback values require the `shared` exposure profile. |
 | `POSTGRES_PASSWORD` | Yes for the Docker bundle | No reusable default exists. The installer or `scripts/init-bundle-env.sh` writes a unique value to the ignored, mode-`0600` `.env`; operators may supply their own value without printing it. |
 | `ISSUER_URL` | Yes for hosted/multi-tenant | External URL for OAuth/MCP/AsyncAPI metadata. Hosted values must be public HTTPS with no query, fragment, userinfo, local/private/listen host, or unsupported path. |
-| `FORTEMI_ALLOW_LOCAL_ISSUER` | Local only | Allows `http://localhost` issuer URLs for local development. Do not enable for hosted deployments. |
+| `FORTEMI_ALLOW_LOCAL_ISSUER` | Local only | Allows a local or private issuer host such as `http://localhost:3000` for development. Never permits plain HTTP to a public host; path-bearing issuers such as Keycloak realms do not need it. Do not enable for hosted deployments. |
 | `MCP_CLIENT_ID` | No | OAuth client ID (auto-managed, set only for manual override) |
 | `MCP_CLIENT_SECRET` | No | OAuth client secret (auto-managed, set only for manual override) |
 | `MCP_BASE_URL` | No | MCP resource URL (default: `${ISSUER_URL}/mcp`) |

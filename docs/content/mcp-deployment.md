@@ -439,8 +439,8 @@ curl http://localhost:3001/.well-known/oauth-protected-resource
 
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
-| `ISSUER_URL` | local fallback only | **Yes for hosted/multi-tenant** | External URL for OAuth2 issuer. Hosted values must be public HTTPS with no query, fragment, userinfo, local/private/listen host, or unsupported path. |
-| `FORTEMI_ALLOW_LOCAL_ISSUER` | `false` | Local development only | Set to `true` only for local `http://localhost` issuer testing. Never enable for hosted deployments. |
+| `ISSUER_URL` | local fallback only | **Yes for hosted/multi-tenant** | External URL for OAuth2 issuer. Hosted values must be public HTTPS with no query, fragment, userinfo or local/private/listen host. Paths such as `/realms/<name>` are allowed. |
+| `FORTEMI_ALLOW_LOCAL_ISSUER` | `false` | Local development only | Set to `true` only to use a local or private issuer host such as `http://localhost:3000`. Never permits plain HTTP to a public host. Never enable for hosted deployments. |
 | `MCP_CLIENT_ID` | (auto) | No | OAuth client ID for MCP server. Auto-managed if not provided. |
 | `MCP_CLIENT_SECRET` | (auto) | No | OAuth client secret for MCP server. Auto-managed if not provided. |
 | `MCP_TRANSPORT` | `http` (bundle) | No | Transport mode: `http` for bundle deployment, `stdio` for local development. |

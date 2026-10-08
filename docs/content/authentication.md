@@ -87,6 +87,59 @@ identity-provider credentials must come from the hosted configuration/secret
 authority, not committed examples. This profile is distinct from Fortemi's
 self-hosted `/oauth/*` authorization-code and client-credentials flows.
 
+#### Issuer URL rules
+
+`ISSUER_URL` names the token issuer. Fortemi removes trailing slashes and
+nothing else, and the token's `iss` claim must equal the result exactly
+(case-sensitive). The verifier reads discovery metadata from
+`<ISSUER_URL>/.well-known/openid-configuration`.
+
+| Accepted | Rejected |
+|----------|----------|
+| `https://idp.example.com` | `http://idp.example.com` (plain HTTP to a public host) |
+| `https://idp.example.com/realms/acme` | `https://idp.example.com/realms/acme?x=1` (query) |
+| `https://idp.example.com/auth/realms/acme` | `https://idp.example.com/realms/acme#x` (fragment) |
+| `https://idp.example.com/realms/acme/` (stored without the slash) | `https://user@idp.example.com/realms/acme` (userinfo) |
+| | `https://idp.example.com/realms//acme`, `/./`, `/../`, `%2F` (ambiguous path) |
+
+Path-bearing issuers need no override. `FORTEMI_ALLOW_LOCAL_ISSUER` is a
+separate control: it governs only local and private destinations (loopback,
+RFC 1918 and IPv6 unique-local or link-local addresses, single-label host
+names, and `.localhost`, `.local`, `.internal`, `.lan` or `.home.arpa`
+names). It permits such a host over HTTP or HTTPS, and it never permits
+plain HTTP to a public host. Leave it unset for hosted deployments.
+
+If your IdP puts a trailing slash in `iss` (for example
+`https://tenant.example.com/`), the exact match fails. Configure the IdP to
+issue the slash-free form, or front it with an issuer URL that does not end
+in a slash.
+
+##### Worked example: Keycloak
+
+A Keycloak realm named `acme` on `https://idp.example.com` issues tokens with
+`"iss": "https://idp.example.com/realms/acme"`. Older Keycloak releases that
+still serve under `/auth` issue `https://idp.example.com/auth/realms/acme`.
+Copy the value from the realm's discovery document rather than typing it:
+
+```bash
+curl -s https://idp.example.com/realms/acme/.well-known/openid-configuration \
+  | jq -r .issuer
+# https://idp.example.com/realms/acme
+```
+
+```text
+FORTEMI_MULTI_TENANT=true
+REQUIRE_AUTH=true
+ISSUER_URL=https://idp.example.com/realms/acme
+FORTEMI_AUTH_AUDIENCE=<DEPLOYMENT_AUDIENCE>
+FORTEMI_AUTH_TENANT_CLAIM=fortemi:tenant_id
+# FORTEMI_ALLOW_LOCAL_ISSUER stays unset.
+```
+
+In Keycloak, add an audience mapper so access tokens carry
+`<DEPLOYMENT_AUDIENCE>` in `aud`, and a claim mapper that writes the tenant id
+to `fortemi:tenant_id`.
+
 #### Hosted note and event qualification
 
 The migrated hosted routes include ordinary `POST /api/v1/notes`, note list,
@@ -211,12 +264,11 @@ its credentials/configuration and every other hosted prerequisite remain require
 The Integro Labs environment requires [OpenBao Transit](#/security-openbao-kms). A bare Cargo
 build continues to require explicit `--features hosted-auth` for this verifier.
 
-Issuer URL validation also remains unchanged. Keycloak realm paths currently
-require the existing `FORTEMI_ALLOW_LOCAL_ISSUER=true` override. This override
-relaxes the server's local/private/path restriction, but the hosted provider
-still independently requires HTTPS and verifies TLS certificates and hostnames;
-it does not make HTTP or an untrusted certificate acceptable. Configure only
-the intended issuer and trust roots for the qualification deployment.
+Custom trust roots do not relax issuer validation. The hosted provider still
+requires HTTPS and verifies TLS certificates and host names; a CA bundle does
+not make HTTP or an untrusted certificate acceptable. Keycloak realm paths need
+no override (see [Issuer URL rules](#issuer-url-rules)). Configure only the
+intended issuer and trust roots for the qualification deployment.
 
 ---
 
