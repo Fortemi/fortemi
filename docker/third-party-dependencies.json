@@ -64,7 +64,7 @@
       "privilege_boundary": ["copied-runtime-binaries", "npm-toolchain"],
       "source_class": "docker-official-image",
       "upstream": "https://hub.docker.com/_/node",
-      "surfaces": ["Dockerfile.bundle", "build/Dockerfile.builder"],
+      "surfaces": ["Dockerfile.bundle", "Dockerfile.mcp", "build/Dockerfile.builder"],
       "reviewed_at": "2026-09-24",
       "update_cadence_days": 30,
       "rollback": "Restore the prior reviewed Node image digest and rebuild bundle/builder images.",
