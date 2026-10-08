@@ -231,6 +231,13 @@ live SSE lifecycle remain unqualified. Global queue
 summaries are emitted only in personal mode. Content and terminal settlement
 commit separately; no exactly-once external-effect guarantee is implied.
 
+The legacy WebSocket (`GET /api/v1/ws`) and NDJSON ingest stream
+(`POST /api/v1/ingest/stream`) are closed in hosted mode (#1163): they answer
+`401` without a valid bearer and `503` with one, even if `REQUIRE_AUTH=false`,
+because neither is tenant-bound yet. In community mode they keep their own
+handling (the WebSocket is retired with `410` when auth is required; the ingest
+stream validates its per-stream token).
+
 Hosted SSE requires a bearer header with the canonical tenant and `mcp` scope.
 Archive names are authorized first; resolved schemas filter live/replay events.
 Missing tenant/memory attribution is rejected on hosted streams. Consumer request

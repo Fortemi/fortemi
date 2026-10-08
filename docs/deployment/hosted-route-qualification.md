@@ -24,6 +24,9 @@ Warnings:
 - Auth-exempt routes (`enforcement: auth_exempt`) never receive a tenant
   binding. Only the `public` rows among them are safe protocol, probe or
   inline-proof surfaces.
+- `GET /api/v1/ws` and `POST /api/v1/ingest/stream` are auth-exempt only in
+  community mode. Hosted mode reports them as `hosted_503`: `401` without a
+  valid bearer, `503` with one, regardless of `REQUIRE_AUTH`.
 
 ## System topology
 
@@ -57,7 +60,7 @@ relaxes tenant binding; it only narrows the routes a client may depend on.
 | `status` | `gap` | Needed by the graph/knowledge workload but not tenant-bound in hosted mode. Tracked below. |
 | `status` | `excluded` | Not offered to tenants of a dedicated hosted deployment. |
 | `status` | `public` | Protocol, probe or inline-proof route carrying no tenant data. |
-| `enforcement` | `tenant_transaction` / `hosted_503` / `auth_exempt` | What the hosted request path does. |
+| `enforcement` | `tenant_transaction` / `hosted_503` / `auth_exempt` | What the hosted request path does. `hosted_503` answers `401` when no valid bearer is presented. |
 | class status | `qualified` / `partial` / `gap` / `excluded` / `public` | Roll-up of the class rows; `partial` mixes qualified and unready rows. |
 
 Workload-required classes are `search`, `notes`, `links_graph`,
@@ -198,8 +201,8 @@ is qualified.
     {"method":"POST","path":"/api/v1/notes/reprocess","class":"jobs_embeddings","status":"gap","enforcement":"hosted_503"},
     {"method":"POST","path":"/api/v1/notes/{id}/reprocess","class":"jobs_embeddings","status":"gap","enforcement":"hosted_503"},
     {"method":"GET","path":"/api/v1/events","class":"realtime_mcp","status":"qualified","enforcement":"tenant_transaction"},
-    {"method":"POST","path":"/api/v1/ingest/stream","class":"realtime_mcp","status":"gap","enforcement":"auth_exempt"},
-    {"method":"GET","path":"/api/v1/ws","class":"realtime_mcp","status":"gap","enforcement":"auth_exempt"},
+    {"method":"POST","path":"/api/v1/ingest/stream","class":"realtime_mcp","status":"gap","enforcement":"hosted_503"},
+    {"method":"GET","path":"/api/v1/ws","class":"realtime_mcp","status":"gap","enforcement":"hosted_503"},
     {"method":"GET","path":"/api/v1/collections","class":"collections","status":"qualified","enforcement":"tenant_transaction"},
     {"method":"POST","path":"/api/v1/collections","class":"collections","status":"qualified","enforcement":"tenant_transaction"},
     {"method":"DELETE","path":"/api/v1/collections/{id}","class":"collections","status":"qualified","enforcement":"tenant_transaction"},
@@ -424,7 +427,7 @@ returns `503` on this profile.
 | `archives_memories` | archive/memory administration, stats, overview, `memory/info` | Fortemi/fortemi#956 |
 | `export` | Knowledge Shard and Knowledge Archive export/import, backup export/import, note export | Fortemi/fortemi#959 (note export); proposed: tenant-scoped Knowledge Shard export |
 | `jobs_embeddings` | job control, embedding sets/configs, reprocess | Fortemi/fortemi#955; proposed: hosted job status and embedding execution |
-| `realtime_mcp` | `GET /api/v1/ws`, `POST /api/v1/ingest/stream` (auth-exempt, no tenant binding) | proposed: hosted WebSocket and ingest-stream binding |
+| `realtime_mcp` | `GET /api/v1/ws`, `POST /api/v1/ingest/stream` (closed in hosted mode: `401`/`503`; no tenant binding yet) | Fortemi/fortemi#1163 |
 | `collections` | `POST /api/v1/notes/{id}/move` | proposed: hosted note move. Set membership with `collection_id` on note creation. |
 
 Related exclusions are tracked by Fortemi/fortemi#961 (attachments) and
@@ -505,3 +508,4 @@ Expected output ends with `test result: ok.`
 | Date | Change | Applies to |
 |---|---|---|
 | 2026-10-08 | Initial matrix (Fortemi/fortemi#1154) | hosted `matric-api` builds from this revision |
+| 2026-10-08 | Hosted mode closes `/api/v1/ws` and `/api/v1/ingest/stream` (Fortemi/fortemi#1163) | hosted `matric-api` builds from this revision |

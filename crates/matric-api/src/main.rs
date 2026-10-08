@@ -8,6 +8,9 @@ mod attachments_switch;
 mod audit_policy;
 mod evidence_resolution;
 mod handlers;
+mod hosted_exempt_routes;
+#[cfg(test)]
+mod hosted_exempt_routes_tests;
 mod hosted_route_qualification;
 mod middleware;
 mod migrate_only;
@@ -6328,7 +6331,8 @@ async fn handle_twilio_control_event(
 /// Clients connect to `/api/v1/ws` and receive JSON-encoded ServerEvents.
 /// Sending "refresh" triggers an immediate QueueStatus response. The route is
 /// retired whenever auth is required because the legacy protocol has no bearer,
-/// tenant, memory, replay, or canonical-envelope handshake.
+/// tenant, memory, replay, or canonical-envelope handshake. Hosted mode never
+/// reaches this handler: `auth_middleware` answers 401/503 first (#1163).
 async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
     if state.require_auth {
         return (
@@ -9774,6 +9778,8 @@ impl BearerValidationFailure {
 ///
 /// Behavior:
 /// - Public routes: bypass all auth (health, OAuth protocol, callbacks, SSE/WS)
+/// - Hosted mode: `/api/v1/ws` and `/api/v1/ingest/stream` are not exempt; they
+///   need a verified bearer and are then refused by the tenant-transaction gate
 /// - Bearer token present + valid: inject Auth with principal scope for policy evaluation
 /// - Bearer token present + invalid: always reject with 401
 /// - No token + REQUIRE_AUTH=true: reject with 401
@@ -9786,10 +9792,15 @@ async fn auth_middleware(
 ) -> axum::response::Response {
     let path = request.uri().path().to_string();
     let method = request.method().clone();
-    let requires_bearer = route_requires_bearer(state.require_auth, &path);
+    // Hosted mode closes community-exempt routes that have no tenant binding
+    // (#1163): no bearer -> 401, verified bearer -> the tenant-transaction gate.
+    let hosted_bearer =
+        state.multi_tenant && hosted_exempt_routes::hosted_requires_bearer(&method, &path);
+    let requires_bearer = route_requires_bearer(state.require_auth, &path) || hosted_bearer;
 
     // Public routes and CORS preflights bypass all auth.
     if is_auth_exempt(&method, &path)
+        && !hosted_bearer
         && !(state.multi_tenant && method == Method::GET && path == "/api/v1/events")
     {
         return next.run(request).await;

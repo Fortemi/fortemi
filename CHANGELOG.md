@@ -76,6 +76,19 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   `Content-Security-Policy: frame-ancestors 'none'`, `X-Frame-Options: DENY` and
   `Cache-Control: no-store`, and no longer contain script.
 
+### Security
+
+- **Hosted mode closes `/api/v1/ws` and `/api/v1/ingest/stream` (#1163).**
+  Both routes skipped authentication and had no tenant binding. With
+  `FORTEMI_MULTI_TENANT=true` they are no longer auth-exempt: a request without
+  a valid bearer gets `401`, and a verified tenant bearer gets `503` ("has not
+  completed tenant transaction migration") because neither route runs on a
+  tenant transaction yet. This applies even if `REQUIRE_AUTH=false`, so the
+  legacy WebSocket can no longer upgrade anonymously in hosted mode. Use
+  `GET /api/v1/events` (bearer, `mcp` scope) for hosted events. Community and
+  desktop behaviour is unchanged. Tenant-bound WebSocket and ingest-stream
+  support remains open under #1163.
+
 ### Export
 
 - `POST /api/v1/memory/export` (`read` scope) and the MCP tool

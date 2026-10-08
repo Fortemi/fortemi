@@ -139,7 +139,7 @@ impl Qualification {
 pub enum Enforcement {
     /// Runs on the verified tenant's transaction-bound connection.
     TenantTransaction,
-    /// Bearer route rejected with 503 by the hosted migration gate.
+    /// Bearer route rejected with 503 by the hosted migration gate (401 without a bearer).
     Hosted503,
     /// Bypasses bearer authentication entirely.
     AuthExempt,
@@ -190,6 +190,10 @@ pub fn qualified_route_classes() -> Vec<&'static str> {
 pub fn enforcement(method: &Method, policy: &RoutePolicy) -> Enforcement {
     if route_policy::hosted_tenant_transaction_ready(method, policy.path) {
         return Enforcement::TenantTransaction;
+    }
+    // Community-exempt routes hosted mode closes behind a bearer and the gate.
+    if crate::hosted_exempt_routes::hosted_requires_bearer(method, policy.path) {
+        return Enforcement::Hosted503;
     }
     let inline_proof = *method == Method::POST
         && route_policy::policy_class_for_request(policy, method)
