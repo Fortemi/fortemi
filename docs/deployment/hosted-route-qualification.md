@@ -24,8 +24,8 @@ Warnings:
 - Auth-exempt routes (`enforcement: auth_exempt`) never receive a tenant
   binding. Only the `public` rows among them are safe protocol, probe or
   inline-proof surfaces.
-- `GET /api/v1/ws` and `POST /api/v1/ingest/stream` are auth-exempt only in
-  community mode. Hosted mode reports them as `hosted_503`: `401` without a
+- `GET /api/v1/ws`, `POST /api/v1/ingest/stream` and the `knowledge_health`
+  diagnostics are auth-exempt only in community mode. Hosted mode reports them as `hosted_503`: `401` without a
   valid bearer, `503` with one, regardless of `REQUIRE_AUTH`.
 
 ## System topology
@@ -90,10 +90,10 @@ is qualified.
 | `templates` | no | excluded | 0 | 0 | 6 | 0 |
 | `account` | no | partial | 4 | 0 | 7 | 0 |
 | `voice_calls` | no | excluded | 0 | 0 | 1 | 1 |
-| `knowledge_health` | no | excluded | 0 | 0 | 7 | 0 |
+| `knowledge_health` | no | excluded | 0 | 0 | 6 | 0 |
 | `operator` | no | excluded | 0 | 0 | 55 | 2 |
-| `public_protocol` | no | public | 0 | 0 | 0 | 17 |
-| **total** | | | 35 | 85 | 145 | 20 |
+| `public_protocol` | no | public | 0 | 0 | 0 | 18 |
+| **total** | | | 35 | 85 | 144 | 21 |
 
 ```json
 {
@@ -303,13 +303,12 @@ is qualified.
     {"method":"DELETE","path":"/api/v1/user/secrets/{id}","class":"account","status":"qualified","enforcement":"tenant_transaction"},
     {"method":"GET","path":"/api/v1/calls/{id}","class":"voice_calls","status":"excluded","enforcement":"hosted_503"},
     {"method":"GET","path":"/api/v1/realtime/twilio/{provider_call_id}","class":"voice_calls","status":"public","enforcement":"auth_exempt"},
-    {"method":"GET","path":"/api/v1/health/access-frequency","class":"knowledge_health","status":"excluded","enforcement":"auth_exempt"},
-    {"method":"GET","path":"/api/v1/health/knowledge","class":"knowledge_health","status":"excluded","enforcement":"auth_exempt"},
-    {"method":"GET","path":"/api/v1/health/orphan-tags","class":"knowledge_health","status":"excluded","enforcement":"auth_exempt"},
-    {"method":"GET","path":"/api/v1/health/stale-notes","class":"knowledge_health","status":"excluded","enforcement":"auth_exempt"},
-    {"method":"GET","path":"/api/v1/health/streaming","class":"knowledge_health","status":"excluded","enforcement":"auth_exempt"},
-    {"method":"GET","path":"/api/v1/health/tag-cooccurrence","class":"knowledge_health","status":"excluded","enforcement":"auth_exempt"},
-    {"method":"GET","path":"/api/v1/health/unlinked-notes","class":"knowledge_health","status":"excluded","enforcement":"auth_exempt"},
+    {"method":"GET","path":"/api/v1/health/access-frequency","class":"knowledge_health","status":"excluded","enforcement":"hosted_503"},
+    {"method":"GET","path":"/api/v1/health/knowledge","class":"knowledge_health","status":"excluded","enforcement":"hosted_503"},
+    {"method":"GET","path":"/api/v1/health/orphan-tags","class":"knowledge_health","status":"excluded","enforcement":"hosted_503"},
+    {"method":"GET","path":"/api/v1/health/stale-notes","class":"knowledge_health","status":"excluded","enforcement":"hosted_503"},
+    {"method":"GET","path":"/api/v1/health/tag-cooccurrence","class":"knowledge_health","status":"excluded","enforcement":"hosted_503"},
+    {"method":"GET","path":"/api/v1/health/unlinked-notes","class":"knowledge_health","status":"excluded","enforcement":"hosted_503"},
     {"method":"GET","path":"/api/v1/api-keys","class":"operator","status":"excluded","enforcement":"hosted_503"},
     {"method":"POST","path":"/api/v1/api-keys","class":"operator","status":"excluded","enforcement":"hosted_503"},
     {"method":"DELETE","path":"/api/v1/api-keys/{id}","class":"operator","status":"excluded","enforcement":"hosted_503"},
@@ -369,6 +368,7 @@ is qualified.
     {"method":"POST","path":"/api/v1/webhooks/{id}/test","class":"operator","status":"excluded","enforcement":"hosted_503"},
     {"method":"GET","path":"/.well-known/oauth-authorization-server","class":"public_protocol","status":"public","enforcement":"auth_exempt"},
     {"method":"GET","path":"/.well-known/oauth-protected-resource","class":"public_protocol","status":"public","enforcement":"auth_exempt"},
+    {"method":"GET","path":"/api/v1/health/streaming","class":"public_protocol","status":"public","enforcement":"auth_exempt"},
     {"method":"GET","path":"/api/v1/problem-contract-status/{status}","class":"public_protocol","status":"public","enforcement":"auth_exempt"},
     {"method":"GET","path":"/api/v1/problem-contract-test","class":"public_protocol","status":"public","enforcement":"auth_exempt"},
     {"method":"GET","path":"/api/v1/system/compatibility","class":"public_protocol","status":"public","enforcement":"auth_exempt"},
@@ -431,9 +431,12 @@ returns `503` on this profile.
 | `collections` | `POST /api/v1/notes/{id}/move` | proposed: hosted note move. Set membership with `collection_id` on note creation. |
 
 Related exclusions are tracked by Fortemi/fortemi#961 (attachments) and
-Fortemi/fortemi#962 (document types). The `knowledge_health` diagnostics under
-`/api/v1/health/*` are auth-exempt and carry no tenant binding; do not use them
-on a hosted deployment.
+Fortemi/fortemi#962 (document types). The `knowledge_health` diagnostics
+(`/api/v1/health/knowledge`, `orphan-tags`, `stale-notes`, `unlinked-notes`,
+`tag-cooccurrence`, `access-frequency`) read tenant knowledge without a tenant
+binding, so hosted mode closes them (Fortemi/fortemi#1164): `401` without a
+valid bearer, `503` with one. `/health`, `/livez`, `/readyz` and the aggregate
+`/api/v1/health/streaming` probe stay public.
 
 ## Procedure
 
@@ -509,3 +512,4 @@ Expected output ends with `test result: ok.`
 |---|---|---|
 | 2026-10-08 | Initial matrix (Fortemi/fortemi#1154) | hosted `matric-api` builds from this revision |
 | 2026-10-08 | Hosted mode closes `/api/v1/ws` and `/api/v1/ingest/stream` (Fortemi/fortemi#1163) | hosted `matric-api` builds from this revision |
+| 2026-10-08 | Hosted mode closes knowledge diagnostics; `/api/v1/health/streaming` reclassified `public_protocol` (Fortemi/fortemi#1164) | hosted `matric-api` builds from this revision |

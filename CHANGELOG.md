@@ -88,6 +88,16 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   `GET /api/v1/events` (bearer, `mcp` scope) for hosted events. Community and
   desktop behaviour is unchanged. Tenant-bound WebSocket and ingest-stream
   support remains open under #1163.
+- **Hosted mode closes the `/api/v1/health/*` knowledge diagnostics (#1164).**
+  `/api/v1/health/knowledge`, `orphan-tags`, `stale-notes`, `unlinked-notes`,
+  `tag-cooccurrence` and `access-frequency` were public and read tenant
+  knowledge with no tenant binding (the knowledge summary also reported
+  deployment-wide blob counts). With `FORTEMI_MULTI_TENANT=true` they return
+  `401` without a valid bearer and `503` with one. Liveness and readiness
+  (`/health`, `/livez`, `/readyz`) and the aggregate `/api/v1/health/streaming`
+  probe stay public and unchanged; the route qualification matrix now lists
+  the streaming probe as `public_protocol`. Community and desktop behaviour is
+  unchanged.
 
 ### Export
 

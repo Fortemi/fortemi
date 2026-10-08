@@ -1,4 +1,4 @@
-//! Real `auth_middleware` behaviour for routes hosted mode closes (#1163).
+//! Real `auth_middleware` behaviour for routes hosted mode closes (#1163, #1164).
 //! Handlers are stubs: reaching one proves the middleware admitted the request.
 use super::*;
 use tower::ServiceExt;
@@ -20,7 +20,11 @@ async fn lazy_state(require_auth: bool, multi_tenant: bool) -> AppState {
 }
 
 fn app(state: AppState) -> Router {
-    Router::new()
+    let mut router = Router::new();
+    for path in hosted_exempt_routes::KNOWLEDGE_DIAGNOSTIC_PATHS {
+        router = router.route(path, get(reached));
+    }
+    router
         .route(hosted_exempt_routes::LEGACY_WEBSOCKET_PATH, get(reached))
         .route(hosted_exempt_routes::INGEST_STREAM_PATH, post(reached))
         .route("/health", get(reached))
@@ -46,18 +50,26 @@ async fn status(app: &Router, method: Method, path: &str, bearer: Option<&str>) 
         .status()
 }
 
-const CLOSED: [(Method, &str); 2] = [
-    (Method::GET, hosted_exempt_routes::LEGACY_WEBSOCKET_PATH),
-    (Method::POST, hosted_exempt_routes::INGEST_STREAM_PATH),
-];
+fn closed() -> Vec<(Method, &'static str)> {
+    let mut routes = vec![
+        (Method::GET, hosted_exempt_routes::LEGACY_WEBSOCKET_PATH),
+        (Method::POST, hosted_exempt_routes::INGEST_STREAM_PATH),
+    ];
+    routes.extend(
+        hosted_exempt_routes::KNOWLEDGE_DIAGNOSTIC_PATHS
+            .into_iter()
+            .map(|path| (Method::GET, path)),
+    );
+    routes
+}
 
 const PROBES: [&str; 4] = ["/health", "/livez", "/readyz", "/api/v1/health/streaming"];
 
 #[tokio::test]
-async fn hosted_unauthenticated_realtime_routes_return_401_even_without_require_auth() {
+async fn hosted_unauthenticated_closed_routes_return_401_even_without_require_auth() {
     for require_auth in [true, false] {
         let app = app(lazy_state(require_auth, true).await);
-        for (method, path) in CLOSED {
+        for (method, path) in closed() {
             assert_eq!(
                 status(&app, method.clone(), path, None).await,
                 StatusCode::UNAUTHORIZED,
@@ -81,7 +93,7 @@ async fn hosted_unauthenticated_realtime_routes_return_401_even_without_require_
 #[tokio::test]
 async fn hosted_cors_preflight_on_closed_routes_stays_exempt() {
     let app = app(lazy_state(true, true).await);
-    for (_, path) in CLOSED {
+    for (_, path) in closed() {
         assert!(!hosted_exempt_routes::hosted_requires_bearer(
             &Method::OPTIONS,
             path
@@ -95,10 +107,10 @@ async fn hosted_cors_preflight_on_closed_routes_stays_exempt() {
 }
 
 #[tokio::test]
-async fn community_realtime_routes_and_probes_keep_their_exemption() {
+async fn community_closed_routes_and_probes_keep_their_exemption() {
     for require_auth in [true, false] {
         let app = app(lazy_state(require_auth, false).await);
-        for (method, path) in CLOSED {
+        for (method, path) in closed() {
             assert_eq!(
                 status(&app, method.clone(), path, None).await,
                 REACHED,
@@ -159,7 +171,7 @@ mod hosted_bearer {
         for require_auth in [true, false] {
             let app = hosted_app(require_auth).await;
             for token in ["tenant-a", "tenant-b"] {
-                for (method, path) in CLOSED {
+                for (method, path) in closed() {
                     assert_eq!(
                         status(&app, method.clone(), path, Some(token)).await,
                         StatusCode::SERVICE_UNAVAILABLE,
@@ -167,6 +179,33 @@ mod hosted_bearer {
                     );
                 }
             }
+        }
+    }
+
+    #[tokio::test]
+    async fn hosted_knowledge_diagnostics_disclose_no_tenant_counts() {
+        let app = hosted_app(true).await;
+        for path in hosted_exempt_routes::KNOWLEDGE_DIAGNOSTIC_PATHS {
+            let mut bodies = Vec::new();
+            for token in ["tenant-a", "tenant-b"] {
+                let request = axum::http::Request::get(path)
+                    .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                    .body(Body::empty())
+                    .unwrap();
+                let response = app.clone().oneshot(request).await.unwrap();
+                assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+                let body: serde_json::Value = serde_json::from_slice(
+                    &axum::body::to_bytes(response.into_body(), usize::MAX)
+                        .await
+                        .unwrap(),
+                )
+                .unwrap();
+                for field in ["total_notes", "orphan_tags", "stale_notes", "notes"] {
+                    assert!(body.get(field).is_none(), "{path} leaked {field}");
+                }
+                bodies.push(body["detail"].clone());
+            }
+            assert_eq!(bodies[0], bodies[1], "{path} must not vary by tenant");
         }
     }
 }

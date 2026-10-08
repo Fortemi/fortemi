@@ -105,7 +105,11 @@ lifetime, so the no-auth posture cannot hide in long-running logs. Multi-tenant
 builds refuse anonymous regardless of the acknowledgment.
 
 Public endpoints (always accessible regardless of `REQUIRE_AUTH`):
-- `/health`, `/api/v1/health/*`
+- `/health`, `/livez`, `/readyz`, `/api/v1/health/streaming`
+- `/api/v1/health/*` knowledge diagnostics (`knowledge`, `orphan-tags`,
+  `stale-notes`, `unlinked-notes`, `tag-cooccurrence`, `access-frequency`) in
+  community mode only; hosted mode (`FORTEMI_MULTI_TENANT=true`) answers `401`
+  without a bearer and `503` with one (#1164)
 - `/oauth/*`, `/.well-known/*`
 - `/docs` (Swagger UI), `/openapi.yaml`
 

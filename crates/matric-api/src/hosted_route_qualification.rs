@@ -306,7 +306,9 @@ fn class_by_policy(policy: &RoutePolicy) -> RouteClass {
     ) {
         return RouteClass::Account;
     }
-    if policy.class == PolicyClass::SystemHealth && path.starts_with("/api/v1/health/") {
+    // Liveness, readiness and the aggregate streaming probe are public protocol;
+    // only the tenant-reading knowledge diagnostics form this class (#1164).
+    if crate::hosted_exempt_routes::is_knowledge_diagnostic(path) {
         return RouteClass::KnowledgeHealth;
     }
     match policy.class {

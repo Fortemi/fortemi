@@ -238,6 +238,15 @@ because neither is tenant-bound yet. In community mode they keep their own
 handling (the WebSocket is retired with `410` when auth is required; the ingest
 stream validates its per-stream token).
 
+Health endpoints are split by what they read (#1164). Liveness and readiness
+(`/health`, `/livez`, `/readyz`) and the aggregate `/api/v1/health/streaming`
+probe stay public in every mode. The knowledge diagnostics
+(`/api/v1/health/knowledge`, `orphan-tags`, `stale-notes`, `unlinked-notes`,
+`tag-cooccurrence`, `access-frequency`) read tenant notes, tags and links: they
+stay public in community mode, and hosted mode answers `401` without a valid
+bearer and `503` with one, because they do not yet run on the tenant
+transaction.
+
 Hosted SSE requires a bearer header with the canonical tenant and `mcp` scope.
 Archive names are authorized first; resolved schemas filter live/replay events.
 Missing tenant/memory attribution is rejected on hosted streams. Consumer request

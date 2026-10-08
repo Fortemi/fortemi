@@ -9778,8 +9778,9 @@ impl BearerValidationFailure {
 ///
 /// Behavior:
 /// - Public routes: bypass all auth (health, OAuth protocol, callbacks, SSE/WS)
-/// - Hosted mode: `/api/v1/ws` and `/api/v1/ingest/stream` are not exempt; they
-///   need a verified bearer and are then refused by the tenant-transaction gate
+/// - Hosted mode: `/api/v1/ws`, `/api/v1/ingest/stream` and the knowledge
+///   diagnostics under `/api/v1/health/*` are not exempt; they need a verified
+///   bearer and are then refused by the tenant-transaction gate
 /// - Bearer token present + valid: inject Auth with principal scope for policy evaluation
 /// - Bearer token present + invalid: always reject with 401
 /// - No token + REQUIRE_AUTH=true: reject with 401
@@ -9793,7 +9794,7 @@ async fn auth_middleware(
     let path = request.uri().path().to_string();
     let method = request.method().clone();
     // Hosted mode closes community-exempt routes that have no tenant binding
-    // (#1163): no bearer -> 401, verified bearer -> the tenant-transaction gate.
+    // (#1163, #1164): no bearer -> 401, verified bearer -> the tenant-transaction gate.
     let hosted_bearer =
         state.multi_tenant && hosted_exempt_routes::hosted_requires_bearer(&method, &path);
     let requires_bearer = route_requires_bearer(state.require_auth, &path) || hosted_bearer;
