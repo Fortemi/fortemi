@@ -68,6 +68,8 @@ impl HostedAuthenticator for FixtureIdentity {
             issued_at: Utc::now(),
             expires_at: Utc::now() + chrono::Duration::minutes(5),
             session_id: None,
+            principal_kind: fortemi_auth_core::PrincipalKind::Human,
+            scope_grants: Vec::new(),
         })
     }
 }
@@ -594,6 +596,7 @@ async fn run_scoped_fixture(admin: PgPool, installed_http: bool) {
                 jwks_cache_capacity: 2,
                 http_timeout_seconds: 2,
                 ca_bundle_path: Some(std::env::var("FORTEMI_TEST_CA").unwrap()),
+                claim_policy_path: None,
             };
             state.hosted_auth = Some(build_clerk_authenticator(&config, runtime.clone()).unwrap());
             http_app = router(state.clone(), runtime.clone());

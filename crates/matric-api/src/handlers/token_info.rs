@@ -21,6 +21,8 @@ pub struct TokenInfo {
     pub tenant_bound: bool,
     /// Unix seconds, when the credential carries an expiry known to this request.
     pub exp: Option<i64>,
+    /// `human` or `service` for hosted OIDC tokens (claim policy, #1152).
+    pub principal_kind: Option<&'static str>,
 }
 
 pub fn token_info_for(
@@ -41,6 +43,10 @@ pub fn token_info_for(
     let exp = hosted.map(|context| context.expires_at.timestamp());
     #[cfg(not(feature = "hosted-auth"))]
     let exp = None;
+    #[cfg(feature = "hosted-auth")]
+    let principal_kind = hosted.map(|context| context.principal_kind.as_str());
+    #[cfg(not(feature = "hosted-auth"))]
+    let principal_kind = None;
 
     TokenInfo {
         active: true,
@@ -48,6 +54,7 @@ pub fn token_info_for(
         scope: principal.scope_str().to_string(),
         tenant_bound: identity.is_some_and(|identity| identity.tenant_id.is_some()),
         exp,
+        principal_kind,
     }
 }
 
@@ -123,6 +130,8 @@ mod tests {
                 expires_at,
                 scopes: vec!["mcp".into(), "read".into()],
                 session_id: None,
+                principal_kind: fortemi_auth_core::PrincipalKind::Human,
+                scope_grants: Vec::new(),
             }),
         };
         let info = token_info_for(&principal, Some(&identity));
@@ -130,6 +139,7 @@ mod tests {
         assert_eq!(info.scope, "mcp read");
         assert!(info.tenant_bound);
         assert_eq!(info.exp, Some(expires_at.timestamp()));
+        assert_eq!(info.principal_kind, Some("human"));
         let body = serde_json::to_string(&info).unwrap();
         assert!(!body.contains("subject-sentinel"));
         assert!(!body.contains(&tenant.to_string()));

@@ -21,6 +21,9 @@ pub struct HostedAuthConfig {
     pub http_timeout_seconds: u64,
     /// Optional PEM trust roots, read once when the verifier is initialized.
     pub ca_bundle_path: Option<String>,
+    /// Optional JSON claim policy (group/role to scope mapping, client rules),
+    /// read once when the verifier is initialized (#1152).
+    pub claim_policy_path: Option<String>,
 }
 
 impl HostedAuthConfig {
@@ -65,6 +68,7 @@ impl HostedAuthConfig {
             jwks_cache_capacity,
             http_timeout_seconds,
             ca_bundle_path: env("FORTEMI_AUTH_CA_BUNDLE"),
+            claim_policy_path: env("FORTEMI_AUTH_CLAIM_POLICY_FILE"),
         };
         ClerkConfig::from(&config).validate()?;
         Ok(config)
@@ -189,7 +193,9 @@ pub fn build_clerk_authenticator(
         None => ClerkProvider::new(ClerkConfig::from(config), PgTenantStore::new(pool))
             .context("hosted OIDC verifier initialization failed")?,
     };
-    Ok(Arc::new(provider))
+    let claim_policy =
+        crate::hosted_claim_policy::load_claim_policy(config.claim_policy_path.as_deref())?;
+    Ok(Arc::new(provider.with_claim_policy(claim_policy)))
 }
 
 /// An explicit setting must never silently fall back to the default trust store.

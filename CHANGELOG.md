@@ -343,6 +343,15 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Authentication
 
+- Map external IdP group and role claims to Fortemi scopes with
+  `FORTEMI_AUTH_CLAIM_POLICY_FILE` (#1152). Deny by default: unmatched values grant
+  nothing and malformed claims are rejected with `invalid_authorization_claim`.
+  Optional client allowlist (`client_not_allowed`) and service-principal
+  classification for client-credentials callers (Fortemi/fortemi-auth#52).
+  Authorization audit records `principal_kind` and matched rule ids in
+  `scope_grants`, never raw group values. Requires fortemi-auth `v2026.10.0`
+  (contract 2.0.0).
+
 - The MCP server accepts externally issued OIDC tokens by delegating
   verification to a new hidden `GET /api/v1/auth/token-info` route, so MCP and
   REST share one verifier contract (#1151). Verified tokens need `mcp` scope at

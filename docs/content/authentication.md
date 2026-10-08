@@ -190,6 +190,64 @@ The command prints the tenant id to emit in the configured tenant claim and
 seeds the tenant's default memory. See
 [Hosted tenant bootstrap](../deployment/hosted-bootstrap.md).
 
+#### Mapping IdP groups and roles to scopes
+
+External IdPs express authorization as groups or roles. Set
+`FORTEMI_AUTH_CLAIM_POLICY_FILE` to a JSON policy, mounted read-only, to derive
+Fortemi scopes from a verified claim. The file is read once at startup. A missing,
+unreadable or invalid file stops the server. Mapped scopes must be `read`,
+`write`, `admin` or `mcp`; `system:*` scopes cannot come from a directory group.
+Matching is exact and case-sensitive. Unmatched values grant nothing, and a token
+with no matching value receives no scopes (deny by default). Scopes are evaluated
+by the central authorization policy exactly like token scopes. Authorization
+decision audit records `principal_kind` and the ids of the matched rules in
+`scope_grants`, never the raw group list.
+
+Keycloak realm roles, with a service-account client for machine callers:
+
+```json
+{
+  "scope_mapping": {
+    "claim": "realm_access.roles",
+    "rules": [
+      {"id": "kc-readers", "value": "fortemi-read",  "scopes": ["read"]},
+      {"id": "kc-writers", "value": "fortemi-write", "scopes": ["read", "write"]},
+      {"id": "kc-agents",  "value": "fortemi-agent", "scopes": ["read", "mcp"]},
+      {"id": "kc-admins",  "value": "fortemi-admin", "scopes": ["admin"]}
+    ]
+  },
+  "clients": {"claim": "azp", "allowed": ["fortemi-web"], "service": ["fortemi-etl"]}
+}
+```
+
+Keycloak client roles, using a JSON Pointer because the client id contains a dot:
+
+```json
+{"scope_mapping": {"claim": "/resource_access/fortemi.api/roles",
+  "rules": [{"id": "api-read", "value": "reader", "scopes": ["read"]}]}}
+```
+
+A generic OIDC provider with a `groups` claim, keeping any `scope` the token
+already carries:
+
+```json
+{"scope_source": "union",
+ "scope_mapping": {"claim": "groups",
+  "rules": [{"id": "analysts", "value": "/acme/analysts", "scopes": ["read"]}]}}
+```
+
+| Field | Meaning |
+|---|---|
+| `scope_source` | `mapping` (default when a mapping is set): mapped scopes only. `union`: token `scope` plus mapped scopes. `token`: ignore groups. |
+| `scope_mapping.claim` | Dot path, or a JSON Pointer starting with `/`. The value must be an array of strings or one string; any other shape returns 403 `invalid_authorization_claim`. |
+| `clients.claim` | Claim naming the OAuth client (default `azp`). |
+| `clients.allowed` | Optional allowlist. Tokens from other clients, or without the claim, get 403 `client_not_allowed`. |
+| `clients.service` | Clients whose tokens are service principals (`principal_kind: service`), for example a Keycloak client-credentials service account. The tenant claim is still required. |
+
+Changing the mapping and restarting changes authorization for existing tokens;
+no token format change is needed. Without the variable, token scopes pass through
+unchanged.
+
 #### Hosted note and event qualification
 
 The migrated hosted routes include ordinary `POST /api/v1/notes`, note list,

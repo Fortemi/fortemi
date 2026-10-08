@@ -117,6 +117,8 @@ async fn inject_identity(
                 expires_at: Utc::now() + chrono::Duration::seconds(2),
                 scopes: scopes.split_whitespace().map(str::to_string).collect(),
                 session_id: None,
+                principal_kind: fortemi_auth_core::PrincipalKind::Human,
+                scope_grants: Vec::new(),
             }),
         });
     }

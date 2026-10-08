@@ -10023,6 +10023,11 @@ async fn authorize_middleware(
     let tenant = request.extensions().get::<VerifiedRequestTenant>().copied();
     let scope = request.extensions().get::<TenantRequestScope>();
     let input = apply_verified_tenant_to_policy_input(input, tenant);
+    #[cfg(feature = "hosted-auth")]
+    let input = apply_claim_policy_audit_context(
+        input,
+        request.extensions().get::<fortemi_auth_core::AuthContext>(),
+    );
     let input =
         normalize_route_policy_input_for_authorization(&state, input, archive_ctx.as_ref(), scope)
             .await;
@@ -11973,6 +11978,27 @@ fn hosted_policy_requires_normalized_resource(
             .unwrap_or(false)
 }
 
+/// Carry claim-policy evidence (#1152) into the decision audit: the principal kind and
+/// the ids of the mapping rules that granted scopes. Raw IdP group values never reach
+/// `AuthContext`, so they cannot reach audit either.
+#[cfg(feature = "hosted-auth")]
+fn apply_claim_policy_audit_context(
+    mut input: route_policy::RoutePolicyInput,
+    context: Option<&fortemi_auth_core::AuthContext>,
+) -> route_policy::RoutePolicyInput {
+    if let Some(context) = context {
+        input.context.environment.insert(
+            "principal_kind".to_string(),
+            serde_json::json!(context.principal_kind.as_str()),
+        );
+        input.context.environment.insert(
+            "scope_grants".to_string(),
+            serde_json::json!(context.scope_grants),
+        );
+    }
+    input
+}
+
 async fn emit_auth_decision_audit_event(
     audit_sink: &dyn AuditSink,
     event: AuditEvent,
@@ -12012,6 +12038,11 @@ fn auth_decision_audit_event(
         .with_attr("route_template", input.policy.path.to_string())
         .with_attr("policy_class", format!("{:?}", input.policy.class))
         .with_attr("resource_kind", format!("{:?}", input.resource.kind));
+    for key in ["principal_kind", "scope_grants"] {
+        if let Some(value) = input.context.environment.get(key) {
+            event = event.with_attr(key, value.clone());
+        }
+    }
 
     if let Some(tenant_id) = input
         .context
@@ -71503,6 +71534,67 @@ not-json
         assert_eq!(event.attrs["resource_kind"], "Note");
         let serialized = serde_json::to_string(&event).expect("serialize audit event");
         assert!(!serialized.contains("tenant:secret"));
+    }
+
+    #[cfg(feature = "hosted-auth")]
+    #[test]
+    fn auth_decision_audit_event_records_claim_policy_grants_not_groups() {
+        let auth = Auth {
+            principal: AuthPrincipal::OAuthClient {
+                client_id: "hosted-oidc".to_string(),
+                scope: "read mcp".to_string(),
+                user_id: Some("service-account-sentinel".to_string()),
+            },
+        };
+        let now = chrono::Utc::now();
+        let context = fortemi_auth_core::AuthContext {
+            tenant_id: Uuid::new_v4(),
+            principal_id: "service-account-sentinel".to_string(),
+            credential: fortemi_auth_core::Credential::Bearer(fortemi_auth_core::JwtToken {
+                jti: None,
+                algorithm: "RS256".to_string(),
+                key_id: "kid".to_string(),
+            }),
+            issued_at: now,
+            expires_at: now,
+            scopes: vec!["read".to_string(), "mcp".to_string()],
+            session_id: None,
+            principal_kind: fortemi_auth_core::PrincipalKind::Service,
+            scope_grants: vec!["kc-agents".to_string()],
+        };
+        let input =
+            route_policy::authorization_input_for_request(&Method::GET, "/api/v1/notes", None)
+                .expect("notes route has policy input");
+        let input = apply_claim_policy_audit_context(input, Some(&context));
+
+        let event = auth_decision_audit_event(
+            &auth,
+            &input,
+            AuditOutcome::Success,
+            None,
+            "role_based",
+            "2026-06-25",
+        );
+
+        assert_eq!(event.attrs["principal_kind"], "service");
+        assert_eq!(
+            event.attrs["scope_grants"],
+            serde_json::json!(["kc-agents"])
+        );
+
+        let without =
+            route_policy::authorization_input_for_request(&Method::GET, "/api/v1/notes", None)
+                .expect("notes route has policy input");
+        let event = auth_decision_audit_event(
+            &auth,
+            &apply_claim_policy_audit_context(without, None),
+            AuditOutcome::Success,
+            None,
+            "role_based",
+            "2026-06-25",
+        );
+        assert!(!event.attrs.contains_key("principal_kind"));
+        assert!(!event.attrs.contains_key("scope_grants"));
     }
 
     #[test]
