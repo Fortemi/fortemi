@@ -1,0 +1,154 @@
+---
+# API role: /app/matric-api with the job worker off. Serves the REST API and
+# OAuth endpoints on :3000; the worker Deployment runs background jobs.
+#
+# READ-ONLY ROOT FILESYSTEM, VERIFIED NARROWLY. The chart leaves
+# readOnlyRootFilesystem false. Here it is true, with /tmp and the attachment
+# path as emptyDir mounts: the published server image (uid 1000, `matric`)
+# booted, migrated, and answered /livez and /readyz with a read-only root, all
+# capabilities dropped and no privilege escalation (ghcr.io/fortemi/fortemi
+# 2026.9.11, API and worker roles, 2026-10-08). Attachment extraction tools
+# (tesseract, pandoc, ffmpeg) were not exercised; if one needs a writable path
+# beyond /tmp, mount an emptyDir there from the overlay rather than turning
+# this off.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fortemi-api
+  labels:
+    app.kubernetes.io/name: fortemi
+    app.kubernetes.io/instance: fortemi
+    app.kubernetes.io/component: api
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fortemi
+      app.kubernetes.io/instance: fortemi
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fortemi
+        app.kubernetes.io/instance: fortemi
+        app.kubernetes.io/component: api
+    spec:
+      serviceAccountName: fortemi
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: api
+          image: fortemi/server:pinned
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "3000"
+            # The API role does not run background jobs; the worker does.
+            - name: WORKER_ENABLED
+              value: "false"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: fortemi-database
+                  key: DATABASE_URL
+          envFrom:
+            - configMapRef:
+                name: fortemi-server-env
+          startupProbe:
+            httpGet:
+              path: /livez
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: files
+              mountPath: /var/lib/matric/files
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # Per-pod scratch. With attachments enabled, API and worker must share
+        # a ReadWriteMany claim: patch this volume in the overlay.
+        - name: files
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fortemi-api
+  labels:
+    app.kubernetes.io/name: fortemi
+    app.kubernetes.io/instance: fortemi
+    app.kubernetes.io/component: api
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: fortemi
+    app.kubernetes.io/instance: fortemi
+    app.kubernetes.io/component: api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: fortemi-api
+  labels:
+    app.kubernetes.io/name: fortemi
+    app.kubernetes.io/instance: fortemi
+    app.kubernetes.io/component: api
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fortemi
+      app.kubernetes.io/instance: fortemi
+      app.kubernetes.io/component: api

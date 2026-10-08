@@ -52,6 +52,8 @@ redis:
 env:
   RUST_LOG: info
   LOG_FORMAT: json
+  # Explicit Community Edition default; the migration Job reads the same value.
+  FORTEMI_MULTI_TENANT: "false"
   REQUIRE_AUTH: "true"
   # ISSUER_URL: https://memory.example.com
   # FORTEMI_ATTACHMENTS_ENABLED: "true"

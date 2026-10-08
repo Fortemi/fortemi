@@ -1,0 +1,136 @@
+---
+# DEFAULT DENY, THEN ONE POLICY PER DECISION. Unlike the chart, whose
+# NetworkPolicy is an opt-in example with unrestricted egress, this base denies
+# all ingress and egress for Fortémi pods and adds explicit allows, each
+# separately reviewable (the data-edge pattern in
+# workloads/agent-runtime-networkpolicies.yaml there): widening one
+# destination cannot silently widen another.
+#
+# PARAM (overlay patches): the ingress controller namespace label below
+# (`ingress-nginx`, the chart's default; an Istio platform names its gateway
+# namespace) and the server egress destinations, which allow the ports to any
+# address until the overlay adds `to:` blocks for its PostgreSQL, Redis, OIDC,
+# KMS and inference endpoints.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fortemi-default-deny
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: fortemi
+  policyTypes: [Ingress, Egress]
+---
+# Every Fortémi pod resolves names through cluster DNS.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fortemi-dns-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: fortemi
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# API: from the ingress controller and from MCP pods. Worker and migration pods
+# accept no ingress (kubelet probes are not subject to NetworkPolicy on common
+# CNIs).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fortemi-api-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: fortemi
+      app.kubernetes.io/component: api
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: fortemi
+              app.kubernetes.io/component: mcp
+      ports:
+        - protocol: TCP
+          port: http
+---
+# API, worker and migration: PostgreSQL, Redis and HTTPS (OIDC discovery, KMS,
+# inference). Narrow with `to:` in the overlay.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fortemi-server-egress
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [fortemi]
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [api, worker, migrate]
+  policyTypes: [Egress]
+  egress:
+    - ports:
+        - protocol: TCP
+          port: 5432
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 443
+---
+# MCP: from the ingress controller only.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fortemi-mcp-ingress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: fortemi
+      app.kubernetes.io/component: mcp
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: http
+---
+# MCP: to the API only. It advertises ISSUER_URL but never fetches it, and
+# validates tokens through the API, so it needs no internet egress.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fortemi-mcp-egress
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: fortemi
+      app.kubernetes.io/component: mcp
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: fortemi
+              app.kubernetes.io/component: api
+      ports:
+        - protocol: TCP
+          port: 3000

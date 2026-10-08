@@ -1,0 +1,68 @@
+---
+# Hosted single-tenant profile: the chart's values-hosted-single-tenant.yaml.
+# One customer per namespace, external OIDC, KMS key custody, the durable
+# PostgreSQL audit sink (always on in hosted mode) and the shared Redis
+# admission quota.
+#
+# THE OVERLAY STILL OWES, because they are per deployment:
+#   - ISSUER_URL and FORTEMI_AUTH_AUDIENCE in fortemi-server-env (startup fails
+#     closed without them);
+#   - the KMS setting for FORTEMI_KEY_PROVIDER: FORTEMI_AWS_KMS_KEY_ID for
+#     aws-kms, plus workload identity on the `fortemi` ServiceAccount; or the
+#     FORTEMI_VAULT_* settings for vault-transit (docs/content/openbao-kms.md);
+#   - a server image built with FORTEMI_API_FEATURES including a KMS backend
+#     (hosted-auth,kms-aws or hosted-auth,kms-vault); the published image has
+#     none, and hosted startup refuses to run without one.
+#
+# Secrets this component names (created by the platform, never committed):
+#   fortemi-database-migrate  MIGRATION_DATABASE_URL   migration role
+#   fortemi-quota-redis       FORTEMI_QUOTA_REDIS_URL  shared admission quota
+# Hosted startup runs an idempotent migration check, so API and worker pods
+# need MIGRATION_DATABASE_URL too (the chart's migration.exposeToRuntime).
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+configMapGenerator:
+  - name: fortemi-server-env
+    behavior: merge
+    literals:
+      - FORTEMI_MULTI_TENANT=true
+      - FORTEMI_AUTH_TENANT_CLAIM=fortemi:tenant_id
+      - FORTEMI_KEY_PROVIDER=aws-kms
+      - MATRIC_ATTACHMENT_SCAN_MODE=required
+      - FORTEMI_QUOTA_REQUESTS=600
+      - FORTEMI_QUOTA_WINDOW_SECS=60
+
+patches:
+  - target:
+      kind: Deployment
+      name: fortemi-api|fortemi-worker
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: MIGRATION_DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: fortemi-database-migrate
+              key: MIGRATION_DATABASE_URL
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: FORTEMI_QUOTA_REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: fortemi-quota-redis
+              key: FORTEMI_QUOTA_REDIS_URL
+  - target:
+      kind: Job
+      name: fortemi-migrate
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: MIGRATION_DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: fortemi-database-migrate
+              key: MIGRATION_DATABASE_URL

@@ -1,0 +1,26 @@
+---
+# No MCP server: the chart's mcp.enabled=false. Removes the MCP Deployment,
+# Service and its two NetworkPolicies. The API ingress policy still names MCP
+# pods as a peer; with none running it admits nothing extra.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - target:
+      kind: Deployment|Service
+      name: fortemi-mcp
+    patch: |-
+      $patch: delete
+      apiVersion: v1
+      kind: Ignored
+      metadata:
+        name: fortemi-mcp
+  - target:
+      kind: NetworkPolicy
+      name: fortemi-mcp-ingress|fortemi-mcp-egress
+    patch: |-
+      $patch: delete
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      metadata:
+        name: ignored

@@ -1,0 +1,30 @@
+---
+# MCP token introspection client. The chart's mcp.oauthClient.existingSecret.
+# Register a client once (POST /oauth/register with
+# {"grant_types":["client_credentials"],"scope":"mcp read write"}) and store
+# the returned credentials in this Secret (never committed):
+#   fortemi-mcp-oauth  MCP_CLIENT_ID, MCP_CLIENT_SECRET
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - target:
+      kind: Deployment
+      name: fortemi-mcp
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: MCP_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: fortemi-mcp-oauth
+              key: MCP_CLIENT_ID
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: MCP_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: fortemi-mcp-oauth
+              key: MCP_CLIENT_SECRET

@@ -1,0 +1,36 @@
+---
+# OpenTelemetry export (#1156) from the API and worker. The published server
+# image is built with the `otel` feature; export stays off until an endpoint
+# is set, so this component is inert until the overlay adds
+# OTEL_EXPORTER_OTLP_ENDPOINT (e.g. http://otel-collector.observability:4318)
+# to fortemi-server-env. Variables: docs/content/configuration.md
+# ("OpenTelemetry (OTLP)"). The chart has no OTEL switch; set the same
+# variables through its `env:` there.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - networkpolicy.yaml
+
+configMapGenerator:
+  - name: fortemi-server-env
+    behavior: merge
+    literals:
+      - OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf
+
+# One service name per role, so traces from the API and the worker separate.
+patches:
+  - target:
+      kind: Deployment
+      name: fortemi-api
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value: {name: OTEL_SERVICE_NAME, value: fortemi-api}
+  - target:
+      kind: Deployment
+      name: fortemi-worker
+    patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value: {name: OTEL_SERVICE_NAME, value: fortemi-worker}

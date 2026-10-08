@@ -1,0 +1,18 @@
+---
+# HorizontalPodAutoscalers for the API and worker, which scale independently
+# (the chart's api.autoscaling and worker.autoscaling; needs metrics-server).
+# The Deployments' `replicas` is removed so Argo CD does not fight the HPA over
+# it. Override min/max in the overlay with a patch on the HPA.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - hpa.yaml
+
+patches:
+  - target:
+      kind: Deployment
+      name: fortemi-api|fortemi-worker
+    patch: |-
+      - op: remove
+        path: /spec/replicas

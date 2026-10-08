@@ -1,0 +1,59 @@
+---
+# Fortémi Kustomize base: the same API / worker / MCP / migration split as the
+# Helm chart (deploy/helm/fortemi), as plain upstream objects for GitOps
+# platforms that render with Kustomize and reconcile with Argo CD.
+#
+# NAMESPACE-AGNOSTIC AND VERSION-FREE. No namespace is set here and every
+# container names its image without a version (`fortemi/server:pinned`); the
+# overlay sets the namespace and pins each image by digest in its `images:`
+# list, the one place an image updater writes. See
+# docs/deployment/kubernetes-helm.md ("Kustomize for GitOps platforms").
+#
+# NO SECRET VALUES. Credentials are read from Secrets the platform creates (for
+# example with External Secrets); this base only names them:
+#   fortemi-database        DATABASE_URL           (always)
+# Components add the hosted ones (components/hosted-single-tenant,
+# components/mcp-oauth-client).
+#
+# scripts/ci/kustomize-helm-parity.sh renders this base and the example overlay
+# beside `helm template` of the chart and fails when the workload sets differ.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - serviceaccounts.yaml
+  - migration.job.yaml
+  - api.yaml
+  - worker.yaml
+  - mcp.yaml
+  - networkpolicies.yaml
+
+# Selector labels (name, instance, component) are written in each object and
+# equal the chart's for a release named `fortemi`, so moving a namespace from
+# Helm to this base does not need new (immutable) Deployment selectors.
+labels:
+  - includeSelectors: false
+    includeTemplates: true
+    pairs:
+      app.kubernetes.io/part-of: fortemi
+      app.kubernetes.io/managed-by: kustomize
+
+# Non-secret environment, the chart's `env:` defaults. A content-hash suffix is
+# kept on purpose: a config change is a pod-template change, so the Deployments
+# roll onto it. Overlays add or override keys with `behavior: merge`.
+configMapGenerator:
+  - name: fortemi-server-env
+    literals:
+      - HOST=0.0.0.0
+      - FILE_STORAGE_PATH=/var/lib/matric/files
+      - REDIS_ENABLED=false
+      - FORTEMI_MULTI_TENANT=false
+      - RUST_LOG=info
+      - LOG_FORMAT=json
+      - REQUIRE_AUTH=true
+      - MATRIC_ATTACHMENT_SCAN_MODE=disabled
+  - name: fortemi-mcp-env
+    literals:
+      - MCP_TRANSPORT=http
+      - MCP_TOOL_MODE=core
+      - MCP_BASE_PATH=/mcp

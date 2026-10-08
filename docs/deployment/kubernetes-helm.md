@@ -243,6 +243,58 @@ release must be abandoned after its migrations ran, restore the snapshot as
 described in [hosted PostgreSQL roles](hosted-postgresql-role.md) rather than
 pointing an old release at the new schema.
 
+## Kustomize for GitOps platforms
+
+On platforms where Argo CD reconciles plain manifests rendered by Kustomize,
+use `deploy/kustomize/` instead of the chart. It has the same API, worker,
+MCP and migration split and the same object names as a release named
+`fortemi`, including the immutable Deployment selectors.
+
+| Path | Contents |
+|---|---|
+| `base/` | Deployments, Services, ServiceAccounts, PodDisruptionBudgets, migration Job, default-deny NetworkPolicies, ConfigMaps for non-secret env |
+| `components/` | `hosted-single-tenant`, `mcp-oauth-client`, `autoscaling`, `attachments-disabled`, `otel`, `without-mcp` |
+| `examples/single-tenant/` | Overlay equal to `values-hosted-single-tenant.yaml` in namespace `fortemi` |
+
+Reference the base and components from your overlay pinned to a commit, and
+pin images by digest in `images:`. The base sets no namespace and names
+images without a version (`fortemi/server:pinned`, `fortemi/mcp:pinned`), so
+`images:` is the only place a version lives and the only field an image
+updater has to write:
+
+```yaml
+resources:
+  - https://git.integrolabs.net/Fortemi/fortemi//deploy/kustomize/base?ref=<commit-sha>
+components:
+  - https://git.integrolabs.net/Fortemi/fortemi//deploy/kustomize/components/hosted-single-tenant?ref=<commit-sha>
+images:
+  - name: fortemi/server
+    newName: registry.example.com/fortemi/fortemi
+    digest: sha256:<server-image-digest>
+```
+
+Add or override non-secret settings with a `configMapGenerator` entry for
+`fortemi-server-env` (or `fortemi-mcp-env`) using `behavior: merge`. The
+ConfigMaps keep their content-hash suffix, so a config change rolls the pods.
+Secrets are referenced by name only, as in the [Secrets](#secrets) table. The
+hosted component adds `fortemi-database-migrate` and `fortemi-quota-redis`,
+and `mcp-oauth-client` adds `fortemi-mcp-oauth`. Create them with External
+Secrets at a sync wave earlier than 1.
+
+Differences from the chart:
+
+- The migration Job is an Argo CD `Sync` hook with `BeforeHookCreation` at
+  sync wave 1. Each sync runs it once before the Deployments at wave 2. A
+  `PreSync` hook would run before the ExternalSecrets that create its
+  credentials.
+- Pods run with `readOnlyRootFilesystem: true` and an `emptyDir` at `/tmp`.
+  The server image passed boot, migrations and `/readyz` with a read-only
+  root in the API and worker roles. The extraction tools were not exercised.
+  If one needs another writable path, mount an `emptyDir` there.
+- NetworkPolicy is default-deny with one allow per decision. Overlays patch
+  the ingress controller namespace label and add `to:` blocks to
+  `fortemi-server-egress`.
+
 ## Validation
 
 CI renders and validates the chart for the default and hosted values:
@@ -253,6 +305,12 @@ bash scripts/ci/lint-helm-chart.sh deploy/helm/fortemi
 
 The script runs `helm lint --strict`, `helm template`, and `kubeconform`, and
 checks that the chart version equals the workspace version.
+
+`scripts/ci/kustomize-helm-parity.sh` builds every kustomization and validates
+it with `kubeconform`. It then compares the base, the base without MCP and the
+example overlay with the matching `helm template` render. The comparison covers
+object kinds and names, containers, commands, effective env var names, ports
+and probes, and the CI job fails on any difference.
 
 ## Chart version
 

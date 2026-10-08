@@ -1,0 +1,23 @@
+---
+# OTLP/HTTP (4318) and OTLP/gRPC (4317) from the API and worker. Narrow with a
+# `to:` naming the collector's namespace in the overlay.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: fortemi-otlp-egress
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [fortemi]
+      - key: app.kubernetes.io/component
+        operator: In
+        values: [api, worker]
+  policyTypes: [Egress]
+  egress:
+    - ports:
+        - protocol: TCP
+          port: 4318
+        - protocol: TCP
+          port: 4317

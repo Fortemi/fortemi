@@ -1,0 +1,123 @@
+---
+# Worker role: the same binary and image as the API with the job worker on.
+# It listens on :3000 only so the kubelet can probe /livez and /readyz; no
+# Service selects worker pods. Scales independently of the API (replicas here,
+# or components/autoscaling). Security context and read-only root as in api.yaml.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fortemi-worker
+  labels:
+    app.kubernetes.io/name: fortemi
+    app.kubernetes.io/instance: fortemi
+    app.kubernetes.io/component: worker
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fortemi
+      app.kubernetes.io/instance: fortemi
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fortemi
+        app.kubernetes.io/instance: fortemi
+        app.kubernetes.io/component: worker
+    spec:
+      serviceAccountName: fortemi
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      # Long jobs (extraction, embedding) get time to finish on SIGTERM.
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: worker
+          image: fortemi/server:pinned
+          ports:
+            # Probe-only listener.
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "3000"
+            - name: WORKER_ENABLED
+              value: "true"
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: fortemi-database
+                  key: DATABASE_URL
+          envFrom:
+            - configMapRef:
+                name: fortemi-server-env
+          startupProbe:
+            httpGet:
+              path: /livez
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              memory: 4Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: files
+              mountPath: /var/lib/matric/files
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: files
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: fortemi-worker
+  labels:
+    app.kubernetes.io/name: fortemi
+    app.kubernetes.io/instance: fortemi
+    app.kubernetes.io/component: worker
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fortemi
+      app.kubernetes.io/instance: fortemi
+      app.kubernetes.io/component: worker

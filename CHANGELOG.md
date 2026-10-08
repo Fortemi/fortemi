@@ -57,6 +57,23 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   values file. New `Dockerfile.mcp` builds a standalone MCP image. CI lints,
   renders and schema-validates the chart. Chart version tracks the workspace
   CalVer. See `docs/deployment/kubernetes-helm.md`.
+- Add a Kustomize base at `deploy/kustomize/base/` for GitOps platforms that
+  render with Kustomize and reconcile with Argo CD (#1153 follow-up). It has
+  the chart's API / worker / MCP / migration split as plain manifests, sets no
+  namespace and names images without versions (`fortemi/server:pinned`), so an
+  overlay referenced by commit pins each image by digest in `images:`. All
+  pods run as uid 1000 with a read-only root filesystem, all capabilities
+  dropped, RuntimeDefault seccomp and no service account token. NetworkPolicy
+  is default-deny with explicit allows. The migration Job is an Argo CD Sync
+  hook (`BeforeHookCreation`, wave 1). Components cover the hosted
+  single-tenant profile, the MCP OAuth client, autoscaling, disabled
+  attachments (#1160), OTLP export (#1156) and running without MCP. An example
+  overlay is at `deploy/kustomize/examples/single-tenant/`. New
+  `scripts/ci/kustomize-helm-parity.sh` builds every kustomization,
+  schema-validates it, and fails the Helm Chart Lint job if the Kustomize and
+  Helm workload sets differ. Kustomize v5.8.1 is checksum-pinned. The chart's
+  default `env` now sets `FORTEMI_MULTI_TENANT: "false"` explicitly. This is
+  the Community Edition default the migration Job already used.
 
 ### Release Supply Chain
 

@@ -1,0 +1,118 @@
+---
+# MCP server (Dockerfile.mcp, Node, user `node` uid 1000), HTTP transport on
+# :3001. It reaches the API in-cluster through the fortemi-api Service; the
+# public issuer stays ISSUER_URL. The image is not yet published by release CI:
+# build Dockerfile.mcp and pin it in the overlay's `images:`. The read-only
+# root was verified by running that image with a read-only root and /tmp as
+# tmpfs: /health answered (2026-10-08). components/without-mcp removes it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fortemi-mcp
+  labels:
+    app.kubernetes.io/name: fortemi
+    app.kubernetes.io/instance: fortemi
+    app.kubernetes.io/component: mcp
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fortemi
+      app.kubernetes.io/instance: fortemi
+      app.kubernetes.io/component: mcp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fortemi
+        app.kubernetes.io/instance: fortemi
+        app.kubernetes.io/component: mcp
+    spec:
+      serviceAccountName: fortemi
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp
+          image: fortemi/mcp:pinned
+          ports:
+            - name: http
+              containerPort: 3001
+              protocol: TCP
+          env:
+            - name: MCP_PORT
+              value: "3001"
+            - name: FORTEMI_URL
+              value: http://fortemi-api:3000
+            # Shared with the server config so the two cannot disagree.
+            - name: ISSUER_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: fortemi-server-env
+                  key: ISSUER_URL
+                  optional: true
+            - name: REQUIRE_AUTH
+              valueFrom:
+                configMapKeyRef:
+                  name: fortemi-server-env
+                  key: REQUIRE_AUTH
+          # MCP_TRANSPORT, MCP_TOOL_MODE, MCP_BASE_PATH and, once the overlay
+          # sets it, MCP_BASE_URL (the public MCP URL for OAuth metadata).
+          envFrom:
+            - configMapRef:
+                name: fortemi-mcp-env
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fortemi-mcp
+  labels:
+    app.kubernetes.io/name: fortemi
+    app.kubernetes.io/instance: fortemi
+    app.kubernetes.io/component: mcp
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3001
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: fortemi
+    app.kubernetes.io/instance: fortemi
+    app.kubernetes.io/component: mcp

@@ -1,0 +1,74 @@
+---
+# Example overlay: hosted single-tenant Fortémi in the `fortemi` namespace.
+# It mirrors deploy/helm/fortemi/values-hosted-single-tenant.yaml, and
+# scripts/ci/kustomize-helm-parity.sh checks it against that chart render.
+#
+# A PLATFORM OVERLAY REFERENCES THE BASE PINNED BY COMMIT, not a branch:
+#   resources:
+#     - https://git.integrolabs.net/Fortemi/fortemi//deploy/kustomize/base?ref=<40-char commit>
+#   components:
+#     - https://git.integrolabs.net/Fortemi/fortemi//deploy/kustomize/components/hosted-single-tenant?ref=<same commit>
+# Moving that ref is a reviewed change, like any other pin.
+#
+# SECRETS ARE NAMED, NEVER WRITTEN. The platform creates them (External
+# Secrets: one ExternalSecret per Secret, at a sync wave before the migration
+# Job's wave 1 so the credential exists before the pod that reads it):
+#   fortemi-database          DATABASE_URL            runtime role
+#   fortemi-database-migrate  MIGRATION_DATABASE_URL  migration role
+#   fortemi-quota-redis       FORTEMI_QUOTA_REDIS_URL
+#   fortemi-mcp-oauth         MCP_CLIENT_ID, MCP_CLIENT_SECRET
+# plus whatever the KMS backend needs (see components/hosted-single-tenant).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: fortemi
+
+resources:
+  - namespace.yaml
+  - ../../base
+
+components:
+  - ../../components/hosted-single-tenant
+  - ../../components/attachments-disabled
+  - ../../components/mcp-oauth-client
+  - ../../components/autoscaling
+
+# PARAM: the public names. example.com placeholders, as in the chart's lint.
+configMapGenerator:
+  - name: fortemi-server-env
+    behavior: merge
+    literals:
+      - ISSUER_URL=https://memory.example.com
+      - FORTEMI_AUTH_AUDIENCE=fortemi-api
+  - name: fortemi-mcp-env
+    behavior: merge
+    literals:
+      - MCP_BASE_URL=https://memory.example.com/mcp
+
+patches:
+  # values-hosted-single-tenant.yaml caps the worker at three replicas.
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: fortemi-worker
+    patch: |-
+      - op: replace
+        path: /spec/maxReplicas
+        value: 3
+
+# EVERY IMAGE IS PINNED HERE, BY DIGEST, AND NOWHERE ELSE. The base names
+# `fortemi/server:pinned` and `fortemi/mcp:pinned`; this list is the only place
+# a version lives, which is also the only field an image updater can write.
+#
+# The digests below are DELIBERATE PLACEHOLDERS, not real images. Replace each
+# with the digest of the image you built and pushed:
+#   server: a hosted build (FORTEMI_API_FEATURES with a KMS backend); the
+#           published ghcr.io/fortemi/fortemi image has none.
+#   mcp:    Dockerfile.mcp; release CI does not publish an MCP image yet.
+#   docker buildx imagetools inspect <registry>/<repo>:<tag> --format '{{json .Manifest.Digest}}'
+images:
+  - name: fortemi/server
+    newName: registry.example.com/fortemi/fortemi
+    digest: sha256:REPLACE_WITH_SERVER_IMAGE_DIGEST
+  - name: fortemi/mcp
+    newName: registry.example.com/fortemi/fortemi-mcp
+    digest: sha256:REPLACE_WITH_MCP_IMAGE_DIGEST

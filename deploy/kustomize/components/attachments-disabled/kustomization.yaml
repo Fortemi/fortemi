@@ -1,0 +1,12 @@
+---
+# Structured notes and facts only (#1160): attachment ingestion off, so no
+# clamd scanner and no shared ReadWriteMany attachment volume are needed. The
+# chart sets the same variable in values-hosted-single-tenant.yaml.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+configMapGenerator:
+  - name: fortemi-server-env
+    behavior: merge
+    literals:
+      - FORTEMI_ATTACHMENTS_ENABLED=false

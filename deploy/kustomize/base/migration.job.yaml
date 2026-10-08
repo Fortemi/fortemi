@@ -1,0 +1,103 @@
+---
+# `matric-api --migrate-only`: apply the SQLx migrations and exit. The chart
+# runs this as a Helm pre-install/pre-upgrade hook; under Argo CD it is a SYNC
+# HOOK, the shape data-edge uses for its database release Jobs
+# (deploy/data-edge/preview/workloads/database-migration.job.yaml there).
+#
+# WHY A SYNC HOOK AND NOT A PLAIN RESOURCE. A Job's pod template is immutable,
+# so a tracked Job either stalls every sync after the overlay pins a new digest
+# or needs a new name per build, and nothing can rename it from the overlay's
+# `images:` list. BeforeHookCreation deletes the previous run before creating
+# the next, so every sync (including the one a new image causes) runs the
+# migration once; it applies only versions not yet recorded, so a sync with no
+# new build runs it to no effect. No ttlSecondsAfterFinished: the hook policy
+# owns cleanup, and the finished Job stays for `kubectl logs` until the next
+# sync.
+#
+# WHY SYNC, NOT PRESYNC, AND WAVE 1. A PreSync hook runs before any resource of
+# the sync, including the ExternalSecrets that create its database Secret, so a
+# first sync would fail. As a Sync hook at wave 1 it runs after credentials
+# (the overlay places its ExternalSecrets at an earlier wave) and before the
+# Deployments at wave 2. API and worker startup run the same idempotent
+# migration step, so the order is belt and braces, not a correctness gate.
+#
+# Outside Argo CD the annotations are inert: `kubectl apply -k` creates the Job
+# once, and re-applying with a new image fails on the immutable template until
+# the old Job is deleted.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fortemi-migrate
+  labels:
+    app.kubernetes.io/name: fortemi
+    app.kubernetes.io/instance: fortemi
+    app.kubernetes.io/component: migrate
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "1"
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 1800
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fortemi
+        app.kubernetes.io/instance: fortemi
+        app.kubernetes.io/component: migrate
+    spec:
+      restartPolicy: Never
+      serviceAccountName: fortemi-migrate
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: fortemi/server:pinned
+          # The image sets CMD (no ENTRYPOINT), so the full command is given.
+          command: ["/app/matric-api", "--migrate-only"]
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: fortemi-database
+                  key: DATABASE_URL
+            # Hosted mode migrates with MIGRATION_DATABASE_URL and refuses to run
+            # without it (components/hosted-single-tenant adds it).
+            - name: FORTEMI_MULTI_TENANT
+              valueFrom:
+                configMapKeyRef:
+                  name: fortemi-server-env
+                  key: FORTEMI_MULTI_TENANT
+            - name: RUST_LOG
+              valueFrom:
+                configMapKeyRef:
+                  name: fortemi-server-env
+                  key: RUST_LOG
+            - name: LOG_FORMAT
+              valueFrom:
+                configMapKeyRef:
+                  name: fortemi-server-env
+                  key: LOG_FORMAT
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

@@ -462,6 +462,13 @@ jobs:
       - name: Lint, render and validate deploy/helm/fortemi
         run: bash scripts/ci/lint-helm-chart.sh deploy/helm/fortemi
 
+      # kustomize build of deploy/kustomize (base, every component, the example)
+      # validated with kubeconform, and workload parity with helm template so the
+      # Kustomize base and the chart cannot drift. kustomize is checksum-pinned in
+      # the script; yq comes from the digest-pinned alpine/helm image.
+      - name: Kustomize base parity with the chart
+        run: bash scripts/ci/kustomize-helm-parity.sh deploy/helm/fortemi deploy/kustomize
+
   audit:
     name: Security Audit (deps)
     runs-on: matric-builder
