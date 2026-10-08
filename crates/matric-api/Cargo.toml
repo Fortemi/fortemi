@@ -114,6 +114,10 @@ futures = { workspace = true }
 matric-core = { path = "../matric-core" }
 matric-db = { path = "../matric-db", features = ["test-fault-injection"] }
 opentelemetry_sdk = { workspace = true, features = ["testing"] }
+# Live AWS KMS readiness profile (tests/aws_kms_readiness_live.rs): same pins as
+# matric-crypto, used only to point the real SDK client at a loopback fault endpoint.
+aws-config = "=1.8.14"
+aws-sdk-kms = { version = "=1.111.0", default-features = false, features = ["default-https-client", "rt-tokio"] }
 
 [features]
 mock-rtp = []

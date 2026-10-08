@@ -2886,6 +2886,8 @@ version = "2026.9.11"
 dependencies = [
  "anyhow",
  "async-trait",
+ "aws-config",
+ "aws-sdk-kms",
  "axum",
  "base64 0.22.1",
  "bigdecimal",
