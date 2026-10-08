@@ -1563,7 +1563,15 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
     ),
     r("/livez", Public, "health_probe", DocsPublic, PublicProbe),
     r("/readyz", Public, "health_probe", DocsPublic, PublicProbe),
-    r("/oauth/authorize", OAuth, "oauth_flow", DocsPublic, NoStore),
+    // Bypasses bearer middleware, but the handler authenticates the resource owner
+    // and binds consent to a server-side transaction (#943).
+    r(
+        "/oauth/authorize",
+        OAuth,
+        "oauth_owner_consent",
+        DocsPublic,
+        NoStore,
+    ),
     r(
         "/oauth/introspect",
         OAuth,
@@ -1864,9 +1872,12 @@ fn resource_kind_for_action_family(action_family: &str) -> ResourceKind {
         "event_stream" | "ingest_stream" | "realtime_call" | "realtime_provider_callback" => {
             ResourceKind::McpTool
         }
-        "oauth_discovery" | "oauth_flow" | "docs_schema" | "health_probe" | "test_fixture" => {
-            ResourceKind::PublicRoute
-        }
+        "oauth_discovery"
+        | "oauth_flow"
+        | "oauth_owner_consent"
+        | "docs_schema"
+        | "health_probe"
+        | "test_fixture" => ResourceKind::PublicRoute,
         other => ResourceKind::Other(other.to_string()),
     }
 }

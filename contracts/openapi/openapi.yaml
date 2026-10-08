@@ -6771,11 +6771,21 @@ paths:
     get:
       tags:
       - OAuth
-      summary: GET /oauth/authorize - Display authorization consent page.
+      summary: GET /oauth/authorize - Validate the request and render the consent page (#943).
+      description: |-
+        Unknown clients and unregistered redirect URIs get a local error page; the consent
+        page requires an authenticated resource owner and binds the POST to a server-side
+        transaction.
       operationId: oauth_authorize_get
       responses:
         '200':
-          description: Success
+          description: Consent page for an authenticated or signing-in resource owner
+        '303':
+          description: Error redirect to the registered redirect URI
+        '400':
+          description: Unknown client or unregistered redirect URI (local page, no redirect)
+        '401':
+          description: Trusted-proxy sign-in required
         '429':
           content:
             application/problem+json:
@@ -6786,7 +6796,7 @@ paths:
     post:
       tags:
       - OAuth
-      summary: POST /oauth/authorize - Process authorization and redirect with code.
+      summary: POST /oauth/authorize - Authenticate the resource owner and issue a code (#943).
       operationId: oauth_authorize_post
       requestBody:
         content:
@@ -6795,8 +6805,14 @@ paths:
               $ref: '#/components/schemas/AuthorizationForm'
         required: true
       responses:
-        '302':
-          description: Redirect
+        '303':
+          description: Redirect to the transaction's registered redirect URI
+        '400':
+          description: Expired, replayed or unknown transaction (local page)
+        '401':
+          description: Resource owner not authenticated; the consent page is shown again
+        '403':
+          description: CSRF, cookie binding or same-origin check failed (local page)
         '429':
           content:
             application/problem+json:
@@ -7634,37 +7650,28 @@ components:
           $ref: '#/components/schemas/AttachmentScanStatus'
     AuthorizationForm:
       type: object
-      description: Authorization form submission.
+      description: |-
+        Consent form submission. Client, redirect, scope and PKCE values live in the
+        server-side transaction, never in the form.
       required:
-      - response_type
-      - client_id
-      - redirect_uri
+      - transaction
+      - csrf_token
       - action
       properties:
         action:
           type: string
-        client_id:
+          description: '`approve` or `deny`.'
+        credential:
+          type:
+          - string
+          - 'null'
+          description: Fortemi API key or access token proving the resource owner (api_key mode).
+        csrf_token:
           type: string
-        code_challenge:
-          type:
-          - string
-          - 'null'
-        code_challenge_method:
-          type:
-          - string
-          - 'null'
-        redirect_uri:
+          description: CSRF token from the consent page; must match the transaction.
+        transaction:
           type: string
-        response_type:
-          type: string
-        scope:
-          type:
-          - string
-          - 'null'
-        state:
-          type:
-          - string
-          - 'null'
+          description: Opaque transaction id from the consent page.
     AutoEmbedRules:
       type: object
       description: Rules for automatic embedding generation in Full sets.

@@ -11,6 +11,7 @@ mod handlers;
 mod hosted_route_qualification;
 mod middleware;
 mod migrate_only;
+mod oauth_consent;
 mod oauth_profile;
 mod oauth_registration;
 #[cfg(test)]
@@ -1243,6 +1244,8 @@ struct AppState {
     key_health: Option<Arc<matric_api::services::key_provider_health::KeyProviderHealth>>,
     /// Dynamic client registration policy for `/oauth/register` (#944).
     oauth_registration: oauth_registration::OAuthRegistrationMode,
+    /// Resource-owner authentication and pending consent transactions (#943).
+    oauth_authorize: Arc<oauth_consent::AuthorizeRuntime>,
     /// OAuth access token lifetime (standard clients).
     oauth_token_lifetime: chrono::Duration,
     /// OAuth access token lifetime (MCP clients).
@@ -3423,6 +3426,16 @@ async fn main() -> anyhow::Result<()> {
         oauth_dynamic_registration = oauth_registration.as_str(),
         "OAuth dynamic client registration policy"
     );
+    let oauth_authorize_config = oauth_consent::config::AuthorizeConfig::from_env(
+        security_config.multi_tenant,
+        trusted_proxy_config.trusted_source_count(),
+    )?;
+    info!(
+        target: "fortemi.security",
+        oauth_authorize_owner_auth = %oauth_authorize_config.describe(),
+        "OAuth authorization endpoint resource-owner authentication"
+    );
+    let oauth_authorize = Arc::new(oauth_consent::AuthorizeRuntime::new(oauth_authorize_config));
     if !security_config.require_auth {
         if security_config.multi_tenant {
             anyhow::bail!(
@@ -4440,6 +4453,7 @@ async fn main() -> anyhow::Result<()> {
         key_provider,
         key_health,
         oauth_registration,
+        oauth_authorize,
         oauth_token_lifetime,
         oauth_mcp_token_lifetime,
         max_memories: std::env::var("MAX_MEMORIES")
@@ -23052,6 +23066,7 @@ fn oauth_authorization_server_metadata(
         token_endpoint_auth_methods_supported: capabilities.token_endpoint_auth_methods.clone(),
         scopes_supported: capabilities.scopes.clone(),
         code_challenge_methods_supported: Some(capabilities.pkce_methods.clone()),
+        authorization_response_iss_parameter_supported: Some(true),
     }
 }
 
@@ -23526,400 +23541,69 @@ impl fmt::Debug for AuthorizationRequest {
     }
 }
 
-/// GET /oauth/authorize - Display authorization consent page.
+/// GET /oauth/authorize - Validate the request and render the consent page (#943).
+///
+/// Unknown clients and unregistered redirect URIs get a local error page; the consent
+/// page requires an authenticated resource owner and binds the POST to a server-side
+/// transaction.
 #[utoipa::path(get, path = "/oauth/authorize", tag = "OAuth",
-    responses((status = 200, description = "Success")))]
+    responses(
+        (status = 200, description = "Consent page for an authenticated or signing-in resource owner"),
+        (status = 303, description = "Error redirect to the registered redirect URI"),
+        (status = 400, description = "Unknown client or unregistered redirect URI (local page, no redirect)"),
+        (status = 401, description = "Trusted-proxy sign-in required"),
+    ))]
 async fn oauth_authorize_get(
     State(state): State<AppState>,
+    SocketPeer(peer): SocketPeer,
+    headers: HeaderMap,
     Query(req): Query<AuthorizationRequest>,
-) -> Result<impl IntoResponse, OAuthApiError> {
-    // Validate response_type
-    if req.response_type != "code" {
-        return Err(OAuthApiError::OAuth(OAuthError::unsupported_response_type(
-            "Only 'code' response_type is supported",
-        )));
-    }
-
-    // Validate client exists and redirect_uri matches
-    let client = state
-        .db
-        .oauth
-        .get_client(&req.client_id)
-        .await?
-        .ok_or_else(|| OAuthApiError::OAuth(OAuthError::invalid_client("Client not found")))?;
-
-    if !client.is_active {
-        return Err(OAuthApiError::OAuth(OAuthError::invalid_client(
-            "Client is not active",
-        )));
-    }
-
-    // Validate redirect_uri (with flexible localhost port matching)
-    if !validate_redirect_uri(&req.redirect_uri, &client.redirect_uris) {
-        return Err(OAuthApiError::OAuth(OAuthError::invalid_request(
-            "Invalid redirect_uri",
-        )));
-    }
-
-    // Determine scope (use requested or client default)
-    let scope = req.scope.as_deref().unwrap_or(&client.scope);
-
-    // Build the consent page HTML
-    let html = format!(
-        r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Authorize - Matric Memory</title>
-    <style>
-        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-        body {{
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 20px;
-        }}
-        .card {{
-            background: #fff;
-            border-radius: 16px;
-            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
-            max-width: 420px;
-            width: 100%;
-            overflow: hidden;
-        }}
-        .header {{
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 24px;
-            text-align: center;
-        }}
-        .header h1 {{
-            font-size: 24px;
-            font-weight: 600;
-            margin-bottom: 4px;
-        }}
-        .header p {{
-            opacity: 0.9;
-            font-size: 14px;
-        }}
-        .content {{
-            padding: 24px;
-        }}
-        .client-info {{
-            background: #f7f9fc;
-            border-radius: 8px;
-            padding: 16px;
-            margin-bottom: 20px;
-        }}
-        .client-name {{
-            font-weight: 600;
-            font-size: 18px;
-            color: #333;
-            margin-bottom: 4px;
-        }}
-        .client-id {{
-            font-size: 12px;
-            color: #888;
-            font-family: monospace;
-        }}
-        .scope-section {{
-            margin-bottom: 20px;
-        }}
-        .scope-label {{
-            font-size: 14px;
-            font-weight: 500;
-            color: #555;
-            margin-bottom: 8px;
-        }}
-        .scope-list {{
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }}
-        .scope-badge {{
-            background: #e8f4fd;
-            color: #1976d2;
-            padding: 6px 12px;
-            border-radius: 16px;
-            font-size: 13px;
-            font-weight: 500;
-        }}
-        .warning {{
-            background: #fff3e0;
-            border-left: 4px solid #ff9800;
-            padding: 12px;
-            margin-bottom: 20px;
-            border-radius: 0 8px 8px 0;
-            font-size: 13px;
-            color: #e65100;
-        }}
-        .actions {{
-            display: flex;
-            gap: 12px;
-        }}
-        button {{
-            flex: 1;
-            padding: 14px 20px;
-            border-radius: 8px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            border: none;
-        }}
-        .btn-approve {{
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }}
-        .btn-approve:hover {{
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-        }}
-        .btn-deny {{
-            background: #f5f5f5;
-            color: #666;
-        }}
-        .btn-deny:hover {{
-            background: #e0e0e0;
-        }}
-        .footer {{
-            text-align: center;
-            padding: 16px;
-            background: #fafafa;
-            border-top: 1px solid #eee;
-            font-size: 12px;
-            color: #888;
-        }}
-    </style>
-</head>
-<body>
-    <div class="card">
-        <div class="header">
-            <h1>Matric Memory</h1>
-            <p>Authorization Request</p>
-        </div>
-        <div class="content">
-            <div class="client-info">
-                <div class="client-name">{client_name}</div>
-                <div class="client-id">{client_id}</div>
-            </div>
-
-            <div class="scope-section">
-                <div class="scope-label">This application is requesting access to:</div>
-                <div class="scope-list">
-                    {scope_badges}
-                </div>
-            </div>
-
-            <div class="warning">
-                Authorizing will allow this application to access your Matric Memory data with the permissions listed above.
-            </div>
-
-            <form method="POST" action="/oauth/authorize">
-                <input type="hidden" name="client_id" value="{client_id}">
-                <input type="hidden" name="redirect_uri" value="{redirect_uri}">
-                <input type="hidden" name="scope" value="{scope}">
-                <input type="hidden" name="state" value="{state}">
-                <input type="hidden" name="code_challenge" value="{code_challenge}">
-                <input type="hidden" name="code_challenge_method" value="{code_challenge_method}">
-                <input type="hidden" name="response_type" value="code">
-                <div class="actions">
-                    <button type="button" class="btn-deny" onclick="denyAccess()">Deny</button>
-                    <button type="submit" name="action" value="approve" class="btn-approve">Approve</button>
-                </div>
-            </form>
-        </div>
-        <div class="footer">
-            Powered by Matric Memory &bull; {issuer}
-        </div>
-    </div>
-    <script>
-        function denyAccess() {{
-            const redirectUri = "{redirect_uri}";
-            const state = "{state}";
-            const sep = redirectUri.includes('?') ? '&' : '?';
-            window.location.href = redirectUri + sep + "error=access_denied&error_description=User+denied+the+request" + (state ? "&state=" + encodeURIComponent(state) : "");
-        }}
-    </script>
-</body>
-</html>"#,
-        client_name = html_escape(&client.client_name),
-        client_id = html_escape(&req.client_id),
-        redirect_uri = html_escape(&req.redirect_uri),
-        scope = html_escape(scope),
-        state = html_escape(req.state.as_deref().unwrap_or("")),
-        code_challenge = html_escape(req.code_challenge.as_deref().unwrap_or("")),
-        code_challenge_method = html_escape(req.code_challenge_method.as_deref().unwrap_or("")),
-        scope_badges = scope
-            .split_whitespace()
-            .map(|s| format!(r#"<span class="scope-badge">{}</span>"#, html_escape(s)))
-            .collect::<Vec<_>>()
-            .join(""),
-        issuer = html_escape(&state.issuer),
-    );
-
-    Ok(([(header::CONTENT_TYPE, "text/html; charset=utf-8")], html))
+) -> axum::response::Response {
+    oauth_consent::authorize_get(&state, peer, &headers, &req).await
 }
 
-/// Authorization form submission.
+/// Consent form submission. Client, redirect, scope and PKCE values live in the
+/// server-side transaction, never in the form.
 #[derive(Deserialize, utoipa::ToSchema)]
 struct AuthorizationForm {
-    response_type: String,
-    client_id: String,
-    redirect_uri: String,
-    #[serde(default)]
-    scope: Option<String>,
-    #[serde(default)]
-    state: Option<String>,
-    #[serde(default)]
-    code_challenge: Option<String>,
-    #[serde(default)]
-    code_challenge_method: Option<String>,
+    /// Opaque transaction id from the consent page.
+    transaction: String,
+    /// CSRF token from the consent page; must match the transaction.
+    csrf_token: String,
+    /// `approve` or `deny`.
     action: String,
+    /// Fortemi API key or access token proving the resource owner (api_key mode).
+    #[serde(default)]
+    credential: Option<String>,
 }
 
 impl fmt::Debug for AuthorizationForm {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("AuthorizationForm")
-            .field(
-                "response_type_len",
-                &telemetry_text_len(&self.response_type),
-            )
-            .field("client_id_len", &telemetry_text_len(&self.client_id))
-            .field("redirect_uri_len", &telemetry_text_len(&self.redirect_uri))
-            .field("scope_len", &self.scope.as_deref().map(telemetry_text_len))
-            .field("state_len", &self.state.as_deref().map(telemetry_text_len))
-            .field(
-                "code_challenge_len",
-                &self.code_challenge.as_deref().map(telemetry_text_len),
-            )
-            .field(
-                "code_challenge_method_len",
-                &self
-                    .code_challenge_method
-                    .as_deref()
-                    .map(telemetry_text_len),
-            )
+            .field("transaction_len", &telemetry_text_len(&self.transaction))
+            .field("csrf_token_len", &telemetry_text_len(&self.csrf_token))
             .field("action_len", &telemetry_text_len(&self.action))
+            .field("credential_set", &self.credential.is_some())
             .finish()
     }
 }
 
-/// POST /oauth/authorize - Process authorization and redirect with code.
+/// POST /oauth/authorize - Authenticate the resource owner and issue a code (#943).
 #[utoipa::path(post, path = "/oauth/authorize", tag = "OAuth",
-    responses((status = 302, description = "Redirect")))]
+    request_body(content = AuthorizationForm, content_type = "application/x-www-form-urlencoded"),
+    responses(
+        (status = 303, description = "Redirect to the transaction's registered redirect URI"),
+        (status = 400, description = "Expired, replayed or unknown transaction (local page)"),
+        (status = 401, description = "Resource owner not authenticated; the consent page is shown again"),
+        (status = 403, description = "CSRF, cookie binding or same-origin check failed (local page)"),
+    ))]
 async fn oauth_authorize_post(
     State(state): State<AppState>,
-    Form(req): Form<AuthorizationForm>,
-) -> Result<impl IntoResponse, OAuthApiError> {
-    // Check if user denied
-    if req.action != "approve" {
-        let redirect = build_error_redirect(
-            &req.redirect_uri,
-            "access_denied",
-            "User denied the request",
-            req.state.as_deref(),
-        );
-        return Ok(axum::response::Redirect::to(&redirect).into_response());
-    }
-
-    // Validate response_type
-    if req.response_type != "code" {
-        return Err(OAuthApiError::OAuth(OAuthError::unsupported_response_type(
-            "Only 'code' response_type is supported",
-        )));
-    }
-
-    // Validate client
-    let client = state
-        .db
-        .oauth
-        .get_client(&req.client_id)
-        .await?
-        .ok_or_else(|| OAuthApiError::OAuth(OAuthError::invalid_client("Client not found")))?;
-
-    if !client.is_active {
-        return Err(OAuthApiError::OAuth(OAuthError::invalid_client(
-            "Client is not active",
-        )));
-    }
-
-    // Validate redirect_uri (with flexible localhost port matching)
-    if !validate_redirect_uri(&req.redirect_uri, &client.redirect_uris) {
-        return Err(OAuthApiError::OAuth(OAuthError::invalid_request(
-            "Invalid redirect_uri",
-        )));
-    }
-
-    // Determine scope
-    let scope = req.scope.as_deref().unwrap_or(&client.scope);
-
-    // Create authorization code
-    let code = state
-        .db
-        .oauth
-        .create_authorization_code(
-            &req.client_id,
-            &req.redirect_uri,
-            scope,
-            req.state.as_deref(),
-            req.code_challenge.as_deref(),
-            req.code_challenge_method.as_deref(),
-            None, // No user_id for now (system-level auth)
-        )
-        .await?;
-
-    // Build redirect URL with code and state
-    let sep = if req.redirect_uri.contains('?') {
-        '&'
-    } else {
-        '?'
-    };
-    let mut redirect_url = format!(
-        "{}{}code={}",
-        req.redirect_uri,
-        sep,
-        urlencoding::encode(&code)
-    );
-    if let Some(s) = &req.state {
-        redirect_url.push_str(&format!("&state={}", urlencoding::encode(s)));
-    }
-
-    Ok(axum::response::Redirect::to(&redirect_url).into_response())
-}
-
-/// Build an error redirect URL.
-fn build_error_redirect(
-    redirect_uri: &str,
-    error: &str,
-    description: &str,
-    state: Option<&str>,
-) -> String {
-    let sep = if redirect_uri.contains('?') { '&' } else { '?' };
-    let mut url = format!(
-        "{}{}error={}&error_description={}",
-        redirect_uri,
-        sep,
-        urlencoding::encode(error),
-        urlencoding::encode(description)
-    );
-    if let Some(s) = state {
-        url.push_str(&format!("&state={}", urlencoding::encode(s)));
-    }
-    url
-}
-
-/// Simple HTML escaping for security.
-fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#39;")
+    SocketPeer(peer): SocketPeer,
+    headers: HeaderMap,
+    Form(form): Form<AuthorizationForm>,
+) -> axum::response::Response {
+    oauth_consent::authorize_post(&state, peer, &headers, &form).await
 }
 
 /// Validate redirect_uri against registered URIs.
@@ -47609,14 +47293,10 @@ mod tests {
             code_challenge_method: Some("S256-with-/srv/fortemi/private".to_string()),
         };
         let authorization_form = AuthorizationForm {
-            response_type: "code".to_string(),
-            client_id: "client_secret=form-client-should-redact".to_string(),
-            redirect_uri: "https://oauth.example/form?registration_access_token=secret".to_string(),
-            scope: Some("admin bearer=should-redact".to_string()),
-            state: Some("state-mm_key_should_redact".to_string()),
-            code_challenge: Some("form_pkce_secret_should_redact".to_string()),
-            code_challenge_method: Some("plain-with-/home/operator/private".to_string()),
+            transaction: "tx-client_secret=form-client-should-redact".to_string(),
+            csrf_token: "csrf-registration_access_token=secret".to_string(),
             action: "approve-for-email=operator@example.com".to_string(),
+            credential: Some("mm_key_should_redact".to_string()),
         };
 
         let debug = format!("{introspect:?}{revoke:?}{authorization:?}{authorization_form:?}");
@@ -47644,6 +47324,7 @@ mod tests {
         assert!(debug.contains("redirect_uri_len"));
         assert!(debug.contains("code_challenge_len"));
         assert!(debug.contains("action_len"));
+        assert!(debug.contains("credential_set"));
     }
 
     #[test]
@@ -69975,6 +69656,9 @@ not-json
             key_provider: None,
             key_health: None,
             oauth_registration: oauth_registration::OAuthRegistrationMode::Enabled,
+            oauth_authorize: Arc::new(oauth_consent::AuthorizeRuntime::new(
+                oauth_consent::config::AuthorizeConfig::api_key_only(),
+            )),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
@@ -75525,6 +75209,9 @@ not-json
             key_provider: None,
             key_health: None,
             oauth_registration: oauth_registration::OAuthRegistrationMode::Enabled,
+            oauth_authorize: Arc::new(oauth_consent::AuthorizeRuntime::new(
+                oauth_consent::config::AuthorizeConfig::api_key_only(),
+            )),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
@@ -77320,6 +77007,9 @@ not-json
             key_provider: None,
             key_health: None,
             oauth_registration: oauth_registration::OAuthRegistrationMode::Enabled,
+            oauth_authorize: Arc::new(oauth_consent::AuthorizeRuntime::new(
+                oauth_consent::config::AuthorizeConfig::api_key_only(),
+            )),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
@@ -77668,6 +77358,9 @@ not-json
             key_provider: None,
             key_health: None,
             oauth_registration: oauth_registration::OAuthRegistrationMode::Enabled,
+            oauth_authorize: Arc::new(oauth_consent::AuthorizeRuntime::new(
+                oauth_consent::config::AuthorizeConfig::api_key_only(),
+            )),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),

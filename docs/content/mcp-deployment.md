@@ -21,7 +21,7 @@ The Fortemi MCP server provides AI agents (Claude Code, Claude Desktop, etc.) wi
 
 ### Authentication Flow
 
-1. **Client authentication**: Claude Code obtains an OAuth2 access token via authorization code flow
+1. **Client authentication**: Claude Code obtains an OAuth2 access token via authorization code flow. The consent page requires an authenticated resource owner (#943): with the default `FORTEMI_OAUTH_AUTHORIZE_OWNER_AUTH=api_key`, paste a Fortémi API key or access token that holds the requested scopes (for MCP, `mcp`, or `admin`) before approving. Behind a signing-in proxy, use `trusted_header`. See [Authentication](#/security-authentication).
 2. **MCP request**: Client sends tool call to MCP server with `Authorization: Bearer <ACCESS_TOKEN>` header
 3. **Token introspection**: MCP server validates the bearer token by calling the API's introspection endpoint
 4. **Introspection authentication**: MCP uses its own OAuth client credentials to authenticate the introspection request
@@ -204,7 +204,12 @@ For users who want explicit control over MCP credentials, follow this workflow:
 ### Step 1: Register OAuth Client
 
 ```bash
-# Register OAuth client for MCP server
+# Register OAuth client for MCP server (works in every registration mode)
+docker compose -f docker-compose.bundle.yml exec matric \
+  /app/matric-api admin oauth-client register --name "MCP Server" \
+  --grant-types client_credentials --scope "mcp read write" --json
+
+# Or, when FORTEMI_OAUTH_DYNAMIC_REGISTRATION=enabled (community default):
 curl -X POST http://localhost:3000/oauth/register \
   -H "Content-Type: application/json" \
   -d '{"client_name":"MCP Server","grant_types":["client_credentials"],"scope":"mcp read write"}'

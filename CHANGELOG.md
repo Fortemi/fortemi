@@ -41,6 +41,31 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 - **The Docker bundle provisions its MCP introspection client with the new
   `matric-api admin oauth-client register` command (#944)** instead of calling
   `POST /oauth/register`, so it works in every registration mode.
+- **`/oauth/authorize` requires an authenticated resource owner (#943).** The
+  consent page no longer approves on behalf of nobody. New
+  `FORTEMI_OAUTH_AUTHORIZE_OWNER_AUTH` (`api_key`, `trusted_header`, both, or
+  `disabled`) and `FORTEMI_OAUTH_OWNER_HEADER`. Community deployments default to
+  `api_key`: whoever approves (for example when Claude Code connects over MCP
+  OAuth) must paste a Fortémi API key or access token holding the requested
+  scopes. `trusted_header` accepts a user signed in by a proxy such as
+  oauth2-proxy, only from `FORTEMI_TRUSTED_PROXY_CIDRS`. Hosted mode accepts only
+  `disabled`. Authorization codes and the tokens issued from them now record the
+  owner subject instead of no user.
+- **Authorization requests are validated before any redirect (#943).** An
+  unknown client or unregistered `redirect_uri` gets a local `400` page, including
+  on denial (the old POST denial redirected to any request-supplied URI). The
+  client must be registered for `authorization_code`; requested scopes must be a
+  subset of the client's registered scopes (`invalid_scope` otherwise, also when a
+  client registered with the default `read` asks for `mcp`); PKCE, when sent, must
+  be `S256`. Consent is bound to a single-use server-side transaction with a CSRF
+  token and a `SameSite=Strict` cookie, cross-site POSTs are refused, and the
+  form no longer carries client, redirect, scope or PKCE fields. Pending
+  transactions are held in process memory (one replica, or sticky routing).
+- **Authorization responses carry `iss` (RFC 9207, #943)**, and discovery
+  advertises `authorization_response_iss_parameter_supported: true`. Successful
+  and error redirects use `303 See Other`. Authorization pages send
+  `Content-Security-Policy: frame-ancestors 'none'`, `X-Frame-Options: DENY` and
+  `Cache-Control: no-store`, and no longer contain script.
 
 ### Export
 

@@ -511,9 +511,13 @@ GET /.well-known/oauth-authorization-server
     "client_secret_post"
   ],
   "scopes_supported": ["read", "write", "admin", "mcp"],
-  "code_challenge_methods_supported": ["S256"]
+  "code_challenge_methods_supported": ["S256"],
+  "authorization_response_iss_parameter_supported": true
 }
 ```
+
+`registration_endpoint` appears only when dynamic registration is `enabled`
+(see [Registration policy](#registration-policy)).
 
 ### 1. Register Your Application
 
@@ -609,14 +613,61 @@ GET /oauth/authorize?
   code_challenge_method=S256
 ```
 
-The user will see a consent page and can approve or deny access.
+Fortémi validates the request before showing anything (#943):
+
+- An unknown or inactive `client_id`, or a `redirect_uri` that is not registered for
+  the client, gets a local `400` error page. Fortémi never redirects to an
+  unregistered URI.
+- Other errors go back to the registered `redirect_uri` with `error`, `state` and
+  `iss`: `unsupported_response_type`, `unauthorized_client` (the client is not
+  registered for `authorization_code`), `invalid_scope` (every requested scope
+  must be issued by the server and registered for the client; with no `scope`,
+  the registered scope is requested) and `invalid_request` (PKCE must use `S256`
+  with a 43-128 character challenge; `plain` is refused).
+
+The consent page then requires an **authenticated resource owner**. Approval
+without one never produces a code. How the owner is authenticated depends on
+`FORTEMI_OAUTH_AUTHORIZE_OWNER_AUTH`:
+
+| Value | Resource owner | Default |
+|-------|----------------|---------|
+| `api_key` | The person approving enters a Fortémi API key or access token on the consent page. It must hold every requested scope (`admin` holds all). The code records `api_key:<id>`, `oauth_client:<id>` or `oauth_user:<id>`. | Community |
+| `trusted_header` | A reverse proxy that has already signed the user in (for example oauth2-proxy) sends the user in `FORTEMI_OAUTH_OWNER_HEADER`, such as `X-Forwarded-Email`. The header is honored only when the immediate peer is in `FORTEMI_TRUSTED_PROXY_CIDRS`; startup fails without them. The proxy's admission is the authorization decision. The code records `proxy:<value>`. | |
+| `api_key,trusted_header` | Either. | |
+| `disabled` | No browser authorization. Valid requests are answered with `error=access_denied`. | Hosted (`FORTEMI_MULTI_TENANT=true`), where it is the only accepted value |
+
+The ceremony is protected on the server side:
+
+- The GET stores the validated request in a server-side transaction. The form
+  carries only an opaque transaction id and a CSRF token; a per-transaction
+  `HttpOnly; SameSite=Strict` cookie (`Secure` when `ISSUER_URL` is HTTPS)
+  binds it to the browser. Client, redirect, scope and PKCE values cannot be
+  tampered with in the form.
+- The POST fails with a local error page when the transaction is unknown,
+  expired (10 minutes) or already used, when the CSRF token or cookie does not
+  match, or when `Sec-Fetch-Site` or `Origin` shows a cross-site submission.
+  Five failed sign-in attempts end the transaction.
+- **Deny** is a server-side decision that redirects only to the transaction's
+  registered `redirect_uri`, with `error=access_denied`, `state` and `iss`.
+- Every response sends `Content-Security-Policy: frame-ancestors 'none'`,
+  `X-Frame-Options: DENY` and `Cache-Control: no-store`. The page has no script.
+- Transactions live in API process memory. Run one API replica, or route a
+  browser's requests to the same replica.
+
+This browser flow is for user consent. Machine access without a person uses the
+client-credentials grant (step 5) or an API key; those tokens carry no resource
+owner.
 
 #### Step 3: Handle Redirect with Authorization Code
 
 After approval, the user is redirected to:
 ```
-https://myapp.example.com/callback?code=AUTH_CODE_HERE&state=random_state_value
+https://myapp.example.com/callback?code=AUTH_CODE_HERE&state=random_state_value&iss=https%3A%2F%2Fmemory.example.com
 ```
+
+`iss` (RFC 9207) equals the discovery `issuer`; discovery advertises
+`authorization_response_iss_parameter_supported: true`. Clients should reject a
+response whose `iss` does not match.
 
 #### Step 4: Exchange Code for Tokens
 

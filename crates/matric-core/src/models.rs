@@ -5153,6 +5153,9 @@ pub struct AuthorizationServerMetadata {
     pub scopes_supported: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code_challenge_methods_supported: Option<Vec<String>>,
+    /// RFC 9207: authorization responses carry an `iss` parameter.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authorization_response_iss_parameter_supported: Option<bool>,
 }
 
 impl fmt::Debug for AuthorizationServerMetadata {
@@ -5192,6 +5195,10 @@ impl fmt::Debug for AuthorizationServerMetadata {
             .field(
                 "code_challenge_methods_supported_count",
                 &self.code_challenge_methods_supported.as_ref().map(Vec::len),
+            )
+            .field(
+                "authorization_response_iss_parameter_supported",
+                &self.authorization_response_iss_parameter_supported,
             )
             .finish()
     }
@@ -8058,6 +8065,7 @@ mod tests {
             token_endpoint_auth_methods_supported: vec!["client_secret_post".to_string()],
             scopes_supported: vec!["private.scope.sk-live-secret".to_string()],
             code_challenge_methods_supported: Some(vec!["S256".to_string()]),
+            authorization_response_iss_parameter_supported: Some(true),
         };
         let api_key = ApiKey {
             id: Uuid::new_v4(),

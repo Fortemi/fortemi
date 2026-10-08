@@ -93,6 +93,11 @@ impl TrustedProxyConfig {
     fn trusts(&self, address: IpAddr) -> bool {
         self.cidrs.iter().any(|cidr| cidr.contains(&address))
     }
+
+    /// Whether the immediate socket peer is a configured trusted proxy.
+    pub(crate) fn trusts_peer(&self, peer: Option<SocketAddr>) -> bool {
+        peer.is_some_and(|peer| self.trusts(peer.ip()))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
