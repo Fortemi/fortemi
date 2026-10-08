@@ -468,6 +468,7 @@ impl OllamaBackend {
         let response = self
             .client
             .post(format!("{}/api/chat", self.base_url))
+            .headers(matric_core::telemetry::trace_header_map())
             .timeout(Duration::from_secs(self.gen_timeout_secs))
             .json(&request)
             .send()
@@ -535,6 +536,7 @@ impl OllamaBackend {
         let response = self
             .client
             .post(format!("{}/api/chat", self.base_url))
+            .headers(matric_core::telemetry::trace_header_map())
             .timeout(Duration::from_secs(self.gen_timeout_secs))
             .json(&request)
             .send()
@@ -606,6 +608,7 @@ impl OllamaBackend {
         let response = self
             .client
             .post(format!("{}/api/chat", self.base_url))
+            .headers(matric_core::telemetry::trace_header_map())
             .timeout(Duration::from_secs(self.gen_timeout_secs))
             .json(&request)
             .send()
@@ -669,102 +672,119 @@ impl OllamaBackend {
         format: Option<serde_json::Value>,
         timeout_override: Option<u64>,
     ) -> Result<String> {
-        let timeout = timeout_override.unwrap_or(self.gen_timeout_secs);
-        let start = Instant::now();
-
-        debug!(
-            json_format = format.is_some(),
-            timeout_secs = timeout,
-            "Starting generation via chat API"
-        );
-
-        let mut messages = Vec::new();
-        if !system.is_empty() {
-            messages.push(ChatMessage {
-                role: "system".to_string(),
-                content: system.to_string(),
-            });
-        }
-        messages.push(ChatMessage {
-            role: "user".to_string(),
-            content: prompt.to_string(),
-        });
-
-        // Always disable thinking mode — we only use message.content, and
-        // thinking models (qwen3.5) can return empty content when think is enabled.
-        let think = Some(false);
-
-        // IMPORTANT: Do NOT send num_ctx per-request. Changing num_ctx between
-        // requests triggers a full model reload in Ollama (~60-90 seconds), which
-        // is catastrophic for multi-chunk revision pipelines.
-        //
-        // Context window should be set via:
-        //   1. OLLAMA_CONTEXT_LENGTH env var (global, Ollama 0.19+)
-        //   2. Custom Modelfile with `PARAMETER num_ctx <value>`
-        //   3. Ollama's VRAM-based auto-calculation (default)
-        //
-        // We only send num_predict to control max output tokens.
-        let options = self.gen_model_profile().map(|p| ChatOptions {
-            num_ctx: None,
-            num_predict: Some(p.max_output),
-        });
-
-        let request = ChatRequest {
-            model: self.gen_model.clone(),
-            messages,
-            stream: false,
-            format,
-            think,
-            options,
+        let telemetry_start = std::time::Instant::now();
+        let telemetry_operation: &'static str = if format.is_some() {
+            "generate_json"
+        } else {
+            "generate"
         };
+        let result: Result<String> = async {
+            let timeout = timeout_override.unwrap_or(self.gen_timeout_secs);
+            let start = Instant::now();
 
-        let response = self
-            .client
-            .post(format!("{}/api/chat", self.base_url))
-            .timeout(Duration::from_secs(timeout))
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| {
-                Error::Inference(backend_request_error(
-                    "Ollama generation request failed",
-                    &e,
+            debug!(
+                json_format = format.is_some(),
+                timeout_secs = timeout,
+                "Starting generation via chat API"
+            );
+
+            let mut messages = Vec::new();
+            if !system.is_empty() {
+                messages.push(ChatMessage {
+                    role: "system".to_string(),
+                    content: system.to_string(),
+                });
+            }
+            messages.push(ChatMessage {
+                role: "user".to_string(),
+                content: prompt.to_string(),
+            });
+
+            // Always disable thinking mode — we only use message.content, and
+            // thinking models (qwen3.5) can return empty content when think is enabled.
+            let think = Some(false);
+
+            // IMPORTANT: Do NOT send num_ctx per-request. Changing num_ctx between
+            // requests triggers a full model reload in Ollama (~60-90 seconds), which
+            // is catastrophic for multi-chunk revision pipelines.
+            //
+            // Context window should be set via:
+            //   1. OLLAMA_CONTEXT_LENGTH env var (global, Ollama 0.19+)
+            //   2. Custom Modelfile with `PARAMETER num_ctx <value>`
+            //   3. Ollama's VRAM-based auto-calculation (default)
+            //
+            // We only send num_predict to control max output tokens.
+            let options = self.gen_model_profile().map(|p| ChatOptions {
+                num_ctx: None,
+                num_predict: Some(p.max_output),
+            });
+
+            let request = ChatRequest {
+                model: self.gen_model.clone(),
+                messages,
+                stream: false,
+                format,
+                think,
+                options,
+            };
+
+            let response = self
+                .client
+                .post(format!("{}/api/chat", self.base_url))
+                .headers(matric_core::telemetry::trace_header_map())
+                .timeout(Duration::from_secs(timeout))
+                .json(&request)
+                .send()
+                .await
+                .map_err(|e| {
+                    Error::Inference(backend_request_error(
+                        "Ollama generation request failed",
+                        &e,
+                    ))
+                })?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                return Err(Error::Inference(backend_status_error(
+                    "Ollama generation",
+                    status,
+                    &body,
+                )));
+            }
+
+            let result: ChatResponse = response.json().await.map_err(|e| {
+                Error::Inference(backend_parse_error(
+                    "Ollama generation response parse failed",
+                    e,
                 ))
             })?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(Error::Inference(backend_status_error(
-                "Ollama generation",
-                status,
-                &body,
-            )));
-        }
-
-        let result: ChatResponse = response.json().await.map_err(|e| {
-            Error::Inference(backend_parse_error(
-                "Ollama generation response parse failed",
-                e,
-            ))
-        })?;
-
-        let content = result.message.content;
-        let elapsed = start.elapsed().as_millis() as u64;
-        debug!(
-            response_len = content.len(),
-            duration_ms = elapsed,
-            "Generation complete"
-        );
-        if elapsed > 30000 {
-            warn!(
+            let content = result.message.content;
+            let elapsed = start.elapsed().as_millis() as u64;
+            debug!(
+                response_len = content.len(),
                 duration_ms = elapsed,
-                prompt_len = prompt.len(),
-                slow = true,
-                "Slow generation operation"
+                "Generation complete"
             );
+            if elapsed > 30000 {
+                warn!(
+                    duration_ms = elapsed,
+                    prompt_len = prompt.len(),
+                    slow = true,
+                    "Slow generation operation"
+                );
+            }
+            Ok(content)
         }
-        Ok(content)
+        .await;
+        matric_core::telemetry::record_inference(
+            telemetry_operation,
+            "ollama",
+            matric_core::telemetry::outcome_label(&result),
+            telemetry_start.elapsed(),
+        );
+        result
     }
 }
 
@@ -893,114 +913,127 @@ fn ollama_chat_ndjson_stream(response: reqwest::Response) -> matric_core::Genera
 impl EmbeddingBackend for OllamaBackend {
     #[instrument(skip(self, texts), fields(subsystem = "inference", component = "ollama", op = "embed_texts", model_len = diagnostic_len(&self.embed_model), input_count = texts.len()))]
     async fn embed_texts(&self, texts: &[String]) -> Result<Vec<Vector>> {
-        if texts.is_empty() {
-            return Ok(vec![]);
-        }
+        let telemetry_start = std::time::Instant::now();
+        let telemetry_operation: &'static str = "embed";
+        let result: Result<Vec<Vector>> = async {
+            if texts.is_empty() {
+                return Ok(vec![]);
+            }
 
-        let start = Instant::now();
-        let diagnostics = embedding_batch_diagnostics(texts);
-        debug!(
-            stage = "provider_request",
-            input_count = diagnostics.input_count,
-            input_total_chars = diagnostics.input_total_chars,
-            input_max_chars = diagnostics.input_max_chars,
-            provider_timeout_secs = self.embed_timeout_secs,
-            model_len = diagnostic_len(&self.embed_model),
-            "Ollama embedding request started"
-        );
+            let start = Instant::now();
+            let diagnostics = embedding_batch_diagnostics(texts);
+            debug!(
+                stage = "provider_request",
+                input_count = diagnostics.input_count,
+                input_total_chars = diagnostics.input_total_chars,
+                input_max_chars = diagnostics.input_max_chars,
+                provider_timeout_secs = self.embed_timeout_secs,
+                model_len = diagnostic_len(&self.embed_model),
+                "Ollama embedding request started"
+            );
 
-        let request = EmbeddingRequest {
-            model: self.embed_model.clone(),
-            input: texts.to_vec(),
-        };
+            let request = EmbeddingRequest {
+                model: self.embed_model.clone(),
+                input: texts.to_vec(),
+            };
 
-        let response = self
-            .client
-            .post(format!("{}/api/embed", self.base_url))
-            .timeout(Duration::from_secs(self.embed_timeout_secs))
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| {
+            let response = self
+                .client
+                .post(format!("{}/api/embed", self.base_url))
+            .headers(matric_core::telemetry::trace_header_map())
+                .timeout(Duration::from_secs(self.embed_timeout_secs))
+                .json(&request)
+                .send()
+                .await
+                .map_err(|e| {
+                    warn!(
+                        stage = "provider_response",
+                        response_class = "request_error",
+                        reason_code = if e.is_timeout() {
+                            "timeout"
+                        } else {
+                            "request_failed"
+                        },
+                        provider_timeout_secs = self.embed_timeout_secs,
+                        duration_ms = start.elapsed().as_millis() as u64,
+                        "Ollama embedding request failed"
+                    );
+                    Error::Embedding(backend_request_error("Ollama embedding request failed", &e))
+                })?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
                 warn!(
                     stage = "provider_response",
-                    response_class = "request_error",
-                    reason_code = if e.is_timeout() {
-                        "timeout"
-                    } else {
-                        "request_failed"
-                    },
-                    provider_timeout_secs = self.embed_timeout_secs,
+                    response_class = "http_error",
+                    status_code = status.as_u16(),
+                    body_len = text_len(&body),
+                    reason_code = backend_body_reason(&body),
                     duration_ms = start.elapsed().as_millis() as u64,
-                    "Ollama embedding request failed"
+                    "Ollama embedding provider returned an error"
                 );
-                Error::Embedding(backend_request_error("Ollama embedding request failed", &e))
+                return Err(Error::Embedding(backend_status_error(
+                    "Ollama embeddings",
+                    status,
+                    &body,
+                )));
+            }
+
+            let result: EmbeddingResponse = response.json().await.map_err(|e| {
+                warn!(
+                    stage = "provider_response",
+                    response_class = "parse_error",
+                    reason_code = "invalid_response",
+                    error_len = diagnostic_len(&e.to_string()),
+                    duration_ms = start.elapsed().as_millis() as u64,
+                    "Ollama embedding response could not be parsed"
+                );
+                Error::Embedding(backend_parse_error(
+                    "Ollama embedding response parse failed",
+                    e,
+                ))
             })?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            warn!(
+            if result.embeddings.len() != texts.len() {
+                return Err(Error::Embedding(format!(
+                    "Ollama embedding response count mismatch: requested_count={}, returned_count={}",
+                    texts.len(),
+                    result.embeddings.len()
+                )));
+            }
+            let vectors: Vec<Vector> = result.embeddings.into_iter().map(Vector::from).collect();
+            let elapsed = start.elapsed().as_millis() as u64;
+
+            debug!(
                 stage = "provider_response",
-                response_class = "http_error",
-                status_code = status.as_u16(),
-                body_len = text_len(&body),
-                reason_code = backend_body_reason(&body),
-                duration_ms = start.elapsed().as_millis() as u64,
-                "Ollama embedding provider returned an error"
-            );
-            return Err(Error::Embedding(backend_status_error(
-                "Ollama embeddings",
-                status,
-                &body,
-            )));
-        }
-
-        let result: EmbeddingResponse = response.json().await.map_err(|e| {
-            warn!(
-                stage = "provider_response",
-                response_class = "parse_error",
-                reason_code = "invalid_response",
-                error_len = diagnostic_len(&e.to_string()),
-                duration_ms = start.elapsed().as_millis() as u64,
-                "Ollama embedding response could not be parsed"
-            );
-            Error::Embedding(backend_parse_error(
-                "Ollama embedding response parse failed",
-                e,
-            ))
-        })?;
-
-        if result.embeddings.len() != texts.len() {
-            return Err(Error::Embedding(format!(
-                "Ollama embedding response count mismatch: requested_count={}, returned_count={}",
-                texts.len(),
-                result.embeddings.len()
-            )));
-        }
-        let vectors: Vec<Vector> = result.embeddings.into_iter().map(Vector::from).collect();
-        let elapsed = start.elapsed().as_millis() as u64;
-
-        debug!(
-            stage = "provider_response",
-            input_count = diagnostics.input_count,
-            result_count = vectors.len(),
-            vector_dimension = vectors
-                .first()
-                .map(|vector| vector.as_slice().len())
-                .unwrap_or(0),
-            duration_ms = elapsed,
-            "Embedding complete"
-        );
-        if elapsed > 5000 {
-            warn!(
+                input_count = diagnostics.input_count,
+                result_count = vectors.len(),
+                vector_dimension = vectors
+                    .first()
+                    .map(|vector| vector.as_slice().len())
+                    .unwrap_or(0),
                 duration_ms = elapsed,
-                input_count = texts.len(),
-                slow = true,
-                "Slow embedding operation"
+                "Embedding complete"
             );
+            if elapsed > 5000 {
+                warn!(
+                    duration_ms = elapsed,
+                    input_count = texts.len(),
+                    slow = true,
+                    "Slow embedding operation"
+                );
+            }
+            Ok(vectors)
         }
-        Ok(vectors)
+        .await;
+        matric_core::telemetry::record_inference(
+            telemetry_operation,
+            "ollama",
+            matric_core::telemetry::outcome_label(&result),
+            telemetry_start.elapsed(),
+        );
+        result
     }
 
     fn dimension(&self) -> usize {

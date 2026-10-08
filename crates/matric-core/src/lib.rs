@@ -31,6 +31,7 @@ pub mod shard;
 pub mod source_upsert;
 pub mod strict_filter;
 pub mod tags;
+pub mod telemetry;
 pub mod temporal;
 pub mod tokenizer;
 pub mod traits;

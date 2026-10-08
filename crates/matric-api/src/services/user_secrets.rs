@@ -162,7 +162,16 @@ pub async fn unseal_user_secret(
     let context = user_secret_context(tenant_id, user_id, secret_id)?;
     let encrypted: EncryptedBlob = serde_json::from_value(encrypted_blob)
         .map_err(|_| UserSecretServiceError::InvalidEnvelope)?;
-    let plaintext = decrypt_blob(key_provider, &encrypted, &context).await?;
+    let decrypted = decrypt_blob(key_provider, &encrypted, &context).await;
+    match &decrypted {
+        Ok(_) => matric_core::telemetry::record_kms_operation("decrypt", "ok", "none"),
+        Err(error) => matric_core::telemetry::record_kms_operation(
+            "decrypt",
+            "error",
+            key_failure_class_label(error.class()),
+        ),
+    }
+    let plaintext = decrypted?;
     let mut payload: StoredSecretPayload = serde_json::from_slice(plaintext.as_slice())
         .map_err(|_| UserSecretServiceError::InvalidEnvelope)?;
     if payload.version != STORED_SECRET_PAYLOAD_VERSION || payload.provider != expected_provider {
@@ -170,6 +179,24 @@ pub async fn unseal_user_secret(
     }
     validate_user_secret_value(&payload.key)?;
     Ok(Zeroizing::new(std::mem::take(&mut payload.key)))
+}
+
+/// Closed telemetry vocabulary for KMS failure classes (#1156).
+pub fn key_failure_class_label(class: KeyFailureClass) -> &'static str {
+    match class {
+        KeyFailureClass::InvalidConfiguration => "invalid_configuration",
+        KeyFailureClass::InvalidContext => "invalid_context",
+        KeyFailureClass::UnsupportedVersion => "unsupported_version",
+        KeyFailureClass::UnsupportedOperation => "unsupported_operation",
+        KeyFailureClass::ProviderUnavailable => "provider_unavailable",
+        KeyFailureClass::AccessDenied => "access_denied",
+        KeyFailureClass::KeyDisabled => "key_disabled",
+        KeyFailureClass::KeyVersionUnavailable => "key_version_unavailable",
+        KeyFailureClass::ContextMismatch => "context_mismatch",
+        KeyFailureClass::InvalidCiphertext => "invalid_ciphertext",
+        KeyFailureClass::Throttled => "throttled",
+        KeyFailureClass::ProviderFailure => "provider_failure",
+    }
 }
 
 pub fn user_secret_mask(provider: &str) -> String {

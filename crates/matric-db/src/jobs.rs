@@ -38,6 +38,25 @@ impl PgJobRepository {
         Self { pool, notify }
     }
 
+    /// Age in seconds of the oldest due pending job of a supported type, or 0
+    /// when nothing is waiting. Feeds the `fortemi.job.queue.oldest_pending_age`
+    /// gauge (#1156); returns only an aggregate, never row identity.
+    pub async fn oldest_pending_age_seconds(&self) -> Result<f64> {
+        let supported_types = Self::supported_job_type_strings();
+        let age: Option<f64> = sqlx::query_scalar(
+            "SELECT EXTRACT(EPOCH FROM (NOW() - MIN(created_at)))::float8
+             FROM job_queue
+             WHERE status = 'pending'
+               AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
+               AND job_type::text = ANY($1)",
+        )
+        .bind(&supported_types)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+        Ok(age.unwrap_or(0.0).max(0.0))
+    }
+
     /// Get the job notification handle for event-driven waking.
     pub fn job_notify(&self) -> Arc<Notify> {
         self.notify.clone()
@@ -295,6 +314,7 @@ impl JobRepository for PgJobRepository {
         payload: Option<JsonValue>,
         cost_tier: Option<i16>,
     ) -> Result<Uuid> {
+        let payload = matric_core::telemetry::attach_trace_to_job_payload(payload);
         let job_id = new_v7();
         let now = Utc::now();
         let job_type_str = Self::job_type_to_str(job_type);
@@ -336,6 +356,7 @@ impl JobRepository for PgJobRepository {
         payload: Option<JsonValue>,
         cost_tier: Option<i16>,
     ) -> Result<Option<Uuid>> {
+        let payload = matric_core::telemetry::attach_trace_to_job_payload(payload);
         let job_type_str = Self::job_type_to_str(job_type);
 
         // Atomic check-and-insert using INSERT ... WHERE NOT EXISTS to prevent
@@ -433,7 +454,10 @@ impl JobRepository for PgJobRepository {
         let priority = job_type.default_priority();
         let cost_tier = job_type.default_cost_tier();
         let release_key = format!("{schema}:{attachment_id}:{job_type_str}");
-        let mut payload = payload.unwrap_or_else(|| JsonValue::Object(Default::default()));
+        let mut payload = matric_core::telemetry::attach_trace_to_job_payload(Some(
+            payload.unwrap_or_else(|| JsonValue::Object(Default::default())),
+        ))
+        .unwrap_or_else(|| JsonValue::Object(Default::default()));
         let payload_object = payload.as_object_mut().ok_or_else(|| {
             Error::InvalidInput("Attachment downstream job payload must be an object".to_string())
         })?;

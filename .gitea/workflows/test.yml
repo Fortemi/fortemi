@@ -167,7 +167,14 @@ jobs:
           cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api hosted_sse_filters
           FORTEMI_HOSTED_CREATE_TEST_ADMIN_URL="$DATABASE_URL" cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api hosted_create_note_tests -- --test-threads=1
           FORTEMI_HOSTED_BOOTSTRAP_TEST_ADMIN_URL="$DATABASE_URL" cargo test --locked -p matric-api --features hosted-auth,kms-vault --test hosted_bootstrap_test -- --test-threads=1
+          cargo test --locked -p matric-core --features otel --lib telemetry
+          cargo test --locked -p matric-api --features otel --bin matric-api otel::
           cargo test --doc --workspace
+
+      - name: OTLP collector integration
+        run: |
+          # Disposable DB + digest-pinned collector (ci/digests.txt) (#1156).
+          TESTDB_IMAGE=matric-testdb:local scripts/test-otel-collector.sh
 
       - name: Teardown PostgreSQL
         if: always()

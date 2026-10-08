@@ -73,6 +73,33 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   Output never contains database URLs or credentials. See
   `docs/deployment/hosted-bootstrap.md`.
 
+### Observability
+
+- Export traces and metrics over OTLP/HTTP or OTLP/gRPC (#1156). The feature is
+  behind the `matric-api` Cargo feature `otel`, which the published images now
+  build (`FORTEMI_API_FEATURES=hosted-auth,otel`). Export stays off until the
+  standard `OTEL_*` variables opt in: an `OTEL_EXPORTER_OTLP_*ENDPOINT`, or
+  `OTEL_{TRACES,METRICS}_EXPORTER=otlp`. `OTEL_SDK_DISABLED=true` always wins.
+- HTTP server spans are named by route template and continue inbound W3C
+  `traceparent`. Jobs queued during a traced request carry the trace in the
+  reserved payload key `_fortemi_traceparent`; the worker removes it before
+  handlers run and parents `job.execute` on it. Ollama and OpenAI-compatible
+  provider requests send `traceparent`. The MCP server forwards a validated
+  inbound `traceparent` (tool-call `_meta` or HTTP header) on its API calls.
+- New metrics: HTTP request duration and in-flight requests by route
+  template and class, job execution duration, queue depth, oldest pending
+  age, inference latency, DB pool usage, Redis quota admission decisions and
+  KMS canary/decrypt outcomes. All labels come from bounded sets with no
+  tenant ids, content or raw paths. See `docs/content/observability.md`.
+- A redacting span processor drops sensitive attribute keys, masks
+  credential-, URL- and email-shaped values, and strips span events before
+  export.
+- `RUST_LOG` now filters only the stdout/file log sink. Exported spans use
+  `FORTEMI_OTEL_TRACES_FILTER` (default `info`). With export disabled,
+  logging behaves as before.
+- `scripts/test-otel-collector.sh` checks export end to end against a
+  digest-pinned OpenTelemetry Collector over both protocols. CI runs it.
+
 ### Authentication
 
 - The MCP server accepts externally issued OIDC tokens by delegating

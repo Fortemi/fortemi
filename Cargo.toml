@@ -97,6 +97,13 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
 
+# OpenTelemetry (#1156). Opt-in through the matric-api `otel` feature. The 0.31
+# line is pinned because it shares reqwest 0.12 with the rest of the workspace.
+opentelemetry = { version = "0.31", default-features = false, features = ["trace", "metrics"] }
+opentelemetry_sdk = { version = "0.31", default-features = false, features = ["trace", "metrics", "rt-tokio"] }
+opentelemetry-otlp = { version = "0.31", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-blocking-client", "grpc-tonic", "tls-ring", "tls-webpki-roots"] }
+tracing-opentelemetry = { version = "0.32", default-features = false }
+
 # Async utilities
 async-trait = "0.1"
 futures = "0.3"

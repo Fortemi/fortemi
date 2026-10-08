@@ -13,8 +13,9 @@ FROM rust:1.92.0-slim-bookworm@sha256:f1f73538ebe623fd3673a35aff3df358ae1084c64c
 ARG VERSION=dev
 ARG GIT_SHA=unknown
 ARG BUILD_DATE=unknown
-# Include the public OIDC verifier; hosted runtime admission remains opt-in.
-ARG FORTEMI_API_FEATURES=hosted-auth
+# Include the public OIDC verifier and OTLP export (#1156). Hosted runtime
+# admission and telemetry export both stay off until configured at runtime.
+ARG FORTEMI_API_FEATURES=hosted-auth,otel
 # rustc 1.92 can exhaust its default worker-thread stack while compiling the
 # release binary with thin LTO. Keep this configurable while using rustc's
 # diagnostic recommendation (256 MiB after CI 54869) as the default.

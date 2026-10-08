@@ -86,6 +86,7 @@
         { "id": "container-release-evidence", "title": "Container Release Evidence", "summary": "Image digest receipts, alias binding, provenance status, verification, and rollback.", "file": "container-release-evidence.md" },
         { "id": "operations-general", "title": "Operations Overview", "summary": "Day-to-day operational procedures.", "file": "operations.md" },
         { "id": "operations-backup", "title": "Backup & Recovery", "summary": "Database backup, restore, and disaster recovery.", "file": "backup.md" },
+        { "id": "operations-observability", "title": "Observability (OpenTelemetry)", "summary": "OTLP traces and metrics export, metric catalogue, propagation, and redaction.", "file": "observability.md" },
         { "id": "operations-job-monitoring", "title": "Job Monitoring", "summary": "Background job worker, queue health, and stale-job reaping.", "file": "job-monitoring.md" },
         { "id": "operations-hardware", "title": "Hardware Planning", "summary": "GPU, memory, and storage sizing guidelines.", "file": "hardware-planning.md" },
         { "id": "operations-ollama-connectivity", "title": "Ollama Connectivity", "summary": "Least-exposure local, Docker host-gateway, and shared Ollama network profiles.", "file": "ollama-connectivity.md" },

@@ -350,7 +350,7 @@ backup profile, or tenant plan/billing integration.
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `RUST_LOG` | String | `info` | `tracing` filter directives; debug/trace require explicit operator opt-in |
+| `RUST_LOG` | String | `info` | `tracing` filter directives for the stdout/file log sink; debug/trace require explicit operator opt-in. Exported OTLP spans use `FORTEMI_OTEL_TRACES_FILTER` |
 | `LOG_FORMAT` | String | `text` | Log output format: exactly `text` or `json`; invalid values fail startup |
 | `LOG_FILE` | String | None | Path to log file (logs to stdout if not set) |
 | `LOG_ANSI` | Boolean | auto | Optional strict `true`/`false` or `1`/`0` override for text logs; file text logs default to no ANSI |
@@ -378,6 +378,32 @@ stage names, an opaque per-process job correlation token, counts, lengths,
 durations, configured limits, and stable reason codes. It does not intentionally
 emit note content, prompts, vectors, request or response bodies, authorization
 values, or database credentials.
+
+### OpenTelemetry (OTLP)
+
+Traces and metrics export over OTLP is **off by default** and requires a
+binary built with the `otel` feature (the published images include it). A
+signal is exported only when `OTEL_{TRACES,METRICS}_EXPORTER=otlp`, or when
+that exporter variable is unset and an OTLP endpoint variable is set. See
+[Observability](observability.md) for spans, metrics, propagation and
+redaction.
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `OTEL_SDK_DISABLED` | Boolean | `false` | `true` disables all export regardless of other variables |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | URL | None | Collector endpoint for both signals; setting it enables traces and metrics unless an exporter variable says `none` |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` / `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT` | URL | None | Per-signal endpoint; enables that signal |
+| `OTEL_TRACES_EXPORTER` / `OTEL_METRICS_EXPORTER` | String | unset | `otlp` enables, `none` disables; any other value fails startup |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | String | `http/protobuf` | `http/protobuf` or `grpc`; per-signal `OTEL_EXPORTER_OTLP_{TRACES,METRICS}_PROTOCOL` override it; other values fail startup |
+| `OTEL_EXPORTER_OTLP_HEADERS` | String | None | Collector authentication headers (secret); per-signal variants supported |
+| `OTEL_EXPORTER_OTLP_TIMEOUT` | Integer (ms) | `10000` | Export timeout |
+| `OTEL_SERVICE_NAME` | String | `fortemi-api` | `service.name` resource attribute |
+| `OTEL_RESOURCE_ATTRIBUTES` | String | None | Extra resource attributes; never put tenant ids or secrets here |
+| `OTEL_TRACES_SAMPLER` / `OTEL_TRACES_SAMPLER_ARG` | String | `parentbased_always_on` | Standard sampler selection |
+| `OTEL_METRIC_EXPORT_INTERVAL` | Integer (ms) | `60000` | Metric push interval |
+| `OTEL_BSP_SCHEDULE_DELAY` | Integer (ms) | `5000` | Span batch delay (other `OTEL_BSP_*` variables also apply) |
+| `FORTEMI_OTEL_TRACES_FILTER` | String | `info` | `tracing` filter directives selecting which spans are exported; invalid directives fail startup |
+| `OTEL_LOGS_EXPORTER` | String | — | Not supported; values other than `none` log a warning. Use `LOG_FORMAT=json`, whose request and job lines carry `trace_id`/`span_id` |
 
 **API debugging:**
 ```bash

@@ -45,6 +45,11 @@ tokio = { workspace = true }
 # Logging
 tracing.workspace = true
 
+# Optional OpenTelemetry API surface (#1156). Without the `otel` feature the
+# telemetry module compiles to no-ops.
+opentelemetry = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
+
 # Tokenization
 tiktoken-rs = "0.5"
 
@@ -63,6 +68,9 @@ utoipa = { version = "5", features = ["chrono", "uuid"] }
 # JSON Schema / AsyncAPI generation
 schemars.workspace = true
 serde_yaml.workspace = true
+
+[features]
+otel = ["dep:opentelemetry", "dep:tracing-opentelemetry"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

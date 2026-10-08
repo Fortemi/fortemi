@@ -16,6 +16,7 @@ container  registry:2        sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58a
 container  alpine/helm       sha256:70ed3f7b02ab2eee12aa520ad6870305db8a82516b07aff62f5656c657a26e2a    3.22.0            2026-10-08   #1153 helm-chart lint job (ci-builder); helm v3.22.0+g144ca65
 tool       kubeconform       9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883    v0.8.0            2026-10-08   #1153 chart schema validation; kubeconform-linux-amd64.tar.gz sha256 from release CHECKSUMS; scripts/ci/lint-helm-chart.sh
 container  node:22-bookworm-slim  sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3  22-bookworm-slim  2026-10-08   #1153 Dockerfile.mcp base (same pin as Dockerfile.bundle node-runtime stage); not a workflow reference
+container    otel/opentelemetry-collector  sha256:b6d2b9a85b1029d05b5ad913150c1f014eed4ae99be81a1813ca5ade4a191913  0.161.0  2026-10-08   initial pin (scripts/test-otel-collector.sh, test.yml OTLP collector integration) (#1156)
 #
 # Residual hardening:
 #   collect live Gitea CI evidence for guarded pull-request and release/tag runs

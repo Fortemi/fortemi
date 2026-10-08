@@ -46,8 +46,29 @@ pub async fn provider_for_mode(multi_tenant: bool) -> anyhow::Result<Option<Arc<
     .with_user_id("00000000-0000-0000-0000-000000000002")?
     .with_resource_id("kms_health")?;
     match provider.health_check(&context).await {
-        Ok(matric_crypto::HealthStatus::Ready) => Ok(Some(provider)),
-        _ => anyhow::bail!("hosted KMS generate/decrypt startup check failed"),
+        Ok(matric_crypto::HealthStatus::Ready) => {
+            matric_core::telemetry::record_kms_operation("startup_canary", "ok", "none");
+            Ok(Some(provider))
+        }
+        Ok(
+            matric_crypto::HealthStatus::Degraded { class, .. }
+            | matric_crypto::HealthStatus::Unavailable { class, .. },
+        ) => {
+            matric_core::telemetry::record_kms_operation(
+                "startup_canary",
+                "error",
+                matric_api::services::user_secrets::key_failure_class_label(class),
+            );
+            anyhow::bail!("hosted KMS generate/decrypt startup check failed")
+        }
+        Err(error) => {
+            matric_core::telemetry::record_kms_operation(
+                "startup_canary",
+                "error",
+                matric_api::services::user_secrets::key_failure_class_label(error.class()),
+            );
+            anyhow::bail!("hosted KMS generate/decrypt startup check failed")
+        }
     }
 }
 

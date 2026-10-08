@@ -10,6 +10,7 @@ mod handlers;
 mod middleware;
 mod migrate_only;
 mod oauth_profile;
+mod otel;
 mod query_types;
 #[cfg(test)]
 mod remote_adapter_fixture_tests;
@@ -54,7 +55,7 @@ use tower_http::{
     trace::TraceLayer,
 };
 use tracing::{error, info, warn};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer as _};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::{Config, SwaggerUi};
 use uuid::Uuid;
@@ -3209,7 +3210,13 @@ async fn main() -> anyhow::Result<()> {
     //   LOG_ANSI    - "true"/"false" override ANSI colors (auto-detected by default)
     //   RUST_LOG    - standard tracing filter (default: "info")
     let logging = parse_logging_config()?;
-    let registry = tracing_subscriber::registry().with(logging.env_filter);
+    // OpenTelemetry (#1156): off unless OTEL_* opts in. The OTLP layer carries
+    // its own filter, so RUST_LOG applies per-layer to the stdout/file sink.
+    let otel_settings = otel::OtelSettings::from_env()?;
+    let mut otel_runtime = otel::OtelRuntime::init(&otel_settings)?;
+    let env_filter = logging.env_filter;
+    let registry = tracing_subscriber::registry()
+        .with(otel_runtime.tracing_layer::<tracing_subscriber::Registry>());
 
     // Optionally create a file appender with daily rotation
     let _file_guard = if let Some(ref path) = logging.file {
@@ -3228,7 +3235,8 @@ async fn main() -> anyhow::Result<()> {
                 .with(
                     tracing_subscriber::fmt::layer()
                         .json()
-                        .with_writer(non_blocking),
+                        .with_writer(non_blocking)
+                        .with_filter(env_filter),
                 )
                 .init();
         } else {
@@ -3238,21 +3246,25 @@ async fn main() -> anyhow::Result<()> {
             } else {
                 layer = layer.with_ansi(false); // no ANSI in files
             }
-            registry.with(layer).init();
+            registry.with(layer.with_filter(env_filter)).init();
         }
         Some(guard)
     } else {
         // Console-only output
         if logging.format == LogFormat::Json {
             registry
-                .with(tracing_subscriber::fmt::layer().json())
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .json()
+                        .with_filter(env_filter),
+                )
                 .init();
         } else {
             let mut layer = tracing_subscriber::fmt::layer();
             if let Some(ansi) = logging.ansi {
                 layer = layer.with_ansi(ansi);
             }
-            registry.with(layer).init();
+            registry.with(layer.with_filter(env_filter)).init();
         }
         None
     };
@@ -3261,6 +3273,7 @@ async fn main() -> anyhow::Result<()> {
     // contain them. Replace it only after tracing is initialized so all panic
     // paths use a stable, redacted diagnostic record.
     matric_jobs::install_redacted_panic_hook();
+    otel_runtime.log_startup(&otel_settings);
 
     info!(
         diagnostic_profile = logging.diagnostic_profile.unwrap_or("none"),
@@ -3606,6 +3619,7 @@ async fn main() -> anyhow::Result<()> {
         path_len = file_storage_path_meta.path_len,
         "File storage initialized"
     );
+    otel_runtime.register_runtime_gauges(db.clone());
 
     // Create search engine
     let search = Arc::new(HybridSearchEngine::new(db.clone()));
@@ -5188,6 +5202,10 @@ async fn main() -> anyhow::Result<()> {
             attachments_switch::attachments_gate_middleware,
         ))
         .layer(TraceLayer::new_for_http())
+        .layer(axum::middleware::from_fn_with_state(
+            otel_runtime.http_state(),
+            otel::http_middleware,
+        ))
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuidV7))
         .layer(axum::middleware::from_fn(problem_request_id_middleware))
@@ -14479,7 +14497,9 @@ async fn create_note_hosted(
                          VALUES ($1, $2, $3::job_type, 'pending'::job_status, $4, $5, $6)",
                     )
                     .bind(job_id).bind(note_id).bind(job_type.as_str())
-                    .bind(job_type.default_priority()).bind(payload).bind(job_type.default_cost_tier())
+                    .bind(job_type.default_priority())
+                    .bind(matric_core::telemetry::attach_trace_to_job_payload(Some(payload)))
+                    .bind(job_type.default_cost_tier())
                     .execute(&mut *connection).await?;
                     queued.push((job_id, job_type));
                 }

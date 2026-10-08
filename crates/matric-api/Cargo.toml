@@ -89,6 +89,10 @@ tokio-tungstenite = "0.28"
 tracing.workspace = true
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-appender = "0.2"
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
 
 # Configuration
 dotenvy = "0.15"
@@ -109,6 +113,7 @@ reqwest = { workspace = true }
 futures = { workspace = true }
 matric-core = { path = "../matric-core" }
 matric-db = { path = "../matric-db", features = ["test-fault-injection"] }
+opentelemetry_sdk = { workspace = true, features = ["testing"] }
 
 [features]
 mock-rtp = []
@@ -123,3 +128,12 @@ kms-vault = ["matric-crypto/kms-vault"]
 # Inbound Kafka connector (#836) — off by default; opt-in on high-end tiers.
 # Forwards to matric-jobs/kafka (bundles librdkafka via cmake).
 kafka = ["matric-jobs/kafka"]
+# OpenTelemetry traces + metrics export over OTLP (#1156). Compiled in only when
+# selected; even then export stays off until OTEL_* variables opt in at runtime.
+otel = [
+    "matric-core/otel",
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+]

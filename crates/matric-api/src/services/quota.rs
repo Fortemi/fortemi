@@ -299,6 +299,12 @@ impl RedisRequestQuotaGate {
         identity: &RequestQuotaIdentity<'_>,
     ) -> Result<RequestQuotaDecision, QuotaStoreError> {
         let result = self.admit_inner(identity).await;
+        matric_core::telemetry::record_quota_admission(match &result {
+            Ok(decision) if decision.allowed => "allowed",
+            Ok(_) => "rejected",
+            Err(QuotaStoreError::Unavailable) => "unavailable",
+            Err(_) => "invalid",
+        });
         match result {
             Ok(decision) => {
                 record_health_success(&self.health);

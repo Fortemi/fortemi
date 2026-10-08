@@ -35,6 +35,11 @@ import {
   filterAttachmentTools,
 } from "./lib/attachments-capability.js";
 import {
+  extractMetaTraceContext,
+  extractTraceContext,
+  withTraceHeaders,
+} from "./lib/trace-context.js";
+import {
   buildDatasetExecutionDescriptor,
   createDatasetExecutionController,
   DATASET_EXECUTION_CONTRACTS,
@@ -111,6 +116,11 @@ function readPublicKeyAsBase64(keyPath) {
   return rawBytes.toString("base64");
 }
 
+// fetch() that forwards the validated inbound W3C trace context (#1156).
+function fetchWithTrace(url, options = {}) {
+  return fetch(url, withTraceHeaders(options, tokenStorage.getStore()?.trace));
+}
+
 // Helper to make API requests (uses session token in HTTP mode, API_KEY in stdio mode)
 async function apiRequest(method, path, body = null, requestOptions = {}) {
   const url = `${API_BASE}${path}`;
@@ -150,7 +160,7 @@ async function apiRequest(method, path, body = null, requestOptions = {}) {
     options.body = JSON.stringify(body);
   }
 
-  const response = await fetch(url, options);
+  const response = await fetchWithTrace(url, options);
   if (!response.ok) {
     const error = await response.text();
     const contentType = response.headers.get("content-type") || "";
@@ -232,7 +242,15 @@ function createMcpServer() {
   });
 
   // Handle tool calls
-  mcpServer.setRequestHandler(CallToolRequestSchema, async (request) => {
+  mcpServer.setRequestHandler(CallToolRequestSchema, async function handleCallTool(request) {
+    // A tool-call `_meta.traceparent` takes precedence over the HTTP header.
+    const metaTrace = extractMetaTraceContext(request.params?._meta);
+    const currentStore = tokenStorage.getStore();
+    if (metaTrace && currentStore?.trace?.traceparent !== metaTrace.traceparent) {
+      return tokenStorage.run({ ...(currentStore || {}), trace: metaTrace }, () =>
+        handleCallTool(request)
+      );
+    }
     const { name, arguments: args } = request.params;
 
     try {
@@ -1033,7 +1051,7 @@ function createMcpServer() {
           } else if (API_KEY) {
             headers["Authorization"] = `Bearer ${API_KEY}`;
           }
-          const response = await fetch(url, { method: "GET", headers });
+          const response = await fetchWithTrace(url, { method: "GET", headers });
           const text = await response.text();
           try {
             result = JSON.parse(text);
@@ -1057,7 +1075,7 @@ function createMcpServer() {
             if (sessionToken) headers["Authorization"] = `Bearer ${sessionToken}`;
             else if (API_KEY) headers["Authorization"] = `Bearer ${API_KEY}`;
             try {
-              const response = await fetch(url, { method: "GET", headers });
+              const response = await fetchWithTrace(url, { method: "GET", headers });
               const text = await response.text();
               try {
                 return JSON.parse(text);
@@ -1982,7 +2000,7 @@ function createMcpServer() {
           } else if (API_KEY) {
             diffHeaders["Authorization"] = `Bearer ${API_KEY}`;
           }
-          const diffResponse = await fetch(
+          const diffResponse = await fetchWithTrace(
             `${API_BASE}/api/v1/notes/${args.note_id}/versions/diff?${diffParams}`,
             { headers: diffHeaders }
           );
@@ -2887,7 +2905,7 @@ function createMcpServer() {
           const turtleUrl = args.scheme_id
             ? `${API_BASE}/api/v1/concepts/schemes/${args.scheme_id}/export/turtle`
             : `${API_BASE}/api/v1/concepts/schemes/export/turtle`;
-          const turtleResponse = await fetch(turtleUrl, { headers: turtleHeaders });
+          const turtleResponse = await fetchWithTrace(turtleUrl, { headers: turtleHeaders });
           if (!turtleResponse.ok) {
             throw new Error(`Turtle export failed: ${turtleResponse.status}`);
           }
@@ -5851,7 +5869,7 @@ if (MCP_TRANSPORT === "http") {
     apiBase: API_BASE,
     clientId: process.env.MCP_CLIENT_ID,
     clientSecret: process.env.MCP_CLIENT_SECRET,
-    fetchImpl: (...args) => fetch(...args),
+    fetchImpl: (...args) => fetchWithTrace(...args),
   };
 
   // OAuth token validation middleware.
@@ -5900,7 +5918,7 @@ if (MCP_TRANSPORT === "http") {
     // Create a new MCP server for this connection and connect
     const mcpServer = createMcpServer();
     const contextSessionId = transport.sessionId;
-    await tokenStorage.run({ token: req.accessToken, sessionId: contextSessionId }, async () => {
+    await tokenStorage.run({ token: req.accessToken, sessionId: contextSessionId, trace: extractTraceContext(req.headers) }, async () => {
       await mcpServer.connect(transport);
     });
     console.log(`[sse] MCP server connected for session ${sessionId}`);
@@ -5923,7 +5941,7 @@ if (MCP_TRANSPORT === "http") {
 
     // Execute the message handler with the session's token context
     console.log(`[messages] Handling message for session ${sessionId}`);
-    await tokenStorage.run({ token: session.token, sessionId }, async () => {
+    await tokenStorage.run({ token: session.token, sessionId, trace: extractTraceContext(req.headers) }, async () => {
       await session.transport.handlePostMessage(req, res, req.body);
     });
   });
@@ -6003,7 +6021,7 @@ if (MCP_TRANSPORT === "http") {
       if (process.env.DEBUG_SESSION_CONTEXT) {
         console.log(`[transport] Running tokenStorage.run with sessionId=${contextSessionId}`);
       }
-      await tokenStorage.run({ token: req.accessToken, sessionId: contextSessionId }, async () => {
+      await tokenStorage.run({ token: req.accessToken, sessionId: contextSessionId, trace: extractTraceContext(req.headers) }, async () => {
         if (process.env.DEBUG_SESSION_CONTEXT) {
           const verifyStore = tokenStorage.getStore();
           console.log(`[transport] Inside run callback, store.sessionId=${verifyStore?.sessionId}`);
@@ -6049,7 +6067,7 @@ if (MCP_TRANSPORT === "http") {
       });
     }
 
-    await tokenStorage.run({ token: session.token, sessionId }, async () => {
+    await tokenStorage.run({ token: session.token, sessionId, trace: extractTraceContext(req.headers) }, async () => {
       await session.transport.handleRequest(req, res);
     });
   });
@@ -6082,7 +6100,7 @@ if (MCP_TRANSPORT === "http") {
   // OAuth discovery endpoints - proxy to main API
   app.get("/.well-known/oauth-authorization-server", async (req, res) => {
     try {
-      const response = await fetch(`${API_BASE}/.well-known/oauth-authorization-server`);
+      const response = await fetchWithTrace(`${API_BASE}/.well-known/oauth-authorization-server`);
       const metadata = await response.json();
       res.json(metadata);
     } catch (error) {
@@ -6116,7 +6134,7 @@ if (MCP_TRANSPORT === "http") {
     console.log(`MCP OAuth credentials configured (client_id: ${process.env.MCP_CLIENT_ID})`);
     // Verify credentials are valid by testing introspection
     try {
-      const testResp = await fetch(`${API_BASE}/oauth/introspect`, {
+      const testResp = await fetchWithTrace(`${API_BASE}/oauth/introspect`, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",

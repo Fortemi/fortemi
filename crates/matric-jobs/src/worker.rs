@@ -1434,8 +1434,33 @@ impl JobWorkerRef {
         }
     }
 
-    /// Execute a single claimed job.
-    async fn execute_job(self, job: matric_core::Job) {
+    /// Execute a single claimed job inside its own root span.
+    ///
+    /// When trace export is active the span continues the trace of the request
+    /// that enqueued the job (#1156); the reserved payload key is removed before
+    /// any handler sees the payload.
+    async fn execute_job(self, mut job: matric_core::Job) {
+        let traceparent = matric_core::telemetry::take_trace_from_job_payload(&mut job.payload);
+        let span = tracing::info_span!(
+            parent: None,
+            "job.execute",
+            otel.name = "job.execute",
+            otel.kind = "consumer",
+            fortemi.job.type = job.job_type.as_str(),
+            trace_id = tracing::field::Empty,
+            span_id = tracing::field::Empty,
+        );
+        if let Some(traceparent) = traceparent.as_deref() {
+            matric_core::telemetry::set_span_parent_from_traceparent(&span, traceparent);
+        }
+        if let Some((trace_id, span_id)) = matric_core::telemetry::span_trace_ids(&span) {
+            span.record("trace_id", trace_id.as_str());
+            span.record("span_id", span_id.as_str());
+        }
+        tracing::Instrument::instrument(self.execute_job_in_span(job), span).await
+    }
+
+    async fn execute_job_in_span(self, job: matric_core::Job) {
         let start = Instant::now();
         let identity = ClaimedJobIdentity::from(&job);
         let job_id = identity.job_id;
@@ -1519,6 +1544,16 @@ impl JobWorkerRef {
                 )
             }
         };
+
+        matric_core::telemetry::record_job_execution(
+            job_type.as_str(),
+            match &result {
+                JobResult::Success(_) => "success",
+                JobResult::Failed(_) => "failed",
+                JobResult::Retry(_) => "retry",
+            },
+            start.elapsed(),
+        );
 
         match result {
             JobResult::Success(result_data) => {

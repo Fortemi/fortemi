@@ -174,7 +174,10 @@ impl OpenAIBackend {
     /// Build a request with authentication if configured.
     fn build_request(&self, endpoint: &str) -> reqwest::RequestBuilder {
         let url = format!("{}{}", self.config.base_url.trim_end_matches('/'), endpoint);
-        let mut req = self.client.post(&url);
+        let mut req = self
+            .client
+            .post(&url)
+            .headers(matric_core::telemetry::trace_header_map());
 
         if let Some(ref api_key) = self.config.api_key {
             req = req.header("Authorization", format!("Bearer {}", api_key));
@@ -195,7 +198,10 @@ impl OpenAIBackend {
     /// Build a GET request with authentication.
     fn build_get_request(&self, endpoint: &str) -> reqwest::RequestBuilder {
         let url = format!("{}{}", self.config.base_url.trim_end_matches('/'), endpoint);
-        let mut req = self.client.get(&url);
+        let mut req = self
+            .client
+            .get(&url)
+            .headers(matric_core::telemetry::trace_header_map());
 
         if let Some(ref api_key) = self.config.api_key {
             req = req.header("Authorization", format!("Bearer {}", api_key));
@@ -264,52 +270,64 @@ fn ordered_embedding_vectors(
 #[async_trait]
 impl EmbeddingBackend for OpenAIBackend {
     async fn embed_texts(&self, texts: &[String]) -> Result<Vec<Vector>> {
-        if texts.is_empty() {
-            return Ok(vec![]);
-        }
+        let telemetry_start = std::time::Instant::now();
+        let telemetry_operation: &'static str = "embed";
+        let result: Result<Vec<Vector>> = async {
+            if texts.is_empty() {
+                return Ok(vec![]);
+            }
 
-        debug!(
-            text_count = texts.len(),
-            embed_model_len = self.config.embed_model.len(),
-            "Embedding texts with OpenAI-compatible backend"
-        );
+            debug!(
+                text_count = texts.len(),
+                embed_model_len = self.config.embed_model.len(),
+                "Embedding texts with OpenAI-compatible backend"
+            );
 
-        let request = EmbeddingRequest {
-            model: self.config.embed_model.clone(),
-            input: texts.to_vec(),
-            encoding_format: Some("float".to_string()),
-        };
+            let request = EmbeddingRequest {
+                model: self.config.embed_model.clone(),
+                input: texts.to_vec(),
+                encoding_format: Some("float".to_string()),
+            };
 
-        let response = self
-            .build_request("/embeddings")
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| {
-                Error::Embedding(backend_request_error("OpenAI embedding request failed", &e))
+            let response = self
+                .build_request("/embeddings")
+                .json(&request)
+                .send()
+                .await
+                .map_err(|e| {
+                    Error::Embedding(backend_request_error("OpenAI embedding request failed", &e))
+                })?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                return Err(Error::Embedding(backend_status_error(
+                    "OpenAI embeddings",
+                    status,
+                    &body,
+                )));
+            }
+
+            let result: EmbeddingResponse = response.json().await.map_err(|e| {
+                Error::Embedding(backend_parse_error(
+                    "OpenAI embedding response parse failed",
+                    e,
+                ))
             })?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(Error::Embedding(backend_status_error(
-                "OpenAI embeddings",
-                status,
-                &body,
-            )));
+            let vectors = ordered_embedding_vectors(result, texts.len(), &self.config.embed_model)?;
+
+            debug!("Generated {} embeddings", vectors.len());
+            Ok(vectors)
         }
-
-        let result: EmbeddingResponse = response.json().await.map_err(|e| {
-            Error::Embedding(backend_parse_error(
-                "OpenAI embedding response parse failed",
-                e,
-            ))
-        })?;
-
-        let vectors = ordered_embedding_vectors(result, texts.len(), &self.config.embed_model)?;
-
-        debug!("Generated {} embeddings", vectors.len());
-        Ok(vectors)
+        .await;
+        matric_core::telemetry::record_inference(
+            telemetry_operation,
+            "openai_compatible",
+            matric_core::telemetry::outcome_label(&result),
+            telemetry_start.elapsed(),
+        );
+        result
     }
 
     fn dimension(&self) -> usize {
@@ -364,67 +382,79 @@ impl GenerationBackend for OpenAIBackend {
     }
 
     async fn generate_with_system(&self, system: &str, prompt: &str) -> Result<String> {
-        debug!(
-            gen_model_len = self.config.gen_model.len(),
-            prompt_len = prompt.len(),
-            system_len = system.len(),
-            "Generating with OpenAI-compatible backend"
-        );
+        let telemetry_start = std::time::Instant::now();
+        let telemetry_operation: &'static str = "generate";
+        let result: Result<String> = async {
+            debug!(
+                gen_model_len = self.config.gen_model.len(),
+                prompt_len = prompt.len(),
+                system_len = system.len(),
+                "Generating with OpenAI-compatible backend"
+            );
 
-        let mut messages = Vec::new();
+            let mut messages = Vec::new();
 
-        if !system.is_empty() {
+            if !system.is_empty() {
+                messages.push(ChatMessage {
+                    role: "system".to_string(),
+                    content: system.to_string(),
+                });
+            }
+
             messages.push(ChatMessage {
-                role: "system".to_string(),
-                content: system.to_string(),
+                role: "user".to_string(),
+                content: prompt.to_string(),
             });
-        }
 
-        messages.push(ChatMessage {
-            role: "user".to_string(),
-            content: prompt.to_string(),
-        });
+            let request = ChatCompletionRequest {
+                model: self.config.gen_model.clone(),
+                messages,
+                temperature: None,
+                max_tokens: None,
+                response_format: None,
+                stream: false,
+            };
 
-        let request = ChatCompletionRequest {
-            model: self.config.gen_model.clone(),
-            messages,
-            temperature: None,
-            max_tokens: None,
-            response_format: None,
-            stream: false,
-        };
+            let response = self
+                .build_request("/chat/completions")
+                .json(&request)
+                .send()
+                .await
+                .map_err(|e| {
+                    Error::Inference(backend_request_error("OpenAI chat request failed", &e))
+                })?;
 
-        let response = self
-            .build_request("/chat/completions")
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| {
-                Error::Inference(backend_request_error("OpenAI chat request failed", &e))
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                return Err(Error::Inference(backend_status_error(
+                    "OpenAI chat",
+                    status,
+                    &body,
+                )));
+            }
+
+            let result: ChatCompletionResponse = response.json().await.map_err(|e| {
+                Error::Inference(backend_parse_error("OpenAI chat response parse failed", e))
             })?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(Error::Inference(backend_status_error(
-                "OpenAI chat",
-                status,
-                &body,
-            )));
+            let content = result
+                .choices
+                .first()
+                .map(|c| c.message.content.clone())
+                .unwrap_or_default();
+
+            debug!("Generation complete, response length: {}", content.len());
+            Ok(content)
         }
-
-        let result: ChatCompletionResponse = response.json().await.map_err(|e| {
-            Error::Inference(backend_parse_error("OpenAI chat response parse failed", e))
-        })?;
-
-        let content = result
-            .choices
-            .first()
-            .map(|c| c.message.content.clone())
-            .unwrap_or_default();
-
-        debug!("Generation complete, response length: {}", content.len());
-        Ok(content)
+        .await;
+        matric_core::telemetry::record_inference(
+            telemetry_operation,
+            "openai_compatible",
+            matric_core::telemetry::outcome_label(&result),
+            telemetry_start.elapsed(),
+        );
+        result
     }
 
     async fn generate_json(&self, prompt: &str) -> Result<String> {
@@ -432,70 +462,82 @@ impl GenerationBackend for OpenAIBackend {
     }
 
     async fn generate_json_with_system(&self, system: &str, prompt: &str) -> Result<String> {
-        debug!(
-            gen_model_len = self.config.gen_model.len(),
-            prompt_len = prompt.len(),
-            system_len = system.len(),
-            "Generating JSON with OpenAI-compatible backend"
-        );
+        let telemetry_start = std::time::Instant::now();
+        let telemetry_operation: &'static str = "generate_json";
+        let result: Result<String> = async {
+            debug!(
+                gen_model_len = self.config.gen_model.len(),
+                prompt_len = prompt.len(),
+                system_len = system.len(),
+                "Generating JSON with OpenAI-compatible backend"
+            );
 
-        let mut messages = Vec::new();
-        if !system.is_empty() {
+            let mut messages = Vec::new();
+            if !system.is_empty() {
+                messages.push(ChatMessage {
+                    role: "system".to_string(),
+                    content: system.to_string(),
+                });
+            }
             messages.push(ChatMessage {
-                role: "system".to_string(),
-                content: system.to_string(),
+                role: "user".to_string(),
+                content: prompt.to_string(),
             });
-        }
-        messages.push(ChatMessage {
-            role: "user".to_string(),
-            content: prompt.to_string(),
-        });
 
-        let request = ChatCompletionRequest {
-            model: self.config.gen_model.clone(),
-            messages,
-            temperature: None,
-            max_tokens: None,
-            response_format: Some(ResponseFormat {
-                format_type: "json_object".to_string(),
-            }),
-            stream: false,
-        };
+            let request = ChatCompletionRequest {
+                model: self.config.gen_model.clone(),
+                messages,
+                temperature: None,
+                max_tokens: None,
+                response_format: Some(ResponseFormat {
+                    format_type: "json_object".to_string(),
+                }),
+                stream: false,
+            };
 
-        let response = self
-            .build_request("/chat/completions")
-            .json(&request)
-            .send()
-            .await
-            .map_err(|e| {
-                Error::Inference(backend_request_error("OpenAI JSON request failed", &e))
+            let response = self
+                .build_request("/chat/completions")
+                .json(&request)
+                .send()
+                .await
+                .map_err(|e| {
+                    Error::Inference(backend_request_error("OpenAI JSON request failed", &e))
+                })?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                return Err(Error::Inference(backend_status_error(
+                    "OpenAI JSON",
+                    status,
+                    &body,
+                )));
+            }
+
+            let result: ChatCompletionResponse = response.json().await.map_err(|e| {
+                Error::Inference(backend_parse_error("OpenAI JSON response parse failed", e))
             })?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(Error::Inference(backend_status_error(
-                "OpenAI JSON",
-                status,
-                &body,
-            )));
+            let content = result
+                .choices
+                .first()
+                .map(|c| c.message.content.clone())
+                .unwrap_or_default();
+
+            debug!(
+                "JSON generation complete, response length: {}",
+                content.len()
+            );
+            Ok(content)
         }
-
-        let result: ChatCompletionResponse = response.json().await.map_err(|e| {
-            Error::Inference(backend_parse_error("OpenAI JSON response parse failed", e))
-        })?;
-
-        let content = result
-            .choices
-            .first()
-            .map(|c| c.message.content.clone())
-            .unwrap_or_default();
-
-        debug!(
-            "JSON generation complete, response length: {}",
-            content.len()
+        .await;
+        matric_core::telemetry::record_inference(
+            telemetry_operation,
+            "openai_compatible",
+            matric_core::telemetry::outcome_label(&result),
+            telemetry_start.elapsed(),
         );
-        Ok(content)
+        result
     }
 
     fn model_name(&self) -> &str {
