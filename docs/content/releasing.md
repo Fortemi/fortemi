@@ -36,7 +36,9 @@ Fortémi uses **CalVer** (Calendar Versioning):
    workspace package entries in `Cargo.lock`.
 2. Set the same version in `mcp-server/package.json` and
    `mcp-server/package-lock.json`. MCP version alignment is required for every
-   server release.
+   server release. Set `version` and `appVersion` in
+   `deploy/helm/fortemi/Chart.yaml` to the same version; the Helm chart lint
+   job fails when they differ.
 3. Move the selected `CHANGELOG.md` entries into the dated release section and
    update comparison links. Add `docs/releases/vYYYY.M.PATCH-announcement.md`.
 
@@ -47,6 +49,7 @@ signing authority. Ordinary commits and release tags use distinct keys:
 
 ```bash
 git add Cargo.toml Cargo.lock mcp-server/package.json mcp-server/package-lock.json \
+  deploy/helm/fortemi/Chart.yaml \
   CHANGELOG.md docs/releases/vYYYY.M.PATCH-announcement.md
 git -c user.signingkey=62297562B1C7053088F405DB0117DAAA677A5BF2 \
   -c gpg.program=tools/git/gpg-from-openbao.sh commit -S \

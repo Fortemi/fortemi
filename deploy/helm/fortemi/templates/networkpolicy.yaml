@@ -1,0 +1,119 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $np := .Values.networkPolicy -}}
+# API: ingress from the ingress controller namespace and from MCP pods.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "fortemi.fullname" . }}-api
+  labels:
+    {{- include "fortemi.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "fortemi.selectorLabels" (dict "ctx" . "component" "api") | nindent 6 }}
+  policyTypes: [Ingress{{ if $np.egress }}, Egress{{ end }}]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml $np.ingressControllerNamespaceSelector | nindent 14 }}
+        - podSelector:
+            matchLabels:
+              {{- include "fortemi.selectorLabels" (dict "ctx" . "component" "mcp") | nindent 14 }}
+      ports:
+        - port: http
+          protocol: TCP
+  {{- if $np.egress }}
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    {{- toYaml $np.egress | nindent 4 }}
+  {{- end }}
+---
+# Worker and migration pods accept no ingress (kubelet probes are not subject
+# to NetworkPolicy on common CNIs); egress mirrors the API.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "fortemi.fullname" . }}-worker
+  labels:
+    {{- include "fortemi.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/instance
+        operator: In
+        values: [{{ .Release.Name | quote }}]
+      - key: app.kubernetes.io/component
+        operator: In
+        values: ["worker", "migrate"]
+  policyTypes: [Ingress{{ if $np.egress }}, Egress{{ end }}]
+  ingress: []
+  {{- if $np.egress }}
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    {{- toYaml $np.egress | nindent 4 }}
+  {{- end }}
+{{- if .Values.mcp.enabled }}
+---
+# MCP: ingress from the ingress controller only; egress to the API (plus DNS
+# and listed CIDRs when egress is restricted).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "fortemi.fullname" . }}-mcp
+  labels:
+    {{- include "fortemi.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "fortemi.selectorLabels" (dict "ctx" . "component" "mcp") | nindent 6 }}
+  policyTypes: [Ingress{{ if $np.egress }}, Egress{{ end }}]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              {{- toYaml $np.ingressControllerNamespaceSelector | nindent 14 }}
+      ports:
+        - port: http
+          protocol: TCP
+  {{- if $np.egress }}
+  egress:
+    - to:
+        - namespaceSelector: {}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "fortemi.selectorLabels" (dict "ctx" . "component" "api") | nindent 14 }}
+      ports:
+        - port: {{ .Values.api.port }}
+          protocol: TCP
+    {{- toYaml $np.egress | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end }}

@@ -1,0 +1,34 @@
+{{- /* API, worker and MCP scale independently; each has its own HPA toggle. */ -}}
+{{- $root := . -}}
+{{- $first := true -}}
+{{- range $component := list "api" "worker" "mcp" }}
+{{- $c := index $root.Values $component -}}
+{{- $enabled := and $c.autoscaling.enabled (or (eq $component "api") $c.enabled) -}}
+{{- if $enabled }}
+{{- if not $first }}
+---
+{{- end }}
+{{- $first = false }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "fortemi.fullname" $root }}-{{ $component }}
+  labels:
+    {{- include "fortemi.labels" $root | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "fortemi.fullname" $root }}-{{ $component }}
+  minReplicas: {{ $c.autoscaling.minReplicas }}
+  maxReplicas: {{ $c.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ $c.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}
+{{- end }}

@@ -16,6 +16,18 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   matrix. `pg_bigm` is optional and CJK search falls back to `pg_trgm` without
   it. CI now fails when a migration adds a `CREATE EXTENSION` that the matrix
   does not list (#1161).
+- Add a Helm chart at `deploy/helm/fortemi/` that runs the API, the job worker
+  and the MCP server as separate Deployments on external PostgreSQL 18 and
+  Redis (#1153). The API runs with `WORKER_ENABLED=false`; the worker scales
+  and autoscales on its own. Migrations run as a `pre-install,pre-upgrade` hook
+  Job using the new `matric-api --migrate-only` mode, which applies migrations
+  with `MIGRATION_DATABASE_URL` in hosted mode and exits. The chart reads all
+  credentials from existing Secrets and includes `/livez` and `/readyz` probes,
+  PodDisruptionBudgets, HPAs, a workload-identity ServiceAccount, an example
+  NetworkPolicy, Ingress and Gateway API routes, and a hosted single-tenant
+  values file. New `Dockerfile.mcp` builds a standalone MCP image. CI lints,
+  renders and schema-validates the chart. Chart version tracks the workspace
+  CalVer. See `docs/deployment/kubernetes-helm.md`.
 
 ### Release Supply Chain
 

@@ -333,6 +333,8 @@ DATABASE_URL="postgres://matric:matric@localhost/matric" cargo run --release -p 
 
 PostgreSQL 18 is the minimum (migrations use the built-in `uuidv7()`). `pg_bigm` is optional: without it CJK search falls back to `pg_trgm`. For managed databases (RDS, Aurora, CloudNativePG), required extensions and privileges, see [Managed PostgreSQL compatibility](docs/deployment/managed-postgres-compatibility.md).
 
+For Kubernetes, the Helm chart in `deploy/helm/fortemi/` runs the API, job worker and MCP server as separately scalable Deployments on external PostgreSQL and Redis; see [Kubernetes deployment with Helm](docs/deployment/kubernetes-helm.md).
+
 > **First build fails with "missing graph"?** Fortemi uses `sqlx::query!` compile-time checks. Either `export DATABASE_URL=...` against a Postgres with migrations applied, or generate offline metadata once with `cargo sqlx prepare --workspace` and build with `SQLX_OFFLINE=true`. See [CONTRIBUTING.md → sqlx compile-time query checks](CONTRIBUTING.md#sqlx-compile-time-query-checks).
 
 ### Try It

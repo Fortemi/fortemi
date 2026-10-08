@@ -1,0 +1,109 @@
+{{- if .Values.mcp.enabled }}
+{{- $c := .Values.mcp -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "fortemi.fullname" . }}-mcp
+  labels:
+    {{- include "fortemi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp
+spec:
+  {{- if not $c.autoscaling.enabled }}
+  replicas: {{ $c.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "fortemi.selectorLabels" (dict "ctx" . "component" "mcp") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "fortemi.labels" . | nindent 8 }}
+        app.kubernetes.io/component: mcp
+      {{- with $c.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "fortemi.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: mcp
+          image: {{ include "fortemi.imageRef" (dict "image" $c.image "ctx" .) }}
+          imagePullPolicy: {{ $c.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ $c.port }}
+              protocol: TCP
+          env:
+            - name: MCP_TRANSPORT
+              value: http
+            - name: MCP_PORT
+              value: {{ $c.port | quote }}
+            - name: MCP_TOOL_MODE
+              value: {{ $c.toolMode | quote }}
+            - name: MCP_BASE_PATH
+              value: {{ $c.basePath | quote }}
+            {{- with $c.baseUrl }}
+            - name: MCP_BASE_URL
+              value: {{ . | quote }}
+            {{- end }}
+            # In-cluster API address; ISSUER_URL stays the public issuer.
+            - name: FORTEMI_URL
+              value: {{ printf "http://%s-api:%v" (include "fortemi.fullname" .) .Values.api.service.port | quote }}
+            {{- with (index .Values.env "ISSUER_URL") }}
+            - name: ISSUER_URL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with (index .Values.env "REQUIRE_AUTH") }}
+            - name: REQUIRE_AUTH
+              value: {{ toString . | quote }}
+            {{- end }}
+            {{- if $c.oauthClient.existingSecret }}
+            - name: MCP_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $c.oauthClient.existingSecret }}
+                  key: {{ $c.oauthClient.clientIdKey }}
+            - name: MCP_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $c.oauthClient.existingSecret }}
+                  key: {{ $c.oauthClient.clientSecretKey }}
+            {{- end }}
+            {{- range $name, $value := $c.env }}
+            - name: {{ $name }}
+              value: {{ toString $value | quote }}
+            {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+      {{- with $c.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $c.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $c.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -1,0 +1,46 @@
+# Dockerfile.mcp - Standalone Fortémi MCP server (HTTP transport)
+#
+# Usage:
+#   docker build -f Dockerfile.mcp -t fortemi:mcp .
+#   docker run -d -p 3001:3001 -e FORTEMI_URL=http://api:3000 fortemi:mcp
+#
+# The bundle image (Dockerfile.bundle) embeds the same server; this image lets
+# orchestrators (for example deploy/helm/fortemi) scale MCP independently of the
+# API. Base image is pinned by digest, matching Dockerfile.bundle.
+FROM node:22-bookworm-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3
+
+ARG VERSION=dev
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+
+LABEL org.opencontainers.image.title="fortemi-mcp"
+LABEL org.opencontainers.image.description="Fortémi MCP server (HTTP transport)"
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
+LABEL org.opencontainers.image.source="https://github.com/fortemi/fortemi"
+LABEL org.opencontainers.image.vendor="fortemi"
+
+WORKDIR /app/mcp-server
+
+COPY mcp-server/package.json mcp-server/package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
+COPY mcp-server/ ./
+
+ENV NODE_ENV=production \
+    MCP_TRANSPORT=http \
+    MCP_PORT=3001 \
+    MATRIC_VERSION=${VERSION} \
+    MATRIC_GIT_SHA=${GIT_SHA} \
+    MATRIC_BUILD_DATE=${BUILD_DATE}
+
+# The base image ships an unprivileged "node" user (uid 1000).
+USER node
+
+EXPOSE 3001
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
+    CMD node -e "fetch('http://127.0.0.1:'+(process.env.MCP_PORT||3001)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+CMD ["node", "index.js"]

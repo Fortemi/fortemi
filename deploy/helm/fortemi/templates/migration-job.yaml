@@ -1,0 +1,73 @@
+{{- if .Values.migrations.enabled }}
+{{- include "fortemi.validate" . -}}
+{{- $m := .Values.migrations -}}
+{{- if $m.serviceAccount.create }}
+# Hook-scoped ServiceAccount: pre-install hooks run before regular chart
+# resources exist, so the migration Job cannot rely on the main ServiceAccount.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "fortemi.migrationServiceAccountName" . }}
+  labels:
+    {{- include "fortemi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "-10"
+    helm.sh/hook-delete-policy: before-hook-creation
+    {{- with (default .Values.serviceAccount.annotations $m.serviceAccount.annotations) }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+automountServiceAccountToken: false
+---
+{{- end }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "fortemi.fullname" . }}-migrate
+  labels:
+    {{- include "fortemi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    # Runs before new API/worker pods roll out; a failed migration fails the
+    # install/upgrade and leaves the previous ReplicaSets serving.
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-weight: "0"
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: {{ $m.backoffLimit }}
+  activeDeadlineSeconds: {{ $m.activeDeadlineSeconds }}
+  ttlSecondsAfterFinished: {{ $m.ttlSecondsAfterFinished }}
+  template:
+    metadata:
+      labels:
+        {{- include "fortemi.selectorLabels" (dict "ctx" . "component" "migrate") | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ include "fortemi.migrationServiceAccountName" . }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "fortemi.serverImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # The image sets CMD (no ENTRYPOINT), so the full command is given here.
+          command: ["/app/matric-api", "--migrate-only"]
+          env:
+            {{- include "fortemi.databaseEnv" (dict "ctx" . "migration" true) | nindent 12 }}
+            - name: FORTEMI_MULTI_TENANT
+              value: {{ ternary "true" "false" (eq (include "fortemi.multiTenant" .) "true") | quote }}
+            - name: RUST_LOG
+              value: {{ default "info" (index .Values.env "RUST_LOG") | quote }}
+            - name: LOG_FORMAT
+              value: {{ default "text" (index .Values.env "LOG_FORMAT") | quote }}
+          resources:
+            {{- toYaml $m.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+{{- end }}

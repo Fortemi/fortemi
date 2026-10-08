@@ -1,0 +1,67 @@
+{{- if .Values.ingress.enabled }}
+{{- $ing := .Values.ingress -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "fortemi.fullname" . }}-api
+  labels:
+    {{- include "fortemi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+  {{- with $ing.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $ing.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with $ing.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ $ing.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "fortemi.fullname" . }}-api
+                port:
+                  name: http
+{{- if .Values.mcp.enabled }}
+---
+# Separate Ingress so MCP can carry controller-specific prefix-strip annotations.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "fortemi.fullname" . }}-mcp
+  labels:
+    {{- include "fortemi.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp
+  {{- with (merge (dict) $ing.mcpAnnotations $ing.annotations) }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $ing.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- with $ing.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ $ing.host | quote }}
+      http:
+        paths:
+          - path: {{ $ing.mcpPath }}
+            pathType: {{ $ing.mcpPathType }}
+            backend:
+              service:
+                name: {{ include "fortemi.fullname" . }}-mcp
+                port:
+                  name: http
+{{- end }}
+{{- end }}

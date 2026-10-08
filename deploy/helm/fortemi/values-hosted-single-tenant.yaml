@@ -1,0 +1,100 @@
+# Hosted single-tenant profile: one customer per release, external OIDC, KMS,
+# durable PostgreSQL audit sink, shared Redis admission quota.
+#
+#   helm upgrade --install fortemi deploy/helm/fortemi \
+#     -f deploy/helm/fortemi/values-hosted-single-tenant.yaml \
+#     --set env.ISSUER_URL=https://memory.customer.example \
+#     --set env.FORTEMI_AUTH_AUDIENCE=fortemi-api
+#
+# Requirements outside this file (see docs/deployment/kubernetes-helm.md):
+#   - Server image built with FORTEMI_API_FEATURES="hosted-auth,kms-aws" (or
+#     "hosted-auth,kms-vault" for OpenBao). The default Dockerfile build only
+#     enables hosted-auth, and hosted startup fails closed without a KMS backend.
+#   - Secrets created beforehand (names below); this file never holds values.
+#   - Distinct migration and runtime PostgreSQL roles per
+#     docs/deployment/hosted-postgresql-role.md.
+#
+# Variable names are the documented ones in docs/content/configuration.md
+# ("Internal hosted startup profile" and "Rate Limiting").
+
+database:
+  existingSecret: fortemi-database          # key DATABASE_URL -> runtime role
+  migration:
+    existingSecret: fortemi-database-migrate # key MIGRATION_DATABASE_URL -> migration role
+    exposeToRuntime: true                   # hosted startup requires it in every server pod
+
+redis:
+  quota:
+    existingSecret: fortemi-quota-redis     # key FORTEMI_QUOTA_REDIS_URL
+
+env:
+  RUST_LOG: info
+  LOG_FORMAT: json
+  # Hosted multi-tenant runtime (single tenant per release).
+  FORTEMI_MULTI_TENANT: "true"
+  REQUIRE_AUTH: "true"
+  # External OIDC. ISSUER_URL must be public HTTPS and match the token `iss`.
+  ISSUER_URL: ""
+  FORTEMI_AUTH_AUDIENCE: ""
+  FORTEMI_AUTH_TENANT_CLAIM: "fortemi:tenant_id"
+  # Key custody. aws-kms (default backend) needs FORTEMI_AWS_KMS_KEY_ID via
+  # extraEnv; vault-transit needs the FORTEMI_VAULT_* settings documented in
+  # docs/content/openbao-kms.md.
+  FORTEMI_KEY_PROVIDER: aws-kms
+  # Audit: hosted mode always selects the durable PostgreSQL audit sink
+  # (docs/ops/postgresql-audit-sink.md); there is no separate switch.
+  # Structured notes and facts only: no clamd scanner or shared attachment
+  # volume needed. Set "true" (and MATRIC_ATTACHMENT_SCAN_MODE=required plus a
+  # ReadWriteMany fileStorage.existingClaim) to enable attachments.
+  FORTEMI_ATTACHMENTS_ENABLED: "false"
+  MATRIC_ATTACHMENT_SCAN_MODE: required
+  FORTEMI_QUOTA_REQUESTS: "600"
+  FORTEMI_QUOTA_WINDOW_SECS: "60"
+  # Hosted inference destinations must be exact HTTPS allowlist entries.
+  # FORTEMI_INFERENCE_ALLOWED_DESTINATIONS: models.example.com:443
+
+extraEnv: []
+#  - name: FORTEMI_AWS_KMS_KEY_ID
+#    valueFrom:
+#      secretKeyRef:
+#        name: fortemi-kms
+#        key: FORTEMI_AWS_KMS_KEY_ID
+
+# Optional private OIDC CA (ConfigMap must exist); sets FORTEMI_AUTH_CA_BUNDLE.
+authCaBundle:
+  configMap: ""
+  key: ca.pem
+
+serviceAccount:
+  create: true
+  # IRSA for AWS KMS; omit for EKS Pod Identity (association made in EKS).
+  annotations: {}
+  #  eks.amazonaws.com/role-arn: arn:aws:iam::<account-id>:role/fortemi-kms
+
+migrations:
+  serviceAccount:
+    create: true
+    annotations: {}
+
+api:
+  replicaCount: 2
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+
+worker:
+  replicaCount: 1
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 3
+
+mcp:
+  enabled: true
+  baseUrl: ""            # e.g. https://memory.customer.example/mcp
+  oauthClient:
+    existingSecret: fortemi-mcp-oauth
+
+networkPolicy:
+  enabled: true

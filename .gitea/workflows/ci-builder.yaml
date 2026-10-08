@@ -436,6 +436,32 @@ jobs:
             tests/fixtures/shards/aiwg-core-v1-2026.7.20.shard.cell-receipt.json
             knowledge-shard-matrix-results.json
 
+  helm-chart:
+    name: Helm Chart Lint
+    runs-on: ubuntu-latest
+    container: alpine/helm:3.22.0@sha256:70ed3f7b02ab2eee12aa520ad6870305db8a82516b07aff62f5656c657a26e2a  # 3.22.0
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        run: |
+          set -euo pipefail
+          [[ "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "CHAIN_SOURCE_SHA must be a lowercase 40-character commit SHA" >&2
+            exit 1
+          }
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA}"
+          git checkout --quiet --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "${CHAIN_SOURCE_SHA}"
+
+      # helm lint + helm template (default and hosted single-tenant values) and
+      # kubeconform schema validation; kubeconform is checksum-pinned in the script.
+      - name: Lint, render and validate deploy/helm/fortemi
+        run: bash scripts/ci/lint-helm-chart.sh deploy/helm/fortemi
+
   audit:
     name: Security Audit (deps)
     runs-on: matric-builder
@@ -1110,7 +1136,7 @@ jobs:
   publish-release:
     name: Publish Release Image
     runs-on: matric-builder
-    needs: [verify-release-ref, sync-github-source, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
+    needs: [verify-release-ref, sync-github-source, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix, helm-chart]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout
@@ -1236,7 +1262,7 @@ jobs:
     name: Publish to GitHub (ghcr.io)
     runs-on: matric-builder
     # The internal release artifacts are the source of truth for GHCR.
-    needs: [verify-release-ref, publish-release, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
+    needs: [verify-release-ref, publish-release, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix, helm-chart]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout
@@ -1592,7 +1618,7 @@ jobs:
   main-validation:
     name: Main Validation Complete
     runs-on: matric-builder
-    needs: [sync-github-source, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix]
+    needs: [sync-github-source, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix, helm-chart]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     steps:
       - name: Record validation-only completion

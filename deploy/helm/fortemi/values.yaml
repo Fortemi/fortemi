@@ -1,0 +1,286 @@
+# Default values for the Fortémi chart.
+#
+# The chart never creates Secret values. Every credential (database URLs, Redis
+# URLs, MCP OAuth client) is read from a Secret you create beforehand; values only
+# name the Secret and key. See docs/deployment/kubernetes-helm.md.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Server image: one image runs the API, the job worker and the migration Job.
+# The role is selected per Deployment (WORKER_ENABLED, `--migrate-only`).
+image:
+  repository: ghcr.io/fortemi/fortemi
+  # Defaults to .Chart.AppVersion. Prefer pinning `digest` in production.
+  tag: ""
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# ---------------------------------------------------------------------------
+# External dependencies (never deployed by this chart)
+# ---------------------------------------------------------------------------
+database:
+  # Secret holding the runtime DATABASE_URL (required).
+  existingSecret: fortemi-database
+  urlKey: DATABASE_URL
+  # Optional privileged migration connection (MIGRATION_DATABASE_URL). Required
+  # when env.FORTEMI_MULTI_TENANT is "true". Leave existingSecret empty to run
+  # migrations with DATABASE_URL (Community Edition single role).
+  migration:
+    existingSecret: ""
+    urlKey: MIGRATION_DATABASE_URL
+    # Hosted startup still requires MIGRATION_DATABASE_URL in API/worker pods
+    # (the binary runs an idempotent migration check at boot). Set false only
+    # for Community Edition deployments that do not need it at runtime.
+    exposeToRuntime: true
+
+redis:
+  # General cache (REDIS_ENABLED / REDIS_URL).
+  enabled: false
+  existingSecret: ""
+  urlKey: REDIS_URL
+  # Hosted shared admission quota (FORTEMI_QUOTA_REDIS_URL), required when
+  # env.FORTEMI_MULTI_TENANT is "true".
+  quota:
+    existingSecret: ""
+    urlKey: FORTEMI_QUOTA_REDIS_URL
+
+# Plain (non-secret) environment applied to API, worker and migration pods.
+# Names are the documented variables in docs/content/configuration.md.
+env:
+  RUST_LOG: info
+  LOG_FORMAT: json
+  REQUIRE_AUTH: "true"
+  # ISSUER_URL: https://memory.example.com
+  # FORTEMI_ATTACHMENTS_ENABLED: "true"
+  MATRIC_ATTACHMENT_SCAN_MODE: disabled
+
+# Extra env entries (full EnvVar objects, e.g. secretKeyRef) for server pods.
+extraEnv: []
+extraEnvFrom: []
+
+# Additional trust roots for the external OIDC issuer, mounted read-only and
+# exported as FORTEMI_AUTH_CA_BUNDLE. The ConfigMap must already exist.
+authCaBundle:
+  configMap: ""
+  key: ca.pem
+  mountPath: /etc/fortemi/trust/oidc
+
+# Attachment file storage (FILE_STORAGE_PATH). API and worker must share it,
+# so multi-replica deployments need a ReadWriteMany claim. emptyDir is only
+# suitable for a single pod or with FORTEMI_ATTACHMENTS_ENABLED=false.
+fileStorage:
+  path: /var/lib/matric/files
+  existingClaim: ""
+
+extraVolumes: []
+extraVolumeMounts: []
+
+# ---------------------------------------------------------------------------
+# Migrations: pre-install,pre-upgrade hook Job running `matric-api --migrate-only`
+# ---------------------------------------------------------------------------
+migrations:
+  enabled: true
+  backoffLimit: 1
+  activeDeadlineSeconds: 1800
+  ttlSecondsAfterFinished: 86400
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+  # The hook runs before regular resources exist, so it uses its own hook-scoped
+  # ServiceAccount (annotations default to serviceAccount.annotations).
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+
+# ---------------------------------------------------------------------------
+# Workloads
+# ---------------------------------------------------------------------------
+api:
+  replicaCount: 2
+  port: 3000
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+  service:
+    type: ClusterIP
+    port: 3000
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  terminationGracePeriodSeconds: 30
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+
+worker:
+  enabled: true
+  replicaCount: 1
+  # Worker pods serve /livez and /readyz on this port for probes only; no
+  # Service or Ingress routes traffic to them.
+  port: 3000
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      memory: 4Gi
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 1
+  # Independent of api.autoscaling.
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 75
+  # Long jobs (extraction, embedding) get time to finish on SIGTERM.
+  terminationGracePeriodSeconds: 120
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+mcp:
+  enabled: true
+  # Built from Dockerfile.mcp. Not yet published by release CI; build and push
+  # it to your registry and override repository/tag/digest.
+  image:
+    repository: ghcr.io/fortemi/fortemi-mcp
+    tag: ""
+    digest: ""
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  port: 3001
+  # Public URL of the MCP endpoint, e.g. https://memory.example.com/mcp
+  baseUrl: ""
+  basePath: /mcp
+  toolMode: core
+  # Secret with the MCP OAuth client (registered via POST /oauth/register).
+  oauthClient:
+    existingSecret: ""
+    clientIdKey: MCP_CLIENT_ID
+    clientSecretKey: MCP_CLIENT_SECRET
+  env: {}
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  service:
+    type: ClusterIP
+    port: 3001
+  podDisruptionBudget:
+    enabled: false
+    minAvailable: 1
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+  podAnnotations: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ---------------------------------------------------------------------------
+# Identity and security
+# ---------------------------------------------------------------------------
+serviceAccount:
+  create: true
+  name: ""
+  # Workload identity, e.g. IRSA:
+  #   eks.amazonaws.com/role-arn: arn:aws:iam::<account>:role/<role>
+  # EKS Pod Identity needs no annotation (association is made in EKS).
+  annotations: {}
+  automountServiceAccountToken: false
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop: ["ALL"]
+
+probes:
+  liveness:
+    path: /livez
+    periodSeconds: 10
+    failureThreshold: 3
+  readiness:
+    path: /readyz
+    periodSeconds: 10
+    failureThreshold: 3
+  # Startup covers boot-time migration checks and the KMS/auth canaries.
+  startup:
+    path: /livez
+    periodSeconds: 5
+    failureThreshold: 60
+
+# Example NetworkPolicy: ingress only from the ingress controller namespace to
+# API/MCP, MCP -> API, and egress to DNS plus the CIDRs you list.
+networkPolicy:
+  enabled: false
+  ingressControllerNamespaceSelector:
+    kubernetes.io/metadata.name: ingress-nginx
+  # Egress allowances (PostgreSQL, Redis, OIDC, KMS, inference). Empty = allow all egress.
+  egress: []
+  #  - to:
+  #      - ipBlock:
+  #          cidr: 10.0.0.0/16
+  #    ports:
+  #      - port: 5432
+  #        protocol: TCP
+
+# ---------------------------------------------------------------------------
+# Routing
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: memory.example.com
+  # The MCP server serves at "/" internally; the proxy must strip /mcp.
+  # ingress-nginx example (per-path rewrite requires a separate Ingress, which
+  # the chart renders when mcp.enabled):
+  mcpAnnotations: {}
+  #  nginx.ingress.kubernetes.io/use-regex: "true"
+  #  nginx.ingress.kubernetes.io/rewrite-target: /$2
+  mcpPath: /mcp
+  mcpPathType: Prefix
+  tls: []
+  #  - secretName: memory-example-com-tls
+  #    hosts: [memory.example.com]
+
+# Gateway API alternative (gateway.networking.k8s.io/v1 HTTPRoute).
+httpRoute:
+  enabled: false
+  parentRefs: []
+  #  - name: public-gateway
+  #    namespace: gateway-system
+  hostnames:
+    - memory.example.com

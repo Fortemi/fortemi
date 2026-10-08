@@ -1,0 +1,25 @@
+Fortémi {{ .Chart.AppVersion }} installed as release "{{ .Release.Name }}".
+
+Workloads:
+  API     : deployment/{{ include "fortemi.fullname" . }}-api (WORKER_ENABLED=false)
+{{- if .Values.worker.enabled }}
+  Worker  : deployment/{{ include "fortemi.fullname" . }}-worker (WORKER_ENABLED=true, scaled independently)
+{{- end }}
+{{- if .Values.mcp.enabled }}
+  MCP     : deployment/{{ include "fortemi.fullname" . }}-mcp
+{{- end }}
+{{- if .Values.migrations.enabled }}
+  Migrate : job/{{ include "fortemi.fullname" . }}-migrate (pre-install,pre-upgrade hook)
+{{- end }}
+
+Check readiness:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "fortemi.fullname" . }}-api {{ .Values.api.service.port }}:{{ .Values.api.service.port }}
+  curl -fsS http://127.0.0.1:{{ .Values.api.service.port }}/readyz
+
+Scale the worker without touching the API:
+  kubectl -n {{ .Release.Namespace }} scale deployment/{{ include "fortemi.fullname" . }}-worker --replicas=3
+{{- if and (gt (int .Values.api.replicaCount) 1) (not .Values.fileStorage.existingClaim) }}
+
+WARNING: fileStorage.existingClaim is empty, so each pod has its own emptyDir.
+Attachments require a shared ReadWriteMany claim (or FORTEMI_ATTACHMENTS_ENABLED=false).
+{{- end }}

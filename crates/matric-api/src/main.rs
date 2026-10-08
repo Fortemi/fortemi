@@ -8,6 +8,7 @@ mod audit_policy;
 mod evidence_resolution;
 mod handlers;
 mod middleware;
+mod migrate_only;
 mod oauth_profile;
 mod query_types;
 #[cfg(test)]
@@ -3291,6 +3292,16 @@ async fn main() -> anyhow::Result<()> {
             operation = "emit_process_startup_audit_event",
             "failed to emit process startup audit event"
         );
+    }
+
+    // One-shot migration role for orchestrator hook jobs (#1153).
+    if migrate_only::migrate_only_requested()? {
+        let multi_tenant = strict_bool_value(
+            "FORTEMI_MULTI_TENANT",
+            std::env::var("FORTEMI_MULTI_TENANT").ok().as_deref(),
+            false,
+        )?;
+        return migrate_only::run_migrations_only(multi_tenant).await;
     }
 
     // Get configuration from environment
