@@ -251,6 +251,10 @@ stream tokens remain a personal-profile feature and cannot replace hosted
 canonical identity. Existing TLS, JWT, RLS and durable authorization-audit checks
 remain enforced. These route gates do not enable `hosted_multi_tenant_ready` or
 qualify unrelated routes or worker execution. The suite audit remains NO-GO.
+The generated [hosted route qualification matrix](../deployment/hosted-route-qualification.md)
+lists every operation as qualified, gap, excluded or public for a single-tenant
+dedicated deployment; `/api/v1/system/compatibility` reports the same profile as
+`deployment.hosted_profile`.
 
 
 ### Custom OIDC certificate trust

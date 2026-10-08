@@ -72,6 +72,23 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   plans in a rolled-back transaction; `--json` emits machine-readable output.
   Output never contains database URLs or credentials. See
   `docs/deployment/hosted-bootstrap.md`.
+- Publish the single-tenant dedicated route qualification matrix in
+  `docs/deployment/hosted-route-qualification.md` (#1154). Every registered
+  operation is classified `qualified`, `gap`, `excluded` or `public` from the
+  hosted tenant-transaction gate in `route_policy.rs`, and a unit test fails
+  when the committed matrix drifts. `/api/v1/system/compatibility` now reports
+  `deployment.hosted_profile` (`single_tenant_dedicated` and the route classes
+  with qualified operations) in hosted mode; `hosted_multi_tenant_ready` stays
+  `false`.
+- Fix hosted collection routes (`/api/v1/collections/{id}`, its notes and
+  export), which always returned `403`: authorization now resolves the
+  collection on the verified tenant's transaction instead of an unscoped pool
+  hidden by row security. `POST /api/v1/notes/{id}/move` leaves the hosted
+  gate and returns `503`; it was always denied and does not prove note or
+  target-collection visibility. Set membership with `collection_id` on note
+  creation.
+- CI runs the hosted search and memory-context tests (`scoped_search_tests`)
+  and a new hosted collections/export test against the disposable database.
 
 ### Observability
 

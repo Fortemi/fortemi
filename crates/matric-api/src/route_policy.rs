@@ -1642,7 +1642,6 @@ pub fn hosted_tenant_transaction_ready(method: &Method, path: &str) -> bool {
             )
             | (&Method::GET, "/api/v1/notes/{id}")
             | (&Method::DELETE, "/api/v1/notes/{id}")
-            | (&Method::POST, "/api/v1/notes/{id}/move")
             | (&Method::PATCH, "/api/v1/notes/{id}/status")
             | (&Method::GET, "/api/v1/notes/{id}/tags")
             | (&Method::PUT, "/api/v1/notes/{id}/tags")
@@ -1665,6 +1664,9 @@ pub fn hosted_tenant_transaction_ready(method: &Method, path: &str) -> bool {
             | (&Method::POST, "/api/v1/user/secrets")
             | (&Method::DELETE, "/api/v1/user/secrets/{id}")
     )
+    // POST /api/v1/notes/{id}/move stays closed: its note ID has no collection
+    // normalizer, so the role-based policy always denies it, and the handler does
+    // not prove note or target-collection visibility (#1154 qualification gap).
 }
 
 pub fn is_operator_docs_route(path: &str) -> bool {
@@ -1789,7 +1791,7 @@ fn action_family_for_request(policy: &RoutePolicy, method: &Method) -> &'static 
     }
 }
 
-fn policy_class_for_request(policy: &RoutePolicy, method: &Method) -> PolicyClass {
+pub(crate) fn policy_class_for_request(policy: &RoutePolicy, method: &Method) -> PolicyClass {
     if is_incoming_webhook_receiver_slug_route(policy) && method != Method::POST {
         AdminOperator
     } else {
@@ -2520,6 +2522,10 @@ mod tests {
                 "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001/purge",
             ),
             (Method::POST, "/api/v1/notes/reprocess"),
+            (
+                Method::POST,
+                "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001/move",
+            ),
             (Method::GET, "/api/v1/concepts"),
             (Method::GET, "/api/v1/attachments"),
             (Method::GET, "/api/v1/jobs"),
@@ -2589,6 +2595,85 @@ mod tests {
         );
     }
 
+    const HOSTED_ROUTE_QUALIFICATION_DOC: &str =
+        include_str!("../../../docs/deployment/hosted-route-qualification.md");
+
+    /// The committed matrix is generated from the registered router operations
+    /// and the hosted tenant-transaction gate. Regenerate with
+    /// `FORTEMI_UPDATE_ROUTE_QUALIFICATION=1 cargo test -p matric-api --bin matric-api hosted_route_qualification`.
+    #[test]
+    fn hosted_route_qualification_matrix_doc_is_current() {
+        use crate::hosted_route_qualification::matrix;
+
+        let operations: Vec<_> = extract_registered_route_operations(include_str!("main.rs"))
+            .into_iter()
+            .collect();
+        let expected = matrix::render(&operations);
+        let committed = matrix::committed_region(HOSTED_ROUTE_QUALIFICATION_DOC)
+            .expect("hosted route qualification doc must contain the generated region");
+        if committed != expected
+            && std::env::var("FORTEMI_UPDATE_ROUTE_QUALIFICATION").as_deref() == Ok("1")
+        {
+            let path = concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../docs/deployment/hosted-route-qualification.md"
+            );
+            let updated = HOSTED_ROUTE_QUALIFICATION_DOC.replacen(committed, &expected, 1);
+            std::fs::write(path, updated).expect("rewrite hosted route qualification doc");
+            return;
+        }
+        let first = committed
+            .lines()
+            .zip(expected.lines())
+            .position(|(a, b)| a != b);
+        assert!(
+            committed == expected,
+            "hosted route qualification matrix differs at region line {:?}; rerun with FORTEMI_UPDATE_ROUTE_QUALIFICATION=1",
+            first.map(|line| line + 1)
+        );
+    }
+
+    #[test]
+    fn hosted_route_qualification_covers_every_inventory_row_once() {
+        use crate::hosted_route_qualification::route_class;
+
+        for policy in ROUTE_POLICY_INVENTORY {
+            assert_eq!(
+                route_policy_for_path(policy.path).map(|row| row.path),
+                Some(policy.path),
+                "template {} resolves to a different inventory row",
+                policy.path
+            );
+            // Classification is total; this exercises every row.
+            let _ = route_class(policy);
+        }
+    }
+
+    #[test]
+    fn hosted_ready_operations_are_registered_and_classified() {
+        use crate::hosted_route_qualification::{qualification, Qualification};
+
+        let operations = extract_registered_route_operations(include_str!("main.rs"));
+        for policy in ROUTE_POLICY_INVENTORY {
+            for method in [
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::PATCH,
+                Method::DELETE,
+            ] {
+                if hosted_tenant_transaction_ready(&method, policy.path) {
+                    assert!(
+                        operations.contains(&(policy.path, method.as_str())),
+                        "{method} {} is hosted-ready but not registered",
+                        policy.path
+                    );
+                    assert_eq!(qualification(&method, policy), Qualification::Qualified);
+                }
+            }
+        }
+    }
+
     fn extract_registered_routes(source: &'static str) -> BTreeSet<&'static str> {
         let mut routes = BTreeSet::new();
         let mut remaining = source;
@@ -2639,6 +2724,9 @@ mod tests {
             ("trace(", "TRACE"),
         ];
 
+        const DELEGATED_METHOD_ROUTERS: [(&str, &str); 1] =
+            [("evidence_resolution::route()", "POST")];
+
         let mut operations = BTreeSet::new();
         let mut remaining = source;
         while let Some(route_pos) = remaining.find(".route(") {
@@ -2658,6 +2746,13 @@ mod tests {
             };
             let path = &call[path_start..path_start + path_len];
             for (token, method) in METHODS {
+                if call.contains(token) {
+                    operations.insert((path, method));
+                }
+            }
+            // Method routers built in focused modules are not visible as
+            // `get(`/`post(` tokens in the route call.
+            for (token, method) in DELEGATED_METHOD_ROUTERS {
                 if call.contains(token) {
                     operations.insert((path, method));
                 }

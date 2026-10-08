@@ -7,6 +7,7 @@ mod attachments_switch;
 mod audit_policy;
 mod evidence_resolution;
 mod handlers;
+mod hosted_route_qualification;
 mod middleware;
 mod migrate_only;
 mod oauth_profile;
@@ -10034,7 +10035,7 @@ async fn normalize_route_policy_input_for_authorization(
     })
     .await;
     let input = normalize_collection_route_policy_input(input, |collection_id| {
-        lookup_collection_for_authorization(state, archive_ctx, collection_id)
+        lookup_collection_for_authorization(state, archive_ctx, scope, collection_id)
     })
     .await;
     let input = normalize_template_route_policy_input(input, |template_id| {
@@ -10131,8 +10132,21 @@ fn apply_archive_context_to_policy_input(
 async fn lookup_collection_for_authorization(
     state: &AppState,
     archive_ctx: Option<&ArchiveContext>,
+    scope: Option<&TenantRequestScope>,
     collection_id: Uuid,
 ) -> matric_core::Result<Option<matric_core::Collection>> {
+    // Hosted requests resolve the collection on the verified tenant's
+    // transaction; an unscoped pool lookup is hidden by row security.
+    if let Some(scope) = scope {
+        let repo = matric_db::PgCollectionRepository::new(state.db.pool.clone());
+        let schema = archive_ctx
+            .map(|context| context.schema.clone())
+            .unwrap_or_else(|| "public".to_string());
+        return with_request_schema(state, Some(scope.clone()), schema, move |connection| {
+            Box::pin(async move { repo.get_tx(connection, collection_id).await })
+        })
+        .await;
+    }
     let Some(archive_ctx) = archive_ctx else {
         return state.db.collections.get(collection_id).await;
     };
@@ -12197,6 +12211,9 @@ struct CompatibilityDeployment {
     mode: &'static str,
     edition: &'static str,
     hosted_multi_tenant_ready: bool,
+    /// Route-inventory-derived profile a dedicated hosted deployment can rely on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hosted_profile: Option<hosted_route_qualification::HostedProfileSummary>,
 }
 
 #[derive(Debug, Serialize)]
@@ -12386,6 +12403,9 @@ fn build_compatibility_response_from_inputs(
                 "community"
             },
             hosted_multi_tenant_ready: false,
+            hosted_profile: inputs
+                .multi_tenant
+                .then(hosted_route_qualification::hosted_profile_summary),
         },
         auth: CompatibilityAuth {
             required: inputs.require_auth,
@@ -47239,6 +47259,7 @@ mod tests {
         assert_eq!(body["deployment"]["mode"], "local_sidecar");
         assert_eq!(body["deployment"]["edition"], "community");
         assert_eq!(body["deployment"]["hosted_multi_tenant_ready"], false);
+        assert!(body["deployment"].get("hosted_profile").is_none());
         assert_eq!(body["auth"]["mode"], "anonymous_local");
         assert_eq!(body["auth"]["tenant_context_available"], false);
         assert!(body["auth"].get("claim_contract_version").is_none());
@@ -47353,6 +47374,26 @@ mod tests {
         assert_eq!(body["deployment"]["mode"], "hosted_multi_tenant");
         assert_eq!(body["deployment"]["edition"], "internal");
         assert_eq!(body["deployment"]["hosted_multi_tenant_ready"], false);
+        assert_eq!(
+            body["deployment"]["hosted_profile"]["name"],
+            "single_tenant_dedicated"
+        );
+        let classes = body["deployment"]["hosted_profile"]["qualified_route_classes"]
+            .as_array()
+            .unwrap();
+        for class in ["search", "notes", "links_graph", "export", "realtime_mcp"] {
+            assert!(
+                classes.contains(&serde_json::json!(class)),
+                "{class} missing: {classes:?}"
+            );
+        }
+        for class in ["jobs_embeddings", "attachments", "operator"] {
+            assert!(
+                !classes.contains(&serde_json::json!(class)),
+                "{class} unexpectedly qualified"
+            );
+        }
+        assert!(!body.to_string().contains("tenant_id"));
         assert_eq!(body["auth"]["mode"], "hosted_oauth");
         assert_eq!(body["auth"]["tenant_context_available"], true);
         assert_eq!(body["auth"]["claim_contract_version"], "1.1.0");

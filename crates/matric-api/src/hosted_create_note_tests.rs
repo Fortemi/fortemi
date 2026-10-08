@@ -593,3 +593,6 @@ async fn hosted_creation_postgres_atomicity_and_tenant_isolation() {
 
 #[path = "hosted_bootstrap_request_tests.rs"]
 mod bootstrap_request;
+
+#[path = "hosted_collection_export_tests.rs"]
+mod collection_export;

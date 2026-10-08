@@ -165,6 +165,10 @@ jobs:
           cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api kms::tests
           cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api verified_tenant_policy_context
           cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api hosted_sse_filters
+          # Hosted route qualification evidence (docs/deployment/hosted-route-qualification.md).
+          cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api scoped_search_tests -- --test-threads=1
+          cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api handlers::inference_complete::tests::hosted_model_policy
+          cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api handlers::token_info::tests::hosted_contexts
           FORTEMI_HOSTED_CREATE_TEST_ADMIN_URL="$DATABASE_URL" cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api hosted_create_note_tests -- --test-threads=1
           FORTEMI_HOSTED_BOOTSTRAP_TEST_ADMIN_URL="$DATABASE_URL" cargo test --locked -p matric-api --features hosted-auth,kms-vault --test hosted_bootstrap_test -- --test-threads=1
           cargo test --locked -p matric-core --features otel --lib telemetry
