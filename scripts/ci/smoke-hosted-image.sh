@@ -98,9 +98,13 @@ HCL
 
 # --- OpenBao Transit ----------------------------------------------------------------
 log "starting OpenBao"
-docker run -d --name "$BAO" --user "$(id -u):$(id -g)" --cap-drop ALL \
-    --security-opt no-new-privileges -p 127.0.0.1::8200 -v "${WORK}:/smoke:ro" \
+# No bind mounts: the CI runner's private /tmp is invisible to the Docker daemon.
+# docker cp -a keeps owner and mode so the non-root container user can read them.
+docker create --name "$BAO" --user "$(id -u):$(id -g)" --cap-drop ALL \
+    --security-opt no-new-privileges -p 127.0.0.1::8200 \
     --entrypoint bao "$OPENBAO_IMAGE" server -config=/smoke/bao.hcl >/dev/null
+docker cp -a "${WORK}/." "${BAO}:/smoke"
+docker start "$BAO" >/dev/null
 BAO_ADDR="https://localhost:$(docker port "$BAO" 8200/tcp | head -1 | sed 's/.*://')"
 for _ in $(seq 1 120); do
     bao_api GET sys/init >/dev/null 2>&1 && break
@@ -179,10 +183,11 @@ SQL
 # --- Hosted API ------------------------------------------------------------------------
 API_PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
 log "starting hosted API on 127.0.0.1:${API_PORT}"
-docker run -d --name "$APP" --network host "${PLATFORM_ARGS[@]}" \
+mkdir -p "${WORK}/run-fortemi"
+cp "${WORK}/ca.pem" "${WORK}/run-fortemi/ca.pem"
+cp "${WORK}/runtime.token" "${WORK}/run-fortemi/vault-token"
+docker create --name "$APP" --network host "${PLATFORM_ARGS[@]}" \
     --user "$(id -u):$(id -g)" --cap-drop ALL --security-opt no-new-privileges \
-    -v "${WORK}/ca.pem:/run/fortemi/ca.pem:ro" \
-    -v "${WORK}/runtime.token:/run/fortemi/vault-token:ro" \
     "${common_env[@]}" \
     -e HOST=127.0.0.1 -e PORT="$API_PORT" \
     -e ISSUER_URL=https://issuer.hosted-smoke.invalid/realms/fortemi \
@@ -195,6 +200,8 @@ docker run -d --name "$APP" --network host "${PLATFORM_ARGS[@]}" \
     -e WORKER_ENABLED=false -e FORTEMI_ATTACHMENTS_ENABLED=false -e DISABLE_SUPPORT_MEMORY=1 \
     -e FILE_STORAGE_PATH=/tmp/files -e LOG_FORMAT=json -e RUST_LOG=info \
     "$IMAGE" >/dev/null
+docker cp -a "${WORK}/run-fortemi/." "${APP}:/run/fortemi"
+docker start "$APP" >/dev/null
 
 started=$(date +%s)
 status="" body=""
