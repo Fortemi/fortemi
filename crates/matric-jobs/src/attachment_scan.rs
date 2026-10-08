@@ -67,7 +67,22 @@ impl AttachmentScanConfig {
         )
     }
 
-    fn from_values(
+    /// Scanner configuration for deployments whose operator disabled attachment
+    /// ingestion entirely (`FORTEMI_ATTACHMENTS_ENABLED=false`, #1160).
+    ///
+    /// No attachment bytes can enter the system, so no scanner is required even in
+    /// hosted multi-tenant mode and the scanner environment is not consulted.
+    pub fn attachments_disabled(max_upload_bytes: usize) -> Self {
+        Self {
+            mode: AttachmentScanMode::Disabled,
+            clamd_addr: None,
+            timeout: Duration::from_millis(DEFAULT_SCAN_TIMEOUT_MS),
+            max_bytes: max_upload_bytes,
+        }
+    }
+
+    /// Validate scanner configuration from explicit values (environment-free).
+    pub fn from_values(
         hosted_multi_tenant: bool,
         max_upload_bytes: usize,
         mode: Option<String>,

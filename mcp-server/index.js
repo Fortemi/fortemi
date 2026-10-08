@@ -28,6 +28,12 @@ import {
 } from "./lib/output-sanitizer.js";
 import { buildProtectedResourceMetadata } from "./lib/resource-metadata.js";
 import {
+  ATTACHMENT_TOOL_NAMES,
+  attachmentsDisabledError,
+  createAttachmentsCapabilityProbe,
+  filterAttachmentTools,
+} from "./lib/attachments-capability.js";
+import {
   buildDatasetExecutionDescriptor,
   createDatasetExecutionController,
   DATASET_EXECUTION_CONTRACTS,
@@ -56,6 +62,19 @@ const PUBLIC_URL = process.env.ISSUER_URL || process.env.FORTEMI_URL || "https:/
 const API_KEY = process.env.FORTEMI_API_KEY || null;
 const MCP_TRANSPORT = process.env.MCP_TRANSPORT || "stdio"; // "stdio" or "http"
 const MCP_TOOL_MODE = process.env.MCP_TOOL_MODE || "core"; // "core" (44 tools) or "full" (206)
+
+// #1160: hide/fail attachment tools when the API reports attachments disabled.
+const isAttachmentsEnabled = createAttachmentsCapabilityProbe(async () => {
+  const headers = { "Content-Type": "application/json" };
+  if (API_KEY) headers["Authorization"] = `Bearer ${API_KEY}`;
+  const response = await fetch(`${API_BASE}/health`, {
+    method: "GET",
+    headers,
+    signal: AbortSignal.timeout(2000),
+  });
+  if (!response.ok) throw new Error(`health probe failed: ${response.status}`);
+  return response.json();
+});
 
 const MCP_PORT = parseInt(process.env.MCP_PORT || String(DEFAULTS.MCP_DEFAULT_PORT), 10);
 const MCP_BASE_URL = process.env.MCP_BASE_URL || `http://localhost:${MCP_PORT}`;
@@ -199,10 +218,13 @@ function createMcpServer() {
 
   // Handle list tools request — filter by MCP_TOOL_MODE
   mcpServer.setRequestHandler(ListToolsRequestSchema, async () => {
+    const attachmentsEnabled = await isAttachmentsEnabled();
     if (MCP_TOOL_MODE === "full") {
-      return { tools };
+      return { tools: filterAttachmentTools(tools, attachmentsEnabled) };
     }
-    return { tools: tools.filter(t => CORE_TOOLS.has(t.name)) };
+    return {
+      tools: filterAttachmentTools(tools.filter(t => CORE_TOOLS.has(t.name)), attachmentsEnabled),
+    };
   });
 
   // Handle tool calls
@@ -211,6 +233,10 @@ function createMcpServer() {
 
     try {
       let result;
+
+      if (ATTACHMENT_TOOL_NAMES.has(name) && !(await isAttachmentsEnabled())) {
+        throw attachmentsDisabledError();
+      }
 
       switch (name) {
         case "list_notes": {

@@ -16,6 +16,40 @@ The file attachment system supports:
 - **Multi-layer security validation** (magic bytes, extension blocklist, size limits)
 - **Reference counting** for safe garbage collection
 
+### Disabling attachments
+
+Operators can turn attachment ingestion off with
+`FORTEMI_ATTACHMENTS_ENABLED=false` (default `true`). The switch applies in
+every deployment mode, Community Edition and hosted alike:
+
+- All attachment routes fail closed before authentication lookups or storage
+  access: `/api/v1/notes/{id}/attachments` (JSON and multipart upload, list),
+  `/api/v1/notes/{id}/attachments/tus/**` (resumable uploads), and
+  `/api/v1/attachments/**` (metadata, download and range download, delete,
+  subtitles, thumbnails, sprite sheets and WebVTT maps). They return HTTP `404`
+  with an `application/problem+json` body whose `type` is
+  `https://fortemi.com/problems/not-found` and whose `code` is
+  `attachments_disabled`.
+- No malware scanner or attachment storage volume is required at startup, and
+  `MATRIC_ATTACHMENT_*` scanner settings are ignored.
+- Attachment-backed background jobs (scan, extraction of attachments, EXIF,
+  media optimization, thumbnails and sprites, keyframe and 3D view vision,
+  transcription, diarization) fail closed with `attachments_disabled` instead
+  of reading storage. Inline text extraction is unaffected.
+- Knowledge Shard imports that carry attachment sidecars or attachment records
+  are rejected; shards without attachments import normally. Twilio call
+  recordings are not stored as attachments.
+- `GET /health` reports `capabilities.attachments_enabled`,
+  `/api/v1/system/compatibility` reports the `attachments` capability, and the
+  operator OpenAPI document omits attachment paths and adds
+  `x-fortemi-attachments: {enabled: false}`.
+- The MCP server reads `capabilities.attachments_enabled` from `/health`, hides
+  `manage_attachments` and the granular attachment tools from `tools/list`, and
+  fails calls to them with `attachments_disabled`.
+
+Existing attachment rows are left untouched; re-enabling the switch restores
+access and the scanner prerequisites.
+
 ## Supported File Types
 
 ### Images

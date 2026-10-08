@@ -39,6 +39,18 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   and attestations (`oras copy -r`), Kyverno and policy-controller admission,
   and key provisioning and rotation.
 
+### Hosted
+
+- Add the `FORTEMI_ATTACHMENTS_ENABLED` operator switch (default `true`, strict
+  boolean) to disable attachment ingestion in any deployment mode (#1160).
+  When `false`, attachment upload, download and derivative routes (tus,
+  thumbnails, sprites, subtitles, range downloads) return `404` with problem
+  code `attachments_disabled`; hosted startup no longer requires a malware
+  scanner or attachment storage; attachment-backed jobs and shard imports with
+  attachments fail closed; `/health`, `/api/v1/system/compatibility`, the
+  operator OpenAPI document and the MCP attachment tools reflect the disabled
+  state. Re-enabling restores the existing scanner prerequisites.
+
 ### Authentication
 
 - Accept path-bearing HTTPS OIDC issuers such as Keycloak's

@@ -58,7 +58,8 @@ DATABASE_URL=<DATABASE_URL>
 | `MATRIC_SHUTDOWN_GRACE_SECS` | Integer | `30` | Maximum graceful HTTP drain window after SIGINT/SIGTERM, from 1 through 300 seconds. Set the orchestrator stop grace period to at least this value. |
 | `MATRIC_MAX_BODY_SIZE_BYTES` | Integer | `2147483648` | Global request-body ceiling in bytes (default: 2 GB, needed for database backup uploads). This does not increase the per-file attachment limit. |
 | `MATRIC_MAX_UPLOAD_SIZE_BYTES` | Integer | `52428800` | Maximum decoded attachment or provider-media file size in bytes (default: 50 MB). JSON/base64, multipart, tus finalization, and provider downloads enforce this limit before storage. |
-| `MATRIC_ATTACHMENT_SCAN_MODE` | Enum | Required explicitly | Managed attachment scan policy: `required` or local-only `disabled`. Hosted/multi-tenant mode requires `required`; a missing value fails startup. |
+| `FORTEMI_ATTACHMENTS_ENABLED` | Boolean | `true` | Operator switch for attachment ingestion in every deployment mode. Accepts only `true`, `false`, `1`, or `0`; invalid values fail startup. When `false`, attachment upload, download, and derivative routes (including tus uploads, thumbnails, sprites, subtitles, and range downloads) return `404` with problem code `attachments_disabled`, the scanner and attachment storage are not startup prerequisites, and the `MATRIC_ATTACHMENT_*` scanner variables are ignored. See [disabling attachments](#/core-systems-attachments). |
+| `MATRIC_ATTACHMENT_SCAN_MODE` | Enum | Required explicitly | Managed attachment scan policy: `required` or local-only `disabled`. Hosted/multi-tenant mode requires `required`; a missing value fails startup. Not consulted when `FORTEMI_ATTACHMENTS_ENABLED=false`. |
 | `MATRIC_ATTACHMENT_CLAMD_ADDR` | IP socket | None | Numeric clamd TCP address used with `INSTREAM`, for example `127.0.0.1:3310`. Required in scan mode `required`. Keep this unauthenticated protocol on a trusted private boundary. |
 | `MATRIC_ATTACHMENT_SCAN_TIMEOUT_MS` | Integer | `30000` | Per-command and per-scan clamd timeout, from 100 through 300000 milliseconds. |
 | `MATRIC_ATTACHMENT_SCAN_MAX_BYTES` | Integer | Upload maximum | Maximum bytes presented to clamd. In required mode it must be at least `MATRIC_MAX_UPLOAD_SIZE_BYTES`; over-limit scanner verdicts fail closed as unsupported. |
@@ -252,6 +253,16 @@ closed unless all of the following classes are configured and healthy:
   startup canary;
 - shared Redis admission, required attachment scanning, and the outbound
   inference destination policy.
+
+Required attachment scanning applies only while attachments are enabled.
+Deployments that ingest only structured notes and facts can set
+`FORTEMI_ATTACHMENTS_ENABLED=false`: hosted startup then succeeds without a
+clamd scanner or shared attachment volume, every attachment route fails closed
+with `404` and problem code `attachments_disabled`, `GET /health` reports
+`capabilities.attachments_enabled: false`, `/api/v1/system/compatibility`
+reports the `attachments` capability as `unavailable`, and the operator
+OpenAPI document omits attachment operations. Setting the switch back to
+`true` restores the scanner, worker, and storage prerequisites above.
 
 | Variable | Default | Hosted contract |
 |---|---|---|
