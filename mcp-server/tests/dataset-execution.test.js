@@ -138,7 +138,7 @@ describe("versioned dataset execution MCP contract", () => {
     const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
     const child = spawn(process.execPath, ["index.js"], {
       cwd: serverRoot,
-      env: { ...process.env, MCP_TRANSPORT: "stdio", MCP_TOOL_MODE: "core" },
+      env: { ...process.env, FORTEMI_URL: "http://127.0.0.1:9", MCP_TRANSPORT: "stdio", MCP_TOOL_MODE: "core" },
       stdio: ["pipe", "pipe", "pipe"],
     });
     await new Promise((resolve, reject) => {

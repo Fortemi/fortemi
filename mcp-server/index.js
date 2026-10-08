@@ -49,6 +49,7 @@ import {
 } from "./lib/dataset-execution.js";
 // execSync removed — all PKE operations now use HTTP API instead of CLI binary
 import * as DEFAULTS from "./constants/defaults.js";
+import { loadStartupConfig, StartupConfigError } from "./lib/startup-config.js";
 
 const MCP_SERVER_VERSION = JSON.parse(
   fs.readFileSync(new URL("./package.json", import.meta.url), "utf8")
@@ -62,12 +63,22 @@ process.on("unhandledRejection", (reason) => {
   console.error("[mcp] Unhandled rejection (process kept alive):", reason);
 });
 
-const API_BASE = process.env.FORTEMI_URL || process.env.ISSUER_URL || "https://fortemi.com";
-// Public-facing URL for links shown to users (upload guidance, download URLs, etc.)
-// Uses ISSUER_URL (external hostname) rather than FORTEMI_URL (internal container URL)
-const PUBLIC_URL = process.env.ISSUER_URL || process.env.FORTEMI_URL || "https://fortemi.com";
+// #1171: no hosted default. MATRIC_API_URL -> FORTEMI_URL -> co-located API
+// (MCP_API_LAYOUT=bundle|sidecar); anything else fails at startup.
+let STARTUP_CONFIG;
+try {
+  STARTUP_CONFIG = loadStartupConfig(process.env);
+} catch (error) {
+  if (!(error instanceof StartupConfigError)) throw error;
+  console.error(`[mcp] Startup configuration error: ${error.message}`);
+  process.exit(1);
+}
+const API_BASE = STARTUP_CONFIG.apiBase;
+// Public-facing URL for links shown to users (upload guidance, download URLs, etc.):
+// ISSUER_URL (external hostname) when set, otherwise the API base. Never a hosted default.
+const PUBLIC_URL = STARTUP_CONFIG.publicUrl;
 const API_KEY = process.env.FORTEMI_API_KEY || null;
-const MCP_TRANSPORT = process.env.MCP_TRANSPORT || "stdio"; // "stdio" or "http"
+const MCP_TRANSPORT = STARTUP_CONFIG.transport; // "stdio" or "http"
 const MCP_TOOL_MODE = process.env.MCP_TOOL_MODE || "core"; // "core" (44 tools) or "full" (206)
 
 // #1160: hide/fail attachment tools when the API reports attachments disabled.
@@ -5888,11 +5899,15 @@ if (MCP_TRANSPORT === "http") {
   };
 
   // OAuth token validation middleware.
-  // Fortemi-issued tokens keep the self-hosted REQUIRE_AUTH behavior. External OIDC
-  // tokens are verified by the API's hosted verifier and are always rejected when
-  // invalid (#1151). Hosted multi-tenant deployments always require authentication.
+  // Authentication is required by default (#1171, mirroring ADR-094): anonymous access
+  // needs REQUIRE_AUTH=false plus I_UNDERSTAND_NO_AUTH=true, and never in multi-tenant
+  // mode. External OIDC tokens are verified by the API's hosted verifier and are always
+  // rejected when invalid (#1151).
+  const requireAuth = STARTUP_CONFIG.auth.requireAuth;
+  if (STARTUP_CONFIG.auth.anonymous) {
+    console.warn("WARNING: MCP HTTP transport RUNNING WITHOUT AUTHENTICATION — THIS IS NOT A PRODUCTION CONFIGURATION");
+  }
   async function validateToken(req, res, next) {
-    const requireAuth = process.env.REQUIRE_AUTH === 'true' || process.env.FORTEMI_MULTI_TENANT === 'true';
 
     if (req.headers.authorization) {
       const result = await validateBearer(req.headers.authorization, bearerValidationOptions);
@@ -6167,12 +6182,13 @@ if (MCP_TRANSPORT === "http") {
       }
     } catch (e) {
       console.warn(`  WARNING: Could not reach API for credential validation: ${e.message}`);
-      console.warn("  Ensure the API is running at ${API_BASE}");
+      console.warn(`  Ensure the API is running at ${API_BASE}`);
     }
   }
 
   app.listen(MCP_PORT, () => {
     console.log(`MCP HTTP server listening on port ${MCP_PORT}`);
+    console.log(`API base: ${API_BASE} (from ${STARTUP_CONFIG.apiBaseSource}); auth required: ${requireAuth}`);
     console.log(`Endpoints:`);
     console.log(`  StreamableHTTP: POST/GET ${MCP_BASE_URL}/`);
     console.log(`  SSE: GET ${MCP_BASE_URL}/sse + POST ${MCP_BASE_URL}/messages`);

@@ -62,6 +62,13 @@ spec:
                 configMapKeyRef:
                   name: fortemi-server-env
                   key: REQUIRE_AUTH
+            # MCP HTTP mirrors the API pairing (#1171): anonymous needs both flags.
+            - name: I_UNDERSTAND_NO_AUTH
+              valueFrom:
+                configMapKeyRef:
+                  name: fortemi-server-env
+                  key: I_UNDERSTAND_NO_AUTH
+                  optional: true
           # MCP_TRANSPORT, MCP_TOOL_MODE, MCP_BASE_PATH and, once the overlay
           # sets it, MCP_BASE_URL (the public MCP URL for OAuth metadata).
           envFrom:

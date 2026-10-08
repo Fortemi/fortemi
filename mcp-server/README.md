@@ -36,7 +36,7 @@ Add to your Claude Desktop config (`~/.config/claude/claude_desktop_config.json`
       "command": "node",
       "args": ["/path/to/fortemi/mcp-server/index.js"],
       "env": {
-        "FORTEMI_URL": "https://fortemi.com",
+        "FORTEMI_URL": "https://memory.example.com",
         "FORTEMI_API_KEY": "your-api-key"
       }
     }
@@ -626,7 +626,10 @@ curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `FORTEMI_URL` | `https://fortemi.com` | API base URL |
+| `MATRIC_API_URL` | - | API base URL; checked first |
+| `FORTEMI_URL` | - | API base URL when `MATRIC_API_URL` is unset |
+| `MCP_API_LAYOUT` | - | `bundle` or `sidecar`: use `http://127.0.0.1:${MCP_LOCAL_API_PORT:-3000}` when no URL is set. Without a URL or layout the server exits at startup (no hosted default) |
+| `REQUIRE_AUTH` | `true` | HTTP mode requires a bearer token; `false` needs `I_UNDERSTAND_NO_AUTH=true` and is refused with `FORTEMI_MULTI_TENANT=true` |
 | `FORTEMI_API_KEY` | - | API key for stdio mode |
 | `MCP_TRANSPORT` | `stdio` | Transport mode: `stdio` or `http` |
 | `MCP_PORT` | `3001` | HTTP server port (http mode only) |

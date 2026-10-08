@@ -46,6 +46,7 @@ describe("expired Streamable HTTP sessions", () => {
         MCP_PORT: String(port),
         MCP_TRANSPORT: "http",
         REQUIRE_AUTH: "false",
+        I_UNDERSTAND_NO_AUTH: "true",
       },
       stdio: ["ignore", "pipe", "pipe"],
     });

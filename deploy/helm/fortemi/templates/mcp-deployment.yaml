@@ -64,6 +64,10 @@ spec:
             - name: REQUIRE_AUTH
               value: {{ toString . | quote }}
             {{- end }}
+            {{- with (index .Values.env "I_UNDERSTAND_NO_AUTH") }}
+            - name: I_UNDERSTAND_NO_AUTH
+              value: {{ toString . | quote }}
+            {{- end }}
             {{- if $c.oauthClient.existingSecret }}
             - name: MCP_CLIENT_ID
               valueFrom:

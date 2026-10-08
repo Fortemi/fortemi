@@ -61,20 +61,14 @@ test("index.js derives serverInfo version from package.json", () => {
   assert.match(packageJson.version, /^\d{4}\.\d+\.\d+$/);
 });
 
-test("index.js uses FORTEMI_URL environment variable", () => {
-  const indexPath = path.join(projectRoot, "index.js");
-  const indexContent = fs.readFileSync(indexPath, "utf8");
+test("startup config resolves FORTEMI_URL without a hosted default", () => {
+  const indexContent = fs.readFileSync(path.join(projectRoot, "index.js"), "utf8");
+  const configContent = fs.readFileSync(path.join(projectRoot, "lib", "startup-config.js"), "utf8");
 
-  assert.match(
-    indexContent,
-    /process\.env\.FORTEMI_URL/,
-    "should reference FORTEMI_URL"
-  );
-  assert.doesNotMatch(
-    indexContent,
-    /process\.env\.MATRIC_MEMORY_URL/,
-    "should not reference MATRIC_MEMORY_URL"
-  );
+  assert.match(configContent, /"MATRIC_API_URL", "FORTEMI_URL"/, "should resolve MATRIC_API_URL then FORTEMI_URL");
+  assert.match(indexContent, /loadStartupConfig\(process\.env\)/, "index.js should use the startup config");
+  assert.doesNotMatch(indexContent + configContent, /"https:\/\/fortemi\.com"/, "no hosted default URL");
+  assert.doesNotMatch(indexContent, /process\.env\.MATRIC_MEMORY_URL/, "should not reference MATRIC_MEMORY_URL");
 });
 
 test(".mcp.json uses fortemi server key", { skip: !fs.existsSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", ".mcp.json")) }, () => {

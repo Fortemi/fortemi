@@ -447,7 +447,10 @@ curl http://localhost:3001/.well-known/oauth-protected-resource
 | `MCP_PORT` | `3001` | No | MCP server listening port inside container. |
 | `MCP_BASE_URL` | `${ISSUER_URL}/mcp` | No | External MCP URL. Claude Code uses this for OAuth discovery. |
 | `MCP_RESOURCE_URI` | `MCP_BASE_URL` | No | RFC 9728 `resource` identifier. With an external OIDC issuer, set it to the API's `FORTEMI_AUTH_AUDIENCE`. |
-| `FORTEMI_URL` | `http://localhost:3000` | No | Internal API URL for MCP→API calls. Avoids nginx hairpin routing. |
+| `MATRIC_API_URL` | None | No | Internal API URL for MCP→API calls; checked before `FORTEMI_URL`. |
+| `FORTEMI_URL` | None | No | Internal API URL for MCP→API calls when `MATRIC_API_URL` is unset. Avoids nginx hairpin routing. |
+| `MCP_API_LAYOUT` | `bundle` (bundle only) | No | With no API URL set, `bundle` or `sidecar` selects `http://127.0.0.1:${MCP_LOCAL_API_PORT:-3000}`. Outside those layouts a missing API URL stops startup; there is no hosted default. |
+| `REQUIRE_AUTH` / `I_UNDERSTAND_NO_AUTH` | `true` / `false` | No | MCP HTTP requests need a bearer token by default. Anonymous MCP needs both `REQUIRE_AUTH=false` and `I_UNDERSTAND_NO_AUTH=true`, and is refused with `FORTEMI_MULTI_TENANT=true`. |
 | `MCP_RESOURCE_DOCUMENTATION_URL` | Fortemi MCP guide | No | Public curated MCP documentation URL advertised in protected-resource metadata. Must use HTTP(S) and must not contain credentials. |
 
 ### ISSUER_URL Configuration
@@ -475,7 +478,10 @@ FORTEMI_ALLOW_LOCAL_ISSUER=true
 
 ### FORTEMI_URL vs ISSUER_URL
 
-**FORTEMI_URL:** Internal API URL for MCP→API communication (always `http://localhost:3000` in bundle).
+**FORTEMI_URL:** Internal API URL for MCP→API communication. In the bundle it may be
+unset: the entrypoint sets `MCP_API_LAYOUT=bundle`, so the MCP server uses the local
+API. The MCP server never falls back to a hosted URL and never uses `ISSUER_URL` as
+the API address (#1171).
 
 **ISSUER_URL:** External API URL for OAuth2 discovery and client authentication (matches your domain).
 

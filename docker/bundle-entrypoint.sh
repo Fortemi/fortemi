@@ -738,9 +738,12 @@ fi
 # --- Start MCP Server ---
 echo ">>> Starting MCP Server..."
 cd /app/mcp-server
+# The co-located API is the MCP default (#1171); MATRIC_API_URL/FORTEMI_URL override it.
+# MCP_LOCAL_API_PORT must be assigned before PORT is rebound to the MCP port.
+MCP_API_LAYOUT=bundle \
+MCP_LOCAL_API_PORT="${PORT:-3000}" \
 MCP_TRANSPORT="${MCP_TRANSPORT:-http}" \
 PORT="${MCP_PORT:-3001}" \
-MATRIC_API_URL="${MATRIC_API_URL:-http://localhost:3000}" \
 MCP_CLIENT_ID="$MCP_CLIENT_ID" \
 MCP_CLIENT_SECRET="$MCP_CLIENT_SECRET" \
 DEBUG_SESSION_CONTEXT="${DEBUG_SESSION_CONTEXT:-}" \

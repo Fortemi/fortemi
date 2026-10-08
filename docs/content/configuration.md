@@ -704,10 +704,19 @@ The MCP (Model Context Protocol) server provides Claude/AI integration.
 | `MCP_TRANSPORT` | String | `http` | Transport mode: `stdio` (direct process) or `http` (network) |
 | `MCP_PORT` | Integer | `3001` | Port for MCP HTTP server (when transport=http) |
 | `MCP_BASE_PATH` | String | `/mcp` | URL path prefix for the MCP server (when transport=http) |
-| `MATRIC_API_URL` | String | `http://localhost:3000` | API server URL for the MCP server to connect to. Alias: `FORTEMI_URL`. |
-| `FORTEMI_URL` | String | `http://localhost:3000` | Alias for `MATRIC_API_URL`. Used in Docker bundle deployments. |
+| `MATRIC_API_URL` | URL | None | API server URL for the MCP server. Checked first. HTTP(S) only; embedded credentials are rejected. |
+| `FORTEMI_URL` | URL | None | API server URL used when `MATRIC_API_URL` is unset. |
+| `MCP_API_LAYOUT` | String | None | `bundle` or `sidecar` declares that the API runs alongside the MCP server; with neither URL set the MCP server then uses `http://127.0.0.1:${MCP_LOCAL_API_PORT}`. The Docker bundle sets `bundle`. |
+| `MCP_LOCAL_API_PORT` | Integer | `3000` | Local API port for `MCP_API_LAYOUT`. |
+| `REQUIRE_AUTH` / `I_UNDERSTAND_NO_AUTH` | Boolean | `true` / `false` | The MCP HTTP transport follows the API pairing: a bearer token is required unless `REQUIRE_AUTH=false` is paired with `I_UNDERSTAND_NO_AUTH=true`. `REQUIRE_AUTH=false` alone, or with `FORTEMI_MULTI_TENANT=true`, stops startup. |
 | `MCP_RESOURCE_DOCUMENTATION_URL` | URL | `https://docs.fortemi.com/server/#/developers-mcp` | Public curated MCP guide advertised through protected-resource metadata. HTTP(S) only; embedded credentials are rejected. |
 | `FORTEMI_API_KEY` | String | None | API key for the MCP server to authenticate with the Fortemi API (when `REQUIRE_AUTH=true`). |
+
+The MCP server has no hosted default (#1171). It resolves the API as
+`MATRIC_API_URL`, then `FORTEMI_URL`, then the co-located API when
+`MCP_API_LAYOUT` is set; otherwise it exits at startup with a configuration error.
+`ISSUER_URL` is never used as the API address. Links shown to users (upload and
+download commands) use `ISSUER_URL` when set, otherwise the resolved API URL.
 
 **Example (Docker Bundle):**
 ```bash

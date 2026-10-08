@@ -7,6 +7,27 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+### Configuration Semantics Changes
+
+- **MCP has no hosted default API URL (#1171).** The MCP server used to send
+  API calls, and bearer tokens, to `https://fortemi.com` when `FORTEMI_URL` and
+  `ISSUER_URL` were unset. It now resolves `MATRIC_API_URL`, then `FORTEMI_URL`,
+  then `http://127.0.0.1:${MCP_LOCAL_API_PORT:-3000}` when `MCP_API_LAYOUT` is
+  `bundle` or `sidecar`. Otherwise it exits at startup with a configuration
+  error. `ISSUER_URL` is no longer used as the API address; set `FORTEMI_URL`
+  where only `ISSUER_URL` was set before. `MATRIC_API_URL` is now honored (it
+  was documented but ignored). User-facing upload/download links use
+  `ISSUER_URL`, else the API URL. The Docker bundle sets `MCP_API_LAYOUT=bundle`
+  and no longer injects a `MATRIC_API_URL` default, so an operator-set
+  `FORTEMI_URL` keeps working.
+- **MCP HTTP transport requires authentication by default (#1171).** It follows
+  the API's ADR-094 pairing: `REQUIRE_AUTH` defaults to `true`; anonymous MCP
+  needs `REQUIRE_AUTH=false` plus `I_UNDERSTAND_NO_AUTH=true`; `REQUIRE_AUTH=false`
+  alone, or with `FORTEMI_MULTI_TENANT=true`, stops startup. Security booleans
+  accept only `true`, `false`, `1` or `0`. Before, an unset `REQUIRE_AUTH`
+  admitted unauthenticated MCP requests. The Helm chart and Kustomize base now
+  pass `I_UNDERSTAND_NO_AUTH` to the MCP pod.
+
 ### Export
 
 - `POST /api/v1/memory/export` (`read` scope) and the MCP tool
