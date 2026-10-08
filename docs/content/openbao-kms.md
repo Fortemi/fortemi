@@ -118,7 +118,8 @@ Hosted startup requires a real generate/decrypt canary. Unavailable/sealed servi
 denial, bad context or invalid key configuration fails closed. After startup,
 seal/unseal/rewrap outcomes and a low-rate canary keep a cached health signal
 that `/readyz` reports: sealed or rate-limited Transit is `degraded`, a denied
-token or missing key is `unavailable` (503). Errors expose
+token or missing current key is `unavailable` (503); a missing historical
+version on unseal or rewrap affects only that request. Errors expose
 stable classes, never raw provider bodies or secret payloads. Plaintext DEKs and
 owned credential/response buffers are zeroized; locked memory and guarantees for
 HTTP/TLS library internal buffers remain outside the v1 contract.

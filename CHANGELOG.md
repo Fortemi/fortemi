@@ -166,8 +166,9 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   cached signal, fed by every seal, unseal and rewrap call and a low-rate
   canary (`FORTEMI_KMS_HEALTH_CANARY_SECS`, default 60, `0` disables), reports
   throttling and provider outages as `degraded` (still ready) and a disabled,
-  pending-deletion, denied or missing key as `unavailable` (503) until a later
-  call succeeds. Probes never call the provider. The body adds a
+  pending-deletion, denied or missing current key as `unavailable` (503) until
+  a later call succeeds. A missing key version on unseal or rewrap of existing
+  data fails only that request. Probes never call the provider. The body adds a
   `key_provider` object; existing fields are unchanged.
 - Seal, unseal and rewrap are metered for every provider backend (#1170).
   `fortemi.kms.operations` gains `fortemi.kms.retryability`

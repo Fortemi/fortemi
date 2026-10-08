@@ -34,8 +34,23 @@ pub enum HealthEffect {
     Ignore,
 }
 
+/// Which key material a call depended on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyUse {
+    /// The current key: seal (generate/wrap), canary, sign, rotate.
+    CurrentKey,
+    /// Existing data wrapped by a possibly historical key version: unseal, rewrap.
+    ExistingData,
+}
+
 /// Map the provider-neutral failure taxonomy onto readiness effects.
-pub fn health_effect(class: KeyFailureClass) -> HealthEffect {
+///
+/// `KeyVersionUnavailable` on existing data describes one historical record, so
+/// it must not take every replica that reads that record out of rotation.
+pub fn health_effect(class: KeyFailureClass, key_use: KeyUse) -> HealthEffect {
+    if class == KeyFailureClass::KeyVersionUnavailable && key_use == KeyUse::ExistingData {
+        return HealthEffect::Ignore;
+    }
     match class {
         KeyFailureClass::Throttled
         | KeyFailureClass::ProviderUnavailable
@@ -135,8 +150,13 @@ impl KeyProviderHealth {
         state.last_success = Some(now);
     }
 
+    /// Record a failure of a call that used the current key.
     pub fn record_failure(&self, class: KeyFailureClass, now: Instant) {
-        let next = match health_effect(class) {
+        self.record_failure_for(class, KeyUse::CurrentKey, now);
+    }
+
+    pub fn record_failure_for(&self, class: KeyFailureClass, key_use: KeyUse, now: Instant) {
+        let next = match health_effect(class, key_use) {
             HealthEffect::Ignore | HealthEffect::Recover => return,
             HealthEffect::Degrade => KeyHealthSnapshot::Degraded(class),
             HealthEffect::Unavailable => KeyHealthSnapshot::Unavailable(class),

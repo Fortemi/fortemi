@@ -171,7 +171,8 @@ Set `migrations.enabled=false` only if migrations run elsewhere.
 
 `/readyz` checks PostgreSQL; in hosted mode it also checks the audit sink,
 the quota Redis and cached key-provider health. A throttled key provider
-stays ready; a disabled, deleted or denied key fails readiness until a later
+stays ready; a disabled, deleted or denied current key fails readiness (a missing historical
+key version on unseal or rewrap does not) until a later
 operation or the health canary (`FORTEMI_KMS_HEALTH_CANARY_SECS`) succeeds.
 
 ## Scaling the worker independently

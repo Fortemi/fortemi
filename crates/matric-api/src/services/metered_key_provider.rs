@@ -13,7 +13,7 @@ use matric_crypto::{
     KeyProviderKind, PlaintextDek, ProviderSignature, RotationInfo, WrappedKey,
 };
 
-use super::key_provider_health::KeyProviderHealth;
+use super::key_provider_health::{KeyProviderHealth, KeyUse};
 use super::user_secrets::key_failure_class_label;
 
 /// Receives every timed call; production uses OpenTelemetry, tests capture.
@@ -97,7 +97,13 @@ impl MeteredKeyProvider {
         let now = Instant::now();
         match outcome {
             CallOutcome::Ok => self.health.record_success(now),
-            CallOutcome::Failed { class, .. } => self.health.record_failure(class, now),
+            CallOutcome::Failed { class, .. } => {
+                let key_use = match operation {
+                    "unseal" | "rewrap" => KeyUse::ExistingData,
+                    _ => KeyUse::CurrentKey,
+                };
+                self.health.record_failure_for(class, key_use, now);
+            }
         }
         (self.sink)(outcome.to_call(operation, now.saturating_duration_since(started)));
     }

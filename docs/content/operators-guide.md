@@ -714,7 +714,9 @@ canary, so a probe never calls the key provider. The response gains a
 | Failure class | Effect |
 |---|---|
 | `throttled`, `provider_unavailable`, `provider_failure` | `degraded`: still ready (200). Expires after twice the canary interval (120 s if the canary is disabled) without another such failure. |
-| `key_disabled` (disabled or pending deletion), `access_denied`, `key_version_unavailable` (key not found), `invalid_configuration` | `unavailable`: `/readyz` returns 503 until a later operation or canary succeeds. |
+| `key_disabled` (disabled or pending deletion), `access_denied`, `invalid_configuration` | `unavailable`: `/readyz` returns 503 until a later operation or canary succeeds. |
+| `key_version_unavailable` (key or version not found) on seal or the canary | `unavailable`: the current key itself is unusable. |
+| `key_version_unavailable` on unseal or rewrap of existing data | No change: one historical record must not take replicas out of rotation. Still metered as `terminal`. |
 | `context_mismatch`, `invalid_ciphertext`, `invalid_context`, `unsupported_version`, `unsupported_operation` | No change: these describe one request, not the provider. |
 
 A transient failure never replaces a known `unavailable` state. The health

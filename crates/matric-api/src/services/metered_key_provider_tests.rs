@@ -224,6 +224,59 @@ async fn readiness_reads_the_cache_and_canary_recovers_a_failed_provider() {
     );
 }
 
+#[tokio::test]
+async fn missing_key_version_on_unseal_or_rewrap_leaves_ready() {
+    let h = harness(Instant::now());
+    let ctx = context();
+    let blob = encrypt_blob(&h.metered, b"payload", &ctx).await.unwrap();
+
+    h.fake
+        .fail_with(Some(KeyFailureClass::KeyVersionUnavailable));
+    assert!(decrypt_blob(&h.metered, &blob, &ctx).await.is_err());
+    assert!(h
+        .metered
+        .rewrap_dek(blob.wrapped_key(), &ctx)
+        .await
+        .is_err());
+    assert_eq!(h.health.snapshot(Instant::now()), KeyHealthSnapshot::Ready);
+
+    let calls = h.calls.lock().unwrap().clone();
+    assert_eq!(
+        labels(&calls)[1..],
+        [
+            ("unseal", "error", "key_version_unavailable", "terminal"),
+            ("rewrap", "error", "key_version_unavailable", "terminal"),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn missing_key_version_on_seal_or_canary_is_unavailable() {
+    let started = Instant::now().checked_sub(Duration::from_secs(30)).unwrap();
+    let h = harness(started);
+    let ctx = context();
+
+    h.fake
+        .fail_with(Some(KeyFailureClass::KeyVersionUnavailable));
+    assert!(run_canary_once(&h.metered, &h.health, &ctx).await);
+    let snapshot = h.health.snapshot(Instant::now());
+    assert_eq!(
+        snapshot,
+        KeyHealthSnapshot::Unavailable(KeyFailureClass::KeyVersionUnavailable)
+    );
+    assert_eq!(
+        readiness_response(true, Some(snapshot)).0,
+        StatusCode::SERVICE_UNAVAILABLE
+    );
+
+    h.fake.fail_with(None);
+    encrypt_blob(&h.metered, b"payload", &ctx).await.unwrap();
+    h.fake
+        .fail_with(Some(KeyFailureClass::KeyVersionUnavailable));
+    assert!(encrypt_blob(&h.metered, b"payload", &ctx).await.is_err());
+    assert!(!h.health.snapshot(Instant::now()).permits_readiness());
+}
+
 #[test]
 fn health_status_results_map_to_outcomes() {
     assert_eq!(

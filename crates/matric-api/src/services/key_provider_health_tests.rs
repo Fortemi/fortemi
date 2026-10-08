@@ -12,7 +12,13 @@ fn health(start: Instant) -> KeyProviderHealth {
 fn classification_follows_the_provider_taxonomy() {
     use KeyFailureClass as C;
     for class in [C::Throttled, C::ProviderUnavailable, C::ProviderFailure] {
-        assert_eq!(health_effect(class), HealthEffect::Degrade, "{class:?}");
+        for key_use in [KeyUse::CurrentKey, KeyUse::ExistingData] {
+            assert_eq!(
+                health_effect(class, key_use),
+                HealthEffect::Degrade,
+                "{class:?}"
+            );
+        }
     }
     for class in [
         C::KeyDisabled,
@@ -20,7 +26,11 @@ fn classification_follows_the_provider_taxonomy() {
         C::KeyVersionUnavailable,
         C::InvalidConfiguration,
     ] {
-        assert_eq!(health_effect(class), HealthEffect::Unavailable, "{class:?}");
+        assert_eq!(
+            health_effect(class, KeyUse::CurrentKey),
+            HealthEffect::Unavailable,
+            "{class:?}"
+        );
     }
     for class in [
         C::InvalidContext,
@@ -29,7 +39,33 @@ fn classification_follows_the_provider_taxonomy() {
         C::UnsupportedVersion,
         C::UnsupportedOperation,
     ] {
-        assert_eq!(health_effect(class), HealthEffect::Ignore, "{class:?}");
+        for key_use in [KeyUse::CurrentKey, KeyUse::ExistingData] {
+            assert_eq!(
+                health_effect(class, key_use),
+                HealthEffect::Ignore,
+                "{class:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn missing_key_version_is_per_request_only_for_existing_data() {
+    use KeyFailureClass as C;
+    assert_eq!(
+        health_effect(C::KeyVersionUnavailable, KeyUse::ExistingData),
+        HealthEffect::Ignore
+    );
+    assert_eq!(
+        health_effect(C::KeyVersionUnavailable, KeyUse::CurrentKey),
+        HealthEffect::Unavailable
+    );
+    // Other terminal classes fail readiness even on existing data.
+    for class in [C::KeyDisabled, C::AccessDenied, C::InvalidConfiguration] {
+        assert_eq!(
+            health_effect(class, KeyUse::ExistingData),
+            HealthEffect::Unavailable
+        );
     }
 }
 
