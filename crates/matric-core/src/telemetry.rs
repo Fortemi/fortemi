@@ -36,6 +36,7 @@ pub mod metric_names {
     pub const DB_POOL_MAX_CONNECTIONS: &str = "fortemi.db.pool.max_connections";
     pub const QUOTA_ADMISSION_DECISIONS: &str = "fortemi.quota.admission.decisions";
     pub const KMS_OPERATIONS: &str = "fortemi.kms.operations";
+    pub const KMS_OPERATION_DURATION: &str = "fortemi.kms.operation.duration";
 }
 
 /// Documented attribute keys.
@@ -54,6 +55,7 @@ pub mod attribute_names {
     pub const QUOTA_DECISION: &str = "fortemi.quota.decision";
     pub const KMS_OPERATION: &str = "fortemi.kms.operation";
     pub const KMS_FAILURE_CLASS: &str = "fortemi.kms.failure_class";
+    pub const KMS_RETRYABILITY: &str = "fortemi.kms.retryability";
 }
 
 /// Histogram bucket boundaries (seconds) shared by every duration histogram.
@@ -153,6 +155,7 @@ mod active {
         inference_duration: Histogram<f64>,
         quota_decisions: Counter<u64>,
         kms_operations: Counter<u64>,
+        kms_duration: Histogram<f64>,
     }
 
     // Instruments are created on first use, which is always after the API has
@@ -182,7 +185,13 @@ mod active {
                 kms_operations: meter
                     .u64_counter(metric_names::KMS_OPERATIONS)
                     .with_unit("{operation}")
-                    .with_description("KMS startup canary and decrypt outcomes")
+                    .with_description("Key-provider operation outcomes")
+                    .build(),
+                kms_duration: meter
+                    .f64_histogram(metric_names::KMS_OPERATION_DURATION)
+                    .with_unit("s")
+                    .with_description("Key-provider operation latency")
+                    .with_boundaries(DURATION_BUCKETS_SECONDS.to_vec())
                     .build(),
             }
         })
@@ -261,19 +270,18 @@ mod active {
             .add(1, &[KeyValue::new(attr::QUOTA_DECISION, decision)]);
     }
 
-    pub(super) fn record_kms(
-        operation: &'static str,
-        outcome: &'static str,
-        failure_class: &'static str,
-    ) {
-        instruments().kms_operations.add(
-            1,
-            &[
-                KeyValue::new(attr::KMS_OPERATION, operation),
-                KeyValue::new(attr::OUTCOME, outcome),
-                KeyValue::new(attr::KMS_FAILURE_CLASS, failure_class),
-            ],
-        );
+    pub(super) fn record_kms_call(call: super::KmsCall) {
+        let attributes = [
+            KeyValue::new(attr::KMS_OPERATION, call.operation),
+            KeyValue::new(attr::OUTCOME, call.outcome),
+            KeyValue::new(attr::KMS_FAILURE_CLASS, call.failure_class),
+            KeyValue::new(attr::KMS_RETRYABILITY, call.retryability),
+        ];
+        let instruments = instruments();
+        instruments.kms_operations.add(1, &attributes);
+        instruments
+            .kms_duration
+            .record(call.elapsed.as_secs_f64(), &attributes);
     }
 }
 
@@ -348,16 +356,26 @@ pub fn record_quota_admission(decision: &'static str) {
     let _ = decision;
 }
 
-/// Record a KMS operation outcome. `failure_class` is `none` on success.
-pub fn record_kms_operation(
-    operation: &'static str,
-    outcome: &'static str,
-    failure_class: &'static str,
-) {
+/// One timed key-provider call. Every field except `elapsed` is a closed vocabulary.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct KmsCall {
+    /// `seal`, `unseal`, `rewrap`, `health_canary`, ...
+    pub operation: &'static str,
+    /// `ok` or `error`.
+    pub outcome: &'static str,
+    /// `none` on success, otherwise a key failure class.
+    pub failure_class: &'static str,
+    /// `none` on success, otherwise `retryable` or `terminal`.
+    pub retryability: &'static str,
+    pub elapsed: Duration,
+}
+
+/// Record one timed key-provider call on the KMS counter and duration histogram.
+pub fn record_kms_call(call: KmsCall) {
     #[cfg(feature = "otel")]
-    active::record_kms(operation, outcome, failure_class);
+    active::record_kms_call(call);
     #[cfg(not(feature = "otel"))]
-    let _ = (operation, outcome, failure_class);
+    let _ = call;
 }
 
 #[cfg(test)]

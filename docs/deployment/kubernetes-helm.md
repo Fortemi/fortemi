@@ -169,8 +169,10 @@ Set `migrations.enabled=false` only if migrations run elsewhere.
 | API, worker | `GET /livez` (5 s period, 60 failures) | `GET /livez` | `GET /readyz` |
 | MCP | — | `GET /health` | `GET /health` |
 
-`/readyz` checks PostgreSQL; in hosted mode it also checks the audit sink and
-the quota Redis.
+`/readyz` checks PostgreSQL; in hosted mode it also checks the audit sink,
+the quota Redis and cached key-provider health. A throttled key provider
+stays ready; a disabled, deleted or denied key fails readiness until a later
+operation or the health canary (`FORTEMI_KMS_HEALTH_CANARY_SECS`) succeeds.
 
 ## Scaling the worker independently
 

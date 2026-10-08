@@ -111,7 +111,8 @@ user ids, note content, raw paths or URLs.
 | `fortemi.db.pool.connections` | Gauge | `{connection}` | `fortemi.db.pool.state` (`idle`, `used`) for the primary pool |
 | `fortemi.db.pool.max_connections` | Gauge | `{connection}` | none |
 | `fortemi.quota.admission.decisions` | Counter | `{decision}` | `fortemi.quota.decision` (`allowed`, `rejected`, `unavailable`, `invalid`); Redis request-quota gate |
-| `fortemi.kms.operations` | Counter | `{operation}` | `fortemi.kms.operation` (`startup_canary`, `decrypt`), `fortemi.outcome` (`ok`, `error`), `fortemi.kms.failure_class` (`none` or a key failure class such as `access_denied`, `provider_unavailable`, `context_mismatch`) |
+| `fortemi.kms.operations` | Counter | `{operation}` | `fortemi.kms.operation` (`seal`, `unseal`, `rewrap`, `health_canary`, `startup_canary`; `sign`, `verify`, `rotate` when a consumer uses them), `fortemi.outcome` (`ok`, `error`), `fortemi.kms.failure_class` (`none` or a key failure class such as `throttled`, `access_denied`, `key_disabled`, `provider_unavailable`, `context_mismatch`), `fortemi.kms.retryability` (`none`, `retryable`, `terminal`) |
+| `fortemi.kms.operation.duration` | Histogram | `s` | Same attributes as `fortemi.kms.operations` |
 
 `fortemi.route.class` values: `public`, `public_inline_proof`,
 `authenticated_read`, `authenticated_write`, `admin_operator`,
@@ -120,6 +121,16 @@ They come from the route authorization inventory (`route_policy.rs`).
 
 Error rate per route is the share of `http.server.request.duration` samples
 with `http.response.status_code` ≥ 500. Request rate is the histogram count.
+
+Key-provider metrics come from a decorator around the configured provider
+(AWS KMS, OpenBao Transit or a local provider), so every backend reports the
+same operations. `seal` covers data-key generation and wrapping, `unseal`
+covers unwrapping, and `rewrap` covers the user-secret rewrap worker.
+`retryable` marks throttling and provider-unavailable failures, where a
+bounded retry may succeed; every other failure is `terminal`. Labels carry no
+key ARN or reference, tenant, user or context value. The same outcomes feed
+the cached key-provider health that `/readyz` reports (see the
+[operator guide](#/operations-guide)).
 
 Duration histograms share these bucket bounds, in seconds: 0.005, 0.01, 0.025,
 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10, 30, 60, 120, 300, 600.

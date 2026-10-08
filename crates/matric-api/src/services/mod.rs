@@ -6,6 +6,8 @@ pub mod idempotency_store;
 pub mod inference_breaker;
 pub mod ingest_cursor_store;
 pub mod ingest_token_store;
+pub mod key_provider_health;
+pub mod metered_key_provider;
 pub mod quota;
 pub mod reconstruction_service;
 pub mod search_cache;

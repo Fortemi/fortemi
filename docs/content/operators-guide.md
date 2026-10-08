@@ -650,7 +650,7 @@ curl -X DELETE http://localhost:3000/api/v1/embedding-sets/my-set-slug
 |----------|---------|-------|
 | `GET /health` | Aggregate diagnostics | Capability and subsystem summary; not an orchestrator probe |
 | `GET /livez` | Process liveness | Cheap process-local check; `/health/live` is a compatibility alias |
-| `GET /readyz` | Traffic readiness | Returns 503 during drain or when a required dependency is unavailable. CE checks PostgreSQL; hosted multi-tenant mode also checks durable audit flush and Redis quota health. |
+| `GET /readyz` | Traffic readiness | Returns 503 during drain or when a required dependency is unavailable. CE checks PostgreSQL; hosted multi-tenant mode also checks durable audit flush, Redis quota health and cached key-provider health. |
 
 The `/health` response includes capability flags that reflect what is actually running:
 
@@ -698,6 +698,36 @@ curl http://localhost:3000/readyz
 ```json
 {"status":"ready"}
 ```
+
+#### Key-provider readiness (hosted)
+
+Hosted readiness includes a cached key-provider health signal. It is fed by
+the outcome of every real seal, unseal and rewrap call and by a low-rate
+canary, so a probe never calls the key provider. The response gains a
+`key_provider` member; existing fields are unchanged:
+
+```json
+{"status":"ready","key_provider":{"status":"degraded","reason_code":"throttled"}}
+{"status":"not_ready","reason_code":"required_dependency_unavailable","key_provider":{"status":"unavailable","reason_code":"key_disabled"}}
+```
+
+| Failure class | Effect |
+|---|---|
+| `throttled`, `provider_unavailable`, `provider_failure` | `degraded`: still ready (200). Expires after twice the canary interval (120 s if the canary is disabled) without another such failure. |
+| `key_disabled` (disabled or pending deletion), `access_denied`, `key_version_unavailable` (key not found), `invalid_configuration` | `unavailable`: `/readyz` returns 503 until a later operation or canary succeeds. |
+| `context_mismatch`, `invalid_ciphertext`, `invalid_context`, `unsupported_version`, `unsupported_operation` | No change: these describe one request, not the provider. |
+
+A transient failure never replaces a known `unavailable` state. The health
+state holds only these classes and timestamps: no key ARN or reference,
+tenant, user or context value.
+
+`FORTEMI_KMS_HEALTH_CANARY_SECS` (default `60`) sets the canary interval. The
+canary runs at most once per interval, and only when the provider is not
+healthy or no real operation has succeeded within the interval. `0` disables
+it; then recovery from `unavailable` requires a later successful operation.
+Values from 1 to 9 fail startup. Outcomes appear in the
+`fortemi.kms.operations` and `fortemi.kms.operation.duration` metrics with
+`fortemi.kms.operation=health_canary` (see [observability](#/operations-observability)).
 
 On SIGINT or SIGTERM, Fortemi marks `/readyz` unavailable before Axum stops
 accepting connections. In-flight requests drain for up to

@@ -1235,6 +1235,8 @@ struct AppState {
     audit_sink: Arc<dyn AuditSink>,
     /// Hosted envelope-key boundary. Community mode does not initialize a KMS client.
     key_provider: Option<Arc<dyn KeyProvider>>,
+    /// Cached key-provider health for `/readyz` (#1170); set with `key_provider`.
+    key_health: Option<Arc<matric_api::services::key_provider_health::KeyProviderHealth>>,
     /// OAuth access token lifetime (standard clients).
     oauth_token_lifetime: chrono::Duration,
     /// OAuth access token lifetime (MCP clients).
@@ -2865,7 +2867,9 @@ async fn audit_sink_for_mode(
     Ok(Arc::new(sink))
 }
 
-async fn key_provider_for_mode(multi_tenant: bool) -> anyhow::Result<Option<Arc<dyn KeyProvider>>> {
+async fn key_provider_for_mode(
+    multi_tenant: bool,
+) -> anyhow::Result<Option<kms::HostedKeyCustody>> {
     kms::provider_for_mode(multi_tenant).await
 }
 
@@ -3510,7 +3514,14 @@ async fn main() -> anyhow::Result<()> {
         assert_hosted_runtime_role(&db.pool).await?;
     }
     let audit_sink = audit_sink_for_mode(&db, security_config.multi_tenant).await?;
-    let key_provider = key_provider_for_mode(security_config.multi_tenant).await?;
+    let key_custody = key_provider_for_mode(security_config.multi_tenant).await?;
+    if let Some(custody) = &key_custody {
+        custody.spawn_canary()?;
+    }
+    let (key_provider, key_health) = match key_custody {
+        Some(custody) => (Some(custody.provider), Some(custody.health)),
+        None => (None, None),
+    };
     let hosted_quota = request_quota_for_mode(security_config.multi_tenant).await?;
     let inference_breakers = inference_breakers_for_mode(security_config.multi_tenant)?;
     let user_secret_rewrap = user_secret_rewrap_worker_config(security_config.multi_tenant)?;
@@ -4411,6 +4422,7 @@ async fn main() -> anyhow::Result<()> {
         usage_meter,
         audit_sink,
         key_provider,
+        key_health,
         oauth_token_lifetime,
         oauth_mcp_token_lifetime,
         max_memories: std::env::var("MAX_MEMORIES")
@@ -12770,23 +12782,21 @@ async fn readiness_probe(State(state): State<AppState>) -> impl IntoResponse {
         );
     }
 
-    if dependencies_ready(&state).await {
-        (
-            StatusCode::OK,
-            Json(serde_json::json!({ "status": "ready" })),
-        )
-    } else {
-        (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(serde_json::json!({
-                "status": "not_ready",
-                "reason_code": "required_dependency_unavailable",
-            })),
-        )
-    }
+    // Cached key-provider health (#1170): fed by real seal/unseal/rewrap calls
+    // and the low-rate canary, so probes never call the provider themselves.
+    let key_health = state
+        .key_health
+        .as_deref()
+        .map(|health| health.snapshot(std::time::Instant::now()));
+    let (status, body) = matric_api::services::key_provider_health::readiness_response(
+        dependencies_ready(&state).await,
+        key_health,
+    );
+    (status, Json(body))
 }
 
 /// Check required dependencies without coupling readiness to optional backends.
+/// Key-provider health is read from its cache by `readiness_response`.
 async fn dependencies_ready(state: &AppState) -> bool {
     let database_ready = matches!(
         tokio::time::timeout(
@@ -69918,6 +69928,7 @@ not-json
             usage_meter: Arc::new(NoOpMeter),
             audit_sink: Arc::new(TracingSink),
             key_provider: None,
+            key_health: None,
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
@@ -71176,6 +71187,46 @@ not-json
         assert_eq!(
             read_response_json(draining).await["reason_code"],
             "draining"
+        );
+    }
+
+    #[tokio::test]
+    async fn readiness_reports_cached_key_provider_health() {
+        use matric_api::services::key_provider_health::KeyProviderHealth;
+        use matric_crypto::KeyFailureClass;
+
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect to test database");
+        let mut state = build_call_api_test_state(db, &database_url).await;
+        let now = std::time::Instant::now();
+        let health = Arc::new(KeyProviderHealth::new(None, now));
+        state.key_health = Some(health.clone());
+        state.lifecycle.mark_ready();
+
+        health.record_failure(KeyFailureClass::Throttled, now);
+        let degraded = readiness_probe(State(state.clone())).await.into_response();
+        assert_eq!(degraded.status(), StatusCode::OK);
+        let body = read_response_json(degraded).await;
+        assert_eq!(body["status"], "ready");
+        assert_eq!(body["key_provider"]["status"], "degraded");
+        assert_eq!(body["key_provider"]["reason_code"], "throttled");
+
+        health.record_failure(KeyFailureClass::KeyDisabled, now);
+        let failed = readiness_probe(State(state.clone())).await.into_response();
+        assert_eq!(failed.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = read_response_json(failed).await;
+        assert_eq!(body["reason_code"], "required_dependency_unavailable");
+        assert_eq!(body["key_provider"]["reason_code"], "key_disabled");
+
+        health.record_success(now);
+        let recovered = readiness_probe(State(state)).await.into_response();
+        assert_eq!(recovered.status(), StatusCode::OK);
+        assert_eq!(
+            read_response_json(recovered).await["key_provider"]["status"],
+            "ready"
         );
     }
 
@@ -75426,6 +75477,7 @@ not-json
             usage_meter: Arc::new(NoOpMeter),
             audit_sink: Arc::new(TracingSink),
             key_provider: None,
+            key_health: None,
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
@@ -77219,6 +77271,7 @@ not-json
             usage_meter: Arc::new(NoOpMeter),
             audit_sink: Arc::new(TracingSink),
             key_provider: None,
+            key_health: None,
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
@@ -77565,6 +77618,7 @@ not-json
             usage_meter: Arc::new(NoOpMeter),
             audit_sink: Arc::new(TracingSink),
             key_provider: None,
+            key_health: None,
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),

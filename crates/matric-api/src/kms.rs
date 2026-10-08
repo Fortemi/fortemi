@@ -1,6 +1,11 @@
 //! Hosted provider selection. Explicit selections never fall back to another backend.
 use std::sync::Arc;
+use std::time::Instant;
 
+use matric_api::services::key_provider_health::{parse_canary_interval, KeyProviderHealth};
+use matric_api::services::metered_key_provider::{
+    run_key_provider_canary, CallOutcome, MeteredKeyProvider,
+};
 use matric_crypto::KeyProvider;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -21,10 +26,56 @@ impl ProviderSelection {
     }
 }
 
-pub async fn provider_for_mode(multi_tenant: bool) -> anyhow::Result<Option<Arc<dyn KeyProvider>>> {
+/// Hosted key custody: the metered provider plus its cached health signal.
+pub struct HostedKeyCustody {
+    pub provider: Arc<dyn KeyProvider>,
+    pub health: Arc<KeyProviderHealth>,
+}
+
+impl HostedKeyCustody {
+    /// Spawn the low-rate health canary (#1170); a no-op when disabled.
+    pub fn spawn_canary(&self) -> anyhow::Result<()> {
+        if self.health.canary_interval().is_none() {
+            return Ok(());
+        }
+        let context = canary_context()?;
+        tokio::spawn(run_key_provider_canary(
+            self.provider.clone(),
+            self.health.clone(),
+            context,
+        ));
+        Ok(())
+    }
+}
+
+/// Fixed, production-shaped canary context. The current hosted secret consumer
+/// uses this purpose; a new purpose must add its own canary before it can use a
+/// separately provisioned Transit key. These synthetic identifiers are never
+/// reported in health state or metric labels.
+fn canary_context() -> anyhow::Result<matric_crypto::KeyContext> {
+    Ok(matric_crypto::KeyContext::new(
+        matric_crypto::KeyPurpose::USER_SECRET,
+        "hosted_startup_canary",
+    )?
+    .with_tenant_id("00000000-0000-0000-0000-000000000001")?
+    .with_user_id("00000000-0000-0000-0000-000000000002")?
+    .with_resource_id("kms_health")?)
+}
+
+fn canary_interval_from_env() -> anyhow::Result<Option<std::time::Duration>> {
+    let value = match std::env::var("FORTEMI_KMS_HEALTH_CANARY_SECS") {
+        Ok(value) => Some(value),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(_) => anyhow::bail!("FORTEMI_KMS_HEALTH_CANARY_SECS is invalid"),
+    };
+    parse_canary_interval(value.as_deref()).map_err(|message| anyhow::anyhow!(message))
+}
+
+pub async fn provider_for_mode(multi_tenant: bool) -> anyhow::Result<Option<HostedKeyCustody>> {
     if !multi_tenant {
         return Ok(None);
     }
+    let canary_interval = canary_interval_from_env()?;
     let selection =
         std::env::var("FORTEMI_KEY_PROVIDER")
             .map(Some)
@@ -36,40 +87,22 @@ pub async fn provider_for_mode(multi_tenant: bool) -> anyhow::Result<Option<Arc<
         ProviderSelection::Aws => aws_provider().await?,
         ProviderSelection::Vault => vault_provider()?,
     };
-    // The current hosted secret consumer uses this purpose. A new purpose must add
-    // its startup canary here before it can use a separately provisioned Transit key.
-    let context = matric_crypto::KeyContext::new(
-        matric_crypto::KeyPurpose::USER_SECRET,
-        "hosted_startup_canary",
-    )?
-    .with_tenant_id("00000000-0000-0000-0000-000000000001")?
-    .with_user_id("00000000-0000-0000-0000-000000000002")?
-    .with_resource_id("kms_health")?;
-    match provider.health_check(&context).await {
-        Ok(matric_crypto::HealthStatus::Ready) => {
-            matric_core::telemetry::record_kms_operation("startup_canary", "ok", "none");
-            Ok(Some(provider))
-        }
-        Ok(
-            matric_crypto::HealthStatus::Degraded { class, .. }
-            | matric_crypto::HealthStatus::Unavailable { class, .. },
-        ) => {
-            matric_core::telemetry::record_kms_operation(
-                "startup_canary",
-                "error",
-                matric_api::services::user_secrets::key_failure_class_label(class),
-            );
-            anyhow::bail!("hosted KMS generate/decrypt startup check failed")
-        }
-        Err(error) => {
-            matric_core::telemetry::record_kms_operation(
-                "startup_canary",
-                "error",
-                matric_api::services::user_secrets::key_failure_class_label(error.class()),
-            );
-            anyhow::bail!("hosted KMS generate/decrypt startup check failed")
-        }
+    let context = canary_context()?;
+    let started = Instant::now();
+    let result = provider.health_check(&context).await;
+    let outcome = match &result {
+        Ok(status) => CallOutcome::from_health(*status),
+        Err(error) => CallOutcome::from_error(error),
+    };
+    matric_core::telemetry::record_kms_call(outcome.to_call("startup_canary", started.elapsed()));
+    if outcome != CallOutcome::Ok {
+        anyhow::bail!("hosted KMS generate/decrypt startup check failed");
     }
+    let health = Arc::new(KeyProviderHealth::new(canary_interval, Instant::now()));
+    Ok(Some(HostedKeyCustody {
+        provider: Arc::new(MeteredKeyProvider::new(provider, health.clone())),
+        health,
+    }))
 }
 
 #[cfg(feature = "kms-vault")]

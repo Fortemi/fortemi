@@ -274,6 +274,7 @@ OpenAPI document omits attachment operations. Setting the switch back to
 | `FORTEMI_AUTH_CA_BUNDLE` | Unset | PEM file containing additional OIDC discovery/JWKS trust roots. Read once at verifier startup; explicit empty, unreadable, or invalid bundles fail startup. Default roots remain enabled. See [custom OIDC trust](#/security-authentication). |
 | `MIGRATION_DATABASE_URL` | None | Privileged migration connection; must differ from `DATABASE_URL`. |
 | `FORTEMI_KEY_PROVIDER` | `aws-kms` | Select `vault-transit` for OpenBao; explicit unsupported backends fail closed. |
+| `FORTEMI_KMS_HEALTH_CANARY_SECS` | `60` | Interval of the low-rate key-provider health canary that keeps `/readyz` current; `0` disables it, values 1–9 fail startup. See [key-provider readiness](#/operations-guide). |
 | `FORTEMI_VAULT_CA_BUNDLE` | Unset | Independent additive OpenBao trust bundle. See [OpenBao KMS](#/security-openbao-kms) for exact token-file, strategy and runtime policy configuration. |
 | `FORTEMI_AWS_KMS_KEY_ID` | None | Required only for the AWS backend, injected by the hosted secret/configuration authority. |
 
@@ -319,8 +320,8 @@ FORTEMI_QUOTA_WINDOW_SECS=60
 
 The Redis URL may contain credentials and must be injected through the hosted
 secret-management path, not committed to an environment file. Health probes
-are exempt. Hosted `/readyz` checks PostgreSQL, durable audit flush, and Redis
-quota health; CE readiness checks PostgreSQL only. `/api/v1/rate-limit/status`
+are exempt. Hosted `/readyz` checks PostgreSQL, durable audit flush, Redis
+quota health and cached key-provider health; CE readiness checks PostgreSQL only. `/api/v1/rate-limit/status`
 reports bounded policy identity and shared-state health metadata without limits,
 credentials, or tenant identifiers. The generic dimension and reservation
 coordinator is implemented and live-Redis tested, but tenant-plan selection and

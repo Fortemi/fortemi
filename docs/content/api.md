@@ -3513,7 +3513,11 @@ GET /readyz
 
 Returns `200 OK` only after initialization while required dependencies are
 available. It returns `503 Service Unavailable` during shutdown drain or when
-PostgreSQL is unavailable.
+PostgreSQL is unavailable. Hosted deployments also check the audit sink, Redis
+quota and cached key-provider health, and add a `key_provider` object
+(`status`: `ready`, `degraded` or `unavailable`, with a `reason_code` failure
+class when not ready). A `degraded` key provider, such as one being throttled,
+still returns `200 OK`.
 
 ## Error Responses
 

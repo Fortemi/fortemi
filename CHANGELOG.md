@@ -152,7 +152,7 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 - New metrics: HTTP request duration and in-flight requests by route
   template and class, job execution duration, queue depth, oldest pending
   age, inference latency, DB pool usage, Redis quota admission decisions and
-  KMS canary/decrypt outcomes. All labels come from bounded sets with no
+  key-provider operation outcomes. All labels come from bounded sets with no
   tenant ids, content or raw paths. See `docs/content/observability.md`.
 - A redacting span processor drops sensitive attribute keys, masks
   credential-, URL- and email-shaped values, and strips span events before
@@ -162,6 +162,18 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   logging behaves as before.
 - `scripts/test-otel-collector.sh` checks export end to end against a
   digest-pinned OpenTelemetry Collector over both protocols. CI runs it.
+- Hosted `/readyz` now reflects key-provider health after startup (#1170). A
+  cached signal, fed by every seal, unseal and rewrap call and a low-rate
+  canary (`FORTEMI_KMS_HEALTH_CANARY_SECS`, default 60, `0` disables), reports
+  throttling and provider outages as `degraded` (still ready) and a disabled,
+  pending-deletion, denied or missing key as `unavailable` (503) until a later
+  call succeeds. Probes never call the provider. The body adds a
+  `key_provider` object; existing fields are unchanged.
+- Seal, unseal and rewrap are metered for every provider backend (#1170).
+  `fortemi.kms.operations` gains `fortemi.kms.retryability`
+  (`none`/`retryable`/`terminal`), a new `fortemi.kms.operation.duration`
+  histogram records latency, and the unreleased `decrypt` operation label is
+  replaced by `unseal`.
 
 ### Authentication
 

@@ -162,16 +162,9 @@ pub async fn unseal_user_secret(
     let context = user_secret_context(tenant_id, user_id, secret_id)?;
     let encrypted: EncryptedBlob = serde_json::from_value(encrypted_blob)
         .map_err(|_| UserSecretServiceError::InvalidEnvelope)?;
-    let decrypted = decrypt_blob(key_provider, &encrypted, &context).await;
-    match &decrypted {
-        Ok(_) => matric_core::telemetry::record_kms_operation("decrypt", "ok", "none"),
-        Err(error) => matric_core::telemetry::record_kms_operation(
-            "decrypt",
-            "error",
-            key_failure_class_label(error.class()),
-        ),
-    }
-    let plaintext = decrypted?;
+    // Hosted providers are wrapped by `MeteredKeyProvider`, which records the
+    // `unseal` outcome and latency and feeds readiness (#1170).
+    let plaintext = decrypt_blob(key_provider, &encrypted, &context).await?;
     let mut payload: StoredSecretPayload = serde_json::from_slice(plaintext.as_slice())
         .map_err(|_| UserSecretServiceError::InvalidEnvelope)?;
     if payload.version != STORED_SECRET_PAYLOAD_VERSION || payload.provider != expected_provider {
