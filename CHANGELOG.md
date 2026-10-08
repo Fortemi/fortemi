@@ -27,6 +27,20 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   accept only `true`, `false`, `1` or `0`. Before, an unset `REQUIRE_AUTH`
   admitted unauthenticated MCP requests. The Helm chart and Kustomize base now
   pass `I_UNDERSTAND_NO_AUTH` to the MCP pod.
+- **Dynamic client registration policy (#944).** New
+  `FORTEMI_OAUTH_DYNAMIC_REGISTRATION=enabled|admin|disabled`. Community
+  deployments default to `enabled` (unchanged behavior). `FORTEMI_MULTI_TENANT=true`
+  defaults to `disabled` and refuses `enabled`. `admin` requires a bearer credential
+  with the `admin` scope; `disabled` returns a stable `403`. Discovery advertises
+  `registration_endpoint` only in `enabled` mode.
+- **Registration responses no longer return `registration_access_token` or
+  `registration_client_uri` (#944).** Fortémi has no RFC 7592 management routes,
+  and the URI returned 404. Registration now rejects a `token_endpoint_auth_method`
+  other than `client_secret_basic` or `client_secret_post`, and a body that is not
+  JSON returns `400` (the policy check runs before the body is parsed).
+- **The Docker bundle provisions its MCP introspection client with the new
+  `matric-api admin oauth-client register` command (#944)** instead of calling
+  `POST /oauth/register`, so it works in every registration mode.
 
 ### Export
 

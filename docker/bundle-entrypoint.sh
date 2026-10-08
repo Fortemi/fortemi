@@ -9,7 +9,7 @@ set -eo pipefail
 # 3. Waits for PostgreSQL to be ready
 # 4. Creates database and enables pgvector extension
 # 5. Starts matric-api (runs migrations on startup)
-# 6. Validates/auto-registers MCP OAuth credentials
+# 6. Validates/provisions MCP OAuth credentials (CLI, not public DCR)
 # 7. Starts MCP server with valid credentials
 
 echo "=== Matric Memory Bundle Startup ==="
@@ -514,20 +514,29 @@ validate_mcp_credentials() {
     esac
 }
 
+# Provision the MCP introspection client directly in the database (#944), so the
+# bundle does not depend on the public dynamic registration endpoint policy
+# (FORTEMI_OAUTH_DYNAMIC_REGISTRATION may be admin or disabled).
+mcp_register_request() {
+    "${FORTEMI_API_BIN:-/app/matric-api}" admin oauth-client register \
+        --name "MCP Server (auto-registered)" \
+        --grant-types client_credentials \
+        --scope "mcp read write" \
+        --json 2>/dev/null
+}
+
 register_mcp_client() {
     local register_response register_status parsed_credentials
 
-    echo ">>> Auto-registering MCP OAuth client..."
+    echo ">>> Provisioning MCP OAuth client..."
     register_status=0
-    register_response=$(curl --connect-timeout 2 --max-time 10 -fsS -X POST "http://localhost:${PORT:-3000}/oauth/register" \
-        -H "Content-Type: application/json" \
-        -d '{"client_name":"MCP Server (auto-registered)","grant_types":["client_credentials"],"scope":"mcp read write"}' 2>/dev/null) || register_status=$?
+    register_response=$(mcp_register_request) || register_status=$?
 
     if [ "$register_status" -ne 0 ] || [ -z "$register_response" ]; then
         echo "  WARNING: MCP client auto-registration failed"
-        echo "  Registration request failed or returned an empty response"
+        echo "  Client provisioning failed or returned an empty response"
         echo "  MCP server will start but token introspection will fail"
-        echo "  Fix: manually register via POST /oauth/register"
+        echo "  Fix: run matric-api admin oauth-client register inside the container"
         return 0
     fi
 
@@ -535,7 +544,7 @@ register_mcp_client() {
         echo "  WARNING: MCP client auto-registration failed"
         echo "  Registration response omitted because it may contain credentials"
         echo "  MCP server will start but token introspection will fail"
-        echo "  Fix: manually register via POST /oauth/register"
+        echo "  Fix: run matric-api admin oauth-client register inside the container"
         return 0
     fi
 

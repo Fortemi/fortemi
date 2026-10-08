@@ -544,18 +544,34 @@ GET /.well-known/oauth-authorization-server
   "grant_types": ["authorization_code", "refresh_token"],
   "response_types": ["code"],
   "scope": "read write",
-  "token_endpoint_auth_method": "client_secret_basic",
-  "registration_access_token": "rEgToKeN_123...",
-  "registration_client_uri": "http://localhost:3000/oauth/register/mm_AbCdEfGh12345678901234"
+  "token_endpoint_auth_method": "client_secret_basic"
 }
 ```
 
-The compatibility registration response currently includes
-`registration_access_token` and `registration_client_uri`, but Fortémi does not
-implement RFC 7592 client management routes. Do not treat either field as a
-working read, update, or delete API. Hosted-strict discovery and documentation
-must not advertise registration management unless those routes and their
-authorization policy are implemented.
+Fortémi does not implement RFC 7592 client management routes, so the response
+does not include `registration_access_token` or `registration_client_uri`
+(#944). `token_endpoint_auth_method` must be `client_secret_basic` (default) or
+`client_secret_post`; other values are rejected with `400`.
+
+#### Registration policy
+
+`FORTEMI_OAUTH_DYNAMIC_REGISTRATION` controls who may call `POST /oauth/register`:
+
+| Mode | Behavior | Discovery `registration_endpoint` |
+|------|----------|-----------------------------------|
+| `enabled` | Open RFC 7591 registration. Default when `FORTEMI_MULTI_TENANT` is not `true`. | Advertised |
+| `admin` | Requires `Authorization: Bearer <credential>` with the `admin` scope (an API key or access token): missing or invalid credential `401`, other scopes `403`. | Not advertised |
+| `disabled` | Always `403` with detail `Dynamic client registration is disabled on this server.`; nothing is parsed or stored. Default when `FORTEMI_MULTI_TENANT=true`, where only `admin` and `disabled` are accepted. | Not advertised |
+
+Operators provision first-party clients without the public endpoint:
+
+```bash
+matric-api admin oauth-client register --name "Operator tool" \
+  --grant-types client_credentials --scope "read write" --json
+```
+
+The command writes to the database named by `DATABASE_URL` and prints the client
+secret once. The Docker bundle uses it for the MCP introspection client.
 
 **Important:** Save `client_id` and `client_secret` securely. The secret is only shown once.
 

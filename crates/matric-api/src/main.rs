@@ -1,5 +1,6 @@
 //! matric-api - HTTP API server for matric-memory
 
+mod admin_oauth_client;
 mod kms;
 
 mod attachments_job_gate;
@@ -11,6 +12,9 @@ mod hosted_route_qualification;
 mod middleware;
 mod migrate_only;
 mod oauth_profile;
+mod oauth_registration;
+#[cfg(test)]
+mod oauth_registration_tests;
 mod otel;
 mod query_types;
 #[cfg(test)]
@@ -1237,6 +1241,8 @@ struct AppState {
     key_provider: Option<Arc<dyn KeyProvider>>,
     /// Cached key-provider health for `/readyz` (#1170); set with `key_provider`.
     key_health: Option<Arc<matric_api::services::key_provider_health::KeyProviderHealth>>,
+    /// Dynamic client registration policy for `/oauth/register` (#944).
+    oauth_registration: oauth_registration::OAuthRegistrationMode,
     /// OAuth access token lifetime (standard clients).
     oauth_token_lifetime: chrono::Duration,
     /// OAuth access token lifetime (MCP clients).
@@ -3207,6 +3213,9 @@ async fn main() -> anyhow::Result<()> {
     if export_contract_if_requested()? {
         return Ok(());
     }
+    if admin_oauth_client::run_if_requested().await? {
+        return Ok(());
+    }
     if matric_api::admin_bootstrap::run_if_requested().await? {
         return Ok(());
     }
@@ -3407,6 +3416,13 @@ async fn main() -> anyhow::Result<()> {
     // (FORTEMI_MULTI_TENANT=true) refuse anonymous regardless — ADR-090 Rev 1.
     let issuer = validated_issuer_url(&host, port, &security_config)?;
     let issuer_meta = startup_issuer_telemetry(&issuer);
+    let oauth_registration =
+        oauth_registration::OAuthRegistrationMode::from_env(security_config.multi_tenant)?;
+    info!(
+        target: "fortemi.security",
+        oauth_dynamic_registration = oauth_registration.as_str(),
+        "OAuth dynamic client registration policy"
+    );
     if !security_config.require_auth {
         if security_config.multi_tenant {
             anyhow::bail!(
@@ -4423,6 +4439,7 @@ async fn main() -> anyhow::Result<()> {
         audit_sink,
         key_provider,
         key_health,
+        oauth_registration,
         oauth_token_lifetime,
         oauth_mcp_token_lifetime,
         max_memories: std::env::var("MAX_MEMORIES")
@@ -23012,15 +23029,18 @@ fn oauth_revocation_audit_event(
 }
 
 /// OAuth2 authorization server metadata (RFC 8414).
-fn oauth_authorization_server_metadata(issuer: &str) -> AuthorizationServerMetadata {
+fn oauth_authorization_server_metadata(
+    issuer: &str,
+    registration: oauth_registration::OAuthRegistrationMode,
+) -> AuthorizationServerMetadata {
     let capabilities = active_oauth_capabilities();
     AuthorizationServerMetadata {
         issuer: issuer.to_string(),
         authorization_endpoint: format!("{issuer}/oauth/authorize"),
         token_endpoint: format!("{issuer}/oauth/token"),
-        registration_endpoint: capabilities
-            .advertise_registration_endpoint
-            .then(|| format!("{issuer}/oauth/register")),
+        registration_endpoint: (capabilities.advertise_registration_endpoint
+            && registration.advertises_endpoint())
+        .then(|| format!("{issuer}/oauth/register")),
         introspection_endpoint: Some(format!("{issuer}/oauth/introspect")),
         revocation_endpoint: Some(format!("{issuer}/oauth/revoke")),
         response_types_supported: vec!["code".to_string()],
@@ -23038,7 +23058,10 @@ fn oauth_authorization_server_metadata(issuer: &str) -> AuthorizationServerMetad
 #[utoipa::path(get, path = "/.well-known/oauth-authorization-server", tag = "OAuth",
     responses((status = 200, description = "Success")))]
 async fn oauth_discovery(State(state): State<AppState>) -> impl IntoResponse {
-    Json(oauth_authorization_server_metadata(&state.issuer))
+    Json(oauth_authorization_server_metadata(
+        &state.issuer,
+        state.oauth_registration,
+    ))
 }
 
 /// OAuth Protected Resource Metadata (RFC 9728).
@@ -23065,11 +23088,26 @@ const ALLOWED_GRANT_TYPES: &[&str] = &["authorization_code", "client_credentials
 
 #[utoipa::path(post, path = "/oauth/register", tag = "OAuth",
     request_body = ClientRegistrationRequest,
-    responses((status = 201, description = "Created")))]
+    responses(
+        (status = 201, description = "Created"),
+        (status = 401, description = "Admin registration mode without an admin bearer credential"),
+        (status = 403, description = "Registration disabled, or the credential lacks the admin scope"),
+    ))]
 async fn oauth_register(
     State(state): State<AppState>,
-    Json(req): Json<ClientRegistrationRequest>,
-) -> Result<impl IntoResponse, OAuthApiError> {
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Result<axum::response::Response, OAuthApiError> {
+    // Policy first, so a disabled endpoint never parses or stores anything (#944).
+    if let Some(refusal) = oauth_registration::admit_registration(&state, &headers).await {
+        return Ok(refusal);
+    }
+    let req: ClientRegistrationRequest = serde_json::from_slice(&body).map_err(|_| {
+        OAuthApiError::OAuth(OAuthError::invalid_request(
+            "Registration body must be a JSON client metadata document",
+        ))
+    })?;
+
     // Validate grant types (Issue #115 — AUTH-004)
     for gt in &req.grant_types {
         if !ALLOWED_GRANT_TYPES.contains(&gt.as_str()) {
@@ -23088,15 +23126,19 @@ async fn oauth_register(
         }
     }
 
+    oauth_registration::validate_token_endpoint_auth_method(
+        req.token_endpoint_auth_method.as_deref(),
+    )
+    .map_err(|detail| OAuthApiError::OAuth(OAuthError::invalid_request(&detail)))?;
+
     let mut response = state.db.oauth.register_client(req).await?;
 
-    // Set the registration_client_uri based on our issuer
-    response.registration_client_uri = Some(format!(
-        "{}/oauth/register/{}",
-        state.issuer, response.client_id
-    ));
+    // RFC 7592 client configuration endpoints are not implemented, so neither the
+    // management URI nor the registration access token is returned (#944).
+    response.registration_access_token = None;
+    response.registration_client_uri = None;
 
-    Ok((StatusCode::CREATED, Json(response)))
+    Ok((StatusCode::CREATED, Json(response)).into_response())
 }
 
 /// Parse client credentials from Authorization header or body.
@@ -47503,7 +47545,10 @@ mod tests {
 
     #[test]
     fn oauth_discovery_metadata_advertises_s256_pkce_only() {
-        let metadata = oauth_authorization_server_metadata("https://auth.example.com");
+        let metadata = oauth_authorization_server_metadata(
+            "https://auth.example.com",
+            oauth_registration::OAuthRegistrationMode::Enabled,
+        );
 
         assert_eq!(metadata.issuer, "https://auth.example.com");
         assert_eq!(
@@ -69929,6 +69974,7 @@ not-json
             audit_sink: Arc::new(TracingSink),
             key_provider: None,
             key_health: None,
+            oauth_registration: oauth_registration::OAuthRegistrationMode::Enabled,
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
@@ -75478,6 +75524,7 @@ not-json
             audit_sink: Arc::new(TracingSink),
             key_provider: None,
             key_health: None,
+            oauth_registration: oauth_registration::OAuthRegistrationMode::Enabled,
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
@@ -77272,6 +77319,7 @@ not-json
             audit_sink: Arc::new(TracingSink),
             key_provider: None,
             key_health: None,
+            oauth_registration: oauth_registration::OAuthRegistrationMode::Enabled,
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),
@@ -77619,6 +77667,7 @@ not-json
             audit_sink: Arc::new(TracingSink),
             key_provider: None,
             key_health: None,
+            oauth_registration: oauth_registration::OAuthRegistrationMode::Enabled,
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
             ),

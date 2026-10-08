@@ -6840,6 +6840,10 @@ paths:
       responses:
         '201':
           description: Created
+        '401':
+          description: Admin registration mode without an admin bearer credential
+        '403':
+          description: Registration disabled, or the credential lacks the admin scope
         '429':
           content:
             application/problem+json:

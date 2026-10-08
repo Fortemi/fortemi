@@ -52,8 +52,10 @@ The bundle entrypoint automatically manages MCP OAuth credentials on startup:
    - If validation cannot reach the API or receives a transient server error,
      preserves the existing credentials and starts MCP with them
 5. If credentials missing or invalid:
-   - Registers new OAuth client via `POST /oauth/register`
-   - Request body: `{"client_name":"MCP Server (auto-registered)","grant_types":["client_credentials"],"scope":"mcp read write"}`
+   - Provisions a new OAuth client directly in the database with
+     `matric-api admin oauth-client register --name "MCP Server (auto-registered)" --grant-types client_credentials --scope "mcp read write" --json`
+   - This does not use the public `POST /oauth/register` endpoint, so it works with
+     every `FORTEMI_OAUTH_DYNAMIC_REGISTRATION` mode (#944)
 6. Persists new credentials to `$PGDATA/.fortemi-mcp-credentials`
 7. Starts MCP server with valid credentials
 
@@ -350,21 +352,21 @@ docker compose -f docker-compose.bundle.yml logs matric | grep -E "MCP|credentia
 **Failed auto-registration:**
 
 ```
->>> Auto-registering MCP OAuth client...
+>>> Provisioning MCP OAuth client...
   WARNING: MCP client auto-registration failed
-  Registration request failed or returned an empty response
+  Client provisioning failed or returned an empty response
   MCP server will start but token introspection will fail
-  Fix: manually register via POST /oauth/register
+  Fix: run matric-api admin oauth-client register inside the container
 ```
 
 or:
 
 ```
->>> Auto-registering MCP OAuth client...
+>>> Provisioning MCP OAuth client...
   WARNING: MCP client auto-registration failed
   Registration response omitted because it may contain credentials
   MCP server will start but token introspection will fail
-  Fix: manually register via POST /oauth/register
+  Fix: run matric-api admin oauth-client register inside the container
 ```
 
 **Cause:** API startup exceeded `API_STARTUP_TIMEOUT_SECONDS`, the API process

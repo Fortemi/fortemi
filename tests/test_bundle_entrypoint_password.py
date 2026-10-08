@@ -97,6 +97,16 @@ class BundleEntrypointMcpSecretLoggingTests(unittest.TestCase):
         self.assertIn("Secret: (masked", content)
 
 
+class BundleEntrypointMcpProvisioningTests(unittest.TestCase):
+    def test_mcp_client_is_provisioned_without_public_registration(self) -> None:
+        content = ENTRYPOINT.read_text(encoding="utf-8")
+
+        self.assertNotIn("/oauth/register", content)
+        self.assertIn("admin oauth-client register", content)
+        self.assertIn("MCP_API_LAYOUT=bundle", content)
+        self.assertNotIn("MATRIC_API_URL=", content)
+
+
 class BundleEntrypointReadinessAndMcpTests(unittest.TestCase):
     def run_functions(self, script: str) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
@@ -122,7 +132,7 @@ VALUE=0
     def test_registration_storage_failure_preserves_api_process(self) -> None:
         result = self.run_functions(r'''
 MCP_CREDS_FILE=/nonexistent-fortemi-test-directory/credentials
-curl() { printf '%s' '{"client_id":"id","client_secret":"secret"}'; }
+mcp_register_request() { printf '%s' '{"client_id":"id","client_secret":"secret"}'; }
 register_mcp_client
 [ "$MCP_CLIENT_ID" = id ]
 echo api-can-continue
@@ -133,7 +143,7 @@ echo api-can-continue
 
     def test_registration_http_failure_preserves_process(self) -> None:
         result = self.run_functions(r'''
-curl() { return 22; }
+mcp_register_request() { return 1; }
 register_mcp_client
 echo api-can-continue
 ''')
@@ -142,7 +152,7 @@ echo api-can-continue
 
     def test_registration_rejects_multiline_credentials(self) -> None:
         result = self.run_functions(r'''
-curl() { printf '%s' '{"client_id":"id\nother","client_secret":"secret"}'; }
+mcp_register_request() { printf '%s' '{"client_id":"id\nother","client_secret":"secret"}'; }
 register_mcp_client
 [ -z "${MCP_CLIENT_ID:-}" ]
 ''')
@@ -207,7 +217,7 @@ wait_for_api_ready
 MCP_CREDS_FILE="$(mktemp)"
 rm -f "$MCP_CREDS_FILE"
 MCP_REGISTER_RESPONSE={response!r}
-curl() {{ printf '%s' "$MCP_REGISTER_RESPONSE"; }}
+mcp_register_request() {{ printf '%s' "$MCP_REGISTER_RESPONSE"; }}
 register_mcp_client
 '''
 
@@ -220,7 +230,7 @@ register_mcp_client
         script = r'''
 MCP_CREDS_FILE="$(mktemp)"
 rm -f "$MCP_CREDS_FILE"
-curl() {
+mcp_register_request() {
     cat <<'JSON'
 {
   "client_id" : "client-whitespace",
