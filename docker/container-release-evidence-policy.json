@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "policy_issue": 888,
-  "reviewed_at": "2026-07-17",
-  "revisit_by": "2026-10-15",
+  "reviewed_at": "2026-10-08",
+  "revisit_by": "2026-11-15",
   "source_control": {
     "origin": "https://git.integrolabs.net/Fortemi/fortemi",
     "authentication": "Gitea Actions credentials sourced from Vault",
@@ -51,23 +51,56 @@
       "evidence": "A post-push receipt records the registry manifest digest and proves every mutable alias resolves to that digest."
     },
     "sbom": {
-      "status": "deferred",
+      "status": "pending-activation",
       "owner": "security-engineering",
       "license_gate_issue": 901,
-      "revisit_by": "2026-10-15",
-      "reason": "No reviewed SBOM generator, storage format, or registry attachment lifecycle is deployed on the self-hosted release runners."
+      "revisit_by": "2026-11-15",
+      "reason": "SBOM generation runs on every release digest; registry attachment is signed and therefore waits for the release key.",
+      "method": "syft 1.52.0 SPDX 2.3 JSON per platform manifest, attached as a cosign spdxjson attestation",
+      "verification_command": "cosign verify-attestation --key docs/security/cosign.pub --insecure-ignore-tlog=true --type spdxjson <repository>@<digest>",
+      "families": [
+        "api",
+        "bundle"
+      ],
+      "workflow": ".gitea/workflows/ci-builder.yaml",
+      "job": "sign-release-images",
+      "artifact_location": "container-supply-chain-evidence-<run-id> CI artifact (365 days) plus OCI referrers on each signed digest in git.integrolabs.net and ghcr.io",
+      "activation_requirement": "Operator provisions the OpenBao Transit ecdsa-p256 key, the COSIGN_KEY_REF variable, the Transit sign policy on the CI AppRole, and commits docs/security/cosign.pub; see docs/deployment/image-promotion.md#operator-key-provisioning. Release tags fail until then.",
+      "issue": 1158
     },
     "provenance": {
-      "status": "deferred",
+      "status": "pending-activation",
       "owner": "release-engineering",
-      "revisit_by": "2026-10-15",
-      "reason": "Gitea is the source control and workflow origin and does not currently provide the OIDC identity needed for an authenticated SLSA attestation; the GHCR PAT identifies only the destination."
+      "revisit_by": "2026-11-15",
+      "reason": "Provenance is authenticated by the OpenBao-held release key, not by Gitea OIDC (unavailable); buildx provenance stays disabled during promotion.",
+      "method": "SLSA v1 predicate generated from Gitea Actions context and signed with the release cosign key; not an OIDC-authenticated identity",
+      "verification_command": "cosign verify-attestation --key docs/security/cosign.pub --insecure-ignore-tlog=true --type slsaprovenance1 <repository>@<digest>",
+      "families": [
+        "api",
+        "bundle"
+      ],
+      "workflow": ".gitea/workflows/ci-builder.yaml",
+      "job": "sign-release-images",
+      "artifact_location": "container-supply-chain-evidence-<run-id> CI artifact (365 days) plus OCI referrers on each signed digest in git.integrolabs.net and ghcr.io",
+      "activation_requirement": "Operator provisions the OpenBao Transit ecdsa-p256 key, the COSIGN_KEY_REF variable, the Transit sign policy on the CI AppRole, and commits docs/security/cosign.pub; see docs/deployment/image-promotion.md#operator-key-provisioning. Release tags fail until then.",
+      "issue": 1158
     },
     "signature": {
-      "status": "deferred",
+      "status": "pending-activation",
       "owner": "security-engineering",
-      "revisit_by": "2026-10-15",
-      "reason": "Neither a managed signing key/KMS path nor a Gitea workflow OIDC identity has been provisioned and approved."
+      "revisit_by": "2026-11-15",
+      "reason": "Signing is wired into release CI; activation waits for the operator-provisioned OpenBao Transit key.",
+      "method": "cosign key-based signature by digest (recursive for indexes), Sigstore bundle format, no public transparency log",
+      "verification_command": "cosign verify --key docs/security/cosign.pub --insecure-ignore-tlog=true <repository>@<digest>",
+      "families": [
+        "api",
+        "bundle"
+      ],
+      "workflow": ".gitea/workflows/ci-builder.yaml",
+      "job": "sign-release-images",
+      "artifact_location": "container-supply-chain-evidence-<run-id> CI artifact (365 days) plus OCI referrers on each signed digest in git.integrolabs.net and ghcr.io",
+      "activation_requirement": "Operator provisions the OpenBao Transit ecdsa-p256 key, the COSIGN_KEY_REF variable, the Transit sign policy on the CI AppRole, and commits docs/security/cosign.pub; see docs/deployment/image-promotion.md#operator-key-provisioning. Release tags fail until then.",
+      "issue": 1158
     }
   },
   "publish_path_profiles": {

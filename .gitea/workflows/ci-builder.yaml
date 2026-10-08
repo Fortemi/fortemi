@@ -310,7 +310,10 @@ jobs:
           python3 -m unittest \
             tests/test_container_release_evidence.py \
             tests/test_verify_ghcr_publication.py \
-            tests/test_verify_container_release_evidence.py
+            tests/test_verify_container_release_evidence.py \
+            tests/test_write_slsa_provenance.py
+          bash -n scripts/ci/sign-container-images.sh
+          bash -n scripts/ci/install-supply-chain-tools.sh
 
       - name: Check runner capacity guard
         run: |
@@ -1303,6 +1306,101 @@ jobs:
           path: container-release-evidence/
           retention-days: 365
 
+  # Generate an SPDX SBOM for every published release digest, sign each digest
+  # with the release cosign key (OpenBao Transit by default), attach SBOM and
+  # SLSA v1 provenance attestations, and verify all of them against the
+  # committed public key before the release entries are finalized (#1158).
+  # Subjects come from the registry-derived receipts, so a new image family is
+  # covered as soon as its publication job captures a receipt.
+  sign-release-images:
+    name: Sign and Attest Release Images
+    runs-on: matric-builder
+    needs: [publish-release, publish-github]
+    if: startsWith(github.ref, 'refs/tags/v') && needs.publish-release.result == 'success' && needs.publish-github.result == 'success'
+    env:
+      COSIGN_KEY_REF: ${{ vars.COSIGN_KEY_REF }}
+      COSIGN_PUBLIC_KEY: docs/security/cosign.pub
+      TRANSIT_SECRET_ENGINE_PATH: ${{ vars.COSIGN_TRANSIT_MOUNT || 'transit' }}
+      # Release tags fail closed when key material is missing; any other ref
+      # generates SBOMs only and logs that signing was skipped.
+      SIGNING_REQUIRED: ${{ startsWith(github.ref, 'refs/tags/v') && '1' || '0' }}
+    steps:
+      - name: Checkout
+        run: |
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
+
+      - name: Download internal release image evidence
+        uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a  # v3
+        with:
+          name: container-release-evidence-gitea-release-${{ github.run_id }}
+          path: release-evidence/gitea
+
+      - name: Download GHCR release image evidence
+        uses: actions/download-artifact@9bc31d5ccc31df68ecc42ccf4149144866c47d8a  # v3
+        with:
+          name: container-release-evidence-ghcr-release-${{ github.run_id }}
+          path: release-evidence/ghcr
+
+      - name: Fetch registry tokens from vault
+        env:
+          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
+          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
+        run: ci/vault-fetch.sh --spec ci/vault-fetch.container-promotion.spec
+
+      - name: Log in to registries
+        run: |
+          printf '%s\n' "${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" |
+            docker login ${REGISTRY} -u ${{ gitea.actor }} --password-stdin
+          printf '%s\n' "${GH_PUBLISH_TOKEN:?GH_PUBLISH_TOKEN is required}" |
+            docker login ${GHCR_REGISTRY} -u fortemi --password-stdin
+
+      - name: Install pinned syft and cosign
+        run: |
+          set -euo pipefail
+          scripts/ci/install-supply-chain-tools.sh "${RUNNER_TEMP}/supply-chain-bin"
+          echo "${RUNNER_TEMP}/supply-chain-bin" >> "${GITHUB_PATH}"
+
+      - name: Generate SBOMs, sign, attest and verify release digests
+        env:
+          VAULT_ADDR: ${{ vars.COSIGN_VAULT_ADDR || vars.VAULT_ADDR }}
+          VAULT_CACERT: ci/trust/integro-labs-root-ca-g2.crt
+          VAULT_CI_ROLE_ID: ${{ secrets.VAULT_CI_ROLE_ID }}
+          VAULT_CI_SECRET_ID: ${{ secrets.VAULT_CI_SECRET_ID }}
+          # Only consulted when COSIGN_KEY_REF is env://COSIGN_PRIVATE_KEY.
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          jq -r '"\(.family) \(.subject.immutable_reference)"' release-evidence/*/*.json |
+            sort -u > supply-chain-subjects.txt
+          echo "Release digests to sign and attest:"
+          cat supply-chain-subjects.txt
+          SOURCE_REVISION="${CHAIN_SOURCE_SHA}" \
+          SOURCE_URI="https://git.integrolabs.net/${GITHUB_REPOSITORY}" \
+          SOURCE_REF="${GITHUB_REF}" \
+          WORKFLOW_PATH=".gitea/workflows/ci-builder.yaml" \
+          EVENT_NAME="${GITHUB_EVENT_NAME}" \
+          BUILDER_ID="https://git.integrolabs.net/${GITHUB_REPOSITORY}/actions/runners/matric-builder" \
+          INVOCATION_ID="https://git.integrolabs.net/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+          scripts/ci/sign-container-images.sh \
+            --subjects supply-chain-subjects.txt \
+            --out container-supply-chain-evidence
+
+      - name: Upload release supply-chain evidence
+        uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
+        with:
+          name: container-supply-chain-evidence-${{ github.run_id }}
+          path: container-supply-chain-evidence/
+          retention-days: 365
+
+      - name: Cleanup fetched tokens
+        if: always()
+        run: ci/vault-fetch.sh --cleanup
+
   # Prove that consumers can pull the promoted packages without the publisher
   # credential before either release entry is finalized.
   verify-ghcr-release:
@@ -1339,8 +1437,8 @@ jobs:
   finalize-releases:
     name: Finalize Gitea and GitHub Releases
     runs-on: matric-builder
-    needs: [publish-release, publish-github, verify-ghcr-release]
-    if: startsWith(github.ref, 'refs/tags/v') && needs.publish-release.result == 'success' && needs.publish-github.result == 'success' && needs.verify-ghcr-release.result == 'success'
+    needs: [publish-release, publish-github, verify-ghcr-release, sign-release-images]
+    if: startsWith(github.ref, 'refs/tags/v') && needs.publish-release.result == 'success' && needs.publish-github.result == 'success' && needs.verify-ghcr-release.result == 'success' && needs.sign-release-images.result == 'success'
     steps:
       - name: Checkout
         run: |

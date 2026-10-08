@@ -17,6 +17,28 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   it. CI now fails when a migration adds a `CREATE EXTENSION` that the matrix
   does not list (#1161).
 
+### Release Supply Chain
+
+- Release CI has a new `sign-release-images` job (#1158). For every published
+  API and bundle digest in the Gitea registry and GHCR, it generates an SPDX
+  2.3 SBOM per platform (syft 1.52.0). It signs the digest with cosign v3.1.3,
+  recursively for multi-platform indexes, attaches `spdxjson` and SLSA v1
+  `slsaprovenance1` attestations, and verifies all of them against the
+  committed public key before `finalize-releases` runs. Both tools are
+  version- and SHA-256-pinned (`ci/digests.txt`). Subjects come from the
+  release receipts, so future split images are covered automatically.
+- Signing uses a non-exportable OpenBao Transit key
+  (`COSIGN_KEY_REF=hashivault://fortemi-release-cosign`) through the CI
+  AppRole, with no public transparency-log upload. Release tags fail until the
+  operator provisions the key, the `ci/vault-ci-fortemi-cosign.hcl` grant and
+  `docs/security/cosign.pub`. Other refs generate SBOMs only and log that
+  signing was skipped. The SBOM, provenance and signature controls move from
+  `deferred` to `pending-activation` in the release-evidence policy.
+- New guide `docs/deployment/image-promotion.md` covers verification commands,
+  promotion by digest into ECR or other private registries with signatures
+  and attestations (`oras copy -r`), Kyverno and policy-controller admission,
+  and key provisioning and rotation.
+
 ### Authentication
 
 - Accept path-bearing HTTPS OIDC issuers such as Keycloak's

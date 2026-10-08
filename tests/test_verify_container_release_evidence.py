@@ -31,10 +31,8 @@ class VerifyContainerReleaseEvidenceTests(unittest.TestCase):
             ROOT / "scripts/ci/promote-ghcr-images.sh",
             self.root / "scripts/ci/promote-ghcr-images.sh",
         )
-        shutil.copy2(
-            ROOT / "scripts/ci/verify-ghcr-publication.sh",
-            self.root / "scripts/ci/verify-ghcr-publication.sh",
-        )
+        for script in ("verify-ghcr-publication.sh", "sign-container-images.sh"):
+            shutil.copy2(ROOT / "scripts/ci" / script, self.root / "scripts/ci" / script)
         for workflow in WORKFLOWS:
             shutil.copy2(ROOT / workflow, self.root / workflow)
 
@@ -124,6 +122,54 @@ class VerifyContainerReleaseEvidenceTests(unittest.TestCase):
         result = self.run_verifier()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("DOCKER_CONFIG", result.stderr)
+
+    def test_unknown_control_status_fails_closed(self) -> None:
+        policy = self.policy()
+        policy["controls"]["signature"]["status"] = "assumed"
+        self.write_policy(policy)
+        result = self.run_verifier()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("signature: status must be", result.stderr)
+
+    def test_wired_control_requires_verification_command(self) -> None:
+        policy = self.policy()
+        del policy["controls"]["sbom"]["verification_command"]
+        self.write_policy(policy)
+        result = self.run_verifier()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("sbom: wired control requires verification_command", result.stderr)
+
+    def test_wired_controls_require_signing_job(self) -> None:
+        workflow = self.root / ".gitea/workflows/ci-builder.yaml"
+        workflow.write_text(
+            workflow.read_text().replace("  sign-release-images:\n", "  removed-signing:\n")
+        )
+        result = self.run_verifier()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("require the sign-release-images CI job", result.stderr)
+
+    def test_finalizer_must_wait_for_signing(self) -> None:
+        workflow = self.root / ".gitea/workflows/ci-builder.yaml"
+        workflow.write_text(
+            workflow.read_text().replace(
+                " && needs.sign-release-images.result == 'success'", ""
+            )
+        )
+        result = self.run_verifier()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("finalize-releases must wait", result.stderr)
+
+    def test_signing_job_cannot_suppress_failures(self) -> None:
+        workflow = self.root / ".gitea/workflows/ci-builder.yaml"
+        workflow.write_text(
+            workflow.read_text().replace(
+                "--out container-supply-chain-evidence",
+                "--out container-supply-chain-evidence || true",
+            )
+        )
+        result = self.run_verifier()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must not suppress failures", result.stderr)
 
 
 if __name__ == "__main__":

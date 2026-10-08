@@ -80,6 +80,17 @@ class ContainerReleaseEvidenceTests(unittest.TestCase):
             )
         )
 
+    def test_control_status_respects_family_coverage(self) -> None:
+        policy = json.loads(self.policy.read_text())
+        policy["controls"]["signature"] = {"status": "pending-activation", "families": ["api"]}
+        policy["controls"]["sbom"] = {"status": "pending-activation", "families": ["bundle"]}
+        self.policy.write_text(json.dumps(policy))
+        with mock.patch.object(capture_module, "raw_manifest", return_value=self.manifest):
+            receipt = self.capture()
+        self.assertEqual(receipt["control_status"]["signature"], "pending-activation")
+        self.assertEqual(receipt["control_status"]["sbom"], "deferred")
+        self.assertEqual(receipt["control_status"]["provenance"], "deferred")
+
     def test_rejects_mutable_subject(self) -> None:
         with self.assertRaisesRegex(capture_module.EvidenceError, "approved immutable tag"):
             capture_module.capture(

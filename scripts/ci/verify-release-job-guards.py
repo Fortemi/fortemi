@@ -20,10 +20,15 @@ RELEASE_JOB_NEEDS = {
     "verify-ghcr-release": {
         "publish-github",
     },
+    "sign-release-images": {
+        "publish-release",
+        "publish-github",
+    },
     "finalize-releases": {
         "publish-release",
         "publish-github",
         "verify-ghcr-release",
+        "sign-release-images",
     },
 }
 RETIRED_RELEASE_JOBS = {

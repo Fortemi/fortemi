@@ -158,6 +158,14 @@ def load_family(
     return policy, expected
 
 
+def family_control_status(control: dict[str, Any], family_id: str) -> str:
+    """Report a control as deferred for families outside its declared coverage."""
+    families = control.get("families")
+    if families is not None and family_id not in families:
+        return "deferred"
+    return control["status"]
+
+
 def capture(
     policy_path: Path,
     family_id: str,
@@ -211,7 +219,8 @@ def capture(
         },
         "aliases": alias_receipts,
         "control_status": {
-            name: details["status"] for name, details in policy["controls"].items()
+            name: family_control_status(details, family_id)
+            for name, details in policy["controls"].items()
         },
         "license_notice_status": policy["license_notices"]["status"],
     }

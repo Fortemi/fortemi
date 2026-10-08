@@ -46,12 +46,27 @@ class VerifyReleaseJobGuardsTests(unittest.TestCase):
 
     def test_finalizer_cannot_drop_internal_publication_dependency(self) -> None:
         self.mutate(
-            "needs: [publish-release, publish-github, verify-ghcr-release]",
-            "needs: [publish-github, verify-ghcr-release]",
+            "needs: [publish-release, publish-github, verify-ghcr-release, sign-release-images]",
+            "needs: [publish-github, verify-ghcr-release, sign-release-images]",
         )
         result = self.run_verifier()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("missing required publish dependencies: publish-release", result.stderr)
+
+    def test_finalizer_cannot_drop_signing_gate(self) -> None:
+        self.mutate(
+            "needs: [publish-release, publish-github, verify-ghcr-release, sign-release-images]",
+            "needs: [publish-release, publish-github, verify-ghcr-release]",
+        )
+        result = self.run_verifier()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing required publish dependencies: sign-release-images", result.stderr)
+
+    def test_missing_signing_job_fails_closed(self) -> None:
+        self.mutate("  sign-release-images:\n", "  removed-signing:\n")
+        result = self.run_verifier()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("missing required release jobs: sign-release-images", result.stderr)
 
     def test_finalizer_must_create_gitea_release(self) -> None:
         self.mutate(

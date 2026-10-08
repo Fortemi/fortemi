@@ -14,6 +14,17 @@ POLICY = Path("docker/container-release-evidence-policy.json")
 CI_WORKFLOW = Path(".gitea/workflows/ci-builder.yaml")
 CAPTURE = "scripts/ci/capture-container-release-evidence.py"
 PUBLIC_VERIFY = "scripts/ci/verify-ghcr-publication.sh"
+SIGNER = "scripts/ci/sign-container-images.sh"
+SIGNING_JOB = "sign-release-images"
+WIRED_STATUSES = {"implemented", "pending-activation"}
+WIRED_CONTROL_FIELDS = (
+    "families",
+    "workflow",
+    "job",
+    "method",
+    "verification_command",
+    "artifact_location",
+)
 RUST_DOCKERFILES = (Path("Dockerfile"), Path("Dockerfile.bundle"))
 MINIMUM_RUST_STACK_BYTES = 268_435_456
 EXPECTED_FAMILIES = {"api", "bundle", "gliner", "pyannote", "builder", "testdb"}
@@ -63,11 +74,21 @@ def main() -> int:
     controls = policy.get("controls", {})
     for name in ("digest", "sbom", "provenance", "signature"):
         control = controls.get(name, {})
-        if control.get("status") not in {"implemented", "deferred"}:
-            failures.append(f"{name}: status must be implemented or deferred")
+        if control.get("status") not in {"implemented", "deferred", "pending-activation"}:
+            failures.append(
+                f"{name}: status must be implemented, pending-activation or deferred"
+            )
         if not control.get("owner"):
             failures.append(f"{name}: owner is required")
-        if control.get("status") == "deferred":
+        if name != "digest" and control.get("status") in WIRED_STATUSES:
+            for field in WIRED_CONTROL_FIELDS:
+                if not control.get(field):
+                    failures.append(f"{name}: wired control requires {field}")
+            if control.get("status") == "pending-activation" and not control.get(
+                "activation_requirement"
+            ):
+                failures.append(f"{name}: pending-activation requires activation_requirement")
+        if control.get("status") in {"deferred", "pending-activation"}:
             if not control.get("reason"):
                 failures.append(f"{name}: deferred control requires a reason")
             try:
@@ -75,7 +96,9 @@ def main() -> int:
                 if revisit <= dt.date.fromisoformat(policy["reviewed_at"]):
                     failures.append(f"{name}: revisit_by must be after reviewed_at")
             except (KeyError, TypeError, ValueError):
-                failures.append(f"{name}: deferred control requires an ISO revisit_by date")
+                failures.append(
+                    f"{name}: {control.get('status')} control requires an ISO revisit_by date"
+                )
 
     licenses = policy.get("license_notices", {})
     if licenses.get("status") != "pending-gate" or licenses.get("owner_issue") != 901:
@@ -157,10 +180,65 @@ def main() -> int:
 
     if "--provenance=false" in Path("scripts/ci/promote-ghcr-images.sh").read_text():
         provenance = controls.get("provenance", {})
-        if provenance.get("status") != "deferred" or "OIDC" not in provenance.get("reason", ""):
+        if "OIDC" not in provenance.get("reason", "") or provenance.get("status") not in {
+            "deferred",
+            "pending-activation",
+            "implemented",
+        }:
             failures.append("disabled promotion provenance requires an explicit OIDC deferment")
+        if provenance.get("status") in WIRED_STATUSES and "key" not in provenance.get(
+            "method", ""
+        ):
+            failures.append("provenance without OIDC must be authenticated by the release key")
 
     ci_workflow = CI_WORKFLOW.read_text()
+    wired = [
+        name
+        for name in ("sbom", "provenance", "signature")
+        if controls.get(name, {}).get("status") in WIRED_STATUSES
+    ]
+    if wired:
+        signing_job = ci_workflow.split(f"  {SIGNING_JOB}:\n", 1)
+        signing_block = ""
+        if len(signing_job) == 2:
+            signing_block = signing_job[1].split("\n  verify-ghcr-release:", 1)[0]
+        if not signing_block:
+            failures.append(f"wired controls {wired} require the {SIGNING_JOB} CI job")
+        for required in (
+            SIGNER,
+            "scripts/ci/install-supply-chain-tools.sh",
+            "container-supply-chain-evidence-",
+            "retention-days: 365",
+            "SIGNING_REQUIRED: ${{ startsWith(github.ref, 'refs/tags/v') && '1' || '0' }}",
+            "COSIGN_PUBLIC_KEY: docs/security/cosign.pub",
+        ):
+            if signing_block and required not in signing_block:
+                failures.append(f"{SIGNING_JOB} is missing: {required}")
+        if "|| true" in signing_block or "continue-on-error" in signing_block:
+            failures.append(f"{SIGNING_JOB} must not suppress failures")
+        finalizer = ci_workflow.split("  finalize-releases:\n", 1)[-1]
+        finalizer = finalizer.split("\n  main-validation:", 1)[0]
+        if f"needs.{SIGNING_JOB}.result == 'success'" not in finalizer:
+            failures.append(f"finalize-releases must wait for a successful {SIGNING_JOB}")
+        for name in wired:
+            families = set(controls[name].get("families", []))
+            unknown = families - set(policy.get("families", {}))
+            if unknown:
+                failures.append(f"{name}: unknown covered families {sorted(unknown)}")
+        try:
+            signer_text = Path(SIGNER).read_text()
+        except OSError as error:
+            failures.append(f"cannot read {SIGNER}: {error}")
+            signer_text = ""
+        for required in (
+            "cosign verify ",
+            "cosign verify-attestation",
+            "attest spdxjson",
+            "attest slsaprovenance1",
+            "--recursive",
+        ):
+            if signer_text and required not in signer_text:
+                failures.append(f"{SIGNER} is missing: {required}")
     release_promotion = ci_workflow.split(
         "- name: Promote release images to ghcr.io", 1
     )[-1].split("- name: Upload GHCR release image evidence", 1)[0]

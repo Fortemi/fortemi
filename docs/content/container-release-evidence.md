@@ -63,6 +63,10 @@ contains:
 - independent status values for digest, SBOM, provenance, signature, and
   license-notice controls.
 
+Signed release runs add a separate `container-supply-chain-evidence-<run-id>`
+artifact with the SPDX SBOMs, SLSA v1 predicates and verification receipts
+for every published digest.
+
 Publication fails when the immutable tag is not policy-approved, a platform is
 missing, an alias resolves to another digest, or a receipt cannot be captured.
 Mutable aliases such as `main`, `latest`, and `bundle-latest` are convenience
@@ -74,15 +78,29 @@ references only. Deployment and rollback records must use the receipt's
 | Control | Status | Meaning |
 |---|---|---|
 | Registry digest receipt | Implemented | Every registry path is read back and recorded after push. |
-| SBOM | Deferred | No reviewed generator, attachment format, and retention lifecycle is deployed on the self-hosted runners. |
-| Authenticated provenance | Deferred | Gitea Actions does not currently provide the reviewed OIDC identity required for authenticated SLSA provenance. |
-| Image signature | Deferred | No approved managed signing key/KMS path or workflow OIDC identity is provisioned. |
+| SBOM | Pending activation | `sign-release-images` generates an SPDX 2.3 SBOM per platform manifest for every API and bundle release digest (syft 1.52.0) and attaches it as a signed `spdxjson` attestation. |
+| Authenticated provenance | Pending activation | A SLSA v1 predicate built from the Gitea Actions context, signed with the release cosign key and attached as `slsaprovenance1`. The release key authenticates it, not a Gitea OIDC identity, which remains unavailable. |
+| Image signature | Pending activation | cosign key-based signature by digest (recursive for multi-platform indexes), backed by a non-exportable OpenBao Transit key. No public transparency log. |
 | License and third-party notices | Pending gate | Issue `#901` owns the packaged license and notice set. |
 
-Deferred controls are not represented by empty files or unauthenticated
-claims. The policy assigns owners and a `2026-10-15` revisit date. A control
-may become `implemented` only when its verification command and durable
-artifact location are added to the policy and CI.
+"Pending activation" means CI implements and verifies the control, but the
+operator has not provisioned the signing key yet. Until the OpenBao Transit
+key, the `COSIGN_KEY_REF` variable, the CI AppRole grant
+(`ci/vault-ci-fortemi-cosign.hcl`) and the committed public key
+`docs/security/cosign.pub` exist, release tags fail at `sign-release-images`
+instead of publishing unsigned releases. `finalize-releases` waits for that
+job. Release CI verifies every signature and attestation with
+`cosign verify` and `cosign verify-attestation` against the committed public
+key. It uploads the SBOMs, provenance predicates and per-digest receipts as the
+`container-supply-chain-evidence-<run-id>` artifact, retained for 365 days.
+The controls become `implemented` in the policy after the first release run
+succeeds. Sidecar, builder and test-database images are not signed yet. Their
+receipts report these controls as `deferred`.
+
+Verification commands, the trust model, promotion by digest into ECR or
+another private registry, admission-policy examples, and the operator
+provisioning steps are in
+[Image Signatures, SBOMs and Registry Promotion](../deployment/image-promotion.md).
 
 ## Verify a Receipt
 
