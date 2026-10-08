@@ -64,10 +64,13 @@ git verify-tag v2026.10.0   # release tags are signed with the OpenBao release G
 cp docs/security/cosign.pub /tmp/fortemi-cosign.pub
 ```
 
-> **Status:** the operator has not provisioned the key yet, and
-> `docs/security/cosign.pub` does not exist. Until it is committed, release
-> tags fail at `sign-release-images` by design, and no Fortemi image carries a
-> signature. Do not trust a key from any other source.
+> **Status:** provisioned 2026-10-08. The key is the OpenBao Transit key
+> `transit/keys/fortemi-release-cosign` (`ecdsa-p256`, version 1,
+> non-exportable, deletion disabled). The `ci-fortemi` AppRole carries the
+> sign/read-only policy `ci-fortemi-cosign`, and the repository variable
+> `COSIGN_KEY_REF` is `hashivault://fortemi-release-cosign`. Images built
+> before the first release tag after that date are unsigned. Do not trust a key
+> from any other source.
 
 Internal verifiers that can reach OpenBao can also use the KMS reference:
 `--key hashivault://fortemi-release-cosign`. This needs a token with `read` on
