@@ -30,6 +30,11 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   `collection`, in `public` and every archive. It also adds a tenant-scoped,
   RLS-forced `export_tombstone` table. Existing rows are stamped `0` without a
   table rewrite. After restoring a database backup, take a fresh full export.
+- Migration `20261008010000_memory_export_trigger_fast_path` takes tombstone
+  work off the insert path and skips unchanged-row updates. Clearing a
+  tombstone on every insert roughly doubled insert cost on the exported tables
+  and pushed AL-PERF01 archive import below its approved throughput floor.
+  Export now ignores tombstones whose key is live again.
 
 ### Deployment
 

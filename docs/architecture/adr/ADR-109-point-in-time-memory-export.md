@@ -33,8 +33,12 @@ higher one.
    not rewrite tables.
 2. **Tombstones.** An `AFTER` row trigger records a hard delete, or a primary
    key change, in the per-memory `export_tombstone` table, stamped the same way.
-   Re-inserting a key deletes its tombstone in the same transaction, so a
-   tombstone exists exactly when its key is absent. The trigger writes to
+   Inserts never touch the tombstone table (clearing it per row doubled insert
+   cost and broke the AL-PERF01 import floor), so a tombstone can outlive a
+   later re-insert of its key. Export emits a tombstone only while no live row
+   holds the key; the re-inserted row carries a newer stamp and reaches the
+   consumer as an upsert. An `UPDATE` that leaves the row unchanged does no
+   tombstone or stamp work. The trigger writes to
    `TG_TABLE_SCHEMA`, not to wherever `search_path` points. The table carries
    `tenant_id` and forced tenant RLS, is listed in the tenant catalog, and is
    cloned into new archives like any per-memory table. Its tenant foreign key

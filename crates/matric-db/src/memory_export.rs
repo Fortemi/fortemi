@@ -91,10 +91,28 @@ upserts AS (
        AND ($2::text IS NULL OR l.export_change_xid >= $2::text::xid8)
 ),
 deletes AS (
+    -- Inserts never clear tombstones, so a marker whose key is live again is
+    -- stale: the re-inserted row carries a newer stamp and surfaces as an upsert.
     SELECT t.entity_type, t.entity_key
       FROM export_tombstone t, scope
      WHERE $2::text IS NOT NULL AND t.entity_type = ANY($1)
        AND t.tenant_id = scope.tenant_id AND t.change_xid >= $2::text::xid8
+       AND NOT CASE t.entity_type
+           WHEN 'collection' THEN EXISTS (SELECT 1 FROM collection x
+               WHERE x.tenant_id = scope.tenant_id AND x.id = (t.entity_key->>0)::uuid)
+           WHEN 'note' THEN EXISTS (SELECT 1 FROM note x
+               WHERE x.tenant_id = scope.tenant_id AND x.id = (t.entity_key->>0)::uuid)
+           WHEN 'note_original' THEN EXISTS (SELECT 1 FROM note_original x
+               WHERE x.tenant_id = scope.tenant_id AND x.note_id = (t.entity_key->>0)::uuid)
+           WHEN 'note_revised_current' THEN EXISTS (SELECT 1 FROM note_revised_current x
+               WHERE x.tenant_id = scope.tenant_id AND x.note_id = (t.entity_key->>0)::uuid)
+           WHEN 'note_tag' THEN EXISTS (SELECT 1 FROM note_tag x
+               WHERE x.tenant_id = scope.tenant_id AND x.note_id = (t.entity_key->>0)::uuid
+                 AND x.tag_name = t.entity_key->>1)
+           WHEN 'link' THEN EXISTS (SELECT 1 FROM link x
+               WHERE x.tenant_id = scope.tenant_id AND x.id = (t.entity_key->>0)::uuid)
+           ELSE FALSE
+       END
 ),
 high AS (
     SELECT GREATEST(
