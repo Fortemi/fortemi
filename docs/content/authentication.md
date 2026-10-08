@@ -625,18 +625,18 @@ Fortémi validates the request before showing anything (#943):
   the registered scope is requested) and `invalid_request` (PKCE must use `S256`
   with a 43-128 character challenge; `plain` is refused).
 
-The consent page then requires an **authenticated resource owner**. Approval
-without one never produces a code. How the owner is authenticated depends on
+Whether approval requires an **authenticated resource owner** depends on
 `FORTEMI_OAUTH_AUTHORIZE_OWNER_AUTH`:
 
 | Value | Resource owner | Default |
 |-------|----------------|---------|
-| `api_key` | The person approving enters a Fortémi API key or access token on the consent page. It must hold every requested scope (`admin` holds all). The code records `api_key:<id>`, `oauth_client:<id>` or `oauth_user:<id>`. | Community |
+| `none` | Approve-only: anyone who reaches the consent page can approve, and the code records no owner. This is the pre-#943 behavior, kept for compatibility; the API logs a warning at startup. **Less secure:** use `api_key`, or `trusted_header` behind a signing-in proxy such as oauth2-proxy. | Community |
+| `api_key` | The person approving enters a Fortémi API key or access token on the consent page. It must hold every requested scope (`admin` holds all). Without one, approval never produces a code. The code records `api_key:<id>`, `oauth_client:<id>` or `oauth_user:<id>`. | |
 | `trusted_header` | A reverse proxy that has already signed the user in (for example oauth2-proxy) sends the user in `FORTEMI_OAUTH_OWNER_HEADER`, such as `X-Forwarded-Email`. The header is honored only when the immediate peer is in `FORTEMI_TRUSTED_PROXY_CIDRS`; startup fails without them. The proxy's admission is the authorization decision. The code records `proxy:<value>`. | |
 | `api_key,trusted_header` | Either. | |
 | `disabled` | No browser authorization. Valid requests are answered with `error=access_denied`. | Hosted (`FORTEMI_MULTI_TENANT=true`), where it is the only accepted value |
 
-The ceremony is protected on the server side:
+In every mode, including `none`, the ceremony is protected on the server side:
 
 - The GET stores the validated request in a server-side transaction. The form
   carries only an opaque transaction id and a CSRF token; a per-transaction

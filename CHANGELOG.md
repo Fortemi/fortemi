@@ -7,6 +7,17 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- **Authorization requests may only ask for scopes the client registered (#943).**
+  `/oauth/authorize` answers `invalid_scope` when a requested scope is not in the
+  client's registered scope. Clients registered without `scope` get `read`, so an
+  MCP client (for example Claude Code) that registered that way can no longer
+  request `mcp`. Migration: re-register the client with the scopes it requests,
+  for example `{"scope":"mcp read write"}` on `POST /oauth/register` or
+  `matric-api admin oauth-client register --scope "mcp read write"`, then
+  reconnect. With no `scope` parameter, the registered scope is requested.
+
 ### Configuration Semantics Changes
 
 - **MCP has no hosted default API URL (#1171).** The MCP server used to send
@@ -41,23 +52,21 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 - **The Docker bundle provisions its MCP introspection client with the new
   `matric-api admin oauth-client register` command (#944)** instead of calling
   `POST /oauth/register`, so it works in every registration mode.
-- **`/oauth/authorize` requires an authenticated resource owner (#943).** The
-  consent page no longer approves on behalf of nobody. New
-  `FORTEMI_OAUTH_AUTHORIZE_OWNER_AUTH` (`api_key`, `trusted_header`, both, or
-  `disabled`) and `FORTEMI_OAUTH_OWNER_HEADER`. Community deployments default to
-  `api_key`: whoever approves (for example when Claude Code connects over MCP
-  OAuth) must paste a Fortémi API key or access token holding the requested
-  scopes. `trusted_header` accepts a user signed in by a proxy such as
-  oauth2-proxy, only from `FORTEMI_TRUSTED_PROXY_CIDRS`. Hosted mode accepts only
-  `disabled`. Authorization codes and the tokens issued from them now record the
-  owner subject instead of no user.
+- **Optional resource-owner authentication at `/oauth/authorize` (#943).** New
+  `FORTEMI_OAUTH_AUTHORIZE_OWNER_AUTH` (`none`, `api_key`, `trusted_header`,
+  `api_key,trusted_header`, or `disabled`) and `FORTEMI_OAUTH_OWNER_HEADER`.
+  Community deployments default to `none`, the existing approve-only behavior,
+  and log a startup warning; `api_key` (a Fortémi credential holding the requested
+  scopes) or `trusted_header` (a user signed in by a proxy such as oauth2-proxy,
+  accepted only from `FORTEMI_TRUSTED_PROXY_CIDRS`) is recommended. Hosted mode
+  accepts only `disabled` and refuses `none`. With owner authentication, codes and
+  the tokens issued from them record the owner subject.
 - **Authorization requests are validated before any redirect (#943).** An
   unknown client or unregistered `redirect_uri` gets a local `400` page, including
   on denial (the old POST denial redirected to any request-supplied URI). The
   client must be registered for `authorization_code`; requested scopes must be a
-  subset of the client's registered scopes (`invalid_scope` otherwise, also when a
-  client registered with the default `read` asks for `mcp`); PKCE, when sent, must
-  be `S256`. Consent is bound to a single-use server-side transaction with a CSRF
+  subset of the client's registered scopes (see Breaking Changes); PKCE, when sent,
+  must be `S256`. These protections apply in every owner-authentication mode. Consent is bound to a single-use server-side transaction with a CSRF
   token and a `SameSite=Strict` cookie, cross-site POSTs are refused, and the
   form no longer carries client, redirect, scope or PKCE fields. Pending
   transactions are held in process memory (one replica, or sticky routing).

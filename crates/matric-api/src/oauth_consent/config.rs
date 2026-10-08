@@ -1,6 +1,9 @@
 //! How `/oauth/authorize` authenticates the resource owner (#943).
 //!
-//! `FORTEMI_OAUTH_AUTHORIZE_OWNER_AUTH` is a comma list of methods, or `disabled`:
+//! `FORTEMI_OAUTH_AUTHORIZE_OWNER_AUTH` is a comma list of methods, `none` or `disabled`:
+//! - `none`: approve-only consent with no resource-owner authentication (the pre-#943
+//!   behavior). Community default, kept for compatibility and logged as a warning at
+//!   startup. Redirect validation, CSRF binding and framing protection still apply.
 //! - `api_key`: the owner enters a Fortemi API key or access token on the consent page.
 //!   It must hold every requested scope (`admin` holds all of them).
 //! - `trusted_header`: a reverse proxy (for example oauth2-proxy) that already signed the
@@ -8,8 +11,8 @@
 //!   from peers in `FORTEMI_TRUSTED_PROXY_CIDRS`.
 //! - `disabled`: no browser authorization; requests get `access_denied`.
 //!
-//! Community deployments default to `api_key`. Hosted (`FORTEMI_MULTI_TENANT=true`)
-//! only accepts `disabled`: Fortemi-issued tokens are not admitted there, so an
+//! Community deployments default to `none`; operators opt in to `api_key` or
+//! `trusted_header`. Hosted (`FORTEMI_MULTI_TENANT=true`) only accepts `disabled`: Fortemi-issued tokens are not admitted there, so an
 //! authorization code would carry no usable tenant context.
 
 use axum::http::HeaderName;
@@ -27,14 +30,27 @@ pub(crate) enum OwnerAuthMethod {
 pub(crate) struct AuthorizeConfig {
     methods: Vec<OwnerAuthMethod>,
     owner_header: Option<HeaderName>,
+    /// `none`: approval needs no authenticated owner (community compatibility default).
+    unauthenticated: bool,
 }
 
 impl AuthorizeConfig {
-    /// Community default: owners sign in with a Fortemi credential.
+    /// Community default: approve-only consent, no owner authentication.
+    pub(crate) fn approve_only() -> Self {
+        Self {
+            methods: Vec::new(),
+            owner_header: None,
+            unauthenticated: true,
+        }
+    }
+
+    /// Owners sign in with a Fortemi credential.
+    #[cfg(test)]
     pub(crate) fn api_key_only() -> Self {
         Self {
             methods: vec![OwnerAuthMethod::ApiKey],
             owner_header: None,
+            unauthenticated: false,
         }
     }
 
@@ -42,6 +58,7 @@ impl AuthorizeConfig {
         Self {
             methods: Vec::new(),
             owner_header: None,
+            unauthenticated: false,
         }
     }
 
@@ -50,6 +67,7 @@ impl AuthorizeConfig {
         Self {
             methods: vec![OwnerAuthMethod::TrustedHeader],
             owner_header: Some(header),
+            unauthenticated: false,
         }
     }
 
@@ -58,7 +76,12 @@ impl AuthorizeConfig {
     }
 
     pub(crate) fn is_disabled(&self) -> bool {
-        self.methods.is_empty()
+        self.methods.is_empty() && !self.unauthenticated
+    }
+
+    /// Whether approval is allowed without an authenticated resource owner.
+    pub(crate) fn is_unauthenticated(&self) -> bool {
+        self.unauthenticated
     }
 
     pub(crate) fn owner_header(&self) -> Option<&HeaderName> {
@@ -68,6 +91,9 @@ impl AuthorizeConfig {
     pub(crate) fn describe(&self) -> String {
         if self.is_disabled() {
             return "disabled".to_string();
+        }
+        if self.unauthenticated {
+            return "none".to_string();
         }
         self.methods
             .iter()
@@ -97,7 +123,7 @@ impl AuthorizeConfig {
         let methods = methods.map(str::trim).filter(|value| !value.is_empty());
         let config = match methods {
             None if multi_tenant => Self::disabled(),
-            None => Self::api_key_only(),
+            None => Self::approve_only(),
             Some(raw) => parse_methods(raw, header)?,
         };
         if multi_tenant && !config.is_disabled() {
@@ -120,13 +146,16 @@ fn parse_methods(raw: &str, header: Option<&str>) -> anyhow::Result<AuthorizeCon
     if raw == "disabled" {
         return Ok(AuthorizeConfig::disabled());
     }
+    if raw == "none" {
+        return Ok(AuthorizeConfig::approve_only());
+    }
     let mut methods = Vec::new();
     for item in raw.split(',').map(str::trim) {
         let method = match item {
             "api_key" => OwnerAuthMethod::ApiKey,
             "trusted_header" => OwnerAuthMethod::TrustedHeader,
             _ => anyhow::bail!(
-                "{OWNER_AUTH_ENV} accepts api_key, trusted_header (comma separated) or disabled"
+                "{OWNER_AUTH_ENV} accepts api_key, trusted_header (comma separated), none or disabled"
             ),
         };
         if methods.contains(&method) {
@@ -149,6 +178,7 @@ fn parse_methods(raw: &str, header: Option<&str>) -> anyhow::Result<AuthorizeCon
     Ok(AuthorizeConfig {
         methods,
         owner_header,
+        unauthenticated: false,
     })
 }
 
@@ -158,8 +188,12 @@ mod tests {
 
     #[test]
     fn defaults_follow_the_deployment_mode() {
+        let community = AuthorizeConfig::from_values(None, None, false, 0).unwrap();
+        assert_eq!(community, AuthorizeConfig::approve_only());
+        assert!(community.is_unauthenticated() && !community.is_disabled());
+        assert_eq!(community.describe(), "none");
         assert_eq!(
-            AuthorizeConfig::from_values(None, None, false, 0).unwrap(),
+            AuthorizeConfig::from_values(Some("api_key"), None, false, 0).unwrap(),
             AuthorizeConfig::api_key_only()
         );
         assert!(AuthorizeConfig::from_values(None, None, true, 0)
@@ -170,6 +204,7 @@ mod tests {
     #[test]
     fn hosted_mode_only_accepts_disabled() {
         assert!(AuthorizeConfig::from_values(Some("api_key"), None, true, 0).is_err());
+        assert!(AuthorizeConfig::from_values(Some("none"), None, true, 0).is_err());
         assert!(AuthorizeConfig::from_values(Some("disabled"), None, true, 0).is_ok());
     }
 

@@ -3435,6 +3435,15 @@ async fn main() -> anyhow::Result<()> {
         oauth_authorize_owner_auth = %oauth_authorize_config.describe(),
         "OAuth authorization endpoint resource-owner authentication"
     );
+    if oauth_authorize_config.is_unauthenticated() {
+        tracing::warn!(
+            target: "fortemi.security",
+            "FORTEMI_OAUTH_AUTHORIZE_OWNER_AUTH=none: /oauth/authorize approves without \
+             authenticating a resource owner, so anyone who can reach the consent page can \
+             approve a registered client. Set api_key, or trusted_header behind a signing-in \
+             proxy such as oauth2-proxy."
+        );
+    }
     let oauth_authorize = Arc::new(oauth_consent::AuthorizeRuntime::new(oauth_authorize_config));
     if !security_config.require_auth {
         if security_config.multi_tenant {
@@ -69657,7 +69666,7 @@ not-json
             key_health: None,
             oauth_registration: oauth_registration::OAuthRegistrationMode::Enabled,
             oauth_authorize: Arc::new(oauth_consent::AuthorizeRuntime::new(
-                oauth_consent::config::AuthorizeConfig::api_key_only(),
+                oauth_consent::config::AuthorizeConfig::approve_only(),
             )),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
@@ -75210,7 +75219,7 @@ not-json
             key_health: None,
             oauth_registration: oauth_registration::OAuthRegistrationMode::Enabled,
             oauth_authorize: Arc::new(oauth_consent::AuthorizeRuntime::new(
-                oauth_consent::config::AuthorizeConfig::api_key_only(),
+                oauth_consent::config::AuthorizeConfig::approve_only(),
             )),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
@@ -77008,7 +77017,7 @@ not-json
             key_health: None,
             oauth_registration: oauth_registration::OAuthRegistrationMode::Enabled,
             oauth_authorize: Arc::new(oauth_consent::AuthorizeRuntime::new(
-                oauth_consent::config::AuthorizeConfig::api_key_only(),
+                oauth_consent::config::AuthorizeConfig::approve_only(),
             )),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,
@@ -77359,7 +77368,7 @@ not-json
             key_health: None,
             oauth_registration: oauth_registration::OAuthRegistrationMode::Enabled,
             oauth_authorize: Arc::new(oauth_consent::AuthorizeRuntime::new(
-                oauth_consent::config::AuthorizeConfig::api_key_only(),
+                oauth_consent::config::AuthorizeConfig::approve_only(),
             )),
             oauth_token_lifetime: chrono::Duration::seconds(
                 matric_core::defaults::OAUTH_TOKEN_LIFETIME_SECS as i64,

@@ -1,9 +1,10 @@
 //! Authenticated resource-owner consent for `/oauth/authorize` (#943).
 //!
 //! The endpoint stays outside bearer middleware (a browser cannot send a bearer token on
-//! a navigation), but it no longer approves on behalf of nobody: the owner must be
-//! authenticated by one of the methods in [`config`], the request is bound to a
-//! server-side transaction, and every response is frame- and cache-protected.
+//! a navigation). Owner authentication is selected in [`config`]; the community default
+//! `none` keeps approve-only consent. In every mode the request is validated before any
+//! redirect, bound to a server-side transaction, and every response is frame- and
+//! cache-protected.
 
 pub(crate) mod config;
 mod handlers;

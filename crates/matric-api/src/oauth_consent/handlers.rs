@@ -71,7 +71,7 @@ pub(crate) async fn authorize_get(
     let owner =
         owner::from_trusted_header(&runtime.config, &state.trusted_proxy_config, peer, headers);
     let ask_credential = owner.is_none() && runtime.config.allows(OwnerAuthMethod::ApiKey);
-    if owner.is_none() && !ask_credential {
+    if owner.is_none() && !ask_credential && !runtime.config.is_unauthenticated() {
         return page::error_page(
             StatusCode::UNAUTHORIZED,
             "Sign in through the configured identity proxy before authorizing applications.",
@@ -161,8 +161,14 @@ pub(crate) async fn authorize_post(
         "approve" => {}
         _ => return page::error_page(StatusCode::BAD_REQUEST, "Unknown authorization action."),
     }
+    if runtime.config.is_unauthenticated() {
+        // `none`: approve-only compatibility mode, no resource owner recorded.
+        return issue_code(state, &request, None).await;
+    }
     match resolve_owner(state, peer, headers, form.credential.as_deref()).await {
-        Some(owner) if owner.covers(&request.scope) => issue_code(state, &request, &owner).await,
+        Some(owner) if owner.covers(&request.scope) => {
+            issue_code(state, &request, Some(&owner)).await
+        }
         other => {
             pending.owner_attempts += 1;
             retry_or_fail(state, form.transaction.clone(), pending, other.is_some())
@@ -219,7 +225,11 @@ fn retry_or_fail(
     response
 }
 
-async fn issue_code(state: &AppState, request: &ValidatedRequest, owner: &Owner) -> Response {
+async fn issue_code(
+    state: &AppState,
+    request: &ValidatedRequest,
+    owner: Option<&Owner>,
+) -> Response {
     match state.db.oauth.get_client(&request.client_id).await {
         Ok(Some(client)) if client.is_active => {}
         _ => {
@@ -239,7 +249,7 @@ async fn issue_code(state: &AppState, request: &ValidatedRequest, owner: &Owner)
             request.state.as_deref(),
             request.code_challenge.as_deref(),
             request.code_challenge_method.as_deref(),
-            Some(&owner.subject),
+            owner.map(|owner| owner.subject.as_str()),
         )
         .await;
     let Ok(code) = code else {
@@ -252,7 +262,8 @@ async fn issue_code(state: &AppState, request: &ValidatedRequest, owner: &Owner)
         target: "fortemi.security",
         client_id_len = request.client_id.len(),
         scope_count = request.scope.split_whitespace().count(),
-        "oauth authorization approved by an authenticated resource owner"
+        owner_authenticated = owner.is_some(),
+        "oauth authorization approved"
     );
     let mut params = vec![("code", code.as_str())];
     if let Some(value) = request.state.as_deref() {

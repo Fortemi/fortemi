@@ -98,3 +98,51 @@ async fn disabled_mode_denies_valid_requests_and_still_refuses_bad_redirects() {
     assert!(reply.location().is_none());
     assert_eq!(codes_for(&state, &client_id).await, 0);
 }
+
+#[tokio::test]
+async fn community_default_approves_without_owner_auth_but_keeps_the_protections() {
+    let state = state_with(AuthorizeConfig::approve_only()).await;
+    let client_id = client(&state, "read").await;
+    let uri = authorize_uri(&client_id, REDIRECT, "read");
+    let page = send(&state, get_request(&uri, None, None)).await;
+    assert_eq!(page.status, StatusCode::OK);
+    assert!(!page.body.contains("name=\"credential\""));
+    assert_eq!(page.headers[axum::http::header::X_FRAME_OPTIONS], "DENY");
+
+    let (tx, _, cookie) = page.form();
+    let forged = Post {
+        transaction: &tx,
+        csrf: "tampered",
+        cookie: Some(&cookie),
+        action: "approve",
+        credential: None,
+    };
+    assert_eq!(
+        send(&state, post_request(&forged, None, None)).await.status,
+        StatusCode::FORBIDDEN
+    );
+
+    let (tx, csrf, cookie) = send(&state, get_request(&uri, None, None)).await.form();
+    let post = Post {
+        transaction: &tx,
+        csrf: &csrf,
+        cookie: Some(&cookie),
+        action: "approve",
+        credential: None,
+    };
+    let reply = send(&state, post_request(&post, None, None)).await;
+    assert_eq!(reply.status, StatusCode::SEE_OTHER);
+    let location = reply.location().unwrap().to_string();
+    assert!(location.starts_with(&format!("{REDIRECT}?code=")) && location.contains("&iss="));
+    assert_eq!(codes_for(&state, &client_id).await, 1);
+    assert_eq!(
+        code_owner(&state, &location).await,
+        None,
+        "no owner is recorded"
+    );
+
+    let bad = authorize_uri(&client_id, "https://attacker.example/cb", "read");
+    let reply = send(&state, get_request(&bad, None, None)).await;
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST);
+    assert!(reply.location().is_none());
+}
