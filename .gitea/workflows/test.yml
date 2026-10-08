@@ -176,6 +176,12 @@ jobs:
           # Disposable DB + digest-pinned collector (ci/digests.txt) (#1156).
           TESTDB_IMAGE=matric-testdb:local scripts/test-otel-collector.sh
 
+      - name: MCP external OIDC issuer end-to-end
+        run: |
+          # Disposable DB + digest-pinned Redis (ci/digests.txt) + TLS fixture issuer,
+          # hosted API and MCP over HTTP; ephemeral keys only (#1151).
+          TESTDB_IMAGE=matric-testdb:local scripts/test-mcp-external-issuer.sh
+
       - name: Teardown PostgreSQL
         if: always()
         run: |

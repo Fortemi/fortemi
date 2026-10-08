@@ -5865,6 +5865,16 @@ if (MCP_TRANSPORT === "http") {
       .json({ error: "insufficient_scope", error_description: "The token lacks the mcp scope" });
   }
 
+  /**
+   * Send 403 when the API's verifier refused a verified token (tenant not admitted, or
+   * policy denial). Not insufficient_scope: requesting the mcp scope again cannot help.
+   */
+  function sendForbidden(res) {
+    res.status(403)
+      .set('WWW-Authenticate', `Bearer realm="mcp", resource_metadata="${MCP_BASE_URL}/.well-known/oauth-protected-resource"`)
+      .json({ error: "access_denied", error_description: "The token is not admitted for this deployment" });
+  }
+
   const bearerValidationOptions = {
     apiBase: API_BASE,
     clientId: process.env.MCP_CLIENT_ID,
@@ -5884,7 +5894,9 @@ if (MCP_TRANSPORT === "http") {
       if (result.valid) {
         req.accessToken = result.token;
       } else if (mustReject(result, requireAuth)) {
-        if (result.status === 403) return send403(res);
+        if (result.status === 403) {
+          return result.reason === "insufficient_scope" ? send403(res) : sendForbidden(res);
+        }
         if (result.status === 503) {
           return res.status(503).json({ error: "temporarily_unavailable", error_description: "Token verification is unavailable" });
         }

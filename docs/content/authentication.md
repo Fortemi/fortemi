@@ -153,7 +153,7 @@ claim and active tenant, plus the central authorization policy (which requires
 |---|---|
 | Valid for `FORTEMI_AUTH_AUDIENCE`, active tenant, `mcp` and `read` scopes | Accepted |
 | Wrong issuer, wrong audience, bad signature or expired | 401 `invalid_token` |
-| Unknown or inactive tenant, or missing `read` | 403 |
+| Unknown or inactive tenant, or missing `read` | 403 `access_denied` (`WWW-Authenticate: Bearer realm="mcp", resource_metadata=...`, no `insufficient_scope`) |
 | Verified but without `mcp` | 403 `insufficient_scope` (`WWW-Authenticate: ... error="insufficient_scope", scope="mcp"`) |
 | Any refresh token (`mm_rt_…`, or introspection `token_type` other than `Bearer`) | 401 |
 | Verifier unreachable | 503 `temporarily_unavailable` |
@@ -163,6 +163,11 @@ anonymous access. `FORTEMI_MULTI_TENANT=true` makes the MCP server require
 authentication regardless of `REQUIRE_AUTH`. Fortemi-issued tokens keep the
 self-hosted introspection path unchanged, apart from the refresh-token rejection.
 Token values are never logged.
+
+`scripts/test-mcp-external-issuer.sh` exercises this table end to end: it starts a
+disposable PostgreSQL, Redis, a TLS OIDC fixture issuer with ephemeral keys, the
+hosted API and the MCP server, then checks each row over MCP HTTP, the RFC 9728
+metadata, and that no presented token appears in either log.
 
 Configure the MCP container with the same `ISSUER_URL` as the API and set
 `MCP_RESOURCE_URI` to the API's `FORTEMI_AUTH_AUDIENCE`. RFC 9728 metadata at

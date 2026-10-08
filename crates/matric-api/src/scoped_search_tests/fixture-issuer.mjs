@@ -4,8 +4,14 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const [privateRoot, evidence] = process.argv.slice(2);
-assert.match(privateRoot, /^\/tmp\/fortemi-core-http-[A-Za-z0-9]+$/);
-assert.ok(readFileSync('/proc/self/cgroup','utf8').includes('/'+process.env.FORTEMI_LOCAL_TEST_UNIT));
+// The MCP external-issuer harness (scripts/test-mcp-external-issuer.sh) runs outside the
+// local systemd test unit; it owns a mktemp root and removes it on exit.
+if (process.env.FORTEMI_FIXTURE_PROFILE === 'mcp-external-issuer') {
+  assert.match(privateRoot, /^\/[^\0]*\/fortemi-mcp-oidc\.[A-Za-z0-9]+$/);
+} else {
+  assert.match(privateRoot, /^\/tmp\/fortemi-core-http-[A-Za-z0-9]+$/);
+  assert.ok(readFileSync('/proc/self/cgroup','utf8').includes('/'+process.env.FORTEMI_LOCAL_TEST_UNIT));
+}
 const keys = ['first','rotated'].map(kid => {
   const pair = generateKeyPairSync('rsa',{modulusLength:2048});
   return {...pair,jwk:{...pair.publicKey.export({format:'jwk'}),kid,alg:'RS256',use:'sig'}};
@@ -15,9 +21,10 @@ let issuer;
 const counts = {discovery:0,jwks:0,tokens:0,control:0,tlsRejected:0};
 const encode = value => Buffer.from(typeof value === 'string' ? value : JSON.stringify(value)).toString('base64url');
 const minted = new Map();
-const token = ({tenant, kind='valid', scope='read'}) => {
+const token = ({tenant, kind='valid', scope='read', audience='fortemi-http-fixture'}) => {
+  assert.ok(typeof audience === 'string' && audience.length > 0 && audience.length <= 256);
   const now = Math.floor(Date.now()/1000);
-  const payload = {iss:issuer,sub:'fixture-user',aud:'fortemi-http-fixture',iat:now-5,exp:now+600,scope,'fortemi:tenant_id':tenant};
+  const payload = {iss:issuer,sub:'fixture-user',aud:audience,iat:now-5,exp:now+600,scope,'fortemi:tenant_id':tenant};
   let header = {alg:'RS256',kid:'first',typ:'JWT'};
   let key = keys[0];
   switch(kind) {
@@ -39,6 +46,8 @@ const token = ({tenant, kind='valid', scope='read'}) => {
     case 'missing-kid': delete header.kid; break;
     case 'duplicate-alg': header='{"alg":"RS256","alg":"none","kid":"first"}'; break;
     case 'missing-scope': delete payload.scope; break;
+    // Keycloak-shaped refresh token: issued for the issuer itself, never the API audience.
+    case 'refresh-jwt': header.typ='Refresh'; payload.typ='Refresh'; payload.aud=issuer; break;
     default: throw new Error('unknown fixture token kind');
   }
   const input=encode(header)+'.'+encode(payload);

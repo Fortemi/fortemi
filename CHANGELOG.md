@@ -111,6 +111,12 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 - The MCP server rejects refresh tokens presented as bearer credentials
   (`mm_rt_…` or introspection `token_type` other than `Bearer`). Previously an
   active self-issued refresh token was admitted to an MCP session.
+- When the API refuses a verified external token (unknown or inactive tenant,
+  or policy denial), the MCP server now answers 403 `access_denied` with a plain
+  `Bearer` challenge instead of `error="insufficient_scope", scope="mcp"`, which
+  told clients to re-request a scope the token already carried (#1151).
+  `scripts/test-mcp-external-issuer.sh` runs the external-issuer matrix end to
+  end against a disposable OIDC fixture, PostgreSQL and Redis in CI.
 
 - Accept path-bearing HTTPS OIDC issuers such as Keycloak's
   `https://idp.example.com/realms/<name>` without `FORTEMI_ALLOW_LOCAL_ISSUER`
