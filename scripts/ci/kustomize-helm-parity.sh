@@ -149,4 +149,9 @@ bad="$(yq ea -N '.. | select(has("image")) | .image | select(test(":pinned$") | 
 [[ -z "${bad}" ]] || { echo "base images must be name-only (<name>:pinned): ${bad}" >&2; exit 1; }
 bad="$(yq ea -N '.. | select(has("image")) | .image | select(test("@sha256:") | not)' "${work}/k-example.yaml")"
 [[ -z "${bad}" ]] || { echo "example images must be pinned by digest: ${bad}" >&2; exit 1; }
+# 4. The restricted all-in-one bundle example (#1173) renders, validates and
+# pins its image by digest. scripts/ci/test-pod-security-restricted.sh runs it.
+kbuild "${KUSTOMIZE_DIR}/examples/bundle-restricted" "${work}/k-bundle.yaml"
+bad="$(yq ea -N '.. | select(has("image")) | .image | select(test("@sha256:") | not)' "${work}/k-bundle.yaml")"
+[[ -z "${bad}" ]] || { echo "bundle example image must be pinned by digest: ${bad}" >&2; exit 1; }
 echo "Kustomize base OK"

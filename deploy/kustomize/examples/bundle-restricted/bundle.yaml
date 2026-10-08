@@ -1,0 +1,133 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: fortemi-bundle-state
+  namespace: fortemi-bundle
+  labels:
+    app.kubernetes.io/name: fortemi-bundle
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fortemi-bundle
+  namespace: fortemi-bundle
+  labels:
+    app.kubernetes.io/name: fortemi-bundle
+spec:
+  replicas: 1
+  # One embedded PostgreSQL owns the volume; never run two pods on it.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fortemi-bundle
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fortemi-bundle
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        # The image's `postgres` account; initdb and the server need a passwd entry.
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: bundle
+          image: fortemi/bundle
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          env:
+            # A volume root is owned by root and cannot be the data directory,
+            # so every persistent path is a subdirectory the entrypoint creates.
+            - name: PGDATA
+              value: /var/lib/fortemi/pgdata
+            - name: FILE_STORAGE_PATH
+              value: /var/lib/fortemi/files
+            - name: BACKUP_DEST
+              value: /var/lib/fortemi/backups
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: fortemi-bundle
+                  key: POSTGRES_PASSWORD
+            # PARAM: the external URL clients use.
+            - name: ISSUER_URL
+              value: https://memory.example.com
+            - name: RENDERER_ENABLED
+              value: "false"
+            # Same default as docker-compose.bundle.yml. Use "required" with
+            # MATRIC_CLAMD_ADDR when a clamd scanner is reachable.
+            - name: MATRIC_ATTACHMENT_SCAN_MODE
+              value: disabled
+          ports:
+            - name: http
+              containerPort: 3000
+            - name: mcp
+              containerPort: 3001
+          startupProbe:
+            httpGet:
+              path: /livez
+              port: http
+            periodSeconds: 5
+            # First boots run initdb and every migration.
+            failureThreshold: 360
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+          volumeMounts:
+            - name: state
+              mountPath: /var/lib/fortemi
+            - name: shm
+              mountPath: /dev/shm
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: fortemi-bundle-state
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fortemi-bundle
+  namespace: fortemi-bundle
+  labels:
+    app.kubernetes.io/name: fortemi-bundle
+spec:
+  selector:
+    app.kubernetes.io/name: fortemi-bundle
+  ports:
+    - name: http
+      port: 3000
+      targetPort: http
+    - name: mcp
+      port: 3001
+      targetPort: mcp

@@ -62,6 +62,43 @@ if [ -z "${DATABASE_URL:-}" ]; then
     export DATABASE_URL
 fi
 
+# Non-root operation (#1173). Started as the image's postgres account (for
+# example Kubernetes runAsUser: 999 under Pod Security "restricted"), the bundle
+# needs no privilege change: every `su postgres -c` / `runuser -u postgres --`
+# hand-off below runs the command directly, and PGDATA must already belong to
+# this user or be creatable by it. Root operation is unchanged.
+if [ "$(id -u)" -ne 0 ]; then
+    if [ "$(id -un 2>/dev/null)" != postgres ]; then
+        echo "ERROR: the bundle runs as root or as the image's postgres account" \
+            "(uid $(id -u postgres)); current uid is $(id -u)." >&2
+        exit 1
+    fi
+    echo ">>> Running as the postgres account (uid $(id -u)); no privilege changes"
+    su() {
+        if [ "$#" -eq 3 ] && [ "$1" = postgres ] && [ "$2" = -c ]; then
+            bash -c "$3"
+        else
+            echo "ERROR: unsupported su invocation in non-root mode" >&2
+            return 1
+        fi
+    }
+    runuser() {
+        if [ "$#" -gt 3 ] && [ "$1" = -u ] && [ "$2" = postgres ] && [ "$3" = -- ]; then
+            shift 3
+            "$@"
+        else
+            echo "ERROR: unsupported runuser invocation in non-root mode" >&2
+            return 1
+        fi
+    }
+    if [ -e "$PGDATA" ] && [ "$(stat -c %u "$PGDATA")" != "$(id -u)" ]; then
+        echo "ERROR: PGDATA=$PGDATA is owned by uid $(stat -c %u "$PGDATA"), not $(id -u)." >&2
+        echo "A volume root cannot be the data directory without root; set PGDATA to a" >&2
+        echo "subdirectory of the mount, for example $PGDATA/pgdata." >&2
+        exit 1
+    fi
+fi
+
 # Ensure PGDATA directory exists and is owned by postgres
 # (Required for fresh volumes where the mount point may be owned by root)
 mkdir -p "$PGDATA"
@@ -713,8 +750,11 @@ wait_for_api_ready
 # may be stale after a clean deploy, so persisted credentials take precedence.
 MCP_CREDS_FILE="$PGDATA/.fortemi-mcp-credentials"
 
-# Prefer persisted credentials (they match the current DB)
-if [ -f "$MCP_CREDS_FILE" ]; then
+# Prefer persisted credentials (they match the current DB). A file written by
+# an earlier root run is unreadable to a non-root start; register again then.
+if [ -f "$MCP_CREDS_FILE" ] && [ ! -r "$MCP_CREDS_FILE" ]; then
+    echo ">>> Persisted MCP credentials are not readable by uid $(id -u); re-registering"
+elif [ -f "$MCP_CREDS_FILE" ]; then
     echo ">>> Loading MCP credentials from persistent storage..."
     . "$MCP_CREDS_FILE"
     export MCP_CLIENT_ID MCP_CLIENT_SECRET

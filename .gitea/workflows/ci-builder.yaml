@@ -902,6 +902,34 @@ jobs:
           path: hosted-image-smoke/
           retention-days: 365
 
+  # Run the all-in-one bundle as uid 999 with no added capabilities in a kind
+  # namespace that enforces Pod Security "restricted" (#1173).
+  pod-security-restricted:
+    name: Bundle Under Pod Security Restricted (kind)
+    runs-on: matric-builder
+    needs: build-image
+    steps:
+      - name: Checkout
+        run: |
+          set -euo pipefail
+          git init -q .
+          git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
+          git checkout --quiet --detach FETCH_HEAD
+
+      - name: Build bundle image
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${CHAIN_SOURCE_SHA:0:7}"
+          docker build -f Dockerfile.bundle \
+            --build-arg VERSION=test-${SHORT_SHA} \
+            --build-arg GIT_SHA=${CHAIN_SOURCE_SHA} \
+            --build-arg BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
+            -t fortemi-bundle:psa-test .
+
+      - name: Run the bundle under Pod Security restricted
+        run: scripts/ci/test-pod-security-restricted.sh --bundle-image fortemi-bundle:psa-test
+
   test-container:
     name: Test Container (Isolated)
     runs-on: matric-builder
@@ -1191,7 +1219,7 @@ jobs:
   publish-release:
     name: Publish Release Image
     runs-on: matric-builder
-    needs: [verify-release-ref, sync-github-source, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix, helm-chart, hosted-image-smoke]
+    needs: [verify-release-ref, sync-github-source, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix, helm-chart, hosted-image-smoke, pod-security-restricted]
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Checkout
@@ -1780,7 +1808,7 @@ jobs:
   main-validation:
     name: Main Validation Complete
     runs-on: matric-builder
-    needs: [sync-github-source, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix, helm-chart, hosted-image-smoke]
+    needs: [sync-github-source, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix, helm-chart, hosted-image-smoke, pod-security-restricted]
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     steps:
       - name: Record validation-only completion

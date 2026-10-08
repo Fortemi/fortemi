@@ -160,6 +160,17 @@ COPY scripts/pre-migration-recovery.py /app/scripts/pre-migration-recovery.py
 RUN chmod +x /app/entrypoint.sh /app/seed-support-archive.sh
 RUN chmod +x /app/scripts/backup.sh /app/scripts/pre-migration-recovery.py
 
+# Non-root operation (#1173): the image's postgres account (uid/gid 999) owns
+# every path the entrypoint writes, so the bundle also runs with
+# `--user 999:999` (or Kubernetes runAsUser: 999) with no chown and no added
+# capabilities. The default user stays root, which keeps existing volumes and
+# compose deployments working unchanged.
+RUN install -d -o postgres -g postgres -m 0700 /var/lib/postgresql/data \
+    && install -d -o postgres -g postgres -m 0750 \
+        /var/lib/matric/files /var/backups/matric-memory \
+        /var/log/matric /var/log/fortemi \
+    && chown postgres:postgres /var/log/postgresql
+
 # Version environment variables
 ENV MATRIC_VERSION=${VERSION}
 ENV MATRIC_GIT_SHA=${GIT_SHA}

@@ -324,6 +324,57 @@ Differences from the chart:
   the ingress controller namespace label and add `to:` blocks to
   `fortemi-server-egress`.
 
+## All-in-one bundle under Pod Security restricted
+
+For a small single-node install, the bundle image (`fortemi:bundle-<version>`)
+can run in a namespace that enforces Pod Security `restricted`. The bundle's
+entrypoint needs no root: started as the image's `postgres` account (uid/gid
+999), it runs the embedded PostgreSQL, the API and the MCP server as that user,
+never calls `chown`, and every `su`/`runuser` hand-off becomes a direct call.
+Started as root, as Docker Compose does by default, it behaves as before.
+
+`deploy/kustomize/examples/bundle-restricted/` is the reference manifest: one
+replica with the `Recreate` strategy, `runAsNonRoot`, `runAsUser`/`runAsGroup`/
+`fsGroup` 999, `RuntimeDefault` seccomp, `allowPrivilegeEscalation: false`,
+all capabilities dropped and none added. Writable paths:
+
+| Path | Volume | Contents |
+|---|---|---|
+| `/var/lib/fortemi` | PVC `fortemi-bundle-state` (RWO) | `pgdata/` (`PGDATA`, with the persisted MCP OAuth credentials), `files/` (`FILE_STORAGE_PATH`), `backups/` (`BACKUP_DEST`) |
+| `/dev/shm` | `emptyDir`, `medium: Memory`, 1 GiB | PostgreSQL shared memory, pre-migration backup staging |
+| `/tmp`, `/var/run/postgresql`, `/var/log/matric`, `/var/log/postgresql`, `/var/log/fortemi` | container filesystem, owned by uid 999 in the image | scratch, socket, process logs |
+
+`PGDATA` must be a subdirectory of the volume: a volume root is owned by root,
+and PostgreSQL requires the data directory to be owned by the server user with
+mode 0700. Non-root startup fails with that instruction when `PGDATA` belongs
+to another user. Restricted does not require `readOnlyRootFilesystem`; if your
+policy does, mount `emptyDir` volumes at the container-filesystem paths above.
+
+With plain Docker the equivalent is:
+
+```bash
+docker run -d --user 999:999 --cap-drop ALL --security-opt no-new-privileges \
+  --shm-size 1g --env-file .env -p 3000:3000 -p 3001:3001 \
+  -v fortemi-data:/var/lib/postgresql/data ghcr.io/fortemi/fortemi:bundle-<version>
+```
+
+A volume created by an earlier root run keeps its ownership. The data
+directory is already owned by `postgres`; the persisted MCP credentials file
+is root-owned, so the first non-root start registers a new MCP client and
+replaces it. Attachments under `/var/lib/matric/files` written by a root API
+stay root-owned: `chown -R 999:999` that volume once, or restore a backup
+into a fresh volume.
+
+`scripts/ci/test-pod-security-restricted.sh` proves this in CI: it creates a
+kind cluster (Kubernetes 1.37), applies the example's namespace with
+`enforce=restricted`, checks that a root pod is rejected, deploys the bundle
+built from the same commit, and requires the pod to become Ready with every
+process at uid 999 and an empty effective capability set, then `/health` and
+`/readyz` through a port-forward, with `PGDATA`, `files/` and `backups/` on the
+PVC owned by uid 999. On the shared CI host `fs.inotify.max_user_instances` is
+128 and kube-proxy exits while setting up its config-file watcher, so the test
+re-runs kube-proxy with the same settings as flags (no watcher).
+
 ## Validation
 
 CI renders and validates the chart for the default and hosted values:

@@ -1,0 +1,40 @@
+---
+# Example: the all-in-one bundle (embedded PostgreSQL 18, API, MCP) under Pod
+# Security "restricted" (#1173). Everything runs as the image's `postgres`
+# account (uid/gid 999) with all capabilities dropped and no privilege
+# escalation; the bundle needs no root, no chown and no added capabilities.
+#
+# This is a single-replica, single-volume deployment for small installs. For
+# scalable API/worker/MCP units on external PostgreSQL use ../single-tenant.
+#
+# Writable paths (everything else in the image is only read):
+#   /var/lib/fortemi    PVC `fortemi-bundle-state`; the entrypoint creates
+#                       pgdata/ (PGDATA, also the persisted MCP OAuth
+#                       credentials), files/ (FILE_STORAGE_PATH) and backups/
+#                       (BACKUP_DEST, pre-migration recovery points)
+#   /dev/shm            memory-backed emptyDir: PostgreSQL shared memory and
+#                       pre-migration backup staging
+#   container filesystem, pre-owned by uid 999 in the image: /tmp,
+#                       /var/run/postgresql, /var/log/matric,
+#                       /var/log/postgresql, /var/log/fortemi
+# PodSecurity restricted does not require readOnlyRootFilesystem; mount
+# emptyDirs at the container-filesystem paths above if your policy does.
+#
+# SECRETS ARE NAMED, NEVER WRITTEN: create Secret `fortemi-bundle` with key
+# POSTGRES_PASSWORD (for example with scripts/init-bundle-env.sh output or an
+# ExternalSecret) before applying.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - bundle.yaml
+
+# PIN THE IMAGE HERE, BY DIGEST. The digest below is a DELIBERATE PLACEHOLDER:
+# use the ghcr.io/fortemi/fortemi:bundle-<version> index digest from the
+# release receipt; the multi-platform index works on amd64 and arm64 nodes.
+#   docker buildx imagetools inspect ghcr.io/fortemi/fortemi:bundle-<version> --format '{{json .Manifest.Digest}}'
+images:
+  - name: fortemi/bundle
+    newName: ghcr.io/fortemi/fortemi
+    digest: sha256:REPLACE_WITH_BUNDLE_IMAGE_DIGEST

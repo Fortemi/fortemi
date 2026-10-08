@@ -143,6 +143,28 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   Helm workload sets differ. Kustomize v5.8.1 is checksum-pinned. The chart's
   default `env` now sets `FORTEMI_MULTI_TENANT: "false"` explicitly. This is
   the Community Edition default the migration Job already used.
+- The all-in-one bundle runs non-root (#1173). Started as the image's
+  `postgres` account (uid/gid 999, `--user 999:999` or `runAsUser: 999`), the
+  entrypoint runs PostgreSQL 18, the API and MCP as that user with no `chown`
+  and no added capabilities; the image pre-owns every path it writes besides
+  `PGDATA`, and a `PGDATA` owned by another user fails with an instruction to
+  use a subdirectory of the volume. Root starts (Docker Compose default) are
+  unchanged. A first non-root start on a volume from a root run registers a
+  new MCP client because the old credentials file is root-owned.
+- New `deploy/kustomize/examples/bundle-restricted/` runs the bundle in a
+  namespace enforcing Pod Security `restricted` (runAsNonRoot, uid 999,
+  RuntimeDefault seccomp, all capabilities dropped). Writable paths: the
+  `fortemi-bundle-state` PVC at `/var/lib/fortemi` (`pgdata/`, `files/`,
+  `backups/`), a memory `emptyDir` at `/dev/shm`, and the image-owned `/tmp`,
+  `/var/run/postgresql` and `/var/log/{matric,postgresql,fortemi}`. The new
+  `pod-security-restricted` CI job builds the bundle and runs
+  `scripts/ci/test-pod-security-restricted.sh`: a kind 1.37 cluster (pinned
+  kind, kubectl and node image), a root-pod negative control, then the bundle
+  must become Ready with every process at uid 999 and an empty effective
+  capability set, keep its state on the PVC as uid 999, and answer `/health`
+  and `/readyz`. Because the CI host's inotify instance limit (128) crashes
+  kube-proxy's config-file watcher, the test re-runs kube-proxy with the same
+  settings as flags.
 
 ### Release Supply Chain
 
