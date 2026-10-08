@@ -101,6 +101,7 @@ API_BIN="${ROOT}/target/debug/matric-api"
 GRPC_PORT="$(free_port)"
 HTTP_PORT="$(free_port)"
 mkdir -p "${WORK}/out"
+# docker cp keeps mode bits, so the non-root collector can write here.
 chmod 0777 "${WORK}/out"
 cat >"${WORK}/collector.yaml" <<'YAML'
 receivers:
@@ -123,13 +124,23 @@ service:
       receivers: [otlp]
       exporters: [file]
 YAML
-docker run -d --name "${COLLECTOR_CONTAINER}" \
+# No bind mounts: the CI runner's private /tmp is not visible to the Docker
+# daemon, so a host path would arrive as an empty directory. Copy the config in
+# and the export out instead.
+docker create --name "${COLLECTOR_CONTAINER}" \
   -p "127.0.0.1:${GRPC_PORT}:4317" -p "127.0.0.1:${HTTP_PORT}:4318" \
-  -v "${WORK}/collector.yaml:/etc/otelcol/config.yaml:ro" -v "${WORK}/out:/out" \
   "${COLLECTOR_IMAGE}" --config /etc/otelcol/config.yaml >/dev/null
+docker cp "${WORK}/collector.yaml" "${COLLECTOR_CONTAINER}:/etc/otelcol/config.yaml"
+docker cp "${WORK}/out" "${COLLECTOR_CONTAINER}:/out"
+docker start "${COLLECTOR_CONTAINER}" >/dev/null
 sleep 2
 docker ps --filter "name=${COLLECTOR_CONTAINER}" --format '{{.Status}}' | grep -q Up \
   || { docker logs "${COLLECTOR_CONTAINER}" | tail -20; fail "collector did not start"; }
+
+fetch_telemetry() {
+  docker cp "${COLLECTOR_CONTAINER}:/out/telemetry.jsonl" "${WORK}/out/telemetry.jsonl" >/dev/null 2>&1 \
+    || : >"${WORK}/out/telemetry.jsonl"
+}
 
 run_protocol() {
   local protocol="$1" endpoint api_port out
@@ -142,6 +153,7 @@ run_protocol() {
   api_port="$(free_port)"
   log "protocol=${protocol}: starting API on ${api_port}"
   local before_lines
+  fetch_telemetry
   before_lines="$(wc -l <"${out}" 2>/dev/null || echo 0)"
 
   HOST=127.0.0.1 PORT="${api_port}" REQUIRE_AUTH=false I_UNDERSTAND_NO_AUTH=true \
@@ -191,6 +203,7 @@ run_protocol() {
   grep -q "\"trace_id\":\"${INBOUND_TRACE_ID}\"" "${WORK}/api-${protocol//\//-}.log" \
     || fail "stdout JSON logs lack trace_id correlation"
 
+  fetch_telemetry
   python3 - "${out}" "${before_lines}" "${INBOUND_TRACE_ID}" \
     "${TOKEN_SENTINEL}" "${NOTE_SENTINEL}" "${QUERY_SENTINEL}" <<'PY'
 import json, sys
