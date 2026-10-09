@@ -8927,6 +8927,8 @@ mod tests {
             }),
             content_types: vec!["text".to_string()],
             document_composition: Default::default(),
+            space_contract: None,
+            space_id: None,
         };
         let first_set = uuid::Uuid::now_v7();
         let second_set = uuid::Uuid::now_v7();

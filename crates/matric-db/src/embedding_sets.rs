@@ -7,12 +7,12 @@ use uuid::Uuid;
 
 use crate::vector_index;
 use matric_core::{
-    new_v7, validate_embedding_dimension, AddMembersRequest, CreateEmbeddingConfigRequest,
-    CreateEmbeddingSetRequest, EmbeddingConfigProfile, EmbeddingIndexStatus, EmbeddingProvider,
-    EmbeddingSet, EmbeddingSetAgentMetadata, EmbeddingSetCriteria, EmbeddingSetHealth,
-    EmbeddingSetMember, EmbeddingSetMode, EmbeddingSetSummary, EmbeddingVectorSource,
-    EmbeddingVectorType, Error, GarbageCollectionResult, Result, UpdateEmbeddingConfigRequest,
-    UpdateEmbeddingSetRequest,
+    embedding_space_id, new_v7, validate_embedding_dimension, AddMembersRequest,
+    CreateEmbeddingConfigRequest, CreateEmbeddingSetRequest, EmbeddingConfigProfile,
+    EmbeddingIndexStatus, EmbeddingProvider, EmbeddingSet, EmbeddingSetAgentMetadata,
+    EmbeddingSetCriteria, EmbeddingSetHealth, EmbeddingSetMember, EmbeddingSetMode,
+    EmbeddingSetSummary, EmbeddingVectorSource, EmbeddingVectorType, Error,
+    GarbageCollectionResult, Result, UpdateEmbeddingConfigRequest, UpdateEmbeddingSetRequest,
 };
 
 fn embedding_set_not_found_by_slug_error(slug: &str) -> Error {
@@ -51,6 +51,22 @@ fn validate_config_dimension(dimension: i32, vector_type: EmbeddingVectorType) -
         .map_err(|_| Error::InvalidInput("embedding dimension must be positive".to_string()))?;
     validate_embedding_dimension(dimension, vector_type)
         .map_err(|error| Error::InvalidInput(error.to_string()))
+}
+
+fn validate_client_space_id(expected: Option<&str>, actual: Option<&str>) -> Result<()> {
+    if let Some(actual) = actual {
+        match expected {
+            Some(expected) if expected == actual => Ok(()),
+            Some(_) => Err(Error::InvalidInput(
+                "space_id does not match canonical space_contract hash".to_string(),
+            )),
+            None => Err(Error::InvalidInput(
+                "space_id requires a space_contract".to_string(),
+            )),
+        }
+    } else {
+        Ok(())
+    }
 }
 
 /// PostgreSQL implementation of embedding set repository.
@@ -112,7 +128,9 @@ impl PgEmbeddingSetRepository {
                 es.truncate_dim,
                 ec.model,
                 ec.dimension,
-                ec.supports_mrl
+                ec.supports_mrl,
+                ec.space_contract,
+                ec.space_id
             FROM embedding_set es
             LEFT JOIN embedding_config ec ON es.embedding_config_id = ec.id
             WHERE es.is_active = TRUE
@@ -151,6 +169,8 @@ impl PgEmbeddingSetRepository {
                     keywords: row.get::<Vec<String>, _>("keywords"),
                     model: row.get("model"),
                     dimension: row.get("dimension"),
+                    space_contract: row.get("space_contract"),
+                    space_id: row.get("space_id"),
                     truncate_dim: row.get("truncate_dim"),
                     supports_mrl: row.get::<Option<bool>, _>("supports_mrl").unwrap_or(false),
                 }
@@ -165,16 +185,18 @@ impl PgEmbeddingSetRepository {
         let row = sqlx::query(
             r#"
             SELECT
-                id, name, slug, description, purpose, usage_hints, keywords,
-                set_type::text as set_type, vector_source, mode::text as mode, criteria, embedding_config_id,
-                truncate_dim, auto_embed_rules,
-                index_status::text as index_status, index_type,
-                COALESCE(defer_index_build, FALSE) AS defer_index_build,
-                document_count, embedding_count, embeddings_current, index_size_bytes,
-                is_system, is_active, auto_refresh,
-                agent_metadata, created_at, updated_at, created_by
-            FROM embedding_set
-            WHERE slug = $1
+                es.id, es.name, es.slug, es.description, es.purpose, es.usage_hints, es.keywords,
+                es.set_type::text as set_type, es.vector_source, es.mode::text as mode, es.criteria, es.embedding_config_id,
+                ec.space_contract, ec.space_id,
+                es.truncate_dim, es.auto_embed_rules,
+                es.index_status::text as index_status, es.index_type,
+                COALESCE(es.defer_index_build, FALSE) AS defer_index_build,
+                es.document_count, es.embedding_count, es.embeddings_current, es.index_size_bytes,
+                es.is_system, es.is_active, es.auto_refresh,
+                es.agent_metadata, es.created_at, es.updated_at, es.created_by
+            FROM embedding_set es
+            LEFT JOIN embedding_config ec ON es.embedding_config_id = ec.id
+            WHERE es.slug = $1
             "#,
         )
         .bind(slug)
@@ -193,16 +215,18 @@ impl PgEmbeddingSetRepository {
         let row = sqlx::query(
             r#"
             SELECT
-                id, name, slug, description, purpose, usage_hints, keywords,
-                set_type::text as set_type, vector_source, mode::text as mode, criteria, embedding_config_id,
-                truncate_dim, auto_embed_rules,
-                index_status::text as index_status, index_type,
-                COALESCE(defer_index_build, FALSE) AS defer_index_build,
-                document_count, embedding_count, embeddings_current, index_size_bytes,
-                is_system, is_active, auto_refresh,
-                agent_metadata, created_at, updated_at, created_by
-            FROM embedding_set
-            WHERE id = $1
+                es.id, es.name, es.slug, es.description, es.purpose, es.usage_hints, es.keywords,
+                es.set_type::text as set_type, es.vector_source, es.mode::text as mode, es.criteria, es.embedding_config_id,
+                ec.space_contract, ec.space_id,
+                es.truncate_dim, es.auto_embed_rules,
+                es.index_status::text as index_status, es.index_type,
+                COALESCE(es.defer_index_build, FALSE) AS defer_index_build,
+                es.document_count, es.embedding_count, es.embeddings_current, es.index_size_bytes,
+                es.is_system, es.is_active, es.auto_refresh,
+                es.agent_metadata, es.created_at, es.updated_at, es.created_by
+            FROM embedding_set es
+            LEFT JOIN embedding_config ec ON es.embedding_config_id = ec.id
+            WHERE es.id = $1
             "#,
         )
         .bind(id)
@@ -626,7 +650,7 @@ impl PgEmbeddingSetRepository {
             SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
-                   provider::text, provider_config, content_types, document_composition
+                   provider::text, provider_config, content_types, document_composition, space_contract, space_id
             FROM embedding_config
             ORDER BY is_default DESC, name
             "#,
@@ -672,6 +696,8 @@ impl PgEmbeddingSetRepository {
                         .get::<Option<JsonValue>, _>("document_composition")
                         .and_then(|v| serde_json::from_value(v).ok())
                         .unwrap_or_default(),
+                    space_contract: row.get("space_contract"),
+                    space_id: row.get("space_id"),
                 }
             })
             .collect();
@@ -686,7 +712,7 @@ impl PgEmbeddingSetRepository {
             SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
-                   provider::text, provider_config, content_types, document_composition
+                   provider::text, provider_config, content_types, document_composition, space_contract, space_id
             FROM embedding_config
             WHERE is_default = TRUE
             LIMIT 1
@@ -732,6 +758,8 @@ impl PgEmbeddingSetRepository {
                         .get::<Option<JsonValue>, _>("document_composition")
                         .and_then(|v| serde_json::from_value(v).ok())
                         .unwrap_or_default(),
+                    space_contract: row.get("space_contract"),
+                    space_id: row.get("space_id"),
                 }))
             }
             None => Ok(None),
@@ -745,7 +773,7 @@ impl PgEmbeddingSetRepository {
             SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
-                   provider::text, provider_config, content_types, document_composition
+                   provider::text, provider_config, content_types, document_composition, space_contract, space_id
             FROM embedding_config
             WHERE id = $1
             "#,
@@ -791,6 +819,8 @@ impl PgEmbeddingSetRepository {
                         .get::<Option<JsonValue>, _>("document_composition")
                         .and_then(|v| serde_json::from_value(v).ok())
                         .unwrap_or_default(),
+                    space_contract: row.get("space_contract"),
+                    space_id: row.get("space_id"),
                 }))
             }
             None => Ok(None),
@@ -808,6 +838,8 @@ impl PgEmbeddingSetRepository {
         // Bind matryoshka_dims as Vec<i32> directly (issue #126 EMB-017)
         // The column is INTEGER[], not JSONB — binding as JSON causes type mismatch
         let matryoshka_dims: Option<Vec<i32>> = request.matryoshka_dims.clone();
+        let computed_space_id = request.space_contract.as_ref().map(embedding_space_id);
+        validate_client_space_id(computed_space_id.as_deref(), request.space_id.as_deref())?;
 
         sqlx::query(
             r#"
@@ -815,12 +847,14 @@ impl PgEmbeddingSetRepository {
                 id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
                 hnsw_m, hnsw_ef_construction, is_default, created_at, updated_at,
                 supports_mrl, matryoshka_dims, default_truncate_dim,
-                provider, provider_config, content_types, document_composition
+                provider, provider_config, content_types, document_composition,
+                space_contract, space_id
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8,
                 $9, $10, FALSE, $11, $11,
                 $12, $13, $14,
-                $15::embedding_provider, $16, $17, $18
+                $15::embedding_provider, $16, $17, $18,
+                $19, $20
             )
             "#,
         )
@@ -842,6 +876,8 @@ impl PgEmbeddingSetRepository {
         .bind(&request.provider_config)
         .bind(&request.content_types)
         .bind(serde_json::to_value(&request.document_composition).unwrap_or_default())
+        .bind(&request.space_contract)
+        .bind(&computed_space_id)
         .execute(&self.pool)
         .await
         .map_err(Error::Database)?;
@@ -875,6 +911,16 @@ impl PgEmbeddingSetRepository {
             let dimension = request.dimension.unwrap_or(current.dimension);
             let vector_type = request.vector_type.unwrap_or(current.vector_type);
             validate_config_dimension(dimension, vector_type)?;
+        }
+        let computed_space_id = request.space_contract.as_ref().map(embedding_space_id);
+        if request.space_contract.is_some() {
+            validate_client_space_id(computed_space_id.as_deref(), request.space_id.as_deref())?;
+        } else if request.space_id.is_some() {
+            let current = self
+                .get_config(id)
+                .await?
+                .ok_or_else(|| embedding_config_not_found_error(id))?;
+            validate_client_space_id(current.space_id.as_deref(), request.space_id.as_deref())?;
         }
 
         // Build dynamic update query
@@ -943,7 +989,12 @@ impl PgEmbeddingSetRepository {
         }
         if request.document_composition.is_some() {
             updates.push(format!("document_composition = ${}", param_idx));
-            // param_idx += 1; // not needed for last param
+            param_idx += 1;
+        }
+        if request.space_contract.is_some() {
+            updates.push(format!("space_contract = ${}", param_idx));
+            param_idx += 1;
+            updates.push(format!("space_id = ${}", param_idx));
         }
 
         let query = format!(
@@ -1002,6 +1053,10 @@ impl PgEmbeddingSetRepository {
         if let Some(composition) = &request.document_composition {
             let composition_json = serde_json::to_value(composition).unwrap_or_default();
             query_builder = query_builder.bind(composition_json);
+        }
+        if let Some(space_contract) = &request.space_contract {
+            query_builder = query_builder.bind(space_contract);
+            query_builder = query_builder.bind(&computed_space_id);
         }
 
         query_builder
@@ -1104,7 +1159,7 @@ impl PgEmbeddingSetRepository {
             SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
-                   provider::text, provider_config, content_types, document_composition
+                   provider::text, provider_config, content_types, document_composition, space_contract, space_id
             FROM embedding_config
             WHERE provider = $1::embedding_provider
             ORDER BY name
@@ -1152,6 +1207,8 @@ impl PgEmbeddingSetRepository {
                         .get::<Option<JsonValue>, _>("document_composition")
                         .and_then(|v| serde_json::from_value(v).ok())
                         .unwrap_or_default(),
+                    space_contract: row.get("space_contract"),
+                    space_id: row.get("space_id"),
                 }
             })
             .collect();
@@ -1169,7 +1226,7 @@ impl PgEmbeddingSetRepository {
             SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
-                   provider::text, provider_config, content_types, document_composition
+                   provider::text, provider_config, content_types, document_composition, space_contract, space_id
             FROM embedding_config
             WHERE $1 = ANY(content_types)
             ORDER BY is_default DESC, name
@@ -1217,6 +1274,8 @@ impl PgEmbeddingSetRepository {
                         .get::<Option<JsonValue>, _>("document_composition")
                         .and_then(|v| serde_json::from_value(v).ok())
                         .unwrap_or_default(),
+                    space_contract: row.get("space_contract"),
+                    space_id: row.get("space_id"),
                 }
             })
             .collect();
@@ -1639,6 +1698,10 @@ impl PgEmbeddingSetRepository {
             mode: mode_str.parse().unwrap_or_default(),
             criteria,
             embedding_config_id: row.get("embedding_config_id"),
+            space_contract: row
+                .try_get::<Option<JsonValue>, _>("space_contract")
+                .unwrap_or(None),
+            space_id: row.try_get::<Option<String>, _>("space_id").unwrap_or(None),
             truncate_dim: row.try_get("truncate_dim").ok(),
             auto_embed_rules,
             document_count: row.get("document_count"),
@@ -1699,6 +1762,15 @@ impl PgEmbeddingSetRepository {
         &self,
         tx: &mut Transaction<'_, Postgres>,
     ) -> Result<Vec<EmbeddingSetSummary>> {
+        self.list_by_space_id_tx(tx, None).await
+    }
+
+    /// List embedding sets within a transaction, optionally filtered by inherited space_id.
+    pub async fn list_by_space_id_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        space_id: Option<&str>,
+    ) -> Result<Vec<EmbeddingSetSummary>> {
         let rows = sqlx::query(
             r#"
             SELECT
@@ -1718,13 +1790,17 @@ impl PgEmbeddingSetRepository {
                 es.truncate_dim,
                 ec.model,
                 ec.dimension,
-                ec.supports_mrl
+                ec.supports_mrl,
+                ec.space_contract,
+                ec.space_id
             FROM embedding_set es
             LEFT JOIN embedding_config ec ON es.embedding_config_id = ec.id
             WHERE es.is_active = TRUE
+              AND ($1::text IS NULL OR ec.space_id = $1)
             ORDER BY es.is_system DESC, es.document_count DESC
             "#,
         )
+        .bind(space_id)
         .fetch_all(&mut **tx)
         .await
         .map_err(Error::Database)?;
@@ -1757,6 +1833,8 @@ impl PgEmbeddingSetRepository {
                     keywords: row.get::<Vec<String>, _>("keywords"),
                     model: row.get("model"),
                     dimension: row.get("dimension"),
+                    space_contract: row.get("space_contract"),
+                    space_id: row.get("space_id"),
                     truncate_dim: row.get("truncate_dim"),
                     supports_mrl: row.get::<Option<bool>, _>("supports_mrl").unwrap_or(false),
                 }
@@ -1775,16 +1853,18 @@ impl PgEmbeddingSetRepository {
         let row = sqlx::query(
             r#"
             SELECT
-                id, name, slug, description, purpose, usage_hints, keywords,
-                set_type::text as set_type, vector_source, mode::text as mode, criteria, embedding_config_id,
-                truncate_dim, auto_embed_rules,
-                index_status::text as index_status, index_type,
-                COALESCE(defer_index_build, FALSE) AS defer_index_build,
-                document_count, embedding_count, embeddings_current, index_size_bytes,
-                is_system, is_active, auto_refresh,
-                agent_metadata, created_at, updated_at, created_by
-            FROM embedding_set
-            WHERE slug = $1
+                es.id, es.name, es.slug, es.description, es.purpose, es.usage_hints, es.keywords,
+                es.set_type::text as set_type, es.vector_source, es.mode::text as mode, es.criteria, es.embedding_config_id,
+                ec.space_contract, ec.space_id,
+                es.truncate_dim, es.auto_embed_rules,
+                es.index_status::text as index_status, es.index_type,
+                COALESCE(es.defer_index_build, FALSE) AS defer_index_build,
+                es.document_count, es.embedding_count, es.embeddings_current, es.index_size_bytes,
+                es.is_system, es.is_active, es.auto_refresh,
+                es.agent_metadata, es.created_at, es.updated_at, es.created_by
+            FROM embedding_set es
+            LEFT JOIN embedding_config ec ON es.embedding_config_id = ec.id
+            WHERE es.slug = $1
             "#,
         )
         .bind(slug)
@@ -1807,16 +1887,18 @@ impl PgEmbeddingSetRepository {
         let row = sqlx::query(
             r#"
             SELECT
-                id, name, slug, description, purpose, usage_hints, keywords,
-                set_type::text as set_type, vector_source, mode::text as mode, criteria, embedding_config_id,
-                truncate_dim, auto_embed_rules,
-                index_status::text as index_status, index_type,
-                COALESCE(defer_index_build, FALSE) AS defer_index_build,
-                document_count, embedding_count, embeddings_current, index_size_bytes,
-                is_system, is_active, auto_refresh,
-                agent_metadata, created_at, updated_at, created_by
-            FROM embedding_set
-            WHERE id = $1
+                es.id, es.name, es.slug, es.description, es.purpose, es.usage_hints, es.keywords,
+                es.set_type::text as set_type, es.vector_source, es.mode::text as mode, es.criteria, es.embedding_config_id,
+                ec.space_contract, ec.space_id,
+                es.truncate_dim, es.auto_embed_rules,
+                es.index_status::text as index_status, es.index_type,
+                COALESCE(es.defer_index_build, FALSE) AS defer_index_build,
+                es.document_count, es.embedding_count, es.embeddings_current, es.index_size_bytes,
+                es.is_system, es.is_active, es.auto_refresh,
+                es.agent_metadata, es.created_at, es.updated_at, es.created_by
+            FROM embedding_set es
+            LEFT JOIN embedding_config ec ON es.embedding_config_id = ec.id
+            WHERE es.id = $1
             "#,
         )
         .bind(id)
@@ -2018,6 +2100,8 @@ impl PgEmbeddingSetRepository {
             RETURNING
                 id, name, slug, description, purpose, usage_hints, keywords,
                 set_type::text as set_type, vector_source, mode::text as mode, criteria, embedding_config_id,
+                (SELECT space_contract FROM embedding_config ec WHERE ec.id = embedding_set.embedding_config_id) AS space_contract,
+                (SELECT space_id FROM embedding_config ec WHERE ec.id = embedding_set.embedding_config_id) AS space_id,
                 truncate_dim, auto_embed_rules,
                 index_status::text as index_status, index_type,
                 COALESCE(defer_index_build, FALSE) AS defer_index_build,
@@ -2431,7 +2515,7 @@ impl PgEmbeddingSetRepository {
             SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
-                   provider::text, provider_config, content_types, document_composition
+                   provider::text, provider_config, content_types, document_composition, space_contract, space_id
             FROM embedding_config
             ORDER BY is_default DESC, name
             "#,
@@ -2477,6 +2561,8 @@ impl PgEmbeddingSetRepository {
                         .get::<Option<JsonValue>, _>("document_composition")
                         .and_then(|v| serde_json::from_value(v).ok())
                         .unwrap_or_default(),
+                    space_contract: row.get("space_contract"),
+                    space_id: row.get("space_id"),
                 }
             })
             .collect();
@@ -2494,7 +2580,7 @@ impl PgEmbeddingSetRepository {
             SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
-                   provider::text, provider_config, content_types, document_composition
+                   provider::text, provider_config, content_types, document_composition, space_contract, space_id
             FROM embedding_config
             WHERE is_default = TRUE
             LIMIT 1
@@ -2540,6 +2626,8 @@ impl PgEmbeddingSetRepository {
                         .get::<Option<JsonValue>, _>("document_composition")
                         .and_then(|v| serde_json::from_value(v).ok())
                         .unwrap_or_default(),
+                    space_contract: row.get("space_contract"),
+                    space_id: row.get("space_id"),
                 }))
             }
             None => Ok(None),
@@ -2557,7 +2645,7 @@ impl PgEmbeddingSetRepository {
             SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
-                   provider::text, provider_config, content_types, document_composition
+                   provider::text, provider_config, content_types, document_composition, space_contract, space_id
             FROM embedding_config
             WHERE id = $1
             "#,
@@ -2603,6 +2691,8 @@ impl PgEmbeddingSetRepository {
                         .get::<Option<JsonValue>, _>("document_composition")
                         .and_then(|v| serde_json::from_value(v).ok())
                         .unwrap_or_default(),
+                    space_contract: row.get("space_contract"),
+                    space_id: row.get("space_id"),
                 }))
             }
             None => Ok(None),

@@ -1125,6 +1125,11 @@ pub struct EmbeddingConfigProfile {
     /// Empty JSON object `{}` means use `DocumentComposition::default()` (title+content).
     #[serde(default)]
     pub document_composition: DocumentComposition,
+
+    /// Stored embedding-space contract JSON for this config.
+    pub space_contract: Option<JsonValue>,
+    /// SHA-256 lowercase hex identity of the canonical space contract.
+    pub space_id: Option<String>,
 }
 
 impl fmt::Debug for EmbeddingConfigProfile {
@@ -1172,6 +1177,11 @@ impl fmt::Debug for EmbeddingConfigProfile {
                     .collect::<Vec<_>>(),
             )
             .field("document_composition", &self.document_composition)
+            .field("space_contract_set", &self.space_contract.is_some())
+            .field(
+                "space_id_len",
+                &self.space_id.as_ref().map(|value| debug_len(value)),
+            )
             .finish()
     }
 }
@@ -1231,6 +1241,10 @@ pub struct EmbeddingSet {
     // Config reference
     #[serde(skip_serializing_if = "Option::is_none")]
     pub embedding_config_id: Option<Uuid>,
+    /// Space contract inherited from the embedding config, if present.
+    pub space_contract: Option<JsonValue>,
+    /// Space identity inherited from the embedding config, if present.
+    pub space_id: Option<String>,
 
     // MRL truncation (for Full sets)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1302,6 +1316,11 @@ impl fmt::Debug for EmbeddingSet {
                 "embedding_config_id_set",
                 &self.embedding_config_id.is_some(),
             )
+            .field("space_contract_set", &self.space_contract.is_some())
+            .field(
+                "space_id_len",
+                &self.space_id.as_ref().map(|value| debug_len(value)),
+            )
             .field("truncate_dim", &self.truncate_dim)
             .field("auto_embed_rules", &self.auto_embed_rules)
             .field("vector_source", &self.vector_source)
@@ -1351,6 +1370,10 @@ pub struct EmbeddingSetSummary {
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dimension: Option<i32>,
+    /// Space contract inherited from the embedding config, if present.
+    pub space_contract: Option<JsonValue>,
+    /// Space identity inherited from the embedding config, if present.
+    pub space_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub truncate_dim: Option<i32>,
     #[serde(default)]
@@ -1392,6 +1415,11 @@ impl fmt::Debug for EmbeddingSetSummary {
                 &self.model.as_ref().map(|value| debug_len(value)),
             )
             .field("dimension", &self.dimension)
+            .field("space_contract_set", &self.space_contract.is_some())
+            .field(
+                "space_id_len",
+                &self.space_id.as_ref().map(|value| debug_len(value)),
+            )
             .field("truncate_dim", &self.truncate_dim)
             .field("supports_mrl", &self.supports_mrl)
             .finish()
@@ -7272,6 +7300,10 @@ mod tests {
             }),
             content_types: vec!["prïvate-content-type".to_string()],
             document_composition: composition.clone(),
+            space_contract: Some(json!({"private": "space-contract"})),
+            space_id: Some(
+                "4e40c2903c3cef52c43c7a3e58b2dedbee9d5aece1f003d52c4335aa07a755c2".to_string(),
+            ),
         };
         let set = EmbeddingSet {
             id: Uuid::new_v4(),
@@ -7285,6 +7317,10 @@ mod tests {
             mode: EmbeddingSetMode::Auto,
             criteria: criteria.clone(),
             embedding_config_id: Some(Uuid::new_v4()),
+            space_contract: Some(json!({"private": "set-space-contract"})),
+            space_id: Some(
+                "4e40c2903c3cef52c43c7a3e58b2dedbee9d5aece1f003d52c4335aa07a755c2".to_string(),
+            ),
             truncate_dim: Some(512),
             auto_embed_rules: rules.clone(),
             vector_source: EmbeddingVectorSource::Internal,
@@ -7318,6 +7354,10 @@ mod tests {
             keywords: vec!["sümmary-private-keyword".to_string()],
             model: Some("sümmary-private-model".to_string()),
             dimension: Some(384),
+            space_contract: Some(json!({"private": "summary-space-contract"})),
+            space_id: Some(
+                "4e40c2903c3cef52c43c7a3e58b2dedbee9d5aece1f003d52c4335aa07a755c2".to_string(),
+            ),
             truncate_dim: Some(256),
             supports_mrl: true,
         };

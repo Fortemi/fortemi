@@ -143,6 +143,14 @@
     "document_composition": {
       "type": "object"
     },
+    "space_contract": true,
+    "space_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[0-9a-f]{64}$"
+    },
     "created_at": {
       "$ref": "#/$defs/dateTime"
     },

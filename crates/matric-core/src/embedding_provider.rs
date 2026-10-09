@@ -97,6 +97,13 @@ pub struct CreateEmbeddingConfigRequest {
     /// Document composition for this config. Defaults to title+content only.
     #[serde(default)]
     pub document_composition: DocumentComposition,
+
+    /// Optional embedding-space contract JSON. The server computes `space_id`.
+    #[serde(default)]
+    pub space_contract: Option<JsonValue>,
+    /// Optional client assertion for the computed contract identity.
+    #[serde(default)]
+    pub space_id: Option<String>,
 }
 
 impl fmt::Debug for CreateEmbeddingConfigRequest {
@@ -139,6 +146,8 @@ impl fmt::Debug for CreateEmbeddingConfigRequest {
             .field("hnsw_m", &self.hnsw_m)
             .field("hnsw_ef_construction", &self.hnsw_ef_construction)
             .field("document_composition_set", &true)
+            .field("space_contract_set", &self.space_contract.is_some())
+            .field("space_id_len", &self.space_id.as_deref().map(text_len))
             .finish()
     }
 }
@@ -164,6 +173,10 @@ pub struct UpdateEmbeddingConfigRequest {
 
     /// Document composition override. If `None`, composition is not changed.
     pub document_composition: Option<DocumentComposition>,
+    /// Optional embedding-space contract JSON. The server computes `space_id`.
+    pub space_contract: Option<JsonValue>,
+    /// Optional client assertion for the computed or existing contract identity.
+    pub space_id: Option<String>,
 }
 
 impl fmt::Debug for UpdateEmbeddingConfigRequest {
@@ -213,6 +226,8 @@ impl fmt::Debug for UpdateEmbeddingConfigRequest {
                 "document_composition_set",
                 &self.document_composition.is_some(),
             )
+            .field("space_contract_set", &self.space_contract.is_some())
+            .field("space_id_len", &self.space_id.as_deref().map(text_len))
             .finish()
     }
 }
@@ -320,6 +335,8 @@ mod tests {
             hnsw_m: Some(16),
             hnsw_ef_construction: Some(200),
             document_composition: DocumentComposition::default(),
+            space_contract: None,
+            space_id: None,
         };
 
         let json = serde_json::to_string(&request).unwrap();
@@ -356,6 +373,8 @@ mod tests {
             hnsw_m: Some(16),
             hnsw_ef_construction: Some(200),
             document_composition: DocumentComposition::default(),
+            space_contract: None,
+            space_id: None,
         };
 
         let update = UpdateEmbeddingConfigRequest {

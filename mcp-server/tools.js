@@ -2759,7 +2759,13 @@ export default [
     description: `List all embedding sets. See \`get_documentation(topic='embedding_configs')\` for set types.`,
     inputSchema: {
       "type": "object",
-      "properties": {}
+      "properties": {
+        "space_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Optional embedding-space SHA-256 id to filter inherited set contracts"
+        }
+      }
     },
     annotations: {"readOnlyHint":true},
   },
@@ -5631,6 +5637,15 @@ When called without note_ids, processes all notes in the current archive (up to 
             "concept_max_doc_freq": { "type": "number", "description": "Max document frequency for concept inclusion (default: 0.8)" },
             "instruction_prefix": { "type": "string", "description": "Model-specific prefix (default: 'clustering: ')" }
           }
+        },
+        "space_contract": {
+          "description": "Embedding-space contract JSON. The server computes space_id from canonical JSON.",
+          "type": ["object", "array", "string", "number", "boolean"]
+        },
+        "space_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Optional assertion for the computed space_contract hash"
         }
       },
       "required": [
@@ -5699,6 +5714,15 @@ When called without note_ids, processes all notes in the current archive (up to 
             "concept_max_doc_freq": { "type": "number", "description": "Max document frequency for concept inclusion" },
             "instruction_prefix": { "type": "string", "description": "Model-specific prefix" }
           }
+        },
+        "space_contract": {
+          "description": "Embedding-space contract JSON. The server computes space_id from canonical JSON.",
+          "type": ["object", "array", "string", "number", "boolean"]
+        },
+        "space_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "Optional assertion for the computed or existing space contract hash"
         }
       },
       "required": [

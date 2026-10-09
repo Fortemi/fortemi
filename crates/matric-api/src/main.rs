@@ -21904,17 +21904,26 @@ const UNKNOWN_EMBEDDING_CONFIG_MESSAGE: &str =
 
 use matric_core::{AddMembersRequest, CreateEmbeddingSetRequest, UpdateEmbeddingSetRequest};
 
+#[derive(Debug, Deserialize)]
+struct ListEmbeddingSetsQuery {
+    space_id: Option<String>,
+}
+
 /// List all embedding sets for discovery
 #[utoipa::path(get, path = "/api/v1/embedding-sets", tag = "Embeddings",
     responses((status = 200, description = "Success")))]
 async fn list_embedding_sets(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
+    Query(query): Query<ListEmbeddingSetsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+    let space_id = query.space_id.clone();
     let sets = ctx
-        .query(move |tx| Box::pin(async move { repo.list_tx(tx).await }))
+        .query(move |tx| {
+            Box::pin(async move { repo.list_by_space_id_tx(tx, space_id.as_deref()).await })
+        })
         .await?;
     Ok(Json(sets))
 }
@@ -26541,6 +26550,10 @@ struct ShardEmbeddingConfigRecord {
     benchmark_scores: Option<serde_json::Value>,
     is_available: Option<bool>,
     document_composition: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    space_contract: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    space_id: Option<String>,
     created_at: chrono::DateTime<chrono::Utc>,
     updated_at: chrono::DateTime<chrono::Utc>,
 }
@@ -31401,7 +31414,8 @@ async fn knowledge_shard(
                     supports_mrl, matryoshka_dims, default_truncate_dim,
                     provider::text AS provider, provider_config, content_types,
                     strengths, limitations, recommended_for, benchmark_scores,
-                    is_available, document_composition, created_at, updated_at
+                    is_available, document_composition, space_contract, space_id,
+                    created_at, updated_at
                 FROM embedding_config ec
                 WHERE (
                     $1
@@ -31455,6 +31469,12 @@ async fn knowledge_shard(
                     benchmark_scores: row.get("benchmark_scores"),
                     is_available: row.get("is_available"),
                     document_composition: row.get("document_composition"),
+                    space_contract: shard_embedding_contract::is_schema_2_1(&schema_version)
+                        .then(|| row.get::<Option<serde_json::Value>, _>("space_contract"))
+                        .flatten(),
+                    space_id: shard_embedding_contract::is_schema_2_1(&schema_version)
+                        .then(|| row.get::<Option<String>, _>("space_id"))
+                        .flatten(),
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
                 })
@@ -38977,7 +38997,7 @@ async fn apply_shard_embedding_components_tx(
                     shard_validation_failed("Knowledge shard embedding configs are invalid.")
                 })?;
             configs.sort_by_key(|config| config.id);
-            for config in configs {
+            for mut config in configs {
                 if schema_2_1_import {
                     let vector_type = config
                         .vector_type
@@ -39001,6 +39021,27 @@ async fn apply_shard_embedding_components_tx(
                             )
                         },
                     )?;
+                    if config.space_contract.is_none() && config.space_id.is_some() {
+                        return Err(shard_validation_failed(
+                            "Knowledge shard embedding config space_id requires a space_contract.",
+                        ));
+                    }
+                    if let Some(space_contract) = &config.space_contract {
+                        let computed_space_id = matric_core::embedding_space_id(space_contract);
+                        if config
+                            .space_id
+                            .as_deref()
+                            .is_some_and(|space_id| space_id != computed_space_id.as_str())
+                        {
+                            return Err(shard_validation_failed(
+                                "Knowledge shard embedding config space_id does not match space_contract.",
+                            ));
+                        }
+                        config.space_id = Some(computed_space_id);
+                    }
+                } else {
+                    config.space_contract = None;
+                    config.space_id = None;
                 }
                 if replace {
                     guard_shard_shared_config_replacement(tx, &config).await?;
@@ -39017,7 +39058,7 @@ async fn apply_shard_embedding_components_tx(
                              supports_mrl, matryoshka_dims, default_truncate_dim,
                              provider, provider_config, content_types, strengths, limitations,
                              recommended_for, benchmark_scores, is_available,
-                             document_composition, created_at, updated_at,
+                             document_composition, space_contract, space_id, created_at, updated_at,
                              shard_export_present
                          ) VALUES (
                              $1, $2, $3, $4, $5, $6, $7,
@@ -39025,7 +39066,7 @@ async fn apply_shard_embedding_components_tx(
                              $13, $14, $15,
                              $16::embedding_provider, $17, $18, $19, $20,
                              $21, $22, $23,
-                             $24, $25, $26, TRUE
+                             $24, $25, $26, $27, $28, TRUE
                          )
                          ON CONFLICT (id) DO UPDATE SET
                              name = EXCLUDED.name,
@@ -39051,6 +39092,8 @@ async fn apply_shard_embedding_components_tx(
                              benchmark_scores = EXCLUDED.benchmark_scores,
                              is_available = EXCLUDED.is_available,
                              document_composition = EXCLUDED.document_composition,
+                             space_contract = EXCLUDED.space_contract,
+                             space_id = EXCLUDED.space_id,
                              created_at = EXCLUDED.created_at,
                              updated_at = EXCLUDED.updated_at",
                     )
@@ -39062,7 +39105,7 @@ async fn apply_shard_embedding_components_tx(
                              supports_mrl, matryoshka_dims, default_truncate_dim,
                              provider, provider_config, content_types, strengths, limitations,
                              recommended_for, benchmark_scores, is_available,
-                             document_composition, created_at, updated_at,
+                             document_composition, space_contract, space_id, created_at, updated_at,
                              shard_export_present
                          ) VALUES (
                              $1, $2, $3, $4, $5, $6, $7,
@@ -39070,7 +39113,7 @@ async fn apply_shard_embedding_components_tx(
                              $13, $14, $15,
                              $16::embedding_provider, $17, $18, $19, $20,
                              $21, $22, $23,
-                             $24, $25, $26, TRUE
+                             $24, $25, $26, $27, $28, TRUE
                          )
                          ON CONFLICT (id) DO NOTHING",
                     )
@@ -39099,6 +39142,8 @@ async fn apply_shard_embedding_components_tx(
                 .bind(config.benchmark_scores)
                 .bind(config.is_available)
                 .bind(config.document_composition)
+                .bind(config.space_contract)
+                .bind(config.space_id)
                 .bind(config.created_at)
                 .bind(config.updated_at)
                 .execute(&mut **tx)
@@ -43728,6 +43773,8 @@ mod tests {
             }),
             content_types: vec!["text".to_string()],
             document_composition: Default::default(),
+            space_contract: None,
+            space_id: None,
         };
 
         let contract = search_embedding_contract(&registry, Some(&profile), Some(3), None).unwrap();
@@ -61708,6 +61755,68 @@ not-json
         assert_eq!(
             shard_embedding_contract::validate_schema_2_1_embedding_contract(&files).unwrap_err(),
             "Knowledge shard embedding vector length does not match declared dimension."
+        );
+    }
+
+    #[test]
+    fn shard_schema_2_1_embedding_preflight_verifies_space_contract_hash() {
+        let contract = serde_json::json!({
+            "provider": "ollama",
+            "pipeline": { "truncate": 1024 },
+            "normalization": "provider-native",
+            "model": "mxbai"
+        });
+        let space_id = matric_core::embedding_space_id(&contract);
+        let timestamp = "2026-10-09T00:00:00Z";
+        let config_id = Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f64921aa").unwrap();
+        let config = serde_json::json!([{
+            "id": config_id,
+            "name": "Space config",
+            "description": null,
+            "model": "mxbai",
+            "dimension": 1024,
+            "vector_type": "vector",
+            "chunk_size": 512,
+            "chunk_overlap": 64,
+            "hnsw_m": null,
+            "hnsw_ef_construction": null,
+            "ivfflat_lists": null,
+            "is_default": null,
+            "supports_mrl": null,
+            "matryoshka_dims": null,
+            "default_truncate_dim": null,
+            "provider": null,
+            "provider_config": null,
+            "content_types": null,
+            "strengths": null,
+            "limitations": null,
+            "recommended_for": null,
+            "benchmark_scores": null,
+            "is_available": null,
+            "document_composition": {},
+            "space_contract": contract,
+            "space_id": space_id,
+            "created_at": timestamp,
+            "updated_at": timestamp
+        }]);
+        let mut files = std::collections::HashMap::from([(
+            "embedding_configs.json".to_string(),
+            serde_json::to_vec(&config).unwrap(),
+        )]);
+
+        shard_embedding_contract::validate_schema_2_1_embedding_contract(&files)
+            .expect("matching space contract hash must validate");
+
+        let mut invalid = config;
+        invalid[0]["space_id"] =
+            serde_json::json!("0000000000000000000000000000000000000000000000000000000000000000");
+        files.insert(
+            "embedding_configs.json".to_string(),
+            serde_json::to_vec(&invalid).unwrap(),
+        );
+        assert_eq!(
+            shard_embedding_contract::validate_schema_2_1_embedding_contract(&files).unwrap_err(),
+            "Knowledge shard embedding config space_id does not match space_contract."
         );
     }
 

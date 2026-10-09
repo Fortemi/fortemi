@@ -49,6 +49,8 @@ fn config_request(
         hnsw_m: Some(16),
         hnsw_ef_construction: Some(64),
         document_composition: Default::default(),
+        space_contract: None,
+        space_id: None,
     }
 }
 
@@ -119,6 +121,71 @@ async fn run_build_index_jobs(db: &Database) {
             .await
             .expect("build vector index");
     }
+}
+
+#[tokio::test]
+async fn embedding_config_space_contract_computes_space_id_and_sets_inherit_it() {
+    let db = setup_test_db().await;
+    let unique = Uuid::new_v4().simple().to_string();
+    let contract = serde_json::json!({
+        "provider": "ollama",
+        "pipeline": { "truncate": 1024 },
+        "normalization": "provider-native",
+        "model": "mxbai"
+    });
+    let expected_space_id = matric_core::embedding_space_id(&contract);
+    let mut request = config_request(
+        &format!("space-contract-{unique}"),
+        1024,
+        EmbeddingVectorType::Vector,
+    );
+    request.space_contract = Some(contract.clone());
+
+    let config = db
+        .embedding_sets
+        .create_config(request)
+        .await
+        .expect("create config with space contract");
+    assert_eq!(config.space_contract, Some(contract));
+    assert_eq!(config.space_id.as_deref(), Some(expected_space_id.as_str()));
+
+    let set = db
+        .embedding_sets
+        .create(set_request(&format!("Space Set {unique}"), config.id))
+        .await
+        .expect("create set inheriting space contract");
+    assert_eq!(set.space_id.as_deref(), Some(expected_space_id.as_str()));
+
+    let mut filtered = db.pool.begin().await.expect("begin list transaction");
+    let sets = db
+        .embedding_sets
+        .list_by_space_id_tx(&mut filtered, Some(&expected_space_id))
+        .await
+        .expect("list sets by space id");
+    assert!(sets.iter().any(|summary| summary.id == set.id));
+}
+
+#[tokio::test]
+async fn embedding_config_rejects_mismatched_client_space_id() {
+    let db = setup_test_db().await;
+    let unique = Uuid::new_v4().simple().to_string();
+    let mut request = config_request(
+        &format!("space-mismatch-{unique}"),
+        1024,
+        EmbeddingVectorType::Vector,
+    );
+    request.space_contract = Some(serde_json::json!({"model": "mxbai"}));
+    request.space_id =
+        Some("0000000000000000000000000000000000000000000000000000000000000000".to_string());
+
+    let error = db
+        .embedding_sets
+        .create_config(request)
+        .await
+        .expect_err("mismatched space_id must be rejected");
+    assert!(error
+        .to_string()
+        .contains("space_id does not match canonical space_contract hash"));
 }
 
 #[tokio::test]

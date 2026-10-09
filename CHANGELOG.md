@@ -9,6 +9,10 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Changed
 
+- Add the R1 embedding space contract surface: configs can store a canonical
+  `space_contract` JSON value with computed `space_id`, sets expose the
+  inherited values and can be listed by `space_id`, and Knowledge Shard 2.1.0
+  preserves and validates the hash (#1174).
 - Add Knowledge Shard `2.1.0/full-v1` for configurable embedding storage:
   exported embedding configs declare `dimension` and `vector_type`, importer
   preflight rejects vector/dimension/type mismatches, import preserves non-768

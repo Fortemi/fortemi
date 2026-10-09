@@ -97,7 +97,7 @@
       "contracts/knowledge-shard/2.1.0/field-semantics.schema.json": "9d3d6342256b20c8e61a2a8d09733cade70b1761b3ae98462d8a84d7e13b57e7",
       "contracts/knowledge-shard/2.1.0/full-v1/community-assignment.schema.json": "43caae37ff83af794e3b33c5c5a890c29891391c9013894b6a27a368d1d1a1e1",
       "contracts/knowledge-shard/2.1.0/full-v1/community-set.schema.json": "44b5ba4dfafffafca4cd2dcbeb613e84b5eac40b8141ee42b64acdd442fc505c",
-      "contracts/knowledge-shard/2.1.0/full-v1/embedding-config.schema.json": "5ef73c4818478f038ba2aecaf203c68ede85b8fac578fe34b65193dbd2ad46ea",
+      "contracts/knowledge-shard/2.1.0/full-v1/embedding-config.schema.json": "72c4a587b6342d0cf31dcb2cc842f5b566a016e3e1cd3c6593789723a703a769",
       "contracts/knowledge-shard/2.1.0/full-v1/embedding-set-member.schema.json": "c3ec095a34bc679caf5953e103f8ff340def3e7f7d24354f84c0b23a50e685b9",
       "contracts/knowledge-shard/2.1.0/full-v1/embedding-set.schema.json": "a1a92c6cf529bed76e4326c6d8f29d4072d4b71c88933e066a71c61752ce0584",
       "contracts/knowledge-shard/2.1.0/full-v1/embedding.schema.json": "55b84637fdda5ce2f4940288bdf0983cde1923372b5d51f9badd958c4ba74c4f",

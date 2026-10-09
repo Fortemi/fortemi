@@ -1292,9 +1292,13 @@ function createMcpServer() {
         // ============================================================================
         // EMBEDDING SETS
         // ============================================================================
-        case "list_embedding_sets":
-          result = await apiRequest("GET", "/api/v1/embedding-sets");
+        case "list_embedding_sets": {
+          const params = new URLSearchParams();
+          if (args.space_id) params.set("space_id", args.space_id);
+          const query = params.toString();
+          result = await apiRequest("GET", `/api/v1/embedding-sets${query ? `?${query}` : ""}`);
           break;
+        }
 
         case "get_embedding_set":
           result = await apiRequest("GET", `/api/v1/embedding-sets/${args.slug}`);
@@ -2879,6 +2883,8 @@ function createMcpServer() {
             chunk_overlap: toNum(args.chunk_overlap),
           };
           if (args.document_composition !== undefined) createBody.document_composition = args.document_composition;
+          if (args.space_contract !== undefined) createBody.space_contract = args.space_contract;
+          if (args.space_id !== undefined) createBody.space_id = args.space_id;
           result = await apiRequest("POST", "/api/v1/embedding-configs", createBody);
           break;
         }
@@ -2894,6 +2900,8 @@ function createMcpServer() {
           if (args.chunk_size !== undefined) body.chunk_size = toNum(args.chunk_size);
           if (args.chunk_overlap !== undefined) body.chunk_overlap = toNum(args.chunk_overlap);
           if (args.document_composition !== undefined) body.document_composition = args.document_composition;
+          if (args.space_contract !== undefined) body.space_contract = args.space_contract;
+          if (args.space_id !== undefined) body.space_id = args.space_id;
           result = await apiRequest("PATCH", `/api/v1/embedding-configs/${args.id}`, body);
           break;
         }

@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use matric_core::{validate_embedding_dimension, EmbeddingVectorType};
+use matric_core::{embedding_space_id, validate_embedding_dimension, EmbeddingVectorType};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -185,6 +185,23 @@ pub fn validate_schema_2_1_embedding_contract(
                     "Knowledge shard embedding config dimension exceeds vector type limit."
                         .to_string(),
                 );
+            }
+            let space_contract = value.get("space_contract").filter(|value| !value.is_null());
+            let space_id = value.get("space_id").and_then(Value::as_str);
+            if space_contract.is_none() && space_id.is_some() {
+                return Err(
+                    "Knowledge shard embedding config space_id requires a space_contract."
+                        .to_string(),
+                );
+            }
+            if let Some(space_contract) = space_contract {
+                let computed = embedding_space_id(space_contract);
+                if space_id != Some(computed.as_str()) {
+                    return Err(
+                        "Knowledge shard embedding config space_id does not match space_contract."
+                            .to_string(),
+                    );
+                }
             }
             configs.insert(
                 id,
