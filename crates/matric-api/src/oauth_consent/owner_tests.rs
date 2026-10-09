@@ -52,6 +52,31 @@ async fn a_proxy_signed_in_owner_approves_without_a_credential() {
 }
 
 #[tokio::test]
+async fn trusted_header_owner_cannot_exceed_scope_ceiling() {
+    let state = proxy_state().await;
+    let client_id = client(&state, "read mcp admin").await;
+    let uri = authorize_uri(&client_id, REDIRECT, "admin");
+    let page = send(&state, get_request(&uri, proxy(), Some("ops@example.com"))).await;
+    assert_eq!(page.status, StatusCode::OK);
+    let (tx, csrf, cookie) = page.form();
+    let post = Post {
+        transaction: &tx,
+        csrf: &csrf,
+        cookie: Some(&cookie),
+        action: "approve",
+        credential: None,
+    };
+    let reply = send(
+        &state,
+        post_request(&post, proxy(), Some("ops@example.com")),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::UNAUTHORIZED);
+    assert!(reply.body.contains("does not hold every requested scope"));
+    assert_eq!(codes_for(&state, &client_id).await, 0);
+}
+
+#[tokio::test]
 async fn the_owner_header_is_ignored_from_untrusted_peers() {
     let state = proxy_state().await;
     let client_id = client(&state, "read").await;

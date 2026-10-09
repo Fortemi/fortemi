@@ -115,6 +115,31 @@ async fn a_credential_cannot_grant_scopes_it_does_not_hold() {
 }
 
 #[tokio::test]
+async fn external_idp_mode_refuses_api_key_owner_proof() {
+    let mut state = state_with(AuthorizeConfig::api_key_only()).await;
+    state.oauth_external_idp_configured = true;
+    let client_id = client(&state, "read").await;
+    let key = api_key(&state, "read").await;
+    let page = send(
+        &state,
+        get_request(&authorize_uri(&client_id, REDIRECT, "read"), None, None),
+    )
+    .await;
+    let (tx, csrf, cookie) = page.form();
+    let post = Post {
+        transaction: &tx,
+        csrf: &csrf,
+        cookie: Some(&cookie),
+        action: "approve",
+        credential: Some(&key),
+    };
+    let reply = send(&state, post_request(&post, None, None)).await;
+    assert_eq!(reply.status, StatusCode::UNAUTHORIZED);
+    assert!(reply.body.contains("A valid credential is required"));
+    assert_eq!(codes_for(&state, &client_id).await, 0);
+}
+
+#[tokio::test]
 async fn untrusted_clients_and_redirects_get_local_errors_without_redirects() {
     let state = state_with(AuthorizeConfig::api_key_only()).await;
     let client_id = client(&state, "read").await;

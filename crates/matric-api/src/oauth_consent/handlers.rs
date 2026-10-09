@@ -54,6 +54,12 @@ pub(crate) async fn authorize_get(
     headers: &HeaderMap,
     req: &AuthorizationRequest,
 ) -> Response {
+    if !state.oauth_local_as_enabled {
+        return page::error_page(
+            StatusCode::FORBIDDEN,
+            "access_denied: Local OAuth authorization is disabled while an external identity provider is configured.",
+        );
+    }
     let request = match request::validate(&state.db, req).await {
         Ok(request) => request,
         Err(rejection) => return rejection_response(state, rejection),
@@ -127,6 +133,12 @@ pub(crate) async fn authorize_post(
     headers: &HeaderMap,
     form: &AuthorizationForm,
 ) -> Response {
+    if !state.oauth_local_as_enabled {
+        return page::error_page(
+            StatusCode::FORBIDDEN,
+            "access_denied: Local OAuth authorization is disabled while an external identity provider is configured.",
+        );
+    }
     if cross_site(headers, &state.issuer) {
         return page::error_page(
             StatusCode::FORBIDDEN,

@@ -8,7 +8,9 @@ use matric_core::CreateApiKeyRequest;
 use tower::ServiceExt;
 
 use crate::oauth_registration::OAuthRegistrationMode;
-use crate::{oauth_discovery, oauth_register, AppState, Database};
+use crate::{
+    oauth_authorize_get, oauth_discovery, oauth_register, oauth_token, AppState, Database,
+};
 
 async fn state_with(mode: OAuthRegistrationMode) -> AppState {
     let url = std::env::var("DATABASE_URL").expect("DATABASE_URL is required for OAuth tests");
@@ -23,11 +25,23 @@ async fn state_with(mode: OAuthRegistrationMode) -> AppState {
 fn router(state: AppState) -> Router {
     Router::new()
         .route("/oauth/register", post(oauth_register))
+        .route("/oauth/authorize", get(oauth_authorize_get))
+        .route("/oauth/token", post(oauth_token))
         .route(
             "/.well-known/oauth-authorization-server",
             get(oauth_discovery),
         )
         .with_state(state)
+}
+
+async fn external_disabled_state() -> AppState {
+    let mut state = state_with(OAuthRegistrationMode::Disabled).await;
+    state.oauth_local_as_enabled = false;
+    state.oauth_external_idp_configured = true;
+    state.oauth_authorize = std::sync::Arc::new(crate::oauth_consent::AuthorizeRuntime::new(
+        crate::oauth_consent::config::AuthorizeConfig::disabled(),
+    ));
+    state
 }
 
 const BODY: &str =
@@ -55,6 +69,34 @@ async fn register(
         status,
         serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
     )
+}
+
+async fn post_token(state: AppState, body: &str) -> (StatusCode, serde_json::Value) {
+    let request = Request::post("/oauth/token")
+        .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+        .body(Body::from(body.to_string()))
+        .unwrap();
+    let response = router(state).oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
+    )
+}
+
+async fn authorize(state: AppState) -> (StatusCode, String) {
+    let request = Request::get("/oauth/authorize?response_type=code&client_id=mm_test&redirect_uri=https%3A%2F%2Fclient.example%2Fcb")
+        .body(Body::empty())
+        .unwrap();
+    let response = router(state).oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    (status, String::from_utf8_lossy(&bytes).to_string())
 }
 
 async fn discovery(state: AppState) -> serde_json::Value {
@@ -157,4 +199,34 @@ async fn unsupported_token_endpoint_auth_method_is_rejected() {
     let state = state_with(OAuthRegistrationMode::Enabled).await;
     let body = r#"{"client_name":"public","grant_types":["client_credentials"],"token_endpoint_auth_method":"none"}"#;
     assert_eq!(register(state, None, body).await.0, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn invalid_redirect_uri_metadata_is_rejected() {
+    let state = state_with(OAuthRegistrationMode::Enabled).await;
+    let body = r#"{"client_name":"bad redirect","grant_types":["authorization_code"],"redirect_uris":["http://attacker.example/cb"]}"#;
+    let (status, body) = register(state, None, body).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body["error"], "invalid_redirect_uri");
+}
+
+#[tokio::test]
+async fn external_idp_defaults_disable_local_as_entrypoints() {
+    let state = external_disabled_state().await;
+
+    let (status, body) = register(state.clone(), None, BODY).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["error"], "access_denied");
+
+    let (status, body) = post_token(
+        state.clone(),
+        "grant_type=authorization_code&client_id=mm_x&client_secret=s",
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(body["error"], "access_denied");
+
+    let (status, body) = authorize(state).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(body.contains("access_denied"));
 }

@@ -11,6 +11,8 @@ use fortemi_auth_core::{
 use sqlx::PgPool;
 use uuid::Uuid;
 
+pub const AUTH_ISSUER_ENV: &str = "FORTEMI_AUTH_ISSUER";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HostedAuthConfig {
     pub issuer: String,
@@ -44,7 +46,9 @@ impl HostedAuthConfig {
     where
         F: Fn(&str) -> Option<String>,
     {
-        let issuer = env("ISSUER_URL")
+        let issuer = env(AUTH_ISSUER_ENV)
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| env("ISSUER_URL").filter(|value| !value.trim().is_empty()))
             .filter(|value| !value.trim().is_empty())
             .ok_or(AuthError::ConfigError)?;
         let audience = env("FORTEMI_AUTH_AUDIENCE")
@@ -227,6 +231,15 @@ mod tests {
         .unwrap();
         assert_eq!(config.tenant_claim_name, "fortemi:tenant_id");
         assert_eq!(config.clock_skew_seconds, 60);
+
+        let explicit = HostedAuthConfig::from_env(|name| match name {
+            "ISSUER_URL" => Some("https://local.example".to_string()),
+            "FORTEMI_AUTH_ISSUER" => Some("https://issuer.example".to_string()),
+            "FORTEMI_AUTH_AUDIENCE" => Some("fortemi-api".to_string()),
+            _ => None,
+        })
+        .unwrap();
+        assert_eq!(explicit.issuer, "https://issuer.example");
 
         assert!(HostedAuthConfig::from_env(|_| None).is_err());
         assert!(HostedAuthConfig::from_env(|name| match name {

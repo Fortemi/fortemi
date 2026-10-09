@@ -57,6 +57,7 @@ impl OAuthRegistrationMode {
         Ok(mode)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn from_env(multi_tenant: bool) -> anyhow::Result<Self> {
         Self::from_value(
             std::env::var(REGISTRATION_ENV).ok().as_deref(),

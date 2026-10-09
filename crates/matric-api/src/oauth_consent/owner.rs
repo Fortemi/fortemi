@@ -18,7 +18,7 @@ const MAX_SUBJECT_LEN: usize = 256;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Owner {
     pub(crate) subject: String,
-    /// `None`: the proxy's sign-in is the authorization decision; no scope ceiling.
+    /// `None`: no scope-bearing credential was used.
     scopes: Option<Vec<String>>,
 }
 
@@ -51,7 +51,7 @@ pub(crate) fn from_trusted_header(
         && !value.chars().any(char::is_control);
     valid.then(|| Owner {
         subject: format!("proxy:{value}"),
-        scopes: None,
+        scopes: Some(config.owner_header_scopes().to_vec()),
     })
 }
 
@@ -59,6 +59,9 @@ pub(crate) fn from_trusted_header(
 pub(crate) async fn from_credential(state: &AppState, credential: &str) -> Option<Owner> {
     let credential = credential.trim();
     if credential.is_empty() || !state.oauth_authorize.config.allows(OwnerAuthMethod::ApiKey) {
+        return None;
+    }
+    if state.oauth_external_idp_configured && credential.starts_with("mm_key_") {
         return None;
     }
     let identity = validate_bearer_identity(state, credential).await.ok()?;
@@ -98,7 +101,10 @@ mod tests {
         let untrusted: SocketAddr = "192.0.2.10:4000".parse().unwrap();
         let owner =
             from_trusted_header(&config(), &proxies, Some(trusted), &headers("a@b.example"));
-        assert_eq!(owner.unwrap().subject, "proxy:a@b.example");
+        let owner = owner.unwrap();
+        assert_eq!(owner.subject, "proxy:a@b.example");
+        assert!(owner.covers("read mcp"));
+        assert!(!owner.covers("admin"));
         assert!(from_trusted_header(
             &config(),
             &proxies,

@@ -7,6 +7,14 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+### Security
+
+- Harden Fortemi's local OAuth authorization server: redirect URI matching now
+  parses URLs before applying the RFC 8252 loopback port exception, dynamic
+  client registration rejects unsafe redirect metadata, and deployments with an
+  external IdP configured fail closed unless `FORTEMI_OAUTH_ALLOW_LOCAL_AS=true`
+  is paired with authenticated owner consent (#1189, #1195).
+
 ### Changed
 
 - Add the R1 embedding space contract surface: configs can store a canonical

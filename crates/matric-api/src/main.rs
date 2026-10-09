@@ -17,6 +17,7 @@ mod middleware;
 mod migrate_only;
 mod oauth_consent;
 mod oauth_profile;
+mod oauth_redirect;
 mod oauth_registration;
 #[cfg(test)]
 mod oauth_registration_tests;
@@ -1249,6 +1250,10 @@ struct AppState {
     key_health: Option<Arc<matric_api::services::key_provider_health::KeyProviderHealth>>,
     /// Dynamic client registration policy for `/oauth/register` (#944).
     oauth_registration: oauth_registration::OAuthRegistrationMode,
+    /// Whether Fortemi's local authorization server may issue local OAuth tokens.
+    oauth_local_as_enabled: bool,
+    /// Whether an external identity provider is configured for this process.
+    oauth_external_idp_configured: bool,
     /// Resource-owner authentication and pending consent transactions (#943).
     oauth_authorize: Arc<oauth_consent::AuthorizeRuntime>,
     /// OAuth access token lifetime (standard clients).
@@ -2315,6 +2320,22 @@ const MAX_SHUTDOWN_GRACE_SECS: u64 = 300;
 const DEFAULT_RUST_LOG: &str = "info";
 const JOBS_DIAGNOSTIC_RUST_LOG: &str =
     "matric_jobs=debug,matric_api::handlers::jobs=debug,matric_inference=debug,info";
+const AUTH_ISSUER_ENV: &str = "FORTEMI_AUTH_ISSUER";
+const ALLOW_LOCAL_AS_ENV: &str = "FORTEMI_OAUTH_ALLOW_LOCAL_AS";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ExternalAuthIssuerConfig {
+    issuer: Option<String>,
+    explicit: bool,
+}
+
+#[derive(Debug, Clone)]
+struct LocalOAuthStartupConfig {
+    registration: oauth_registration::OAuthRegistrationMode,
+    authorize: oauth_consent::config::AuthorizeConfig,
+    local_as_enabled: bool,
+    external_idp_configured: bool,
+}
 
 fn strict_bool_value(name: &str, value: Option<&str>, default: bool) -> anyhow::Result<bool> {
     match value {
@@ -2523,6 +2544,112 @@ fn validated_issuer_url(
         }
         Err(err) => anyhow::bail!("ISSUER_URL could not be read: {err}"),
     }
+}
+
+fn configured_external_auth_issuer_with_env<F>(
+    env: F,
+    multi_tenant: bool,
+    allow_local_issuer: bool,
+) -> anyhow::Result<ExternalAuthIssuerConfig>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    if let Some(raw) = env(AUTH_ISSUER_ENV).filter(|value| !value.trim().is_empty()) {
+        let issuer = validate_configured_external_auth_issuer_url(&raw, allow_local_issuer)?;
+        return Ok(ExternalAuthIssuerConfig {
+            issuer: Some(issuer),
+            explicit: true,
+        });
+    }
+    if multi_tenant {
+        let issuer = env("ISSUER_URL")
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "FORTEMI_MULTI_TENANT=true requires ISSUER_URL or {AUTH_ISSUER_ENV}"
+                )
+            })?;
+        return Ok(ExternalAuthIssuerConfig {
+            issuer: Some(validate_configured_issuer_url(&issuer, allow_local_issuer)?),
+            explicit: false,
+        });
+    }
+    Ok(ExternalAuthIssuerConfig {
+        issuer: None,
+        explicit: false,
+    })
+}
+
+fn validate_configured_external_auth_issuer_url(
+    raw: &str,
+    allow_local_issuer: bool,
+) -> anyhow::Result<String> {
+    validate_configured_issuer_url(raw, allow_local_issuer).map_err(|err| {
+        anyhow::anyhow!("{}", err.to_string().replace("ISSUER_URL", AUTH_ISSUER_ENV))
+    })
+}
+
+fn local_oauth_startup_config_with_env<F>(
+    env: F,
+    multi_tenant: bool,
+    trusted_proxy_count: usize,
+    local_issuer: &str,
+    local_issuer_explicit: bool,
+    allow_local_issuer: bool,
+) -> anyhow::Result<LocalOAuthStartupConfig>
+where
+    F: Fn(&str) -> Option<String> + Copy,
+{
+    let external = configured_external_auth_issuer_with_env(env, multi_tenant, allow_local_issuer)?;
+    if local_issuer_explicit
+        && external.explicit
+        && external.issuer.as_deref() == Some(local_issuer)
+    {
+        anyhow::bail!(
+            "ISSUER_URL and {AUTH_ISSUER_ENV} must not name the same issuer; keep the local authorization server issuer separate from the external identity provider"
+        );
+    }
+
+    let external_idp_configured = external.issuer.is_some() && (external.explicit || multi_tenant);
+    let allow_local_as = strict_bool_value(
+        ALLOW_LOCAL_AS_ENV,
+        env(ALLOW_LOCAL_AS_ENV).as_deref(),
+        false,
+    )?;
+    if external_idp_configured && !allow_local_as {
+        return Ok(LocalOAuthStartupConfig {
+            registration: oauth_registration::OAuthRegistrationMode::Disabled,
+            authorize: oauth_consent::config::AuthorizeConfig::disabled(),
+            local_as_enabled: false,
+            external_idp_configured,
+        });
+    }
+
+    let registration = oauth_registration::OAuthRegistrationMode::from_value(
+        env(oauth_registration::REGISTRATION_ENV).as_deref(),
+        multi_tenant,
+    )?;
+    let authorize_multi_tenant = multi_tenant && !(external_idp_configured && allow_local_as);
+    let authorize = oauth_consent::config::AuthorizeConfig::from_values(
+        env(oauth_consent::config::OWNER_AUTH_ENV).as_deref(),
+        env(oauth_consent::config::OWNER_HEADER_ENV).as_deref(),
+        env(oauth_consent::config::OWNER_HEADER_SCOPES_ENV).as_deref(),
+        authorize_multi_tenant,
+        trusted_proxy_count,
+    )?;
+    if external_idp_configured && allow_local_as && !authorize.has_authenticated_methods() {
+        anyhow::bail!(
+            "{ALLOW_LOCAL_AS_ENV}=true requires {owner_env}=api_key, trusted_header, or api_key,trusted_header",
+            owner_env = oauth_consent::config::OWNER_AUTH_ENV
+        );
+    }
+
+    Ok(LocalOAuthStartupConfig {
+        registration,
+        authorize,
+        local_as_enabled: true,
+        external_idp_configured,
+    })
 }
 
 fn validated_issuer_url_with_value(
@@ -3428,22 +3555,31 @@ async fn main() -> anyhow::Result<()> {
     // The boolean default for `require_auth` is now `true`. Opt-out requires BOTH
     // `REQUIRE_AUTH=false` AND `I_UNDERSTAND_NO_AUTH=true`. Multi-tenant builds
     // (FORTEMI_MULTI_TENANT=true) refuse anonymous regardless — ADR-090 Rev 1.
+    let local_issuer_explicit = std::env::var("ISSUER_URL")
+        .ok()
+        .is_some_and(|value| !value.trim().is_empty());
     let issuer = validated_issuer_url(&host, port, &security_config)?;
     let issuer_meta = startup_issuer_telemetry(&issuer);
-    let oauth_registration =
-        oauth_registration::OAuthRegistrationMode::from_env(security_config.multi_tenant)?;
+    let local_oauth = local_oauth_startup_config_with_env(
+        |name| std::env::var(name).ok(),
+        security_config.multi_tenant,
+        trusted_proxy_config.trusted_source_count(),
+        &issuer,
+        local_issuer_explicit,
+        security_config.allow_local_issuer,
+    )?;
+    let oauth_registration = local_oauth.registration;
     info!(
         target: "fortemi.security",
         oauth_dynamic_registration = oauth_registration.as_str(),
         "OAuth dynamic client registration policy"
     );
-    let oauth_authorize_config = oauth_consent::config::AuthorizeConfig::from_env(
-        security_config.multi_tenant,
-        trusted_proxy_config.trusted_source_count(),
-    )?;
+    let oauth_authorize_config = local_oauth.authorize;
     info!(
         target: "fortemi.security",
         oauth_authorize_owner_auth = %oauth_authorize_config.describe(),
+        oauth_local_as_enabled = local_oauth.local_as_enabled,
+        external_idp_configured = local_oauth.external_idp_configured,
         "OAuth authorization endpoint resource-owner authentication"
     );
     if oauth_authorize_config.is_unauthenticated() {
@@ -4476,6 +4612,8 @@ async fn main() -> anyhow::Result<()> {
         key_provider,
         key_health,
         oauth_registration,
+        oauth_local_as_enabled: local_oauth.local_as_enabled,
+        oauth_external_idp_configured: local_oauth.external_idp_configured,
         oauth_authorize,
         oauth_token_lifetime,
         oauth_mcp_token_lifetime,
@@ -23626,6 +23764,11 @@ async fn oauth_register(
     headers: HeaderMap,
     body: axum::body::Bytes,
 ) -> Result<axum::response::Response, OAuthApiError> {
+    if !state.oauth_local_as_enabled {
+        return Ok(oauth_access_denied_response(
+            "Local OAuth registration is disabled while an external identity provider is configured.",
+        ));
+    }
     // Policy first, so a disabled endpoint never parses or stores anything (#944).
     if let Some(refusal) = oauth_registration::admit_registration(&state, &headers).await {
         return Ok(refusal);
@@ -23658,6 +23801,22 @@ async fn oauth_register(
         req.token_endpoint_auth_method.as_deref(),
     )
     .map_err(|detail| OAuthApiError::OAuth(OAuthError::invalid_request(&detail)))?;
+
+    for redirect_uri in &req.redirect_uris {
+        if oauth_redirect::validate_registration_redirect_uri(redirect_uri).is_err() {
+            return Ok((
+                StatusCode::BAD_REQUEST,
+                Json(OAuthError {
+                    error: "invalid_redirect_uri".to_string(),
+                    error_description: Some(
+                        "redirect_uris must be https, loopback http, or a private-use scheme with no wildcards, userinfo or fragment".to_string(),
+                    ),
+                    error_uri: None,
+                }),
+            )
+                .into_response());
+        }
+    }
 
     let mut response = state.db.oauth.register_client(req).await?;
 
@@ -23725,7 +23884,12 @@ async fn oauth_token(
     State(state): State<AppState>,
     headers: HeaderMap,
     Form(req): Form<TokenRequest>,
-) -> Result<impl IntoResponse, OAuthApiError> {
+) -> Result<axum::response::Response, OAuthApiError> {
+    if !state.oauth_local_as_enabled {
+        return Ok(oauth_access_denied_response(
+            "Local OAuth token issuance is disabled while an external identity provider is configured.",
+        ));
+    }
     // Parse client credentials
     let (client_id, client_secret) = parse_client_credentials(
         &headers,
@@ -23795,7 +23959,7 @@ async fn oauth_token(
                 refresh_token: None,
                 scope: Some(token.scope),
             };
-            Ok(Json(response))
+            Ok(Json(response).into_response())
         }
 
         "authorization_code" => {
@@ -23853,7 +24017,7 @@ async fn oauth_token(
                 refresh_token,
                 scope: Some(token.scope),
             };
-            Ok(Json(response))
+            Ok(Json(response).into_response())
         }
 
         "refresh_token" => {
@@ -23886,7 +24050,7 @@ async fn oauth_token(
                 refresh_token: new_refresh_token,
                 scope: Some(token.scope),
             };
-            Ok(Json(response))
+            Ok(Json(response).into_response())
         }
 
         _ => Err(OAuthApiError::OAuth(OAuthError::unsupported_grant_type(
@@ -24122,48 +24286,27 @@ async fn oauth_authorize_post(
 /// Validate redirect_uri against registered URIs.
 /// Allows flexible localhost port matching for development clients (MCP, etc).
 fn validate_redirect_uri(redirect_uri: &str, registered_uris: &[String]) -> bool {
-    // Exact match first
-    if registered_uris.contains(&redirect_uri.to_string()) {
-        return true;
-    }
+    oauth_redirect::validate_redirect_uri(redirect_uri, registered_uris)
+}
 
-    // For localhost URIs, allow any port if a localhost URI is registered
-    if redirect_uri.starts_with("http://localhost:")
-        || redirect_uri.starts_with("http://127.0.0.1:")
-    {
-        // Extract path from redirect_uri
-        let uri_parts: Vec<&str> = redirect_uri.splitn(4, '/').collect();
-        let path = if uri_parts.len() >= 4 {
-            format!("/{}", uri_parts[3])
-        } else if uri_parts.len() == 3 && uri_parts[2].contains(':') {
-            "/".to_string()
-        } else {
-            "".to_string()
-        };
+#[cfg(test)]
+mod oauth_redirect_security_tests {
+    use super::validate_redirect_uri;
 
-        for registered in registered_uris {
-            if registered.starts_with("http://localhost:")
-                || registered.starts_with("http://127.0.0.1:")
-            {
-                // Extract path from registered URI
-                let reg_parts: Vec<&str> = registered.splitn(4, '/').collect();
-                let reg_path = if reg_parts.len() >= 4 {
-                    format!("/{}", reg_parts[3])
-                } else if reg_parts.len() == 3 && reg_parts[2].contains(':') {
-                    "/".to_string()
-                } else {
-                    "".to_string()
-                };
-
-                // Match if paths are the same (allowing different ports)
-                if path == reg_path {
-                    return true;
-                }
-            }
+    #[test]
+    fn loopback_redirect_exception_rejects_url_confusion() {
+        let registered = vec!["http://localhost:3000/cb".to_string()];
+        for candidate in [
+            "http://localhost:1234@attacker.example/cb",
+            "http://localhost.attacker.example:1/cb",
+            "http://127.0.0.1:1/cb#x",
+        ] {
+            assert!(
+                !validate_redirect_uri(candidate, &registered),
+                "{candidate} must not match the registered loopback redirect"
+            );
         }
     }
-
-    false
 }
 
 // =============================================================================
@@ -24293,6 +24436,11 @@ impl From<matric_core::Error> for OAuthApiError {
 
 fn oauth_problem_mapping(error: &OAuthError) -> (StatusCode, ProblemType, &'static str) {
     match error.error.as_str() {
+        "access_denied" => (
+            StatusCode::FORBIDDEN,
+            ProblemType::Forbidden,
+            "OAuth request is denied by server policy.",
+        ),
         "invalid_client" => (
             StatusCode::UNAUTHORIZED,
             ProblemType::Unauthorized,
@@ -24339,6 +24487,22 @@ fn oauth_problem_mapping(error: &OAuthError) -> (StatusCode, ProblemType, &'stat
             "OAuth request failed validation.",
         ),
     }
+}
+
+fn oauth_access_denied(description: &str) -> OAuthError {
+    OAuthError {
+        error: "access_denied".to_string(),
+        error_description: Some(description.to_string()),
+        error_uri: None,
+    }
+}
+
+fn oauth_access_denied_response(description: &str) -> axum::response::Response {
+    (
+        StatusCode::FORBIDDEN,
+        Json(oauth_access_denied(description)),
+    )
+        .into_response()
 }
 
 impl IntoResponse for OAuthApiError {
@@ -48062,6 +48226,10 @@ mod tests {
             Some("https://auth.example.com/oauth/register".to_string())
         );
         assert_eq!(
+            metadata.authorization_response_iss_parameter_supported,
+            Some(true)
+        );
+        assert_eq!(
             metadata.token_endpoint_auth_methods_supported,
             ["client_secret_basic", "client_secret_post"]
         );
@@ -71004,6 +71172,8 @@ not-json
             key_provider: None,
             key_health: None,
             oauth_registration: oauth_registration::OAuthRegistrationMode::Enabled,
+            oauth_local_as_enabled: true,
+            oauth_external_idp_configured: false,
             oauth_authorize: Arc::new(oauth_consent::AuthorizeRuntime::new(
                 oauth_consent::config::AuthorizeConfig::approve_only(),
             )),
@@ -72427,6 +72597,84 @@ not-json
             validate_configured_issuer_url("https://idp.example.com/auth/realms/acme-prod", false)
                 .unwrap();
         assert_eq!(nested, "https://idp.example.com/auth/realms/acme-prod");
+    }
+
+    #[test]
+    fn local_oauth_external_idp_defaults_disable_local_as() {
+        let config = local_oauth_startup_config_with_env(
+            |name| match name {
+                "FORTEMI_AUTH_ISSUER" => Some("https://idp.example.com/realms/acme".to_string()),
+                _ => None,
+            },
+            false,
+            0,
+            "https://fortemi.example.com",
+            true,
+            false,
+        )
+        .unwrap();
+
+        assert!(!config.local_as_enabled);
+        assert!(config.external_idp_configured);
+        assert_eq!(
+            config.registration,
+            oauth_registration::OAuthRegistrationMode::Disabled
+        );
+        assert!(config.authorize.is_disabled());
+    }
+
+    #[test]
+    fn local_oauth_external_idp_opt_in_requires_real_owner_auth() {
+        let err = local_oauth_startup_config_with_env(
+            |name| match name {
+                "FORTEMI_AUTH_ISSUER" => Some("https://idp.example.com/realms/acme".to_string()),
+                "FORTEMI_OAUTH_ALLOW_LOCAL_AS" => Some("true".to_string()),
+                "FORTEMI_OAUTH_AUTHORIZE_OWNER_AUTH" => Some("none".to_string()),
+                _ => None,
+            },
+            false,
+            0,
+            "https://fortemi.example.com",
+            true,
+            false,
+        )
+        .expect_err("external IdP opt-in must reject owner-auth none");
+        assert!(err.to_string().contains("FORTEMI_OAUTH_ALLOW_LOCAL_AS"));
+
+        let config = local_oauth_startup_config_with_env(
+            |name| match name {
+                "FORTEMI_AUTH_ISSUER" => Some("https://idp.example.com/realms/acme".to_string()),
+                "FORTEMI_OAUTH_ALLOW_LOCAL_AS" => Some("true".to_string()),
+                "FORTEMI_OAUTH_AUTHORIZE_OWNER_AUTH" => Some("api_key".to_string()),
+                _ => None,
+            },
+            false,
+            0,
+            "https://fortemi.example.com",
+            true,
+            false,
+        )
+        .unwrap();
+        assert!(config.local_as_enabled);
+        assert!(config.authorize.has_authenticated_methods());
+    }
+
+    #[test]
+    fn local_and_external_issuers_must_not_be_equal_when_both_set() {
+        let err = local_oauth_startup_config_with_env(
+            |name| match name {
+                "ISSUER_URL" => Some("https://issuer.example.com".to_string()),
+                "FORTEMI_AUTH_ISSUER" => Some("https://issuer.example.com/".to_string()),
+                _ => None,
+            },
+            false,
+            0,
+            "https://issuer.example.com",
+            true,
+            false,
+        )
+        .expect_err("matching local and external issuers must fail startup");
+        assert!(err.to_string().contains("must not name the same issuer"));
     }
 
     #[test]
@@ -76995,6 +77243,8 @@ not-json
             key_provider: None,
             key_health: None,
             oauth_registration: oauth_registration::OAuthRegistrationMode::Enabled,
+            oauth_local_as_enabled: true,
+            oauth_external_idp_configured: false,
             oauth_authorize: Arc::new(oauth_consent::AuthorizeRuntime::new(
                 oauth_consent::config::AuthorizeConfig::approve_only(),
             )),
@@ -78793,6 +79043,8 @@ not-json
             key_provider: None,
             key_health: None,
             oauth_registration: oauth_registration::OAuthRegistrationMode::Enabled,
+            oauth_local_as_enabled: true,
+            oauth_external_idp_configured: false,
             oauth_authorize: Arc::new(oauth_consent::AuthorizeRuntime::new(
                 oauth_consent::config::AuthorizeConfig::approve_only(),
             )),
@@ -79144,6 +79396,8 @@ not-json
             key_provider: None,
             key_health: None,
             oauth_registration: oauth_registration::OAuthRegistrationMode::Enabled,
+            oauth_local_as_enabled: true,
+            oauth_external_idp_configured: false,
             oauth_authorize: Arc::new(oauth_consent::AuthorizeRuntime::new(
                 oauth_consent::config::AuthorizeConfig::approve_only(),
             )),

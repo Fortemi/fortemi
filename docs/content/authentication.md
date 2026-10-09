@@ -74,7 +74,8 @@ The hosted profile requires all of the following at startup:
 ```text
 FORTEMI_MULTI_TENANT=true
 REQUIRE_AUTH=true
-ISSUER_URL=https://identity.example.com/
+ISSUER_URL=https://fortemi.example.com
+FORTEMI_AUTH_ISSUER=https://identity.example.com/
 FORTEMI_AUTH_AUDIENCE=<DEPLOYMENT_AUDIENCE>
 FORTEMI_AUTH_TENANT_CLAIM=fortemi:tenant_id
 ```
@@ -82,17 +83,26 @@ FORTEMI_AUTH_TENANT_CLAIM=fortemi:tenant_id
 `FORTEMI_AUTH_CLOCK_SKEW_SECONDS` defaults to 60 and is bounded to `0..60`;
 `FORTEMI_AUTH_JWKS_CACHE_CAPACITY` defaults to 128 and is bounded to
 `1..4096`; `FORTEMI_AUTH_HTTP_TIMEOUT_SECONDS` defaults to 5 and is bounded to
-`1..30`. The issuer and audience are required and cannot be blank. Values and
-identity-provider credentials must come from the hosted configuration/secret
-authority, not committed examples. This profile is distinct from Fortemi's
-self-hosted `/oauth/*` authorization-code and client-credentials flows.
+`1..30`. The external issuer and audience are required and cannot be blank.
+Values and identity-provider credentials must come from the hosted
+configuration/secret authority, not committed examples. This profile is
+distinct from Fortemi's self-hosted `/oauth/*` authorization-code and
+client-credentials flows.
 
 #### Issuer URL rules
 
-`ISSUER_URL` names the token issuer. Fortemi removes trailing slashes and
-nothing else, and the token's `iss` claim must equal the result exactly
+`ISSUER_URL` names Fortemi's own local authorization server issuer and appears
+in Fortemi OAuth discovery and RFC 9207 `iss` authorization responses.
+`FORTEMI_AUTH_ISSUER` names the external identity provider whose JWTs Fortemi
+verifies. Hosted deployments still fall back to `ISSUER_URL` as the external
+issuer when `FORTEMI_AUTH_ISSUER` is unset, for compatibility with older
+configuration, but new deployments should set both values separately. Startup
+refuses equal explicit values.
+
+Fortemi removes trailing slashes from issuer URLs and nothing else, and token
+`iss` claims must equal the configured external issuer exactly
 (case-sensitive). The verifier reads discovery metadata from
-`<ISSUER_URL>/.well-known/openid-configuration`.
+`<FORTEMI_AUTH_ISSUER>/.well-known/openid-configuration`.
 
 | Accepted | Rejected |
 |----------|----------|
@@ -130,7 +140,8 @@ curl -s https://idp.example.com/realms/acme/.well-known/openid-configuration \
 ```text
 FORTEMI_MULTI_TENANT=true
 REQUIRE_AUTH=true
-ISSUER_URL=https://idp.example.com/realms/acme
+ISSUER_URL=https://fortemi.example.com
+FORTEMI_AUTH_ISSUER=https://idp.example.com/realms/acme
 FORTEMI_AUTH_AUDIENCE=<DEPLOYMENT_AUDIENCE>
 FORTEMI_AUTH_TENANT_CLAIM=fortemi:tenant_id
 # FORTEMI_ALLOW_LOCAL_ISSUER stays unset.
@@ -169,8 +180,8 @@ disposable PostgreSQL, Redis, a TLS OIDC fixture issuer with ephemeral keys, the
 hosted API and the MCP server, then checks each row over MCP HTTP, the RFC 9728
 metadata, and that no presented token appears in either log.
 
-Configure the MCP container with the same `ISSUER_URL` as the API and set
-`MCP_RESOURCE_URI` to the API's `FORTEMI_AUTH_AUDIENCE`. RFC 9728 metadata at
+Configure the MCP container with the same Fortemi API URL/issuer metadata as the
+API and set `MCP_RESOURCE_URI` to the API's `FORTEMI_AUTH_AUDIENCE`. RFC 9728 metadata at
 `/.well-known/oauth-protected-resource` then advertises the external
 authorization server and the audience clients must request. The server logs a
 startup warning when the two values differ.
@@ -641,6 +652,12 @@ does not include `registration_access_token` or `registration_client_uri`
 | `admin` | Requires `Authorization: Bearer <credential>` with the `admin` scope (an API key or access token): missing or invalid credential `401`, other scopes `403`. | Not advertised |
 | `disabled` | Always `403` with detail `Dynamic client registration is disabled on this server.`; nothing is parsed or stored. Default when `FORTEMI_MULTI_TENANT=true`, where only `admin` and `disabled` are accepted. | Not advertised |
 
+When registration is enabled, every redirect URI is validated before storage.
+Allowed forms are HTTPS, RFC 8252 loopback HTTP (`localhost`, `127.0.0.1` or
+`[::1]`, any port), or a reverse-DNS private-use scheme such as
+`com.example.app:/cb`. Wildcards, userinfo, fragments and non-loopback HTTP
+redirects are rejected with `400 invalid_redirect_uri`.
+
 Operators provision first-party clients without the public endpoint:
 
 ```bash
@@ -709,6 +726,21 @@ Whether approval requires an **authenticated resource owner** depends on
 | `trusted_header` | A reverse proxy that has already signed the user in (for example oauth2-proxy) sends the user in `FORTEMI_OAUTH_OWNER_HEADER`, such as `X-Forwarded-Email`. The header is honored only when the immediate peer is in `FORTEMI_TRUSTED_PROXY_CIDRS`; startup fails without them. The proxy's admission is the authorization decision. The code records `proxy:<value>`. | |
 | `api_key,trusted_header` | Either. | |
 | `disabled` | No browser authorization. Valid requests are answered with `error=access_denied`. | Hosted (`FORTEMI_MULTI_TENANT=true`), where it is the only accepted value |
+
+`trusted_header` owners are limited by `FORTEMI_OAUTH_OWNER_HEADER_SCOPES`,
+which defaults to `read mcp`. A proxy-authenticated owner cannot grant scopes
+outside that ceiling unless the operator expands it.
+
+When `FORTEMI_AUTH_ISSUER` is set, or when hosted mode is enabled, Fortemi
+assumes an external IdP is authoritative and fails closed: local OAuth
+registration, browser authorization and `/oauth/token` issuance are disabled.
+They can be re-enabled only by setting `FORTEMI_OAUTH_ALLOW_LOCAL_AS=true` and
+choosing a real owner-auth method (`api_key`, `trusted_header`, or both);
+`none` is refused at startup. In this external-IdP mode, the consent page does
+not accept `mm_key_` API keys as owner proof. Deployments that relied on
+identity-free consent must either keep the external issuer unset for local-only
+operation or migrate to authenticated owner consent before enabling an external
+IdP.
 
 In every mode, including `none`, the ceremony is protected on the server side:
 

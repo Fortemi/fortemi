@@ -19,6 +19,8 @@ use axum::http::HeaderName;
 
 pub(crate) const OWNER_AUTH_ENV: &str = "FORTEMI_OAUTH_AUTHORIZE_OWNER_AUTH";
 pub(crate) const OWNER_HEADER_ENV: &str = "FORTEMI_OAUTH_OWNER_HEADER";
+pub(crate) const OWNER_HEADER_SCOPES_ENV: &str = "FORTEMI_OAUTH_OWNER_HEADER_SCOPES";
+const DEFAULT_OWNER_HEADER_SCOPES: &str = "read mcp";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum OwnerAuthMethod {
@@ -30,6 +32,7 @@ pub(crate) enum OwnerAuthMethod {
 pub(crate) struct AuthorizeConfig {
     methods: Vec<OwnerAuthMethod>,
     owner_header: Option<HeaderName>,
+    owner_header_scopes: Vec<String>,
     /// `none`: approval needs no authenticated owner (community compatibility default).
     unauthenticated: bool,
 }
@@ -40,6 +43,7 @@ impl AuthorizeConfig {
         Self {
             methods: Vec::new(),
             owner_header: None,
+            owner_header_scopes: default_owner_header_scopes(),
             unauthenticated: true,
         }
     }
@@ -50,6 +54,7 @@ impl AuthorizeConfig {
         Self {
             methods: vec![OwnerAuthMethod::ApiKey],
             owner_header: None,
+            owner_header_scopes: default_owner_header_scopes(),
             unauthenticated: false,
         }
     }
@@ -58,6 +63,7 @@ impl AuthorizeConfig {
         Self {
             methods: Vec::new(),
             owner_header: None,
+            owner_header_scopes: default_owner_header_scopes(),
             unauthenticated: false,
         }
     }
@@ -67,6 +73,7 @@ impl AuthorizeConfig {
         Self {
             methods: vec![OwnerAuthMethod::TrustedHeader],
             owner_header: Some(header),
+            owner_header_scopes: default_owner_header_scopes(),
             unauthenticated: false,
         }
     }
@@ -79,6 +86,10 @@ impl AuthorizeConfig {
         self.methods.is_empty() && !self.unauthenticated
     }
 
+    pub(crate) fn has_authenticated_methods(&self) -> bool {
+        !self.methods.is_empty() && !self.unauthenticated
+    }
+
     /// Whether approval is allowed without an authenticated resource owner.
     pub(crate) fn is_unauthenticated(&self) -> bool {
         self.unauthenticated
@@ -86,6 +97,10 @@ impl AuthorizeConfig {
 
     pub(crate) fn owner_header(&self) -> Option<&HeaderName> {
         self.owner_header.as_ref()
+    }
+
+    pub(crate) fn owner_header_scopes(&self) -> &[String] {
+        &self.owner_header_scopes
     }
 
     pub(crate) fn describe(&self) -> String {
@@ -105,10 +120,12 @@ impl AuthorizeConfig {
             .join(",")
     }
 
+    #[allow(dead_code)]
     pub(crate) fn from_env(multi_tenant: bool, trusted_proxies: usize) -> anyhow::Result<Self> {
         Self::from_values(
             std::env::var(OWNER_AUTH_ENV).ok().as_deref(),
             std::env::var(OWNER_HEADER_ENV).ok().as_deref(),
+            std::env::var(OWNER_HEADER_SCOPES_ENV).ok().as_deref(),
             multi_tenant,
             trusted_proxies,
         )
@@ -117,6 +134,7 @@ impl AuthorizeConfig {
     pub(crate) fn from_values(
         methods: Option<&str>,
         header: Option<&str>,
+        header_scopes: Option<&str>,
         multi_tenant: bool,
         trusted_proxies: usize,
     ) -> anyhow::Result<Self> {
@@ -124,7 +142,7 @@ impl AuthorizeConfig {
         let config = match methods {
             None if multi_tenant => Self::disabled(),
             None => Self::approve_only(),
-            Some(raw) => parse_methods(raw, header)?,
+            Some(raw) => parse_methods(raw, header, header_scopes)?,
         };
         if multi_tenant && !config.is_disabled() {
             anyhow::bail!(
@@ -142,7 +160,11 @@ impl AuthorizeConfig {
     }
 }
 
-fn parse_methods(raw: &str, header: Option<&str>) -> anyhow::Result<AuthorizeConfig> {
+fn parse_methods(
+    raw: &str,
+    header: Option<&str>,
+    header_scopes: Option<&str>,
+) -> anyhow::Result<AuthorizeConfig> {
     if raw == "disabled" {
         return Ok(AuthorizeConfig::disabled());
     }
@@ -178,8 +200,36 @@ fn parse_methods(raw: &str, header: Option<&str>) -> anyhow::Result<AuthorizeCon
     Ok(AuthorizeConfig {
         methods,
         owner_header,
+        owner_header_scopes: parse_owner_header_scopes(header_scopes)?,
         unauthenticated: false,
     })
+}
+
+fn default_owner_header_scopes() -> Vec<String> {
+    DEFAULT_OWNER_HEADER_SCOPES
+        .split_whitespace()
+        .map(str::to_string)
+        .collect()
+}
+
+fn parse_owner_header_scopes(raw: Option<&str>) -> anyhow::Result<Vec<String>> {
+    let raw = raw
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(DEFAULT_OWNER_HEADER_SCOPES);
+    let mut scopes = Vec::new();
+    for scope in raw.split_whitespace() {
+        if !crate::oauth_profile::is_allowed_oauth_scope(scope) {
+            anyhow::bail!("{OWNER_HEADER_SCOPES_ENV} contains an unsupported OAuth scope");
+        }
+        if !scopes.iter().any(|value| value == scope) {
+            scopes.push(scope.to_string());
+        }
+    }
+    if scopes.is_empty() {
+        anyhow::bail!("{OWNER_HEADER_SCOPES_ENV} must contain at least one scope");
+    }
+    Ok(scopes)
 }
 
 #[cfg(test)]
@@ -188,32 +238,35 @@ mod tests {
 
     #[test]
     fn defaults_follow_the_deployment_mode() {
-        let community = AuthorizeConfig::from_values(None, None, false, 0).unwrap();
+        let community = AuthorizeConfig::from_values(None, None, None, false, 0).unwrap();
         assert_eq!(community, AuthorizeConfig::approve_only());
         assert!(community.is_unauthenticated() && !community.is_disabled());
         assert_eq!(community.describe(), "none");
         assert_eq!(
-            AuthorizeConfig::from_values(Some("api_key"), None, false, 0).unwrap(),
+            AuthorizeConfig::from_values(Some("api_key"), None, None, false, 0).unwrap(),
             AuthorizeConfig::api_key_only()
         );
-        assert!(AuthorizeConfig::from_values(None, None, true, 0)
+        assert!(AuthorizeConfig::from_values(None, None, None, true, 0)
             .unwrap()
             .is_disabled());
     }
 
     #[test]
     fn hosted_mode_only_accepts_disabled() {
-        assert!(AuthorizeConfig::from_values(Some("api_key"), None, true, 0).is_err());
-        assert!(AuthorizeConfig::from_values(Some("none"), None, true, 0).is_err());
-        assert!(AuthorizeConfig::from_values(Some("disabled"), None, true, 0).is_ok());
+        assert!(AuthorizeConfig::from_values(Some("api_key"), None, None, true, 0).is_err());
+        assert!(AuthorizeConfig::from_values(Some("none"), None, None, true, 0).is_err());
+        assert!(AuthorizeConfig::from_values(Some("disabled"), None, None, true, 0).is_ok());
     }
 
     #[test]
     fn trusted_header_needs_a_header_and_trusted_proxies() {
-        assert!(AuthorizeConfig::from_values(Some("trusted_header"), None, false, 1).is_err());
+        assert!(
+            AuthorizeConfig::from_values(Some("trusted_header"), None, None, false, 1).is_err()
+        );
         assert!(AuthorizeConfig::from_values(
             Some("trusted_header"),
             Some("X-Forwarded-Email"),
+            None,
             false,
             0
         )
@@ -221,6 +274,7 @@ mod tests {
         let config = AuthorizeConfig::from_values(
             Some("trusted_header,api_key"),
             Some("X-Forwarded-Email"),
+            Some("read"),
             false,
             1,
         )
@@ -228,16 +282,31 @@ mod tests {
         assert!(config.allows(OwnerAuthMethod::TrustedHeader));
         assert!(config.allows(OwnerAuthMethod::ApiKey));
         assert_eq!(config.owner_header().unwrap().as_str(), "x-forwarded-email");
+        assert_eq!(config.owner_header_scopes(), &["read".to_string()]);
         assert_eq!(config.describe(), "trusted_header,api_key");
     }
 
     #[test]
     fn rejects_unknown_or_repeated_methods() {
-        assert!(AuthorizeConfig::from_values(Some("password"), None, false, 0).is_err());
-        assert!(AuthorizeConfig::from_values(Some("api_key,api_key"), None, false, 0).is_err());
+        assert!(AuthorizeConfig::from_values(Some("password"), None, None, false, 0).is_err());
         assert!(
-            AuthorizeConfig::from_values(Some("trusted_header"), Some("bad header"), false, 1)
-                .is_err()
+            AuthorizeConfig::from_values(Some("api_key,api_key"), None, None, false, 0).is_err()
         );
+        assert!(AuthorizeConfig::from_values(
+            Some("trusted_header"),
+            Some("bad header"),
+            None,
+            false,
+            1
+        )
+        .is_err());
+        assert!(AuthorizeConfig::from_values(
+            Some("trusted_header"),
+            Some("X-Forwarded-Email"),
+            Some("delete"),
+            false,
+            1
+        )
+        .is_err());
     }
 }
