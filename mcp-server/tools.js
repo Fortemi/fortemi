@@ -5731,8 +5731,8 @@ When called without note_ids, processes all notes in the current archive (up to 
           }
         },
         "space_contract": {
-          "description": "Embedding-space contract JSON. The server computes space_id from canonical JSON.",
-          "type": ["object", "array", "string", "number", "boolean"]
+          "description": "Embedding-space contract JSON object. The server computes space_id from its canonical JSON.",
+          "type": "object"
         },
         "space_id": {
           "type": "string",
@@ -5808,8 +5808,8 @@ When called without note_ids, processes all notes in the current archive (up to 
           }
         },
         "space_contract": {
-          "description": "Embedding-space contract JSON. The server computes space_id from canonical JSON.",
-          "type": ["object", "array", "string", "number", "boolean"]
+          "description": "Embedding-space contract JSON object. The server computes space_id from its canonical JSON.",
+          "type": "object"
         },
         "space_id": {
           "type": "string",

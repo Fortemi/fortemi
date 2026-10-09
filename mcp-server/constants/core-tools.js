@@ -2,7 +2,7 @@ export const CORE_TOOL_NAMES = Object.freeze([
   // Notes CRUD
   "list_notes", "get_note", "upsert_external_notes", "manage_dataset_execution", "update_note", "delete_note", "restore_note",
   // Consolidated tools
-  "capture_knowledge", "search", "find_similar_entities", "import_embedding_run", "list_embedding_runs", "record_provenance",
+  "capture_knowledge", "search", "record_provenance",
   "manage_tags", "manage_collection", "manage_concepts", "manage_embeddings",
   "manage_archives", "manage_encryption", "manage_backups",
   // Graph and links
