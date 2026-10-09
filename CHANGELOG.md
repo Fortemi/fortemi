@@ -12,9 +12,13 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 - Add Knowledge Shard `2.1.0/full-v1` for configurable embedding storage:
   exported embedding configs declare `dimension` and `vector_type`, importer
   preflight rejects vector/dimension/type mismatches, import preserves non-768
-  and `halfvec` vectors with rebuilt per-config HNSW indexes, and exports keep
-  using the existing contract unless a non-768 or `halfvec` set requires the new
-  one (#1175).
+  and `halfvec` vectors, and exports keep using the existing contract unless a
+  non-768 or `halfvec` set requires the new one (#1175).
+- Replace per-config/set-list HNSW indexes with stable `(dimension, vector_type)`
+  shape indexes built by asynchronous `build_set_index` jobs. Set/config
+  creation and shard import now enqueue concurrent builds instead of rebuilding
+  inline, and embedding sets gain `defer_index_build` plus
+  `POST /api/v1/embedding-sets/{id}/build-index` for bulk loads (#1175/#1181).
 - Scope re-embedding deletes to the target embedding set: set-scoped
   `ReEmbedAll` now queues child embedding jobs with set/schema batch context,
   default re-embedding only replaces default-set rows, external sets stay

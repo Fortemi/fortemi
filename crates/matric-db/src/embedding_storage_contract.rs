@@ -74,7 +74,7 @@ impl EmbeddingStorageContract {
     pub(crate) fn set_predicate(&self, alias: &str, placeholder: &str) -> String {
         let dims = format!("vector_dims({alias}.vector) = {}", self.dimension);
         match self.scope {
-            ContractScope::Set => format!("{alias}.embedding_set_id = {placeholder}"),
+            ContractScope::Set => format!("{alias}.embedding_set_id = {placeholder} AND {dims}"),
             ContractScope::DefaultWithLegacy => format!(
                 "({alias}.embedding_set_id = {placeholder} OR {alias}.embedding_set_id IS NULL) AND {dims}"
             ),

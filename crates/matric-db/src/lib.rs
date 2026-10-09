@@ -77,6 +77,7 @@ pub mod tus;
 pub mod unified_filter;
 pub mod usage_ledger;
 pub mod user_secrets;
+pub mod vector_index;
 pub mod versioning;
 pub mod webhooks;
 

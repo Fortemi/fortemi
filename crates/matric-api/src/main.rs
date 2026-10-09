@@ -1151,11 +1151,11 @@ use handlers::{
         create_prov_location,
     },
     vision::describe_image,
-    AiRevisionContextualHandler, AiRevisionHandler, ConceptTaggingHandler, ContextUpdateHandler,
-    DocumentTypeInferenceHandler, EmbeddingHandler, ExifExtractionHandler, GraphMaintenanceHandler,
-    LinkingHandler, MetadataExtractionHandler, PurgeNoteHandler, ReEmbedAllHandler,
-    ReferenceExtractionHandler, RefreshEmbeddingSetHandler, RelatedConceptHandler,
-    TitleGenerationHandler,
+    AiRevisionContextualHandler, AiRevisionHandler, BuildVectorIndexHandler, ConceptTaggingHandler,
+    ContextUpdateHandler, DocumentTypeInferenceHandler, EmbeddingHandler, ExifExtractionHandler,
+    GraphMaintenanceHandler, LinkingHandler, MetadataExtractionHandler, PurgeNoteHandler,
+    ReEmbedAllHandler, ReferenceExtractionHandler, RefreshEmbeddingSetHandler,
+    RelatedConceptHandler, TitleGenerationHandler,
 };
 
 /// Global rate limiter type (direct quota, no keyed bucketing for personal server).
@@ -1376,7 +1376,8 @@ impl AppState {
         evidence_resolution::resolve_search_evidence,
         memories_overview, list_embedding_sets, get_embedding_set, create_embedding_set,
         update_embedding_set, delete_embedding_set, list_embedding_set_members, add_embedding_set_members,
-        remove_embedding_set_member, refresh_embedding_set, list_embedding_configs, get_default_embedding_config,
+        remove_embedding_set_member, refresh_embedding_set, build_embedding_set_index,
+        list_embedding_configs, get_default_embedding_config,
         get_embedding_config, create_embedding_config, update_embedding_config, delete_embedding_config,
         create_job, get_job, pending_jobs_count, list_jobs,
         queue_stats, get_job_pause_status, pause_jobs_global, resume_jobs_global,
@@ -4176,6 +4177,9 @@ async fn main() -> anyhow::Result<()> {
                 .register_handler(RefreshEmbeddingSetHandler::new(db.clone()))
                 .await;
             worker
+                .register_handler(BuildVectorIndexHandler::new(db.clone()))
+                .await;
+            worker
                 .register_handler(GraphMaintenanceHandler::new(db.clone()))
                 .await;
             if let Some(ref diar_backend) = diarization_backend {
@@ -5057,6 +5061,10 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/v1/embedding-sets/{slug}/refresh",
             post(refresh_embedding_set),
+        )
+        .route(
+            "/api/v1/embedding-sets/{slug}/build-index",
+            post(build_embedding_set_index),
         )
         .route(
             "/api/v1/embedding-configs",
@@ -22206,6 +22214,43 @@ async fn refresh_embedding_set(
         .execute(move |tx| Box::pin(async move { repo.refresh_tx(tx, &slug).await }))
         .await?;
     Ok(Json(serde_json::json!({ "added": added })))
+}
+
+/// Clear deferred index mode and queue a concurrent vector index build.
+#[utoipa::path(post, path = "/api/v1/embedding-sets/{slug}/build-index", tag = "Embeddings",
+    params(("slug" = String, Path, description = "Embedding set slug or UUID")),
+    responses((status = 200, description = "Success")))]
+async fn build_embedding_set_index(
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Path(slug_or_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+    let set = if let Ok(id) = Uuid::parse_str(&slug_or_id) {
+        ctx.query(move |tx| Box::pin(async move { repo.get_by_id_tx(tx, id).await }))
+            .await?
+    } else {
+        let slug = slug_or_id.clone();
+        ctx.query(move |tx| Box::pin(async move { repo.get_by_slug_tx(tx, &slug).await }))
+            .await?
+    };
+    let set = set.ok_or_else(embedding_set_not_found)?;
+    let set_id = set.id;
+    let schema = archive_ctx.schema.clone();
+    let job_id = ctx
+        .execute(move |tx| {
+            Box::pin(async move {
+                matric_db::vector_index::clear_defer_and_enqueue_for_set_tx(tx, &schema, set_id)
+                    .await
+            })
+        })
+        .await?;
+    Ok(Json(serde_json::json!({
+        "status": "queued",
+        "job_id": job_id.map(|id| id.to_string()),
+        "message": "Concurrent vector index build queued"
+    })))
 }
 
 /// List embedding configs
@@ -39566,14 +39611,22 @@ async fn apply_shard_embedding_components_tx(
         }
         let mut config_ids = affected_config_ids.into_iter().collect::<Vec<_>>();
         config_ids.sort();
+        let schema: String = sqlx::query_scalar("SELECT current_schema()")
+            .fetch_one(&mut **tx)
+            .await
+            .map_err(|error| shard_operation_failed("resolve shard import schema", error))?;
         for config_id in config_ids {
-            sqlx::query("SELECT public.recreate_embedding_hnsw_index($1)")
-                .bind(config_id)
-                .execute(&mut **tx)
-                .await
-                .map_err(|error| {
-                    shard_operation_failed("rebuild imported embedding HNSW index", error)
-                })?;
+            matric_db::vector_index::enqueue_build_for_config_tx(
+                tx,
+                &schema,
+                config_id,
+                false,
+                "shard_import",
+            )
+            .await
+            .map_err(|error| {
+                shard_operation_failed("queue imported embedding HNSW index", error)
+            })?;
         }
     }
 
@@ -61928,17 +61981,23 @@ not-json
             .zip(half_values.iter())
             .all(|(actual, expected)| (actual - expected).abs() <= 0.001));
 
-        for config_id in [vector_config_id, half_config_id] {
-            let index_name = format!("idx_embedding_hnsw_{}", config_id.simple());
-            let exists: bool = sqlx::query_scalar(
-                "SELECT to_regclass(format('%I.%I', $1::text, $2::text)) IS NOT NULL",
+        for (dimension, vector_type) in [(1024, "vector"), (2560, "halfvec")] {
+            let queued: bool = sqlx::query_scalar(
+                "SELECT EXISTS (
+                    SELECT 1 FROM public.job_queue
+                    WHERE job_type = 'build_set_index'
+                      AND payload->>'schema' = $1
+                      AND (payload->>'dimension')::int = $2
+                      AND payload->>'vector_type' = $3
+                )",
             )
             .bind(&clean.schema_name)
-            .bind(index_name)
+            .bind(dimension)
+            .bind(vector_type)
             .fetch_one(&db.pool)
             .await
-            .expect("check imported embedding HNSW index");
-            assert!(exists, "HNSW index missing for imported config {config_id}");
+            .expect("check imported embedding HNSW build job");
+            assert!(queued, "HNSW build job missing for imported shape");
         }
 
         for (set_id, note_id, dimension, vector) in [

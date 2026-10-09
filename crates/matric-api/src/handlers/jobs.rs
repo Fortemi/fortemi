@@ -66,6 +66,8 @@ const REEMBED_ALL_JOB_FAILURE: &str =
     "Bulk re-embedding failed. Check server logs for diagnostics.";
 const REFRESH_EMBEDDING_SET_JOB_FAILURE: &str =
     "Embedding set refresh failed. Check server logs for diagnostics.";
+const BUILD_VECTOR_INDEX_JOB_FAILURE: &str =
+    "Vector index build failed. Check server logs for diagnostics.";
 const JOB_CHUNK_MERGE_PARSE_FAILURE_DETAIL: &str = "job_chunk_merge_parse_failed";
 const JOB_AI_GENERATION_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_ai_generation_diagnostic_failed";
 const JOB_AI_REVISION_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_ai_revision_diagnostic_failed";
@@ -291,6 +293,19 @@ fn refresh_embedding_set_job_result(
             "failed": 0,
             "total": jobs_queued
         }
+    })
+}
+
+fn build_vector_index_job_result(
+    schema: &str,
+    dimension: i32,
+    vector_type: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "schema_len": diagnostic_len(schema),
+        "dimension": dimension,
+        "vector_type_len": diagnostic_len(vector_type),
+        "maintenance_hint": "raise maintenance_work_mem for large HNSW builds; allow parallel maintenance workers when PostgreSQL and hardware permit"
     })
 }
 
@@ -7791,6 +7806,56 @@ pub struct RefreshEmbeddingSetHandler {
     db: Database,
 }
 
+pub struct BuildVectorIndexHandler {
+    db: Database,
+}
+
+impl BuildVectorIndexHandler {
+    pub fn new(db: Database) -> Self {
+        Self { db }
+    }
+}
+
+#[async_trait]
+impl JobHandler for BuildVectorIndexHandler {
+    fn job_type(&self) -> JobType {
+        JobType::BuildSetIndex
+    }
+
+    #[instrument(
+        skip(self, ctx),
+        fields(subsystem = "jobs", component = "build_vector_index", op = "execute")
+    )]
+    async fn execute(&self, ctx: JobContext) -> JobResult {
+        ctx.report_progress(5, Some("Preparing vector index build..."));
+        let payload = match ctx.payload().cloned().and_then(|value| {
+            serde_json::from_value::<matric_db::vector_index::VectorIndexJobPayload>(value).ok()
+        }) {
+            Some(payload) => payload,
+            None => return JobResult::Failed(BUILD_VECTOR_INDEX_JOB_FAILURE.to_string()),
+        };
+        let result_payload = payload.clone();
+        ctx.report_progress(20, Some("Building HNSW indexes concurrently..."));
+        match matric_db::vector_index::build_vector_indexes(&self.db.pool, payload).await {
+            Ok(()) => {
+                ctx.report_progress(100, Some("Vector index build complete"));
+                JobResult::Success(Some(build_vector_index_job_result(
+                    &result_payload.schema,
+                    result_payload.dimension,
+                    &result_payload.vector_type,
+                )))
+            }
+            Err(error) => {
+                warn!(
+                    error_len = diagnostic_len(error),
+                    "Vector index build job failed"
+                );
+                JobResult::Failed(BUILD_VECTOR_INDEX_JOB_FAILURE.to_string())
+            }
+        }
+    }
+}
+
 impl RefreshEmbeddingSetHandler {
     pub fn new(db: Database) -> Self {
         Self { db }
@@ -9156,6 +9221,7 @@ mod tests {
                 truncate_dim: None,
                 auto_embed_rules: Default::default(),
                 vector_source: matric_core::EmbeddingVectorSource::External,
+                defer_index_build: false,
             })
             .await
             .expect("create external set");
@@ -9244,6 +9310,7 @@ mod tests {
                 truncate_dim: None,
                 auto_embed_rules: Default::default(),
                 vector_source: matric_core::EmbeddingVectorSource::External,
+                defer_index_build: false,
             })
             .await
             .expect("create external set");

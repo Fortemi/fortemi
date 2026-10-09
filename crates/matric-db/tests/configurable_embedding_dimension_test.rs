@@ -1,5 +1,6 @@
 #![cfg(feature = "migrations")]
 
+use matric_db::vector_index::{build_vector_indexes, VectorIndexJobPayload};
 use matric_db::{
     create_pool, test_fixtures::DEFAULT_TEST_DATABASE_URL, AutoEmbedRules,
     CreateEmbeddingConfigRequest, CreateEmbeddingSetRequest, Database, EmbeddingSetAgentMetadata,
@@ -18,7 +19,12 @@ async fn setup_test_db() -> Database {
     let pool = create_pool(&database_url)
         .await
         .expect("failed to connect to test database");
-    Database::new(pool)
+    let db = Database::new(pool);
+    sqlx::query("DELETE FROM public.job_queue WHERE job_type = 'build_set_index'")
+        .execute(&db.pool)
+        .await
+        .expect("clear vector index jobs");
+    db
 }
 
 fn config_request(
@@ -61,6 +67,7 @@ fn set_request(name: &str, config_id: Uuid) -> CreateEmbeddingSetRequest {
         truncate_dim: None,
         auto_embed_rules: AutoEmbedRules::default(),
         vector_source: EmbeddingVectorSource::Internal,
+        defer_index_build: false,
         agent_metadata: EmbeddingSetAgentMetadata::default(),
     }
 }
@@ -81,8 +88,41 @@ async fn insert_note(db: &Database, content: &str) -> Uuid {
         .expect("insert note")
 }
 
+async fn build_index_job_count(db: &Database, dimension: i32, vector_type: &str) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM public.job_queue
+         WHERE job_type = 'build_set_index'
+           AND payload->>'schema' = current_schema()
+           AND (payload->>'dimension')::int = $1
+           AND payload->>'vector_type' = $2",
+    )
+    .bind(dimension)
+    .bind(vector_type)
+    .fetch_one(&db.pool)
+    .await
+    .expect("count vector index jobs")
+}
+
+async fn run_build_index_jobs(db: &Database) {
+    let payloads: Vec<serde_json::Value> = sqlx::query_scalar(
+        "SELECT payload FROM public.job_queue
+         WHERE job_type = 'build_set_index'
+         ORDER BY created_at, id",
+    )
+    .fetch_all(&db.pool)
+    .await
+    .expect("load vector index jobs");
+    for payload in payloads {
+        let payload: VectorIndexJobPayload =
+            serde_json::from_value(payload).expect("valid vector index payload");
+        build_vector_indexes(&db.pool, payload)
+            .await
+            .expect("build vector index");
+    }
+}
+
 #[tokio::test]
-async fn vector_and_halfvec_sets_store_index_and_search() {
+async fn vector_and_halfvec_sets_queue_shape_indexes_and_search() {
     let db = setup_test_db().await;
     let unique = Uuid::new_v4().simple().to_string();
 
@@ -103,6 +143,20 @@ async fn vector_and_halfvec_sets_store_index_and_search() {
         ))
         .await
         .expect("create vector set");
+    assert_eq!(build_index_job_count(&db, 1024, "vector").await, 1);
+    let _same_shape_set = db
+        .embedding_sets
+        .create(set_request(
+            &format!("Vector 1024 same shape {unique}"),
+            vector_config.id,
+        ))
+        .await
+        .expect("create second vector set with same shape");
+    assert_eq!(
+        build_index_job_count(&db, 1024, "vector").await,
+        1,
+        "second set with the same shape must not enqueue another build"
+    );
     let vector_note = insert_note(&db, "vector 1024 note").await;
     let mut vector_values = vec![0.0_f32; 1024];
     vector_values[0] = 1.0;
@@ -154,6 +208,7 @@ async fn vector_and_halfvec_sets_store_index_and_search() {
         ))
         .await
         .expect("create halfvec set");
+    assert_eq!(build_index_job_count(&db, 2560, "halfvec").await, 1);
     let halfvec_note = insert_note(&db, "halfvec 2560 note").await;
     let mut halfvec_values = vec![0.0_f32; 2560];
     halfvec_values[0] = 1.0;
@@ -175,6 +230,22 @@ async fn vector_and_halfvec_sets_store_index_and_search() {
         .await
         .expect("search 2560 halfvec");
     assert!(halfvec_hits.iter().any(|hit| hit.note_id == halfvec_note));
+    let before_status: String =
+        sqlx::query_scalar("SELECT index_status::text FROM embedding_set WHERE id = $1")
+            .bind(vector_set.id)
+            .fetch_one(&db.pool)
+            .await
+            .expect("read pending index status");
+    assert_eq!(before_status, "pending");
+
+    run_build_index_jobs(&db).await;
+    let after_status: String =
+        sqlx::query_scalar("SELECT index_status::text FROM embedding_set WHERE id = $1")
+            .bind(vector_set.id)
+            .fetch_one(&db.pool)
+            .await
+            .expect("read ready index status");
+    assert_eq!(after_status, "ready");
 
     let index_defs: Vec<String> = sqlx::query_scalar(
         "SELECT indexdef FROM pg_indexes
@@ -183,8 +254,8 @@ async fn vector_and_halfvec_sets_store_index_and_search() {
          ORDER BY indexname",
     )
     .bind(vec![
-        format!("idx_embedding_hnsw_{}", vector_config.id.simple()),
-        format!("idx_embedding_hnsw_{}", halfvec_config.id.simple()),
+        "idx_embedding_hnsw_vector_1024".to_string(),
+        "idx_embedding_hnsw_halfvec_2560".to_string(),
     ])
     .fetch_all(&db.pool)
     .await
@@ -195,6 +266,65 @@ async fn vector_and_halfvec_sets_store_index_and_search() {
     assert!(index_defs.iter().any(|def| def.contains("hnsw")
         && def.contains("halfvec(2560)")
         && def.contains("cosine_ops")));
+
+    let mut explain_conn = db.pool.acquire().await.expect("acquire explain connection");
+    sqlx::query("ANALYZE embedding")
+        .execute(&mut *explain_conn)
+        .await
+        .expect("analyze embedding");
+    sqlx::query("SET enable_seqscan = off")
+        .execute(&mut *explain_conn)
+        .await
+        .expect("disable seqscan");
+    let explain_rows: Vec<String> = sqlx::query_scalar(
+        "EXPLAIN SELECT id FROM embedding
+         WHERE embedding_set_id = $1
+           AND vector IS NOT NULL
+           AND vector_dims(vector) = 1024
+         ORDER BY (vector::vector(1024)) <=> $2::vector(1024)
+         LIMIT 5",
+    )
+    .bind(vector_set.id)
+    .bind(Vector::from(vec![1.0_f32; 1024]))
+    .fetch_all(&mut *explain_conn)
+    .await
+    .expect("explain vector search");
+    assert!(
+        explain_rows
+            .join("\n")
+            .contains("idx_embedding_hnsw_vector_1024"),
+        "dims-scoped query should use the shape partial index"
+    );
+}
+
+#[tokio::test]
+async fn defer_index_build_suppresses_until_manual_build() {
+    let db = setup_test_db().await;
+    let unique = Uuid::new_v4().simple().to_string();
+    let config = db
+        .embedding_sets
+        .create_config(config_request(
+            &format!("defer-vector-1024-{unique}"),
+            1024,
+            EmbeddingVectorType::Vector,
+        ))
+        .await
+        .expect("create defer config");
+    let mut request = set_request(&format!("Deferred Vector {unique}"), config.id);
+    request.defer_index_build = true;
+    let set = db
+        .embedding_sets
+        .create(request)
+        .await
+        .expect("create deferred set");
+    assert_eq!(build_index_job_count(&db, 1024, "vector").await, 0);
+
+    let mut tx = db.pool.begin().await.expect("begin build-index tx");
+    matric_db::vector_index::clear_defer_and_enqueue_for_set_tx(&mut tx, "public", set.id)
+        .await
+        .expect("queue manual build");
+    tx.commit().await.expect("commit build-index tx");
+    assert_eq!(build_index_job_count(&db, 1024, "vector").await, 1);
 }
 
 #[tokio::test]

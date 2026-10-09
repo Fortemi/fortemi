@@ -1248,6 +1248,8 @@ pub struct EmbeddingSet {
     pub index_status: EmbeddingIndexStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub index_size_bytes: Option<i64>,
+    #[serde(default)]
+    pub defer_index_build: bool,
 
     // Flags
     pub is_system: bool,
@@ -1307,6 +1309,7 @@ impl fmt::Debug for EmbeddingSet {
             .field("embedding_count", &self.embedding_count)
             .field("index_status", &self.index_status)
             .field("index_size_bytes", &self.index_size_bytes)
+            .field("defer_index_build", &self.defer_index_build)
             .field("is_system", &self.is_system)
             .field("is_active", &self.is_active)
             .field("auto_refresh", &self.auto_refresh)
@@ -1339,6 +1342,8 @@ pub struct EmbeddingSetSummary {
     pub document_count: i32,
     pub embedding_count: i32,
     pub index_status: EmbeddingIndexStatus,
+    #[serde(default)]
+    pub defer_index_build: bool,
     pub is_system: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keywords: Vec<String>,
@@ -1371,6 +1376,7 @@ impl fmt::Debug for EmbeddingSetSummary {
             .field("document_count", &self.document_count)
             .field("embedding_count", &self.embedding_count)
             .field("index_status", &self.index_status)
+            .field("defer_index_build", &self.defer_index_build)
             .field("is_system", &self.is_system)
             .field("keywords_count", &self.keywords.len())
             .field(
@@ -1423,6 +1429,10 @@ pub struct CreateEmbeddingSetRequest {
     /// Whether Fortemi or an external process owns vectors in this set.
     #[serde(default)]
     pub vector_source: EmbeddingVectorSource,
+    /// When true, set/config creation records the shape but leaves HNSW build
+    /// queuing to the explicit build-index action.
+    #[serde(default)]
+    pub defer_index_build: bool,
 }
 
 impl fmt::Debug for CreateEmbeddingSetRequest {
@@ -1465,6 +1475,7 @@ impl fmt::Debug for CreateEmbeddingSetRequest {
             .field("truncate_dim", &self.truncate_dim)
             .field("auto_embed_rules", &self.auto_embed_rules)
             .field("vector_source", &self.vector_source)
+            .field("defer_index_build", &self.defer_index_build)
             .finish()
     }
 }
@@ -1494,6 +1505,8 @@ pub struct UpdateEmbeddingSetRequest {
     pub auto_refresh: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub vector_source: Option<EmbeddingVectorSource>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub defer_index_build: Option<bool>,
 }
 
 impl fmt::Debug for UpdateEmbeddingSetRequest {
@@ -1531,6 +1544,7 @@ impl fmt::Debug for UpdateEmbeddingSetRequest {
             .field("is_active", &self.is_active)
             .field("auto_refresh", &self.auto_refresh)
             .field("vector_source", &self.vector_source)
+            .field("defer_index_build", &self.defer_index_build)
             .finish()
     }
 }
@@ -7278,6 +7292,7 @@ mod tests {
             embedding_count: 10,
             index_status: EmbeddingIndexStatus::Ready,
             index_size_bytes: Some(4096),
+            defer_index_build: false,
             is_system: false,
             is_active: true,
             auto_refresh: true,
@@ -7298,6 +7313,7 @@ mod tests {
             document_count: 5,
             embedding_count: 4,
             index_status: EmbeddingIndexStatus::Stale,
+            defer_index_build: false,
             is_system: false,
             keywords: vec!["sümmary-private-keyword".to_string()],
             model: Some("sümmary-private-model".to_string()),
@@ -7320,6 +7336,7 @@ mod tests {
             truncate_dim: Some(512),
             auto_embed_rules: rules.clone(),
             vector_source: EmbeddingVectorSource::Internal,
+            defer_index_build: false,
         };
         let update = UpdateEmbeddingSetRequest {
             name: Some("Üpdate private set".to_string()),
@@ -7333,6 +7350,7 @@ mod tests {
             is_active: Some(true),
             auto_refresh: Some(false),
             vector_source: Some(EmbeddingVectorSource::Internal),
+            defer_index_build: Some(false),
         };
         let member = EmbeddingSetMember {
             embedding_set_id: Uuid::new_v4(),
@@ -8901,6 +8919,7 @@ mod tests {
             truncate_dim: None,
             auto_embed_rules: AutoEmbedRules::default(),
             vector_source: EmbeddingVectorSource::Internal,
+            defer_index_build: false,
         };
 
         let json = serde_json::to_string(&request).unwrap();

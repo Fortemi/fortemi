@@ -9,6 +9,7 @@ use sqlx::{Pool, Postgres, Row};
 use std::fmt;
 use uuid::Uuid;
 
+use crate::vector_index;
 use matric_core::{new_v7, ArchiveInfo, ArchiveRepository, Error, Result};
 
 fn archive_not_found_error(name: &str) -> Error {
@@ -609,11 +610,14 @@ impl PgArchiveRepository {
         .await
         .map_err(Error::Database)?;
 
-        sqlx::query("SELECT public.recreate_embedding_hnsw_index($1)")
-            .bind(default_config_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(Error::Database)?;
+        vector_index::enqueue_build_for_config_tx(
+            &mut tx,
+            schema_name,
+            default_config_id,
+            false,
+            "archive_default_set_created",
+        )
+        .await?;
 
         sqlx::query(&format!(
             "INSERT INTO {}.shard_embedding_set_bootstrap (tenant_id, set_id)
@@ -1062,11 +1066,14 @@ impl PgArchiveRepository {
             .await
             .map_err(Error::Database)?;
 
-            sqlx::query("SELECT public.recreate_embedding_hnsw_index($1)")
-                .bind(default_config_id)
-                .execute(&mut *tx)
-                .await
-                .map_err(Error::Database)?;
+            vector_index::enqueue_build_for_config_tx(
+                &mut tx,
+                schema_name,
+                default_config_id,
+                false,
+                "archive_default_set_created",
+            )
+            .await?;
 
             sqlx::query(&format!(
                 "INSERT INTO {}.shard_embedding_set_bootstrap (tenant_id, set_id)

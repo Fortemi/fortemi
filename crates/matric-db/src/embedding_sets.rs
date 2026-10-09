@@ -5,6 +5,7 @@ use serde_json::Value as JsonValue;
 use sqlx::{Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
+use crate::vector_index;
 use matric_core::{
     new_v7, validate_embedding_dimension, AddMembersRequest, CreateEmbeddingConfigRequest,
     CreateEmbeddingSetRequest, EmbeddingConfigProfile, EmbeddingIndexStatus, EmbeddingProvider,
@@ -105,6 +106,7 @@ impl PgEmbeddingSetRepository {
                 es.document_count,
                 es.embedding_count,
                 es.index_status::text as index_status,
+                COALESCE(es.defer_index_build, FALSE) AS defer_index_build,
                 es.is_system,
                 es.keywords,
                 es.truncate_dim,
@@ -142,6 +144,9 @@ impl PgEmbeddingSetRepository {
                     document_count: row.get("document_count"),
                     embedding_count: row.get("embedding_count"),
                     index_status: status_str.parse().unwrap_or_default(),
+                    defer_index_build: row
+                        .get::<Option<bool>, _>("defer_index_build")
+                        .unwrap_or(false),
                     is_system: row.get("is_system"),
                     keywords: row.get::<Vec<String>, _>("keywords"),
                     model: row.get("model"),
@@ -164,6 +169,7 @@ impl PgEmbeddingSetRepository {
                 set_type::text as set_type, vector_source, mode::text as mode, criteria, embedding_config_id,
                 truncate_dim, auto_embed_rules,
                 index_status::text as index_status, index_type,
+                COALESCE(defer_index_build, FALSE) AS defer_index_build,
                 document_count, embedding_count, embeddings_current, index_size_bytes,
                 is_system, is_active, auto_refresh,
                 agent_metadata, created_at, updated_at, created_by
@@ -191,6 +197,7 @@ impl PgEmbeddingSetRepository {
                 set_type::text as set_type, vector_source, mode::text as mode, criteria, embedding_config_id,
                 truncate_dim, auto_embed_rules,
                 index_status::text as index_status, index_type,
+                COALESCE(defer_index_build, FALSE) AS defer_index_build,
                 document_count, embedding_count, embeddings_current, index_size_bytes,
                 is_system, is_active, auto_refresh,
                 agent_metadata, created_at, updated_at, created_by
@@ -255,13 +262,13 @@ impl PgEmbeddingSetRepository {
             INSERT INTO embedding_set (
                 id, name, slug, description, purpose, usage_hints, keywords,
                 set_type, mode, criteria, embedding_config_id, truncate_dim,
-                auto_embed_rules, vector_source, agent_metadata,
+                auto_embed_rules, vector_source, defer_index_build, agent_metadata,
                 created_at, updated_at
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7,
                 $8::embedding_set_type, $9::embedding_set_mode, $10, $11, $12,
-                $13, $14, $15,
-                $16, $16
+                $13, $14, $15, $16,
+                $17, $17
             )
             "#,
         )
@@ -279,6 +286,7 @@ impl PgEmbeddingSetRepository {
         .bind(req.truncate_dim)
         .bind(&auto_embed_rules_json)
         .bind(req.vector_source.to_string())
+        .bind(req.defer_index_build)
         .bind(&agent_metadata_json)
         .bind(now)
         .execute(&self.pool)
@@ -286,11 +294,14 @@ impl PgEmbeddingSetRepository {
         .map_err(Error::Database)?;
 
         if let Some(config_id) = config_id {
-            sqlx::query("SELECT public.recreate_embedding_hnsw_index($1)")
-                .bind(config_id)
-                .execute(&self.pool)
-                .await
-                .map_err(Error::Database)?;
+            vector_index::enqueue_build_for_config(
+                &self.pool,
+                "public",
+                config_id,
+                false,
+                "embedding_set_created",
+            )
+            .await?;
         }
 
         self.get_by_id(id)
@@ -835,11 +846,14 @@ impl PgEmbeddingSetRepository {
         .await
         .map_err(Error::Database)?;
 
-        sqlx::query("SELECT public.recreate_embedding_hnsw_index($1)")
-            .bind(id)
-            .execute(&self.pool)
-            .await
-            .map_err(Error::Database)?;
+        vector_index::enqueue_build_for_config(
+            &self.pool,
+            "public",
+            id,
+            false,
+            "embedding_config_created",
+        )
+        .await?;
 
         // Fetch and return the created config
         self.get_config(id)
@@ -995,11 +1009,17 @@ impl PgEmbeddingSetRepository {
             .await
             .map_err(Error::Database)?;
 
-        sqlx::query("SELECT public.recreate_embedding_hnsw_index($1)")
-            .bind(id)
-            .execute(&self.pool)
-            .await
-            .map_err(Error::Database)?;
+        vector_index::enqueue_build_for_config(
+            &self.pool,
+            "public",
+            id,
+            request.hnsw_m.is_some()
+                || request.hnsw_ef_construction.is_some()
+                || request.dimension.is_some()
+                || request.vector_type.is_some(),
+            "embedding_config_updated",
+        )
+        .await?;
 
         // Fetch and return the updated config
         self.get_config(id)
@@ -1625,6 +1645,11 @@ impl PgEmbeddingSetRepository {
             embedding_count: row.get("embedding_count"),
             index_status: status_str.parse().unwrap_or_default(),
             index_size_bytes: row.get("index_size_bytes"),
+            defer_index_build: row
+                .try_get::<Option<bool>, _>("defer_index_build")
+                .ok()
+                .flatten()
+                .unwrap_or(false),
             is_system: row.get("is_system"),
             is_active: row.get("is_active"),
             auto_refresh: row.get("auto_refresh"),
@@ -1687,6 +1712,7 @@ impl PgEmbeddingSetRepository {
                 es.document_count,
                 es.embedding_count,
                 es.index_status::text as index_status,
+                COALESCE(es.defer_index_build, FALSE) AS defer_index_build,
                 es.is_system,
                 es.keywords,
                 es.truncate_dim,
@@ -1724,6 +1750,9 @@ impl PgEmbeddingSetRepository {
                     document_count: row.get("document_count"),
                     embedding_count: row.get("embedding_count"),
                     index_status: status_str.parse().unwrap_or_default(),
+                    defer_index_build: row
+                        .get::<Option<bool>, _>("defer_index_build")
+                        .unwrap_or(false),
                     is_system: row.get("is_system"),
                     keywords: row.get::<Vec<String>, _>("keywords"),
                     model: row.get("model"),
@@ -1750,6 +1779,7 @@ impl PgEmbeddingSetRepository {
                 set_type::text as set_type, vector_source, mode::text as mode, criteria, embedding_config_id,
                 truncate_dim, auto_embed_rules,
                 index_status::text as index_status, index_type,
+                COALESCE(defer_index_build, FALSE) AS defer_index_build,
                 document_count, embedding_count, embeddings_current, index_size_bytes,
                 is_system, is_active, auto_refresh,
                 agent_metadata, created_at, updated_at, created_by
@@ -1781,6 +1811,7 @@ impl PgEmbeddingSetRepository {
                 set_type::text as set_type, vector_source, mode::text as mode, criteria, embedding_config_id,
                 truncate_dim, auto_embed_rules,
                 index_status::text as index_status, index_type,
+                COALESCE(defer_index_build, FALSE) AS defer_index_build,
                 document_count, embedding_count, embeddings_current, index_size_bytes,
                 is_system, is_active, auto_refresh,
                 agent_metadata, created_at, updated_at, created_by
@@ -1852,13 +1883,13 @@ impl PgEmbeddingSetRepository {
             INSERT INTO embedding_set (
                 id, name, slug, description, purpose, usage_hints, keywords,
                 set_type, mode, criteria, embedding_config_id, truncate_dim,
-                auto_embed_rules, vector_source, agent_metadata,
+                auto_embed_rules, vector_source, defer_index_build, agent_metadata,
                 created_at, updated_at
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7,
                 $8::embedding_set_type, $9::embedding_set_mode, $10, $11, $12,
-                $13, $14, $15,
-                $16, $16
+                $13, $14, $15, $16,
+                $17, $17
             )
             "#,
         )
@@ -1876,6 +1907,7 @@ impl PgEmbeddingSetRepository {
         .bind(req.truncate_dim)
         .bind(&auto_embed_rules_json)
         .bind(req.vector_source.to_string())
+        .bind(req.defer_index_build)
         .bind(&agent_metadata_json)
         .bind(now)
         .execute(&mut **tx)
@@ -1883,11 +1915,18 @@ impl PgEmbeddingSetRepository {
         .map_err(Error::Database)?;
 
         if let Some(config_id) = config_id {
-            sqlx::query("SELECT public.recreate_embedding_hnsw_index($1)")
-                .bind(config_id)
-                .execute(&mut **tx)
+            let schema: String = sqlx::query_scalar("SELECT current_schema()")
+                .fetch_one(&mut **tx)
                 .await
                 .map_err(Error::Database)?;
+            vector_index::enqueue_build_for_config_tx(
+                tx,
+                &schema,
+                config_id,
+                false,
+                "embedding_set_created",
+            )
+            .await?;
         }
 
         self.get_by_id_tx(tx, id)
@@ -1956,6 +1995,7 @@ impl PgEmbeddingSetRepository {
             .transpose()?;
         let mode_str = req.mode.as_ref().map(|m| m.to_string());
         let vector_source = req.vector_source.as_ref().map(|source| source.to_string());
+        let defer_index_build = req.defer_index_build;
 
         // Single UPDATE with COALESCE — NULL params preserve existing values
         let row = sqlx::query(
@@ -1972,6 +2012,7 @@ impl PgEmbeddingSetRepository {
                 criteria = COALESCE($10, criteria),
                 agent_metadata = COALESCE($11, agent_metadata),
                 vector_source = COALESCE($12, vector_source),
+                defer_index_build = COALESCE($13, defer_index_build),
                 updated_at = NOW()
             WHERE slug = $1
             RETURNING
@@ -1979,6 +2020,7 @@ impl PgEmbeddingSetRepository {
                 set_type::text as set_type, vector_source, mode::text as mode, criteria, embedding_config_id,
                 truncate_dim, auto_embed_rules,
                 index_status::text as index_status, index_type,
+                COALESCE(defer_index_build, FALSE) AS defer_index_build,
                 document_count, embedding_count, embeddings_current, index_size_bytes,
                 is_system, is_active, auto_refresh,
                 agent_metadata, created_at, updated_at, created_by
@@ -1996,11 +2038,29 @@ impl PgEmbeddingSetRepository {
         .bind(&criteria_json)
         .bind(&agent_metadata_json)
         .bind(&vector_source)
+        .bind(defer_index_build)
         .fetch_one(&mut **tx)
         .await
         .map_err(Error::Database)?;
 
-        self.row_to_embedding_set(row)
+        let set = self.row_to_embedding_set(row)?;
+        if existing.defer_index_build && defer_index_build == Some(false) {
+            if let Some(config_id) = set.embedding_config_id {
+                let schema: String = sqlx::query_scalar("SELECT current_schema()")
+                    .fetch_one(&mut **tx)
+                    .await
+                    .map_err(Error::Database)?;
+                vector_index::enqueue_build_for_config_tx(
+                    tx,
+                    &schema,
+                    config_id,
+                    true,
+                    "embedding_set_defer_disabled",
+                )
+                .await?;
+            }
+        }
+        Ok(set)
     }
 
     /// List members of an embedding set within a transaction.
