@@ -76,6 +76,7 @@ This directory contains Architecture Decision Records (ADRs) documenting signifi
 | [ADR-107](ADR-107-versioned-mcp-dataset-execution.md) | Versioned MCP Dataset Execution Contract | Accepted | 2026-09-05 |
 | [ADR-108](ADR-108-previewable-lifecycle-purge.md) | Previewable Lifecycle Purge and Content-Free Receipts | Accepted | 2026-09-15 |
 | [ADR-109](ADR-109-point-in-time-memory-export.md) | Point-in-Time Memory Export with a Transaction-Safe High-Water Mark | Accepted | 2026-10-08 |
+| [ADR-110](ADR-110-external-oidc-identity-pass-through.md) | End-User Identity Through an External OIDC Provider for the API, MCP and CLI | Accepted | 2026-10-09 |
 
 ### File Handling (ADR-031 to ADR-036)
 
