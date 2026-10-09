@@ -2823,6 +2823,15 @@ export default [
           "description": "Membership mode",
           "default": "auto"
         },
+        "vector_source": {
+          "type": "string",
+          "enum": [
+            "internal",
+            "external"
+          ],
+          "description": "internal lets Fortemi generate embeddings; external suppresses automatic embedding writes",
+          "default": "internal"
+        },
         "criteria": {
           "type": "object",
           "description": "Auto-membership criteria",
@@ -2986,6 +2995,14 @@ export default [
             "mixed"
           ],
           "description": "New mode"
+        },
+        "vector_source": {
+          "type": "string",
+          "enum": [
+            "internal",
+            "external"
+          ],
+          "description": "Change whether Fortemi or an external process owns vectors"
         }
       },
       "required": [

@@ -7,7 +7,18 @@ use sqlx::{Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use crate::embedding_storage_contract::{contract_for_set, default_contract};
-use matric_core::{new_v7, Embedding, EmbeddingRepository, Error, Result, SearchHit};
+use matric_core::{
+    embedding_chunk_hash, embedding_doc_hash, new_v7, Embedding, EmbeddingRepository, Error,
+    Result, SearchHit,
+};
+
+fn fallback_document_text(chunks: &[(String, Vector)]) -> String {
+    chunks
+        .iter()
+        .map(|(text, _)| text.as_str())
+        .collect::<Vec<_>>()
+        .join("")
+}
 
 /// PostgreSQL implementation of EmbeddingRepository.
 pub struct PgEmbeddingRepository {
@@ -32,7 +43,7 @@ impl EmbeddingRepository for PgEmbeddingRepository {
 
     async fn get_for_note(&self, note_id: Uuid) -> Result<Vec<Embedding>> {
         let rows = sqlx::query(
-            "SELECT id, note_id, chunk_index, text, vector, model, contract_fingerprint
+            "SELECT id, note_id, chunk_index, text, vector, model, chunk_hash, doc_hash, contract_fingerprint
              FROM embedding
              WHERE note_id = $1
              ORDER BY chunk_index",
@@ -51,6 +62,8 @@ impl EmbeddingRepository for PgEmbeddingRepository {
                 text: row.get("text"),
                 vector: row.get("vector"),
                 model: row.get("model"),
+                chunk_hash: row.get("chunk_hash"),
+                doc_hash: row.get("doc_hash"),
                 contract_fingerprint: row.get("contract_fingerprint"),
             })
             .collect();
@@ -227,7 +240,7 @@ impl PgEmbeddingRepository {
     /// List all embeddings with pagination (for export).
     pub async fn list_all(&self, limit: i64, offset: i64) -> Result<Vec<Embedding>> {
         let rows = sqlx::query(
-            "SELECT id, note_id, chunk_index, text, vector, model, contract_fingerprint
+            "SELECT id, note_id, chunk_index, text, vector, model, chunk_hash, doc_hash, contract_fingerprint
              FROM embedding
              ORDER BY note_id, chunk_index
              LIMIT $1 OFFSET $2",
@@ -247,6 +260,8 @@ impl PgEmbeddingRepository {
                 text: row.get("text"),
                 vector: row.get("vector"),
                 model: row.get("model"),
+                chunk_hash: row.get("chunk_hash"),
+                doc_hash: row.get("doc_hash"),
                 contract_fingerprint: row.get("contract_fingerprint"),
             })
             .collect();
@@ -262,7 +277,7 @@ impl PgEmbeddingRepository {
         offset: i64,
     ) -> Result<Vec<Embedding>> {
         let rows = sqlx::query(
-            "SELECT id, note_id, chunk_index, text, vector, model, contract_fingerprint
+            "SELECT id, note_id, chunk_index, text, vector, model, chunk_hash, doc_hash, contract_fingerprint
              FROM embedding
              ORDER BY note_id, chunk_index
              LIMIT $1 OFFSET $2",
@@ -282,6 +297,8 @@ impl PgEmbeddingRepository {
                 text: row.get("text"),
                 vector: row.get("vector"),
                 model: row.get("model"),
+                chunk_hash: row.get("chunk_hash"),
+                doc_hash: row.get("doc_hash"),
                 contract_fingerprint: row.get("contract_fingerprint"),
             })
             .collect();
@@ -513,6 +530,26 @@ impl PgEmbeddingRepository {
         chunks: Vec<(String, Vector)>,
         model: &str,
     ) -> Result<()> {
+        let document_text = fallback_document_text(&chunks);
+        self.store_for_set_with_document_text(
+            note_id,
+            embedding_set_id,
+            chunks,
+            model,
+            &document_text,
+        )
+        .await
+    }
+
+    /// Store embeddings scoped to a set with the exact pre-chunked document text.
+    pub async fn store_for_set_with_document_text(
+        &self,
+        note_id: Uuid,
+        embedding_set_id: Uuid,
+        chunks: Vec<(String, Vector)>,
+        model: &str,
+        document_text: &str,
+    ) -> Result<()> {
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
 
         // Delete only embeddings for this specific set
@@ -527,12 +564,14 @@ impl PgEmbeddingRepository {
             let contract = contract_for_set(&mut tx, embedding_set_id).await?;
             let vector_param = contract.storage_param("$5");
             let insert_sql = format!(
-                "INSERT INTO embedding (id, note_id, chunk_index, text, vector, model, created_at, embedding_set_id)
-                 VALUES ($1, $2, $3, $4, {vector_param}, $6, $7, $8)"
+                "INSERT INTO embedding (id, note_id, chunk_index, text, vector, model, created_at, embedding_set_id, chunk_hash, doc_hash)
+                 VALUES ($1, $2, $3, $4, {vector_param}, $6, $7, $8, $9, $10)"
             );
             let now = Utc::now();
+            let doc_hash = embedding_doc_hash(document_text);
             for (i, (text, vector)) in chunks.into_iter().enumerate() {
                 contract.validate_vector(&vector)?;
+                let chunk_hash = embedding_chunk_hash(&text);
                 sqlx::query(&insert_sql)
                     .bind(new_v7())
                     .bind(note_id)
@@ -542,6 +581,8 @@ impl PgEmbeddingRepository {
                     .bind(model)
                     .bind(now)
                     .bind(embedding_set_id)
+                    .bind(&chunk_hash)
+                    .bind(&doc_hash)
                     .execute(&mut *tx)
                     .await
                     .map_err(Error::Database)?;
@@ -559,6 +600,20 @@ impl PgEmbeddingRepository {
         note_id: Uuid,
         chunks: Vec<(String, Vector)>,
         model: &str,
+    ) -> Result<()> {
+        let document_text = fallback_document_text(&chunks);
+        self.store_tx_with_document_text(tx, note_id, chunks, model, &document_text)
+            .await
+    }
+
+    /// Store embeddings within an existing transaction with exact document text.
+    pub async fn store_tx_with_document_text(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+        chunks: Vec<(String, Vector)>,
+        model: &str,
+        document_text: &str,
     ) -> Result<()> {
         // Delete existing embeddings
         sqlx::query("DELETE FROM embedding WHERE note_id = $1")
@@ -593,12 +648,14 @@ impl PgEmbeddingRepository {
         let contract = contract_for_set(tx, embedding_set_id).await?;
         let vector_param = contract.storage_param("$5");
         let insert_sql = format!(
-            "INSERT INTO embedding (id, note_id, chunk_index, text, vector, model, created_at, embedding_set_id)
-             VALUES ($1, $2, $3, $4, {vector_param}, $6, $7, $8)"
+            "INSERT INTO embedding (id, note_id, chunk_index, text, vector, model, created_at, embedding_set_id, chunk_hash, doc_hash)
+             VALUES ($1, $2, $3, $4, {vector_param}, $6, $7, $8, $9, $10)"
         );
 
+        let doc_hash = embedding_doc_hash(document_text);
         for (i, (text, vector)) in chunks.into_iter().enumerate() {
             contract.validate_vector(&vector)?;
+            let chunk_hash = embedding_chunk_hash(&text);
             sqlx::query(&insert_sql)
                 .bind(new_v7())
                 .bind(note_id)
@@ -608,6 +665,8 @@ impl PgEmbeddingRepository {
                 .bind(model)
                 .bind(now)
                 .bind(embedding_set_id)
+                .bind(&chunk_hash)
+                .bind(&doc_hash)
                 .execute(&mut **tx)
                 .await
                 .map_err(Error::Database)?;
@@ -624,6 +683,28 @@ impl PgEmbeddingRepository {
         chunks: Vec<(String, Vector)>,
         model: &str,
         contract_fingerprint: &str,
+    ) -> Result<()> {
+        let document_text = fallback_document_text(&chunks);
+        self.store_tx_with_contract_and_document_text(
+            tx,
+            note_id,
+            chunks,
+            model,
+            contract_fingerprint,
+            &document_text,
+        )
+        .await
+    }
+
+    /// Store default-set embeddings with a canonical contract fingerprint and exact document text.
+    pub async fn store_tx_with_contract_and_document_text(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_id: Uuid,
+        chunks: Vec<(String, Vector)>,
+        model: &str,
+        contract_fingerprint: &str,
+        document_text: &str,
     ) -> Result<()> {
         sqlx::query("DELETE FROM embedding WHERE note_id = $1")
             .bind(note_id)
@@ -651,11 +732,13 @@ impl PgEmbeddingRepository {
         let insert_sql = format!(
             "INSERT INTO embedding (
                 id, note_id, chunk_index, text, vector, model, created_at,
-                embedding_set_id, contract_fingerprint
-             ) VALUES ($1, $2, $3, $4, {vector_param}, $6, $7, $8, $9)"
+                embedding_set_id, contract_fingerprint, chunk_hash, doc_hash
+             ) VALUES ($1, $2, $3, $4, {vector_param}, $6, $7, $8, $9, $10, $11)"
         );
+        let doc_hash = embedding_doc_hash(document_text);
         for (i, (text, vector)) in chunks.into_iter().enumerate() {
             contract.validate_vector(&vector)?;
+            let chunk_hash = embedding_chunk_hash(&text);
             sqlx::query(&insert_sql)
                 .bind(new_v7())
                 .bind(note_id)
@@ -666,6 +749,8 @@ impl PgEmbeddingRepository {
                 .bind(now)
                 .bind(embedding_set_id)
                 .bind(contract_fingerprint)
+                .bind(&chunk_hash)
+                .bind(&doc_hash)
                 .execute(&mut **tx)
                 .await
                 .map_err(Error::Database)?;
@@ -680,7 +765,7 @@ impl PgEmbeddingRepository {
         note_id: Uuid,
     ) -> Result<Vec<Embedding>> {
         let rows = sqlx::query(
-            "SELECT id, note_id, chunk_index, text, vector, model, contract_fingerprint
+            "SELECT id, note_id, chunk_index, text, vector, model, chunk_hash, doc_hash, contract_fingerprint
              FROM embedding
              WHERE note_id = $1
              ORDER BY chunk_index",
@@ -699,6 +784,8 @@ impl PgEmbeddingRepository {
                 text: row.get("text"),
                 vector: row.get("vector"),
                 model: row.get("model"),
+                chunk_hash: row.get("chunk_hash"),
+                doc_hash: row.get("doc_hash"),
                 contract_fingerprint: row.get("contract_fingerprint"),
             })
             .collect();

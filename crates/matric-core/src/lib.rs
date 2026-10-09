@@ -14,6 +14,7 @@ pub mod collection_filter;
 pub mod defaults;
 pub mod embedding_contract;
 pub mod embedding_dimension;
+pub mod embedding_identity;
 pub mod embedding_provider;
 pub mod error;
 pub mod events;
@@ -45,6 +46,7 @@ pub use authorization::*;
 pub use collection_filter::{CollectionPathFilter, StrictCollectionFilter};
 pub use embedding_contract::*;
 pub use embedding_dimension::*;
+pub use embedding_identity::*;
 pub use embedding_provider::*;
 pub use error::{Error, Result};
 pub use events::{

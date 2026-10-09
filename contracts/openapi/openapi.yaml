@@ -8668,6 +8668,9 @@ components:
           type:
           - string
           - 'null'
+        vector_source:
+          $ref: '#/components/schemas/EmbeddingVectorSource'
+          description: Whether Fortemi or an external process owns vectors in this set.
     CreateFileProvenanceRequest:
       type: object
       description: Request to create a file provenance record linking an attachment to spatial-temporal context.
@@ -10019,6 +10022,8 @@ components:
           type:
           - string
           - 'null'
+        vector_source:
+          $ref: '#/components/schemas/EmbeddingVectorSource'
     EmbeddingSetAgentMetadata:
       type: object
       description: Agent-provided metadata for embedding set discovery.
@@ -10227,6 +10232,8 @@ components:
           - integer
           - 'null'
           format: int32
+        vector_source:
+          $ref: '#/components/schemas/EmbeddingVectorSource'
     EmbeddingSetType:
       type: string
       description: 'Type of embedding set: filter (shares embeddings) vs full (own embeddings).'
@@ -10241,6 +10248,12 @@ components:
       - pending
       - failed
       - none
+    EmbeddingVectorSource:
+      type: string
+      description: Source of vectors stored for an embedding set.
+      enum:
+      - internal
+      - external
     EmbeddingVectorType:
       type: string
       enum:
@@ -14286,6 +14299,10 @@ components:
           type:
           - string
           - 'null'
+        vector_source:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/EmbeddingVectorSource'
     UpdateInferenceConfigRequest:
       type: object
       description: Partial update request body (all fields optional).

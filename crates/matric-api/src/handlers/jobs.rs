@@ -12,13 +12,13 @@ use chrono::{DateTime, Utc};
 use tracing::{debug, info, instrument, warn};
 
 use matric_core::{
-    AttachmentStatus, CreateFileProvenanceRequest, CreateProvDeviceRequest,
-    CreateProvLocationRequest, CreateSemanticRelationRequest, DocumentTypeRepository,
-    EmbeddingConfigProfile, EmbeddingContract, EmbeddingRepository, GenerationBackend,
-    JobRepository, JobType, LinkRepository, MeteringError, NoteRepository, ProvRelation,
-    RevisionMode, SkosSemanticRelation, UsageAttributes, UsageClass, UsageCorrelation,
-    UsageDimension, UsageEvent, UsageMeasurement, UsageMeter, UsageOutcome, UsageProducer,
-    UsageQuantity, UsageSource, UsageSubject,
+    embedding_chunk_hash, embedding_doc_hash, AttachmentStatus, CreateFileProvenanceRequest,
+    CreateProvDeviceRequest, CreateProvLocationRequest, CreateSemanticRelationRequest,
+    DocumentTypeRepository, EmbeddingConfigProfile, EmbeddingContract, EmbeddingRepository,
+    GenerationBackend, JobRepository, JobType, LinkRepository, MeteringError, NoteRepository,
+    ProvRelation, RevisionMode, SkosSemanticRelation, UsageAttributes, UsageClass,
+    UsageCorrelation, UsageDimension, UsageEvent, UsageMeasurement, UsageMeter, UsageOutcome,
+    UsageProducer, UsageQuantity, UsageSource, UsageSubject,
 };
 use matric_db::{
     Chunker, ChunkerConfig, Database, SchemaContext, SemanticChunker, SkosRelationRepository,
@@ -674,6 +674,19 @@ fn schema_context(db: &Database, schema: &str) -> Result<SchemaContext, JobResul
         );
         JobResult::Failed(SCHEMA_CONTEXT_JOB_FAILURE.to_string())
     })
+}
+
+async fn default_embedding_target_is_internal(db: &Database, schema: &str) -> bool {
+    let Ok(schema_ctx) = db.for_schema(schema) else {
+        return false;
+    };
+    let repo = matric_db::PgEmbeddingSetRepository::new(db.pool.clone());
+    schema_ctx
+        .query(move |tx| Box::pin(async move { repo.get_default_tx(tx).await }))
+        .await
+        .ok()
+        .flatten()
+        .is_some_and(|set| !set.vector_source.is_external())
 }
 
 async fn start_job_provenance(
@@ -2756,7 +2769,7 @@ impl JobHandler for EmbeddingHandler {
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
             Err(e) => {
-                return embedding_job_failure_for_job(e, "fetch_note_begin_tx", &job_correlation)
+                return embedding_job_failure_for_job(e, "fetch_note_begin_tx", &job_correlation);
             }
         };
         let note = match self.db.notes.fetch_tx(&mut tx, note_id).await {
@@ -2775,7 +2788,7 @@ impl JobHandler for EmbeddingHandler {
                         error,
                         "resolve_embedding_set",
                         &job_correlation,
-                    )
+                    );
                 }
             },
             None => match self.db.embedding_sets.get_default_tx(&mut tx).await {
@@ -2785,12 +2798,22 @@ impl JobHandler for EmbeddingHandler {
                         error,
                         "resolve_default_embedding_set",
                         &job_correlation,
-                    )
+                    );
                 }
             },
         };
         let contract_embedding_set_id = target_set.as_ref().map(|set| set.id);
         let embedding_truncate_dimension = target_set.as_ref().and_then(|set| set.truncate_dim);
+        if target_set
+            .as_ref()
+            .is_some_and(|set| set.vector_source.is_external())
+        {
+            warn!(
+                embedding_set_scoped = embedding_set_id.is_some(),
+                "Refusing to write embeddings for an externally managed embedding set"
+            );
+            return JobResult::Failed(EMBEDDING_JOB_FAILURE.to_string());
+        }
         let embed_config = match target_set.as_ref().and_then(|set| set.embedding_config_id) {
             Some(config_id) => match self
                 .db
@@ -2808,7 +2831,7 @@ impl JobHandler for EmbeddingHandler {
                         error,
                         "resolve_embedding_config",
                         &job_correlation,
-                    )
+                    );
                 }
             },
             None => match self.db.embedding_sets.get_default_config_tx(&mut tx).await {
@@ -2818,7 +2841,7 @@ impl JobHandler for EmbeddingHandler {
                         error,
                         "resolve_default_embedding_config",
                         &job_correlation,
-                    )
+                    );
                 }
             },
         };
@@ -3119,9 +3142,10 @@ impl JobHandler for EmbeddingHandler {
                 let insert_sql = format!(
                     "INSERT INTO embedding (
                             id, note_id, chunk_index, text, vector, model, created_at,
-                            embedding_set_id, contract_fingerprint
-                         ) VALUES ($1, $2, $3, $4, {vector_param}, $6, $7, $8, $9)"
+                            embedding_set_id, contract_fingerprint, chunk_hash, doc_hash
+                         ) VALUES ($1, $2, $3, $4, {vector_param}, $6, $7, $8, $9, $10, $11)"
                 );
+                let doc_hash = embedding_doc_hash(&content);
                 for (i, (text, vector)) in chunk_vectors.into_iter().enumerate() {
                     if let Err(e) =
                         matric_core::validate_embedding_values(vector.as_slice(), storage_dimension)
@@ -3138,6 +3162,7 @@ impl JobHandler for EmbeddingHandler {
                             &job_correlation,
                         );
                     }
+                    let chunk_hash = embedding_chunk_hash(&text);
                     if let Err(e) = sqlx::query(&insert_sql)
                         .bind(matric_db::new_v7())
                         .bind(note_id)
@@ -3148,6 +3173,8 @@ impl JobHandler for EmbeddingHandler {
                         .bind(now)
                         .bind(set_id)
                         .bind(&contract_fingerprint)
+                        .bind(&chunk_hash)
+                        .bind(&doc_hash)
                         .execute(&mut *tx)
                         .await
                         .map_err(matric_core::Error::Database)
@@ -3169,12 +3196,13 @@ impl JobHandler for EmbeddingHandler {
         } else {
             self.db
                 .embeddings
-                .store_tx_with_contract(
+                .store_tx_with_contract_and_document_text(
                     &mut tx,
                     note_id,
                     chunk_vectors,
                     model_name,
                     &contract_fingerprint,
+                    &content,
                 )
                 .await
         };
@@ -6151,34 +6179,39 @@ impl RelatedConceptHandler {
         note_id: uuid::Uuid,
         schema: &str,
     ) -> (Option<uuid::Uuid>, Option<uuid::Uuid>) {
+        let should_queue_embedding = default_embedding_target_is_internal(&self.db, schema).await;
         let payload = if schema != "public" {
             Some(serde_json::json!({ "schema": schema }))
         } else {
             None
         };
         // Embedding and Linking are tier-agnostic (NULL).
-        let embed_id = match self
-            .db
-            .jobs
-            .queue_deduplicated(
-                Some(note_id),
-                JobType::Embedding,
-                JobType::Embedding.default_priority(),
-                payload.clone(),
-                None,
-            )
-            .await
-        {
-            Ok(job_id) => job_id,
-            Err(e) => {
-                warn!(
-                    error_len = diagnostic_len(&e),
-                    detail = JOB_QUEUE_FOLLOWUP_FAILURE_DETAIL,
-                    operation = "queue_phase3_embedding_job",
-                    "Failed to queue phase-3 embedding job"
-                );
-                None
+        let embed_id = if should_queue_embedding {
+            match self
+                .db
+                .jobs
+                .queue_deduplicated(
+                    Some(note_id),
+                    JobType::Embedding,
+                    JobType::Embedding.default_priority(),
+                    payload.clone(),
+                    None,
+                )
+                .await
+            {
+                Ok(job_id) => job_id,
+                Err(e) => {
+                    warn!(
+                        error_len = diagnostic_len(&e),
+                        detail = JOB_QUEUE_FOLLOWUP_FAILURE_DETAIL,
+                        operation = "queue_phase3_embedding_job",
+                        "Failed to queue phase-3 embedding job"
+                    );
+                    None
+                }
             }
+        } else {
+            None
         };
         let link_id = match self
             .db
@@ -7310,6 +7343,18 @@ impl JobHandler for ReEmbedAllHandler {
             let progress_message = embedding_set_progress_message(slug);
             ctx.report_progress(10, Some(&progress_message));
 
+            match self.db.embedding_sets.get_by_slug(slug).await {
+                Ok(Some(set)) if set.vector_source.is_external() => {
+                    ctx.report_progress(100, Some("External embedding set skipped"));
+                    return JobResult::Success(Some(reembed_all_job_result(0, 0, 0, Some(slug))));
+                }
+                Ok(Some(_)) => {}
+                Ok(None) => {
+                    return reembed_all_job_failure("embedding set not found", "lookup_set");
+                }
+                Err(e) => return reembed_all_job_failure(e, "lookup_set"),
+            }
+
             // Get notes from specific embedding set
             // Use a large limit to get all members
             match self.db.embedding_sets.list_members(slug, 100000, 0).await {
@@ -7583,7 +7628,7 @@ impl JobHandler for RefreshEmbeddingSetHandler {
                         return refresh_embedding_set_job_failure(
                             "embedding set not found",
                             "lookup_set_id_not_found",
-                        )
+                        );
                     }
                     Err(e) => return refresh_embedding_set_job_failure(e, "lookup_set_id"),
                 },
@@ -7599,13 +7644,18 @@ impl JobHandler for RefreshEmbeddingSetHandler {
                     return refresh_embedding_set_job_failure(
                         "embedding set not found",
                         "lookup_legacy_set_slug_not_found",
-                    )
+                    );
                 }
                 Err(e) => return refresh_embedding_set_job_failure(e, "lookup_legacy_set_slug"),
             }
         } else {
             return JobResult::Failed("No embedding set reference in payload".into());
         };
+
+        if set.vector_source.is_external() {
+            ctx.report_progress(100, Some("External embedding set skipped"));
+            return JobResult::Success(Some(refresh_embedding_set_job_result(&set.slug, 0, 0)));
+        }
 
         ctx.report_progress(20, Some("Finding members missing embeddings..."));
 
@@ -8739,6 +8789,216 @@ mod tests {
             .drop_archive_schema(&archive_name)
             .await
             .expect("drop test archive");
+    }
+
+    #[tokio::test]
+    async fn embedding_job_refuses_external_embedding_set_target() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect test database");
+        let unique = uuid::Uuid::now_v7().simple().to_string();
+        let set = db
+            .embedding_sets
+            .create(matric_core::CreateEmbeddingSetRequest {
+                name: format!("External handler refusal {unique}"),
+                slug: Some(format!("external-handler-refusal-{unique}")),
+                description: None,
+                purpose: None,
+                usage_hints: None,
+                keywords: vec![],
+                set_type: matric_core::EmbeddingSetType::Full,
+                mode: matric_core::EmbeddingSetMode::Manual,
+                criteria: Default::default(),
+                agent_metadata: Default::default(),
+                embedding_config_id: None,
+                truncate_dim: None,
+                auto_embed_rules: Default::default(),
+                vector_source: matric_core::EmbeddingVectorSource::External,
+            })
+            .await
+            .expect("create external set");
+        let note_id = db
+            .notes
+            .insert(matric_core::CreateNoteRequest {
+                content: "External vectors are owned outside Fortemi".to_string(),
+                format: "markdown".to_string(),
+                source: "test".to_string(),
+                collection_id: None,
+                tags: None,
+                metadata: None,
+                document_type_id: None,
+                title: None,
+            })
+            .await
+            .expect("create test note");
+
+        let now = Utc::now();
+        let job = matric_core::Job {
+            id: uuid::Uuid::now_v7(),
+            note_id: Some(note_id),
+            job_type: JobType::Embedding,
+            status: matric_core::JobStatus::Running,
+            priority: 1,
+            payload: Some(serde_json::json!({ "embedding_set_id": set.id.to_string() })),
+            result: None,
+            error_message: None,
+            progress_percent: 0,
+            progress_message: None,
+            retry_count: 0,
+            max_retries: 1,
+            created_at: now,
+            started_at: Some(now),
+            completed_at: None,
+            cost_tier: None,
+        };
+        let handler = EmbeddingHandler::new(
+            db.clone(),
+            Arc::new(ProviderRegistry::from_env()),
+            Arc::new(matric_core::InMemoryMeter::default()),
+        )
+        .with_backend_override(Arc::new(SuccessfulEmbeddingBackend { dimension: 768 }));
+
+        let result = handler.execute(JobContext::new(job)).await;
+        match result {
+            JobResult::Failed(message) => assert_eq!(message, EMBEDDING_JOB_FAILURE),
+            other => panic!("expected external set refusal, got {other:?}"),
+        }
+
+        let stored: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM embedding WHERE note_id = $1 AND embedding_set_id = $2",
+        )
+        .bind(note_id)
+        .bind(set.id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("count external embeddings");
+        assert_eq!(stored, 0, "handler must not write into external sets");
+    }
+
+    #[tokio::test]
+    async fn refresh_and_reembed_all_skip_external_embedding_sets() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect test database");
+        let unique = uuid::Uuid::now_v7().simple().to_string();
+        let slug = format!("external-refresh-skip-{unique}");
+        let set = db
+            .embedding_sets
+            .create(matric_core::CreateEmbeddingSetRequest {
+                name: format!("External refresh skip {unique}"),
+                slug: Some(slug.clone()),
+                description: None,
+                purpose: None,
+                usage_hints: None,
+                keywords: vec![],
+                set_type: matric_core::EmbeddingSetType::Full,
+                mode: matric_core::EmbeddingSetMode::Manual,
+                criteria: Default::default(),
+                agent_metadata: Default::default(),
+                embedding_config_id: None,
+                truncate_dim: None,
+                auto_embed_rules: Default::default(),
+                vector_source: matric_core::EmbeddingVectorSource::External,
+            })
+            .await
+            .expect("create external set");
+        let note_id = db
+            .notes
+            .insert(matric_core::CreateNoteRequest {
+                content: "External refresh should not queue".to_string(),
+                format: "markdown".to_string(),
+                source: "test".to_string(),
+                collection_id: None,
+                tags: None,
+                metadata: None,
+                document_type_id: None,
+                title: None,
+            })
+            .await
+            .expect("create test note");
+        db.embedding_sets
+            .add_members(
+                &slug,
+                matric_core::AddMembersRequest {
+                    note_ids: vec![note_id],
+                    added_by: Some("test".to_string()),
+                },
+            )
+            .await
+            .expect("add external member");
+
+        let before: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM job_queue WHERE note_id = $1 AND job_type = 'embedding'",
+        )
+        .bind(note_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("count jobs before");
+
+        let now = Utc::now();
+        let refresh_job = matric_core::Job {
+            id: uuid::Uuid::now_v7(),
+            note_id: None,
+            job_type: JobType::RefreshEmbeddingSet,
+            status: matric_core::JobStatus::Running,
+            priority: 1,
+            payload: Some(serde_json::json!({ "set_id": set.id.to_string() })),
+            result: None,
+            error_message: None,
+            progress_percent: 0,
+            progress_message: None,
+            retry_count: 0,
+            max_retries: 1,
+            created_at: now,
+            started_at: Some(now),
+            completed_at: None,
+            cost_tier: None,
+        };
+        let refresh_result = RefreshEmbeddingSetHandler::new(db.clone())
+            .execute(JobContext::new(refresh_job))
+            .await;
+        assert!(matches!(refresh_result, JobResult::Success(_)));
+
+        let reembed_job = matric_core::Job {
+            id: uuid::Uuid::now_v7(),
+            note_id: None,
+            job_type: JobType::ReEmbedAll,
+            status: matric_core::JobStatus::Running,
+            priority: 1,
+            payload: Some(serde_json::json!({ "embedding_set": slug })),
+            result: None,
+            error_message: None,
+            progress_percent: 0,
+            progress_message: None,
+            retry_count: 0,
+            max_retries: 1,
+            created_at: now,
+            started_at: Some(now),
+            completed_at: None,
+            cost_tier: None,
+        };
+        let reembed_result = ReEmbedAllHandler::new(db.clone())
+            .execute(JobContext::new(reembed_job))
+            .await;
+        assert!(matches!(reembed_result, JobResult::Success(_)));
+
+        let after: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM job_queue WHERE note_id = $1 AND job_type = 'embedding'",
+        )
+        .bind(note_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("count jobs after");
+        assert_eq!(
+            after, before,
+            "external refresh paths must not queue embeddings"
+        );
     }
 
     #[tokio::test]

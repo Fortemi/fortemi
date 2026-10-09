@@ -1309,6 +1309,7 @@ function createMcpServer() {
             usage_hints: args.usage_hints,
             keywords: args.keywords || [],
             mode: args.mode || "auto",
+            vector_source: args.vector_source || "internal",
             criteria: args.criteria || {},
           });
           break;
@@ -1342,6 +1343,7 @@ function createMcpServer() {
           if (args.keywords !== undefined) body.keywords = args.keywords;
           if (args.criteria !== undefined) body.criteria = args.criteria;
           if (args.mode !== undefined) body.mode = args.mode;
+          if (args.vector_source !== undefined) body.vector_source = args.vector_source;
           result = await apiRequest("PATCH", `/api/v1/embedding-sets/${args.slug}`, body);
           break;
         }

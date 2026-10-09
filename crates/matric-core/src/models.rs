@@ -519,6 +519,8 @@ pub struct Embedding {
     pub text: String,
     pub vector: Vector,
     pub model: String,
+    pub chunk_hash: Option<String>,
+    pub doc_hash: Option<String>,
     pub contract_fingerprint: Option<String>,
 }
 
@@ -531,6 +533,8 @@ impl fmt::Debug for Embedding {
             .field("text_len", &debug_len(&self.text))
             .field("vector_dimensions", &self.vector.as_slice().len())
             .field("model_len", &debug_len(&self.model))
+            .field("chunk_hash_set", &self.chunk_hash.is_some())
+            .field("doc_hash_set", &self.doc_hash.is_some())
             .field(
                 "contract_fingerprint_set",
                 &self.contract_fingerprint.is_some(),
@@ -651,6 +655,46 @@ impl std::str::FromStr for EmbeddingSetMode {
             "mixed" => Ok(Self::Mixed),
             _ => Err(format!(
                 "Invalid embedding set mode; value_len={}",
+                debug_len(s)
+            )),
+        }
+    }
+}
+
+/// Source of vectors stored for an embedding set.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum EmbeddingVectorSource {
+    /// Vectors are generated and refreshed by Fortemi's embedding pipeline.
+    #[default]
+    Internal,
+    /// Vectors are supplied and owned by an external system.
+    External,
+}
+
+impl EmbeddingVectorSource {
+    pub fn is_external(self) -> bool {
+        self == Self::External
+    }
+}
+
+impl std::fmt::Display for EmbeddingVectorSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Internal => write!(f, "internal"),
+            Self::External => write!(f, "external"),
+        }
+    }
+}
+
+impl std::str::FromStr for EmbeddingVectorSource {
+    type Err = String;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "internal" => Ok(Self::Internal),
+            "external" => Ok(Self::External),
+            _ => Err(format!(
+                "Invalid embedding vector source; value_len={}",
                 debug_len(s)
             )),
         }
@@ -1195,6 +1239,8 @@ pub struct EmbeddingSet {
     // Auto-embedding rules (for Full sets)
     #[serde(default)]
     pub auto_embed_rules: AutoEmbedRules,
+    #[serde(default)]
+    pub vector_source: EmbeddingVectorSource,
 
     // Stats
     pub document_count: i32,
@@ -1256,6 +1302,7 @@ impl fmt::Debug for EmbeddingSet {
             )
             .field("truncate_dim", &self.truncate_dim)
             .field("auto_embed_rules", &self.auto_embed_rules)
+            .field("vector_source", &self.vector_source)
             .field("document_count", &self.document_count)
             .field("embedding_count", &self.embedding_count)
             .field("index_status", &self.index_status)
@@ -1287,6 +1334,8 @@ pub struct EmbeddingSetSummary {
     pub purpose: Option<String>,
     #[serde(default)]
     pub set_type: EmbeddingSetType,
+    #[serde(default)]
+    pub vector_source: EmbeddingVectorSource,
     pub document_count: i32,
     pub embedding_count: i32,
     pub index_status: EmbeddingIndexStatus,
@@ -1318,6 +1367,7 @@ impl fmt::Debug for EmbeddingSetSummary {
                 &self.purpose.as_ref().map(|value| debug_len(value)),
             )
             .field("set_type", &self.set_type)
+            .field("vector_source", &self.vector_source)
             .field("document_count", &self.document_count)
             .field("embedding_count", &self.embedding_count)
             .field("index_status", &self.index_status)
@@ -1370,6 +1420,9 @@ pub struct CreateEmbeddingSetRequest {
     /// Auto-embedding rules (only for full sets)
     #[serde(default)]
     pub auto_embed_rules: AutoEmbedRules,
+    /// Whether Fortemi or an external process owns vectors in this set.
+    #[serde(default)]
+    pub vector_source: EmbeddingVectorSource,
 }
 
 impl fmt::Debug for CreateEmbeddingSetRequest {
@@ -1411,6 +1464,7 @@ impl fmt::Debug for CreateEmbeddingSetRequest {
             )
             .field("truncate_dim", &self.truncate_dim)
             .field("auto_embed_rules", &self.auto_embed_rules)
+            .field("vector_source", &self.vector_source)
             .finish()
     }
 }
@@ -1438,6 +1492,8 @@ pub struct UpdateEmbeddingSetRequest {
     pub is_active: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_refresh: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vector_source: Option<EmbeddingVectorSource>,
 }
 
 impl fmt::Debug for UpdateEmbeddingSetRequest {
@@ -1474,6 +1530,7 @@ impl fmt::Debug for UpdateEmbeddingSetRequest {
             .field("agent_metadata", &self.agent_metadata)
             .field("is_active", &self.is_active)
             .field("auto_refresh", &self.auto_refresh)
+            .field("vector_source", &self.vector_source)
             .finish()
     }
 }
@@ -5803,6 +5860,8 @@ mod tests {
             text: "éé".to_string(),
             vector: Vector::from(vec![0.12345, 0.67891, 0.22222]),
             model: "éé".to_string(),
+            chunk_hash: Some("sha256:".to_string() + &"a".repeat(64)),
+            doc_hash: Some("sha256:".to_string() + &"b".repeat(64)),
             contract_fingerprint: Some("a".repeat(64)),
         };
         let config = EmbeddingConfig {
@@ -7214,6 +7273,7 @@ mod tests {
             embedding_config_id: Some(Uuid::new_v4()),
             truncate_dim: Some(512),
             auto_embed_rules: rules.clone(),
+            vector_source: EmbeddingVectorSource::Internal,
             document_count: 12,
             embedding_count: 10,
             index_status: EmbeddingIndexStatus::Ready,
@@ -7234,6 +7294,7 @@ mod tests {
             description: Some("Sümmary description /tmp/customer/summary.md".to_string()),
             purpose: Some("Sümmary purpose private@example.test".to_string()),
             set_type: EmbeddingSetType::Filter,
+            vector_source: EmbeddingVectorSource::Internal,
             document_count: 5,
             embedding_count: 4,
             index_status: EmbeddingIndexStatus::Stale,
@@ -7258,6 +7319,7 @@ mod tests {
             embedding_config_id: Some(Uuid::new_v4()),
             truncate_dim: Some(512),
             auto_embed_rules: rules.clone(),
+            vector_source: EmbeddingVectorSource::Internal,
         };
         let update = UpdateEmbeddingSetRequest {
             name: Some("Üpdate private set".to_string()),
@@ -7270,6 +7332,7 @@ mod tests {
             agent_metadata: Some(agent_metadata),
             is_active: Some(true),
             auto_refresh: Some(false),
+            vector_source: Some(EmbeddingVectorSource::Internal),
         };
         let member = EmbeddingSetMember {
             embedding_set_id: Uuid::new_v4(),
@@ -8837,6 +8900,7 @@ mod tests {
             embedding_config_id: None,
             truncate_dim: None,
             auto_embed_rules: AutoEmbedRules::default(),
+            vector_source: EmbeddingVectorSource::Internal,
         };
 
         let json = serde_json::to_string(&request).unwrap();

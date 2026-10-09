@@ -17,7 +17,7 @@
 use matric_db::{
     create_pool, test_fixtures::DEFAULT_TEST_DATABASE_URL, AutoEmbedRules,
     CreateEmbeddingSetRequest, Database, EmbeddingSetAgentMetadata, EmbeddingSetCriteria,
-    EmbeddingSetMode, EmbeddingSetType, NoteRepository,
+    EmbeddingSetMode, EmbeddingSetType, EmbeddingVectorSource, NoteRepository,
 };
 /// Helper to create a test database connection.
 async fn setup_test_db() -> Database {
@@ -29,6 +29,14 @@ async fn setup_test_db() -> Database {
         .expect("Failed to connect to test database");
 
     Database::new(pool)
+}
+
+fn auto_embed_rules_on_create() -> AutoEmbedRules {
+    AutoEmbedRules {
+        on_create: true,
+        priority: 5,
+        ..AutoEmbedRules::default()
+    }
 }
 
 #[tokio::test]
@@ -52,6 +60,7 @@ async fn test_embedding_set_crud_lifecycle() {
         embedding_config_id: None,
         truncate_dim: None,
         auto_embed_rules: AutoEmbedRules::default(),
+        vector_source: EmbeddingVectorSource::Internal,
         agent_metadata: EmbeddingSetAgentMetadata::default(),
     };
 
@@ -100,6 +109,7 @@ async fn test_embedding_set_crud_lifecycle() {
         criteria: None,
         is_active: None,
         auto_refresh: None,
+        vector_source: Some(EmbeddingVectorSource::Internal),
         agent_metadata: None,
     };
 
@@ -177,6 +187,146 @@ async fn test_delete_nonexistent_set() {
 }
 
 #[tokio::test]
+async fn test_external_set_member_add_queues_no_embedding_jobs() {
+    let db = setup_test_db().await;
+    let unique = uuid::Uuid::new_v4().simple().to_string();
+    let slug = format!("external-member-queue-{unique}");
+
+    db.embedding_sets
+        .create(CreateEmbeddingSetRequest {
+            name: format!("External member queue {unique}"),
+            slug: Some(slug.clone()),
+            description: None,
+            purpose: None,
+            usage_hints: None,
+            keywords: vec![],
+            set_type: EmbeddingSetType::Full,
+            mode: EmbeddingSetMode::Manual,
+            criteria: EmbeddingSetCriteria::default(),
+            embedding_config_id: None,
+            truncate_dim: None,
+            auto_embed_rules: auto_embed_rules_on_create(),
+            vector_source: EmbeddingVectorSource::External,
+            agent_metadata: EmbeddingSetAgentMetadata::default(),
+        })
+        .await
+        .expect("create external set");
+
+    let note_id = db
+        .notes
+        .insert(matric_core::CreateNoteRequest {
+            content: "External set member should not queue embeddings".to_string(),
+            format: "markdown".to_string(),
+            source: "test".to_string(),
+            collection_id: None,
+            tags: None,
+            metadata: None,
+            document_type_id: None,
+            title: None,
+        })
+        .await
+        .expect("create note");
+
+    let before: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM job_queue WHERE note_id = $1 AND job_type = 'embedding'",
+    )
+    .bind(note_id)
+    .fetch_one(&db.pool)
+    .await
+    .expect("count jobs before");
+
+    db.embedding_sets
+        .add_members(
+            &slug,
+            matric_core::AddMembersRequest {
+                note_ids: vec![note_id],
+                added_by: Some("test".to_string()),
+            },
+        )
+        .await
+        .expect("add external member");
+
+    let after: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM job_queue WHERE note_id = $1 AND job_type = 'embedding'",
+    )
+    .bind(note_id)
+    .fetch_one(&db.pool)
+    .await
+    .expect("count jobs after");
+
+    assert_eq!(
+        after, before,
+        "external set membership must not queue embeddings"
+    );
+}
+
+#[tokio::test]
+async fn test_internal_set_member_add_still_queues_embedding_job() {
+    let db = setup_test_db().await;
+    let unique = uuid::Uuid::new_v4().simple().to_string();
+    let slug = format!("internal-member-queue-{unique}");
+
+    db.embedding_sets
+        .create(CreateEmbeddingSetRequest {
+            name: format!("Internal member queue {unique}"),
+            slug: Some(slug.clone()),
+            description: None,
+            purpose: None,
+            usage_hints: None,
+            keywords: vec![],
+            set_type: EmbeddingSetType::Full,
+            mode: EmbeddingSetMode::Manual,
+            criteria: EmbeddingSetCriteria::default(),
+            embedding_config_id: None,
+            truncate_dim: None,
+            auto_embed_rules: auto_embed_rules_on_create(),
+            vector_source: EmbeddingVectorSource::Internal,
+            agent_metadata: EmbeddingSetAgentMetadata::default(),
+        })
+        .await
+        .expect("create internal set");
+
+    let note_id = db
+        .notes
+        .insert(matric_core::CreateNoteRequest {
+            content: "Internal set member should queue embeddings".to_string(),
+            format: "markdown".to_string(),
+            source: "test".to_string(),
+            collection_id: None,
+            tags: None,
+            metadata: None,
+            document_type_id: None,
+            title: None,
+        })
+        .await
+        .expect("create note");
+
+    db.embedding_sets
+        .add_members(
+            &slug,
+            matric_core::AddMembersRequest {
+                note_ids: vec![note_id],
+                added_by: Some("test".to_string()),
+            },
+        )
+        .await
+        .expect("add internal member");
+
+    let queued: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM job_queue WHERE note_id = $1 AND job_type = 'embedding'",
+    )
+    .bind(note_id)
+    .fetch_one(&db.pool)
+    .await
+    .expect("count jobs");
+
+    assert!(
+        queued > 0,
+        "internal set membership should still queue embeddings"
+    );
+}
+
+#[tokio::test]
 async fn test_delete_removes_member_associations() {
     let db = setup_test_db().await;
 
@@ -194,6 +344,7 @@ async fn test_delete_removes_member_associations() {
         embedding_config_id: None,
         truncate_dim: None,
         auto_embed_rules: AutoEmbedRules::default(),
+        vector_source: EmbeddingVectorSource::Internal,
         agent_metadata: EmbeddingSetAgentMetadata::default(),
     };
 

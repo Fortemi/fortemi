@@ -22091,19 +22091,21 @@ async fn add_embedding_set_members(
     // Resolve set ID and queue embedding jobs for each added note
     let resolve_repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
     if let Some(set) = resolve_repo.get_by_slug(&slug_for_resolve).await? {
-        for note_id in &note_ids {
-            let payload = serde_json::json!({ "embedding_set_id": set.id.to_string() });
-            let _ = state
-                .db
-                .jobs
-                .queue(
-                    Some(*note_id),
-                    matric_core::JobType::Embedding,
-                    matric_core::JobType::Embedding.default_priority(),
-                    Some(payload),
-                    None,
-                )
-                .await;
+        if !set.vector_source.is_external() {
+            for note_id in &note_ids {
+                let payload = serde_json::json!({ "embedding_set_id": set.id.to_string() });
+                let _ = state
+                    .db
+                    .jobs
+                    .queue(
+                        Some(*note_id),
+                        matric_core::JobType::Embedding,
+                        matric_core::JobType::Embedding.default_priority(),
+                        Some(payload),
+                        None,
+                    )
+                    .await;
+            }
         }
     }
 
@@ -22171,6 +22173,13 @@ async fn refresh_embedding_set(
     let slug = set.slug.clone();
 
     if set.mode == matric_core::EmbeddingSetMode::Manual {
+        if set.vector_source.is_external() {
+            return Ok(Json(serde_json::json!({
+                "status": "skipped",
+                "mode": "manual",
+                "message": "External embedding set refresh does not queue embedding jobs"
+            })));
+        }
         // Manual sets: queue a re-embed job (jobs are global, not per-schema)
         let job_id = state
             .db
@@ -22268,6 +22277,15 @@ async fn update_embedding_config(
     if composition_changed {
         if let Ok(set_ids) = state.db.embedding_sets.find_set_ids_by_config(id).await {
             for set_id in set_ids {
+                if state
+                    .db
+                    .embedding_sets
+                    .get_by_id(set_id)
+                    .await?
+                    .is_some_and(|set| set.vector_source.is_external())
+                {
+                    continue;
+                }
                 let _ = state
                     .db
                     .jobs
@@ -22441,6 +22459,40 @@ impl From<Job> for JobResponse {
     }
 }
 
+async fn reject_external_embedding_job_target(
+    state: &AppState,
+    payload: Option<&serde_json::Value>,
+) -> Result<(), ApiError> {
+    let schema = payload
+        .and_then(|payload| payload.get("schema"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|schema| !schema.is_empty())
+        .unwrap_or("public");
+    let ctx = state.db.for_schema(schema)?;
+
+    let set = if let Some(set_id) = payload
+        .and_then(|payload| payload.get("embedding_set_id"))
+        .and_then(serde_json::Value::as_str)
+        .and_then(|value| Uuid::parse_str(value).ok())
+    {
+        let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+        ctx.query(move |tx| Box::pin(async move { repo.get_by_id_tx(tx, set_id).await }))
+            .await?
+    } else {
+        let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+        ctx.query(move |tx| Box::pin(async move { repo.get_default_tx(tx).await }))
+            .await?
+    };
+
+    if set.is_some_and(|set| set.vector_source.is_external()) {
+        return Err(ApiError::BadRequest(
+            "Embedding jobs cannot target externally managed embedding sets".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
 fn sanitize_job_value(value: &serde_json::Value) -> serde_json::Value {
     match value {
         serde_json::Value::Object(map) => serde_json::Value::Object(
@@ -22556,6 +22608,10 @@ async fn create_job(
     }
 
     let priority = body.priority.unwrap_or_else(|| job_type.default_priority());
+
+    if job_type == JobType::Embedding {
+        reject_external_embedding_job_target(&state, body.payload.as_ref()).await?;
+    }
 
     if body.deduplicate {
         // Deduplicated queuing: skip if same note_id+job_type already pending

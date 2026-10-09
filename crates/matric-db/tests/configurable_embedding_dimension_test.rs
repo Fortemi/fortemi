@@ -3,7 +3,8 @@
 use matric_db::{
     create_pool, test_fixtures::DEFAULT_TEST_DATABASE_URL, AutoEmbedRules,
     CreateEmbeddingConfigRequest, CreateEmbeddingSetRequest, Database, EmbeddingSetAgentMetadata,
-    EmbeddingSetCriteria, EmbeddingSetMode, EmbeddingSetType, EmbeddingVectorType, NoteRepository,
+    EmbeddingSetCriteria, EmbeddingSetMode, EmbeddingSetType, EmbeddingVectorSource,
+    EmbeddingVectorType, NoteRepository,
 };
 use pgvector::Vector;
 use uuid::Uuid;
@@ -59,6 +60,7 @@ fn set_request(name: &str, config_id: Uuid) -> CreateEmbeddingSetRequest {
         embedding_config_id: Some(config_id),
         truncate_dim: None,
         auto_embed_rules: AutoEmbedRules::default(),
+        vector_source: EmbeddingVectorSource::Internal,
         agent_metadata: EmbeddingSetAgentMetadata::default(),
     }
 }
@@ -116,6 +118,18 @@ async fn vector_and_halfvec_sets_store_index_and_search() {
         )
         .await
         .expect("store 1024 vector");
+    let (chunk_hash, doc_hash): (Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT chunk_hash, doc_hash FROM embedding WHERE note_id = $1 AND embedding_set_id = $2",
+    )
+    .bind(vector_note)
+    .bind(vector_set.id)
+    .fetch_one(&db.pool)
+    .await
+    .expect("read embedding hashes");
+    let expected_chunk_hash = matric_core::embedding_chunk_hash("vector chunk");
+    let expected_doc_hash = matric_core::embedding_doc_hash("vector chunk");
+    assert_eq!(chunk_hash.as_deref(), Some(expected_chunk_hash.as_str()));
+    assert_eq!(doc_hash.as_deref(), Some(expected_doc_hash.as_str()));
     let vector_hits = db
         .embeddings
         .find_similar_in_set(&Vector::from(vector_values), vector_set.id, 5, false)

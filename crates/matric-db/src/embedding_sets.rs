@@ -9,8 +9,9 @@ use matric_core::{
     new_v7, validate_embedding_dimension, AddMembersRequest, CreateEmbeddingConfigRequest,
     CreateEmbeddingSetRequest, EmbeddingConfigProfile, EmbeddingIndexStatus, EmbeddingProvider,
     EmbeddingSet, EmbeddingSetAgentMetadata, EmbeddingSetCriteria, EmbeddingSetHealth,
-    EmbeddingSetMember, EmbeddingSetMode, EmbeddingSetSummary, EmbeddingVectorType, Error,
-    GarbageCollectionResult, Result, UpdateEmbeddingConfigRequest, UpdateEmbeddingSetRequest,
+    EmbeddingSetMember, EmbeddingSetMode, EmbeddingSetSummary, EmbeddingVectorSource,
+    EmbeddingVectorType, Error, GarbageCollectionResult, Result, UpdateEmbeddingConfigRequest,
+    UpdateEmbeddingSetRequest,
 };
 
 fn embedding_set_not_found_by_slug_error(slug: &str) -> Error {
@@ -100,6 +101,7 @@ impl PgEmbeddingSetRepository {
                 es.description,
                 es.purpose,
                 es.set_type::text as set_type,
+                es.vector_source,
                 es.document_count,
                 es.embedding_count,
                 es.index_status::text as index_status,
@@ -133,6 +135,10 @@ impl PgEmbeddingSetRepository {
                     set_type: set_type_str
                         .map(|s| s.parse().unwrap_or_default())
                         .unwrap_or_default(),
+                    vector_source: row
+                        .get::<Option<String>, _>("vector_source")
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_default(),
                     document_count: row.get("document_count"),
                     embedding_count: row.get("embedding_count"),
                     index_status: status_str.parse().unwrap_or_default(),
@@ -155,7 +161,7 @@ impl PgEmbeddingSetRepository {
             r#"
             SELECT
                 id, name, slug, description, purpose, usage_hints, keywords,
-                set_type::text as set_type, mode::text as mode, criteria, embedding_config_id,
+                set_type::text as set_type, vector_source, mode::text as mode, criteria, embedding_config_id,
                 truncate_dim, auto_embed_rules,
                 index_status::text as index_status, index_type,
                 document_count, embedding_count, embeddings_current, index_size_bytes,
@@ -182,7 +188,7 @@ impl PgEmbeddingSetRepository {
             r#"
             SELECT
                 id, name, slug, description, purpose, usage_hints, keywords,
-                set_type::text as set_type, mode::text as mode, criteria, embedding_config_id,
+                set_type::text as set_type, vector_source, mode::text as mode, criteria, embedding_config_id,
                 truncate_dim, auto_embed_rules,
                 index_status::text as index_status, index_type,
                 document_count, embedding_count, embeddings_current, index_size_bytes,
@@ -249,13 +255,13 @@ impl PgEmbeddingSetRepository {
             INSERT INTO embedding_set (
                 id, name, slug, description, purpose, usage_hints, keywords,
                 set_type, mode, criteria, embedding_config_id, truncate_dim,
-                auto_embed_rules, agent_metadata,
+                auto_embed_rules, vector_source, agent_metadata,
                 created_at, updated_at
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7,
                 $8::embedding_set_type, $9::embedding_set_mode, $10, $11, $12,
-                $13, $14,
-                $15, $15
+                $13, $14, $15,
+                $16, $16
             )
             "#,
         )
@@ -272,6 +278,7 @@ impl PgEmbeddingSetRepository {
         .bind(config_id)
         .bind(req.truncate_dim)
         .bind(&auto_embed_rules_json)
+        .bind(req.vector_source.to_string())
         .bind(&agent_metadata_json)
         .bind(now)
         .execute(&self.pool)
@@ -1582,6 +1589,7 @@ impl PgEmbeddingSetRepository {
         let mode_str: String = row.get("mode");
         let status_str: String = row.get("index_status");
         let set_type_str: Option<String> = row.try_get("set_type").ok();
+        let vector_source_str: Option<String> = row.try_get("vector_source").ok();
         let criteria_json: JsonValue = row.get("criteria");
         let agent_metadata_json: JsonValue = row.get("agent_metadata");
         let auto_embed_rules_json: Option<JsonValue> = row.try_get("auto_embed_rules").ok();
@@ -1604,6 +1612,9 @@ impl PgEmbeddingSetRepository {
             keywords: row.get::<Vec<String>, _>("keywords"),
             set_type: set_type_str
                 .map(|s| s.parse::<EmbeddingSetType>().unwrap_or_default())
+                .unwrap_or_default(),
+            vector_source: vector_source_str
+                .map(|s| s.parse::<EmbeddingVectorSource>().unwrap_or_default())
                 .unwrap_or_default(),
             mode: mode_str.parse().unwrap_or_default(),
             criteria,
@@ -1672,6 +1683,7 @@ impl PgEmbeddingSetRepository {
                 es.description,
                 es.purpose,
                 es.set_type::text as set_type,
+                es.vector_source,
                 es.document_count,
                 es.embedding_count,
                 es.index_status::text as index_status,
@@ -1705,6 +1717,10 @@ impl PgEmbeddingSetRepository {
                     set_type: set_type_str
                         .map(|s| s.parse().unwrap_or_default())
                         .unwrap_or_default(),
+                    vector_source: row
+                        .get::<Option<String>, _>("vector_source")
+                        .and_then(|s| s.parse().ok())
+                        .unwrap_or_default(),
                     document_count: row.get("document_count"),
                     embedding_count: row.get("embedding_count"),
                     index_status: status_str.parse().unwrap_or_default(),
@@ -1731,7 +1747,7 @@ impl PgEmbeddingSetRepository {
             r#"
             SELECT
                 id, name, slug, description, purpose, usage_hints, keywords,
-                set_type::text as set_type, mode::text as mode, criteria, embedding_config_id,
+                set_type::text as set_type, vector_source, mode::text as mode, criteria, embedding_config_id,
                 truncate_dim, auto_embed_rules,
                 index_status::text as index_status, index_type,
                 document_count, embedding_count, embeddings_current, index_size_bytes,
@@ -1762,7 +1778,7 @@ impl PgEmbeddingSetRepository {
             r#"
             SELECT
                 id, name, slug, description, purpose, usage_hints, keywords,
-                set_type::text as set_type, mode::text as mode, criteria, embedding_config_id,
+                set_type::text as set_type, vector_source, mode::text as mode, criteria, embedding_config_id,
                 truncate_dim, auto_embed_rules,
                 index_status::text as index_status, index_type,
                 document_count, embedding_count, embeddings_current, index_size_bytes,
@@ -1836,13 +1852,13 @@ impl PgEmbeddingSetRepository {
             INSERT INTO embedding_set (
                 id, name, slug, description, purpose, usage_hints, keywords,
                 set_type, mode, criteria, embedding_config_id, truncate_dim,
-                auto_embed_rules, agent_metadata,
+                auto_embed_rules, vector_source, agent_metadata,
                 created_at, updated_at
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7,
                 $8::embedding_set_type, $9::embedding_set_mode, $10, $11, $12,
-                $13, $14,
-                $15, $15
+                $13, $14, $15,
+                $16, $16
             )
             "#,
         )
@@ -1859,6 +1875,7 @@ impl PgEmbeddingSetRepository {
         .bind(config_id)
         .bind(req.truncate_dim)
         .bind(&auto_embed_rules_json)
+        .bind(req.vector_source.to_string())
         .bind(&agent_metadata_json)
         .bind(now)
         .execute(&mut **tx)
@@ -1938,6 +1955,7 @@ impl PgEmbeddingSetRepository {
             .map(|m| serde_json::to_value(m).map_err(|e| Error::Internal(e.to_string())))
             .transpose()?;
         let mode_str = req.mode.as_ref().map(|m| m.to_string());
+        let vector_source = req.vector_source.as_ref().map(|source| source.to_string());
 
         // Single UPDATE with COALESCE — NULL params preserve existing values
         let row = sqlx::query(
@@ -1953,11 +1971,12 @@ impl PgEmbeddingSetRepository {
                 mode = COALESCE($9::embedding_set_mode, mode),
                 criteria = COALESCE($10, criteria),
                 agent_metadata = COALESCE($11, agent_metadata),
+                vector_source = COALESCE($12, vector_source),
                 updated_at = NOW()
             WHERE slug = $1
             RETURNING
                 id, name, slug, description, purpose, usage_hints, keywords,
-                set_type::text as set_type, mode::text as mode, criteria, embedding_config_id,
+                set_type::text as set_type, vector_source, mode::text as mode, criteria, embedding_config_id,
                 truncate_dim, auto_embed_rules,
                 index_status::text as index_status, index_type,
                 document_count, embedding_count, embeddings_current, index_size_bytes,
@@ -1976,6 +1995,7 @@ impl PgEmbeddingSetRepository {
         .bind(&mode_str)
         .bind(&criteria_json)
         .bind(&agent_metadata_json)
+        .bind(&vector_source)
         .fetch_one(&mut **tx)
         .await
         .map_err(Error::Database)?;
