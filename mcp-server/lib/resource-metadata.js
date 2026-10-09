@@ -30,7 +30,7 @@ export function buildProtectedResourceMetadata({
     resource,
     authorization_servers: [authorizationServer],
     bearer_methods_supported: ["header"],
-    scopes_supported: ["mcp"],
+    scopes_supported: ["mcp", "admin"],
     resource_documentation: resolveResourceDocumentationUrl(resourceDocumentation),
   };
 }

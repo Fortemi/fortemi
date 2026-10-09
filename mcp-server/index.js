@@ -28,6 +28,12 @@ import {
 } from "./lib/output-sanitizer.js";
 import { buildProtectedResourceMetadata } from "./lib/resource-metadata.js";
 import { mustReject, validateBearer } from "./lib/bearer-validation.js";
+import {
+  apiAuthorizationHeader,
+  getSseMessageSessionId as resolveSseMessageSessionId,
+  sessionLogId,
+  sessionPrincipalMatches as principalMatchesSession,
+} from "./lib/session-security.js";
 import { exportMemorySnapshot } from "./lib/memory-export.js";
 import {
   ATTACHMENT_TOOL_NAMES,
@@ -145,14 +151,15 @@ async function apiRequest(method, path, body = null, requestOptions = {}) {
 
   // DEBUG: Trace AsyncLocalStorage context propagation (#350)
   if (process.env.DEBUG_SESSION_CONTEXT) {
-    console.log(`[apiRequest] ${method} ${path} | sessionId=${sessionId || 'UNDEFINED'} | hasToken=${!!sessionToken}`);
+    console.log(`[apiRequest] ${method} ${path} | session=${sessionLogId(sessionId)} | hasToken=${!!sessionToken}`);
   }
 
-  if (sessionToken) {
-    headers["Authorization"] = `Bearer ${sessionToken}`;
-  } else if (API_KEY) {
-    headers["Authorization"] = `Bearer ${API_KEY}`;
-  }
+  const authorization = apiAuthorizationHeader({
+    transport: MCP_TRANSPORT,
+    requestToken: sessionToken,
+    apiKey: API_KEY,
+  });
+  if (authorization) headers["Authorization"] = authorization;
 
   // Add X-Fortemi-Memory header if active memory is set for this session
   if (sessionId) {
@@ -160,7 +167,7 @@ async function apiRequest(method, path, body = null, requestOptions = {}) {
     if (activeMemory) {
       headers["X-Fortemi-Memory"] = activeMemory;
       if (process.env.DEBUG_SESSION_CONTEXT) {
-        console.log(`[apiRequest] Adding X-Fortemi-Memory=${activeMemory} for session=${sessionId}`);
+        console.log(`[apiRequest] Adding X-Fortemi-Memory=${activeMemory} for session=${sessionLogId(sessionId)}`);
       }
     }
   } else if (process.env.DEBUG_SESSION_CONTEXT) {
@@ -3197,7 +3204,7 @@ function createMcpServer() {
 
           // DEBUG: Trace memory selection (#350)
           if (process.env.DEBUG_SESSION_CONTEXT) {
-            console.log(`[select_memory] Setting memory="${args.name}" for session=${sessionId}`);
+            console.log(`[select_memory] Setting memory="${args.name}" for session=${sessionLogId(sessionId)}`);
           }
 
           // "public" is always valid (it's the default schema)
@@ -5935,8 +5942,8 @@ if (MCP_TRANSPORT === "http") {
    */
   function send403(res) {
     res.status(403)
-      .set('WWW-Authenticate', `Bearer realm="mcp", error="insufficient_scope", scope="mcp", resource_metadata="${MCP_BASE_URL}/.well-known/oauth-protected-resource"`)
-      .json({ error: "insufficient_scope", error_description: "The token lacks the mcp scope" });
+      .set('WWW-Authenticate', `Bearer realm="mcp", error="insufficient_scope", scope="mcp admin", resource_metadata="${MCP_BASE_URL}/.well-known/oauth-protected-resource"`)
+      .json({ error: "insufficient_scope", error_description: "The token lacks the mcp or admin scope" });
   }
 
   /**
@@ -5951,9 +5958,8 @@ if (MCP_TRANSPORT === "http") {
 
   const bearerValidationOptions = {
     apiBase: API_BASE,
-    clientId: process.env.MCP_CLIENT_ID,
-    clientSecret: process.env.MCP_CLIENT_SECRET,
     fetchImpl: (...args) => fetchWithTrace(...args),
+    tokenExchange: STARTUP_CONFIG.tokenExchange,
   };
 
   // OAuth token validation middleware.
@@ -5970,7 +5976,8 @@ if (MCP_TRANSPORT === "http") {
     if (req.headers.authorization) {
       const result = await validateBearer(req.headers.authorization, bearerValidationOptions);
       if (result.valid) {
-        req.accessToken = result.token;
+        req.accessToken = result.forwardToken;
+        req.principalFingerprint = result.principalFingerprint;
       } else if (mustReject(result, requireAuth)) {
         if (result.status === 403) {
           return result.reason === "insufficient_scope" ? send403(res) : sendForbidden(res);
@@ -5987,6 +5994,24 @@ if (MCP_TRANSPORT === "http") {
     next();
   }
 
+  function getSessionHeader(req) {
+    return req.headers["mcp-session-id"];
+  }
+
+  function getSseMessageSessionId(req) {
+    return resolveSseMessageSessionId({
+      headerSessionId: getSessionHeader(req),
+      querySessionId: req.query.sessionId,
+      legacySse: process.env.MCP_LEGACY_SSE === "true" || process.env.MCP_LEGACY_SSE === "1",
+    });
+  }
+
+  function rejectSessionPrincipalMismatch(res) {
+    return res.status(403)
+      .set('WWW-Authenticate', `Bearer realm="mcp", resource_metadata="${MCP_BASE_URL}/.well-known/oauth-protected-resource"`)
+      .json({ error: "access_denied", error_description: "The bearer token does not match this MCP session" });
+  }
+
   // SSE endpoint for MCP connections (legacy SSE transport)
   app.get("/sse", validateToken, async (req, res) => {
     console.log("[sse] New SSE connection");
@@ -5996,11 +6021,11 @@ if (MCP_TRANSPORT === "http") {
     const transport = new SSEServerTransport(messagesPath, res);
     const sessionId = transport.sessionId;
 
-    console.log(`[sse] Transport created with sessionId: ${sessionId}`);
-    transports.set(sessionId, { transport, token: req.accessToken, type: 'sse' });
+    console.log(`[sse] Transport created with session: ${sessionLogId(sessionId)}`);
+    transports.set(sessionId, { transport, principalFingerprint: req.principalFingerprint, type: 'sse' });
 
     res.on("close", () => {
-      console.log(`[sse] Connection closed for session ${sessionId}`);
+      console.log(`[sse] Connection closed for session ${sessionLogId(sessionId)}`);
       transports.delete(sessionId);
       sessionMemories.delete(sessionId); // Clean up session memory
     });
@@ -6011,35 +6036,38 @@ if (MCP_TRANSPORT === "http") {
     await tokenStorage.run({ token: req.accessToken, sessionId: contextSessionId, trace: extractTraceContext(req.headers) }, async () => {
       await mcpServer.connect(transport);
     });
-    console.log(`[sse] MCP server connected for session ${sessionId}`);
+    console.log(`[sse] MCP server connected for session ${sessionLogId(sessionId)}`);
   });
 
   // Messages endpoint for SSE transport
   app.post("/messages", validateToken, async (req, res) => {
-    const sessionId = req.query.sessionId;
-    console.log(`[messages] POST with sessionId: ${sessionId}`);
+    const sessionId = getSseMessageSessionId(req);
+    console.log(`[messages] POST with session: ${sessionLogId(sessionId)}`);
 
     if (!sessionId) {
-      return res.status(400).json({ error: "Missing sessionId parameter" });
+      return res.status(400).json({ error: "Missing Mcp-Session-Id header" });
     }
 
     const session = transports.get(sessionId);
     if (!session || session.type !== 'sse') {
-      console.error(`[messages] No SSE transport found for session ${sessionId}`);
+      console.error(`[messages] No SSE transport found for session ${sessionLogId(sessionId)}`);
       return res.status(400).json({ error: "No SSE transport found for sessionId" });
+    }
+    if (!principalMatchesSession(session, req.principalFingerprint)) {
+      return rejectSessionPrincipalMismatch(res);
     }
 
     // Execute the message handler with the session's token context
-    console.log(`[messages] Handling message for session ${sessionId}`);
-    await tokenStorage.run({ token: session.token, sessionId, trace: extractTraceContext(req.headers) }, async () => {
+    console.log(`[messages] Handling message for session ${sessionLogId(sessionId)}`);
+    await tokenStorage.run({ token: req.accessToken, sessionId, trace: extractTraceContext(req.headers) }, async () => {
       await session.transport.handlePostMessage(req, res, req.body);
     });
   });
 
   // StreamableHTTP transport on root path (newer transport, POST to initialize/send, GET to receive)
   app.post("/", validateToken, async (req, res) => {
-    const sessionId = req.headers['mcp-session-id'];
-    console.log(`[mcp] POST, sessionId from header: ${sessionId || 'none'}`);
+    const sessionId = getSessionHeader(req);
+    console.log(`[mcp] POST, session: ${sessionLogId(sessionId)}`);
 
     // Check both established transports AND pending transports (being initialized)
     const existingSession = sessionId ? transports.get(sessionId) : undefined;
@@ -6050,13 +6078,19 @@ if (MCP_TRANSPORT === "http") {
     let contextSessionId;
 
     if (existingSession && existingSession.type === 'streamable') {
+      if (!principalMatchesSession(existingSession, req.principalFingerprint)) {
+        return rejectSessionPrincipalMismatch(res);
+      }
       // Reuse existing transport for this session
-      console.log(`[mcp] Reusing existing transport for session ${sessionId}`);
+      console.log(`[mcp] Reusing existing transport for session ${sessionLogId(sessionId)}`);
       transport = existingSession.transport;
       contextSessionId = sessionId;
     } else if (pendingSession) {
+      if (!principalMatchesSession(pendingSession, req.principalFingerprint)) {
+        return rejectSessionPrincipalMismatch(res);
+      }
       // Transport exists but is still being initialized - reuse it
-      console.log(`[mcp] Reusing pending transport for session ${sessionId}`);
+      console.log(`[mcp] Reusing pending transport for session ${sessionLogId(sessionId)}`);
       transport = pendingSession.transport;
       contextSessionId = sessionId;
     } else if (sessionId) {
@@ -6068,7 +6102,7 @@ if (MCP_TRANSPORT === "http") {
       // request → the SDK replied "Server not initialized" and the client stayed
       // stuck until a manual /mcp reconnect. This makes matric restarts invisible
       // to MCP clients.
-      console.log(`[mcp] Unknown session ${sessionId} (likely post-restart) — 404 to trigger client re-init`);
+      console.log(`[mcp] Unknown session ${sessionLogId(sessionId)} (likely post-restart) — 404 to trigger client re-init`);
       return res.status(404).json({
         jsonrpc: "2.0",
         error: { code: -32001, message: "Session not found; reinitialize" },
@@ -6087,8 +6121,8 @@ if (MCP_TRANSPORT === "http") {
 
       // Store in pendingTransports IMMEDIATELY to prevent race conditions
       // This ensures concurrent requests find the same transport
-      pendingTransports.set(newSessionId, { transport, token: req.accessToken, type: 'streamable' });
-      console.log(`[mcp] Created pending transport with pre-assigned sessionId: ${newSessionId}`);
+      pendingTransports.set(newSessionId, { transport, principalFingerprint: req.principalFingerprint, type: 'streamable' });
+      console.log(`[mcp] Created pending transport with pre-assigned session: ${sessionLogId(newSessionId)}`);
 
       // Create and connect new MCP server for this transport
       const mcpServer = createMcpServer();
@@ -6096,7 +6130,7 @@ if (MCP_TRANSPORT === "http") {
 
       // Set up cleanup on close
       transport.onclose = () => {
-        console.log(`[mcp] Transport closed: ${transport?.sessionId}`);
+        console.log(`[mcp] Transport closed: ${sessionLogId(transport?.sessionId)}`);
         if (transport?.sessionId) {
           transports.delete(transport.sessionId);
           pendingTransports.delete(transport.sessionId);
@@ -6109,12 +6143,12 @@ if (MCP_TRANSPORT === "http") {
     try {
       // DEBUG: Trace context creation (#350)
       if (process.env.DEBUG_SESSION_CONTEXT) {
-        console.log(`[transport] Running tokenStorage.run with sessionId=${contextSessionId}`);
+        console.log(`[transport] Running tokenStorage.run with session=${sessionLogId(contextSessionId)}`);
       }
       await tokenStorage.run({ token: req.accessToken, sessionId: contextSessionId, trace: extractTraceContext(req.headers) }, async () => {
         if (process.env.DEBUG_SESSION_CONTEXT) {
           const verifyStore = tokenStorage.getStore();
-          console.log(`[transport] Inside run callback, store.sessionId=${verifyStore?.sessionId}`);
+          console.log(`[transport] Inside run callback, store.session=${sessionLogId(verifyStore?.sessionId)}`);
         }
         await transport.handleRequest(req, res);
       });
@@ -6123,8 +6157,8 @@ if (MCP_TRANSPORT === "http") {
       if (isNewTransport && transport.sessionId) {
         pendingTransports.delete(transport.sessionId);
         if (!transports.has(transport.sessionId)) {
-          console.log(`[mcp] Promoting transport to established: ${transport.sessionId}`);
-          transports.set(transport.sessionId, { transport, token: req.accessToken, type: 'streamable' });
+          console.log(`[mcp] Promoting transport to established: ${sessionLogId(transport.sessionId)}`);
+          transports.set(transport.sessionId, { transport, principalFingerprint: req.principalFingerprint, type: 'streamable' });
         }
       }
     } catch (error) {
@@ -6142,8 +6176,8 @@ if (MCP_TRANSPORT === "http") {
 
   // GET on root for StreamableHTTP (server-to-client messages/SSE stream)
   app.get("/", validateToken, async (req, res) => {
-    const sessionId = req.headers['mcp-session-id'];
-    console.log(`[mcp] GET, sessionId: ${sessionId || 'none'}`);
+    const sessionId = getSessionHeader(req);
+    console.log(`[mcp] GET, session: ${sessionLogId(sessionId)}`);
 
     const session = sessionId ? transports.get(sessionId) : undefined;
 
@@ -6156,18 +6190,24 @@ if (MCP_TRANSPORT === "http") {
           : "Bad Request: No valid session. POST to initialize first, or use /sse for SSE transport."
       });
     }
+    if (!principalMatchesSession(session, req.principalFingerprint)) {
+      return rejectSessionPrincipalMismatch(res);
+    }
 
-    await tokenStorage.run({ token: session.token, sessionId, trace: extractTraceContext(req.headers) }, async () => {
+    await tokenStorage.run({ token: req.accessToken, sessionId, trace: extractTraceContext(req.headers) }, async () => {
       await session.transport.handleRequest(req, res);
     });
   });
 
   // DELETE on root for StreamableHTTP session termination
   app.delete("/", validateToken, async (req, res) => {
-    const sessionId = req.headers['mcp-session-id'];
+    const sessionId = getSessionHeader(req);
     const session = sessionId ? transports.get(sessionId) : undefined;
 
     if (session && session.type === 'streamable') {
+      if (!principalMatchesSession(session, req.principalFingerprint)) {
+        return rejectSessionPrincipalMismatch(res);
+      }
       await session.transport.close();
       transports.delete(sessionId);
       sessionMemories.delete(sessionId); // Clean up session memory
@@ -6210,38 +6250,8 @@ if (MCP_TRANSPORT === "http") {
     }));
   });
 
-  if (process.env.FORTEMI_AUTH_AUDIENCE && process.env.FORTEMI_AUTH_AUDIENCE !== MCP_RESOURCE_URI) {
-    console.warn("WARNING: MCP_RESOURCE_URI does not match FORTEMI_AUTH_AUDIENCE");
-    console.warn("  External-issuer tokens requested for the advertised resource will fail audience validation");
-  }
-
-  // Validate MCP OAuth credentials on startup
-  if (!process.env.MCP_CLIENT_ID || !process.env.MCP_CLIENT_SECRET) {
-    console.warn("WARNING: MCP_CLIENT_ID or MCP_CLIENT_SECRET not set");
-    console.warn("  Token introspection will fail — all authenticated requests will be rejected");
-    console.warn("  Fix: register an OAuth client via POST /oauth/register and set credentials");
-  } else {
-    console.log(`MCP OAuth credentials configured (client_id: ${process.env.MCP_CLIENT_ID})`);
-    // Verify credentials are valid by testing introspection
-    try {
-      const testResp = await fetchWithTrace(`${API_BASE}/oauth/introspect`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "Authorization": `Basic ${Buffer.from(`${process.env.MCP_CLIENT_ID}:${process.env.MCP_CLIENT_SECRET}`).toString("base64")}`,
-        },
-        body: "token=startup_check",
-      });
-      if (testResp.ok) {
-        console.log("  OAuth credential validation: OK");
-      } else {
-        console.warn(`  WARNING: OAuth credential validation failed (HTTP ${testResp.status})`);
-        console.warn("  MCP client_id/secret may be stale — re-register via POST /oauth/register");
-      }
-    } catch (e) {
-      console.warn(`  WARNING: Could not reach API for credential validation: ${e.message}`);
-      console.warn(`  Ensure the API is running at ${API_BASE}`);
-    }
+  if (STARTUP_CONFIG.tokenExchange.enabled) {
+    console.log(`MCP token exchange configured (client_id: ${STARTUP_CONFIG.tokenExchange.clientId})`);
   }
 
   app.listen(MCP_PORT, () => {

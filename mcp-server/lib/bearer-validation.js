@@ -1,12 +1,17 @@
-// Validates MCP bearer tokens: Fortemi-issued tokens via introspection, external OIDC tokens via the API's hosted verifier.
+// Validates MCP bearer tokens through the API's token-info verifier.
 //
-// External tokens are never parsed or verified here (#1151). They are forwarded to
-// GET /api/v1/auth/token-info, which runs the same issuer, audience, JWKS, tenant and
+// GET /api/v1/auth/token-info runs the same issuer, audience, JWKS, tenant and
 // scope checks as every REST request. Token values are never logged or returned.
 
-const FORTEMI_ACCESS_PREFIXES = ["mm_at_", "mm_key_"];
+import crypto from "node:crypto";
+
+const FORTEMI_ACCESS_PREFIXES = ["mm_at_", "mm_key_", "mm_pat_"];
 const FORTEMI_REFRESH_PREFIX = "mm_rt_";
 const VERIFY_TIMEOUT_MS = 5000;
+const SUCCESS_CACHE_MAX_MS = 60_000;
+const FAILURE_CACHE_MAX_MS = 5_000;
+const TOKEN_EXCHANGE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange";
+const TOKEN_EXCHANGE_SUBJECT_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";
 
 /** Classify a raw bearer value without inspecting its contents beyond the prefix. */
 export function classifyBearer(token) {
@@ -19,62 +24,151 @@ function scopeList(scope) {
   return (scope || "").split(/\s+/).filter(Boolean);
 }
 
-function reject(kind, status, reason) {
-  return { valid: false, kind, status, reason };
+function tokenHash(token) {
+  return crypto.createHash("sha256").update(token).digest("hex");
 }
 
-async function validateFortemiToken(token, options) {
-  const { apiBase, clientId, clientSecret, fetchImpl } = options;
-  const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
-  const response = await fetchImpl(`${apiBase}/oauth/introspect`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Authorization: `Basic ${credentials}`,
+function decodeJwtPayload(token) {
+  const parts = token.split(".");
+  if (parts.length < 2) return null;
+  try {
+    return JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function principalFingerprint(token, info) {
+  const tokenClass = String(info.token_class || "");
+  if (tokenClass === "pat" || tokenClass === "personal_access_token") {
+    const patId = info.pat_id || info.patId || info.id;
+    if (patId) return crypto.createHash("sha256").update(`pat\n${patId}`).digest("hex");
+  }
+  const iss = info.iss || info.issuer;
+  const sub = info.sub || info.subject;
+  if (iss && sub) return crypto.createHash("sha256").update(`${iss}\n${sub}`).digest("hex");
+
+  // The current token-info contract intentionally redacts legacy OAuth/API-key ids.
+  // Bind those opaque credentials to the presented token value rather than leaving
+  // the session unbound; user-bound OIDC/PAT sessions use the stable ids above.
+  if (FORTEMI_ACCESS_PREFIXES.some((prefix) => token.startsWith(prefix))) {
+    return crypto.createHash("sha256").update(`token\n${token}`).digest("hex");
+  }
+
+  const payload = decodeJwtPayload(token);
+  if (payload?.iss && payload?.sub) {
+    return crypto.createHash("sha256").update(`${payload.iss}\n${payload.sub}`).digest("hex");
+  }
+  return null;
+}
+
+function reject(kind, status, reason, cacheable = true) {
+  return { valid: false, kind, status, reason, cacheable };
+}
+
+function successCacheTtlMs(info, nowMs) {
+  if (info?.exp === undefined || info?.exp === null) return SUCCESS_CACHE_MAX_MS;
+  const expMs = Number(info.exp) * 1000;
+  if (!Number.isFinite(expMs)) return SUCCESS_CACHE_MAX_MS;
+  return Math.max(0, Math.min(expMs - nowMs, SUCCESS_CACHE_MAX_MS));
+}
+
+export function createTokenInfoCache({ now = () => Date.now() } = {}) {
+  const entries = new Map();
+  return {
+    get(token) {
+      const key = tokenHash(token);
+      const entry = entries.get(key);
+      if (!entry) return null;
+      if (entry.expiresAtMs <= now()) {
+        entries.delete(key);
+        return null;
+      }
+      return entry.value;
     },
-    body: `token=${encodeURIComponent(token)}`,
-    signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
-  });
-  if (!response.ok) return reject("fortemi", 401, "introspection_failed");
-  const introspection = await response.json();
-  if (!introspection.active) return reject("fortemi", 401, "inactive");
-  // A refresh token is never a bearer credential, even if introspection reports it active.
-  if (introspection.token_type && introspection.token_type !== "Bearer") {
-    return reject("fortemi", 401, "not_an_access_token");
-  }
-  // Transport admission only; the API's route/action policy still enforces mutations.
-  const scopes = scopeList(introspection.scope);
-  if (!["mcp", "read", "admin"].some((scope) => scopes.includes(scope))) {
-    return reject("fortemi", 403, "insufficient_scope");
-  }
-  return { valid: true, kind: "fortemi", token };
+    set(token, value, ttlMs) {
+      if (ttlMs <= 0) return;
+      entries.set(tokenHash(token), { value, expiresAtMs: now() + ttlMs });
+    },
+    size() {
+      return entries.size;
+    },
+    clear() {
+      entries.clear();
+    },
+  };
 }
 
-async function validateExternalToken(token, options) {
+const defaultTokenInfoCache = createTokenInfoCache();
+
+async function fetchTokenInfo(token, options) {
   const { apiBase, fetchImpl } = options;
   const response = await fetchImpl(`${apiBase}/api/v1/auth/token-info`, {
     method: "GET",
     headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
     signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
   });
-  if (response.status === 401) return reject("external", 401, "invalid_token");
-  if (response.status === 403) return reject("external", 403, "forbidden");
-  if (response.status === 503) return reject("external", 503, "verifier_unavailable");
-  if (!response.ok) return reject("external", 401, "verification_failed");
+  if (response.status === 401) return reject(classifyBearer(token), 401, "invalid_token");
+  if (response.status === 403) return reject(classifyBearer(token), 403, "forbidden");
+  if (response.status === 503) return reject(classifyBearer(token), 503, "verifier_unavailable", false);
+  if (!response.ok) return reject(classifyBearer(token), 401, "verification_failed");
   const info = await response.json();
-  if (!info.active || info.token_class !== "hosted_oidc") {
-    return reject("external", 401, "invalid_token");
+  if (!info.active) {
+    return reject(classifyBearer(token), 401, "invalid_token");
   }
   const scopes = scopeList(info.scope);
   if (!scopes.includes("mcp") && !scopes.includes("admin")) {
-    return reject("external", 403, "insufficient_scope");
+    return reject(classifyBearer(token), 403, "insufficient_scope");
   }
-  return { valid: true, kind: "external", token, exp: info.exp ?? null };
+  const fingerprint = principalFingerprint(token, info);
+  if (!fingerprint) return reject(classifyBearer(token), 401, "principal_unbound");
+  return {
+    valid: true,
+    kind: classifyBearer(token),
+    token,
+    forwardToken: token,
+    tokenInfo: info,
+    exp: info.exp ?? null,
+    principalFingerprint: fingerprint,
+  };
+}
+
+async function exchangeToken(subjectToken, options) {
+  const { tokenExchange, fetchImpl } = options;
+  if (!tokenExchange?.enabled) return subjectToken;
+  const body = new URLSearchParams({
+    grant_type: TOKEN_EXCHANGE_GRANT_TYPE,
+    subject_token: subjectToken,
+    subject_token_type: TOKEN_EXCHANGE_SUBJECT_TOKEN_TYPE,
+    audience: tokenExchange.audience,
+  });
+  const response = await fetchImpl(tokenExchange.tokenEndpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      Authorization: `Basic ${Buffer.from(`${tokenExchange.clientId}:${tokenExchange.clientSecret}`).toString("base64")}`,
+    },
+    body: body.toString(),
+    signal: AbortSignal.timeout(VERIFY_TIMEOUT_MS),
+  });
+  if (!response.ok) {
+    const error = new Error("token_exchange_failed");
+    error.status = response.status;
+    throw error;
+  }
+  const payload = await response.json();
+  if (!payload.access_token) {
+    const error = new Error("token_exchange_missing_access_token");
+    error.status = 502;
+    throw error;
+  }
+  return payload.access_token;
 }
 
 /**
  * Validate an Authorization header value.
- * Resolves to { valid: true, kind, token } or { valid: false, kind, status, reason }.
+ * Resolves to { valid: true, kind, token, forwardToken, principalFingerprint }
+ * or { valid: false, kind, status, reason }.
  */
 export async function validateBearer(authHeader, options) {
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -84,13 +178,33 @@ export async function validateBearer(authHeader, options) {
   if (!token) return reject("none", 401, "missing");
   const kind = classifyBearer(token);
   if (kind === "refresh") return reject("refresh", 401, "not_an_access_token");
+  const cache = options.cache || defaultTokenInfoCache;
+  const nowMs = options.now ? options.now() : Date.now();
+  const cached = cache.get(token);
+  if (cached) return cached;
   try {
-    return kind === "fortemi"
-      ? await validateFortemiToken(token, options)
-      : await validateExternalToken(token, options);
+    const result = await fetchTokenInfo(token, options);
+    if (result.valid) {
+      const forwardToken = await exchangeToken(token, options);
+      const withForwardToken = { ...result, forwardToken };
+      cache.set(token, withForwardToken, successCacheTtlMs(result.tokenInfo, nowMs));
+      return withForwardToken;
+    }
+    if (result.cacheable !== false) cache.set(token, result, FAILURE_CACHE_MAX_MS);
+    return result;
   } catch (error) {
     // Network errors and timeouts: the verifier could not be reached.
-    return reject(kind, 503, error?.name === "TimeoutError" ? "verifier_timeout" : "verifier_unreachable");
+    const result = reject(
+      kind,
+      error?.status && error.status >= 400 && error.status < 500 ? 401 : 503,
+      error?.name === "TimeoutError"
+        ? "verifier_timeout"
+        : error?.message?.startsWith("token_exchange")
+          ? error.message
+          : "verifier_unreachable",
+      false,
+    );
+    return result;
   }
 }
 

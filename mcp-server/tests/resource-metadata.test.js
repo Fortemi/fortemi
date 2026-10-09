@@ -17,7 +17,7 @@ test("protected-resource metadata advertises curated consumer documentation", ()
     resource: "https://memory.example.com/mcp",
     authorization_servers: ["https://memory.example.com"],
     bearer_methods_supported: ["header"],
-    scopes_supported: ["mcp"],
+    scopes_supported: ["mcp", "admin"],
     resource_documentation: DEFAULT_RESOURCE_DOCUMENTATION_URL,
   });
   assert.doesNotMatch(metadata.resource_documentation, /\/docs$/);
@@ -56,6 +56,6 @@ test("RFC 9728 metadata covers self-issued and external-issuer profiles (#1151)"
   });
   assert.equal(external.resource, "https://memory.example.com");
   assert.deepEqual(external.authorization_servers, ["https://idp.example.com/realms/acme"]);
-  assert.deepEqual(external.scopes_supported, ["mcp"]);
+  assert.deepEqual(external.scopes_supported, ["mcp", "admin"]);
   assert.deepEqual(external.bearer_methods_supported, ["header"]);
 });

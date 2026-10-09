@@ -29,6 +29,11 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   `fortemi-login` sign-in helper (`tools/fortemi-login/`, OS keychain
   storage); and a [connection guide](#/getting-started-connect)
   (`docs/content/connect.md`).
+- Harden MCP HTTP auth so sessions are bound to the verified principal,
+  `/messages` and Streamable HTTP requests use the current request bearer, user
+  requests never fall back to `FORTEMI_API_KEY`, session ids are logged only as
+  truncated hashes, `MCP_RESOURCE_URI` must match an accepted audience, and
+  separate-resource deployments can opt into RFC 8693 token exchange (#1193).
 
 ### Changed
 

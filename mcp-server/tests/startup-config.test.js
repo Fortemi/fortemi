@@ -113,6 +113,90 @@ describe("loadStartupConfig", () => {
     assert.equal(config.publicUrl, "http://127.0.0.1:3000");
   });
 
+  test("http refuses MCP resource/audience drift for external audiences", () => {
+    assert.throws(
+      () => loadStartupConfig({
+        MCP_TRANSPORT: "http",
+        FORTEMI_URL: "http://localhost:3000",
+        MCP_RESOURCE_URI: "https://memory.example.com/mcp",
+        FORTEMI_AUTH_AUDIENCE: "https://memory.example.com",
+      }),
+      /MCP_RESOURCE_URI must exactly match/
+    );
+
+    const config = loadStartupConfig({
+      MCP_TRANSPORT: "http",
+      FORTEMI_URL: "http://localhost:3000",
+      MCP_RESOURCE_URI: "https://memory.example.com/mcp",
+      FORTEMI_AUTH_AUDIENCES: "https://memory.example.com, https://memory.example.com/mcp",
+    });
+    assert.deepEqual(config.resource.acceptedAudiences, [
+      "https://memory.example.com",
+      "https://memory.example.com/mcp",
+    ]);
+  });
+
+  test("http refuses non-https MCP_RESOURCE_URI outside explicit local development", () => {
+    assert.throws(
+      () => loadStartupConfig({
+        MCP_TRANSPORT: "http",
+        FORTEMI_URL: "http://localhost:3000",
+        MCP_RESOURCE_URI: "http://memory.example.com/mcp",
+        FORTEMI_AUTH_AUDIENCE: "http://memory.example.com/mcp",
+      }),
+      /must use https/
+    );
+    const config = loadStartupConfig({
+      MCP_TRANSPORT: "http",
+      FORTEMI_URL: "http://localhost:3000",
+      MCP_RESOURCE_URI: "http://localhost:3001/mcp",
+      FORTEMI_AUTH_AUDIENCE: "http://localhost:3001/mcp",
+      FORTEMI_ALLOW_LOCAL_ISSUER: "true",
+    });
+    assert.equal(config.resource.resourceUri, "http://localhost:3001/mcp");
+  });
+
+  test("token exchange fails closed until fully configured", () => {
+    const base = {
+      MCP_TRANSPORT: "http",
+      FORTEMI_URL: "http://localhost:3000",
+      MCP_RESOURCE_URI: "https://mcp.example.com/mcp",
+      FORTEMI_AUTH_AUDIENCES: "https://mcp.example.com/mcp,https://api.example.com",
+      MCP_TOKEN_EXCHANGE: "true",
+    };
+    assert.throws(() => loadStartupConfig(base), /MCP_TOKEN_EXCHANGE_CLIENT_ID/);
+    assert.throws(
+      () => loadStartupConfig({ ...base, MCP_TOKEN_EXCHANGE_CLIENT_ID: "mcp-client" }),
+      /CLIENT_SECRET/
+    );
+    assert.throws(
+      () => loadStartupConfig({
+        ...base,
+        MCP_TOKEN_EXCHANGE_CLIENT_ID: "mcp-client",
+        MCP_TOKEN_EXCHANGE_CLIENT_SECRET: "secret",
+      }),
+      /TOKEN_ENDPOINT/
+    );
+    assert.throws(
+      () => loadStartupConfig({
+        ...base,
+        MCP_TOKEN_EXCHANGE_CLIENT_ID: "mcp-client",
+        MCP_TOKEN_EXCHANGE_CLIENT_SECRET: "secret",
+        MCP_TOKEN_EXCHANGE_TOKEN_ENDPOINT: "https://idp.example.com/token",
+      }),
+      /EXCHANGE_AUDIENCE/
+    );
+    const config = loadStartupConfig({
+      ...base,
+      MCP_TOKEN_EXCHANGE_CLIENT_ID: "mcp-client",
+      MCP_TOKEN_EXCHANGE_CLIENT_SECRET: "secret",
+      MCP_TOKEN_EXCHANGE_TOKEN_ENDPOINT: "https://idp.example.com/token",
+      MCP_TOKEN_EXCHANGE_AUDIENCE: "https://api.example.com",
+    });
+    assert.equal(config.tokenExchange.enabled, true);
+    assert.equal(config.tokenExchange.audience, "https://api.example.com");
+  });
+
   test("rejects an unknown transport", () => {
     assert.throws(() => loadStartupConfig({ MCP_TRANSPORT: "ws", FORTEMI_URL: "http://localhost:3000" }), /MCP_TRANSPORT/);
   });

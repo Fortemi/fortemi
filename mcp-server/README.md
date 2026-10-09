@@ -636,9 +636,14 @@ curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
 | `MCP_TOOL_MODE` | `core` | Tool surface: `core` (45 tools) or `full` (207 tools) |
 | `ISSUER_URL` | `https://localhost:3000` | External URL for OAuth (set in .env) |
 | `MCP_BASE_URL` | `http://localhost:3001` | Base URL for OAuth protected-resource metadata |
+| `MCP_RESOURCE_URI` | `MCP_BASE_URL` | Exact RFC 9728 resource identifier, including any path. With `FORTEMI_AUTH_AUDIENCES`/`FORTEMI_AUTH_AUDIENCE`, this must be one accepted audience and must be HTTPS outside explicit local development |
 | `MCP_BASE_PATH` | - | Path prefix when behind proxy (e.g., `/mcp`) |
-| `MCP_CLIENT_ID` | (auto) | OAuth client ID for token introspection (auto-managed) |
-| `MCP_CLIENT_SECRET` | (auto) | OAuth client secret for token introspection (auto-managed) |
+| `MCP_LEGACY_SSE` | `false` | Allows legacy `/messages?sessionId=...`; new deployments use the `Mcp-Session-Id` header |
+| `MCP_TOKEN_EXCHANGE` | `false` | Enables RFC 8693 token exchange for separate-resource deployments |
+| `MCP_TOKEN_EXCHANGE_CLIENT_ID` | - | Confidential IdP client used only when token exchange is enabled |
+| `MCP_TOKEN_EXCHANGE_CLIENT_SECRET` / `_FILE` | - | Token exchange client secret, from env or file |
+| `MCP_TOKEN_EXCHANGE_TOKEN_ENDPOINT` | - | IdP token endpoint for RFC 8693 token exchange |
+| `MCP_TOKEN_EXCHANGE_AUDIENCE` | - | API audience requested through token exchange |
 
 ## Troubleshooting
 
@@ -650,9 +655,9 @@ See [MCP Troubleshooting Guide](../docs/content/mcp-troubleshooting.md) for:
 
 ## OAuth2 Authentication (HTTP Mode)
 
-The HTTP transport requires OAuth2 bearer tokens. The server validates tokens against the main API's introspection endpoint.
+The HTTP transport requires OAuth2 bearer tokens. The server validates every inbound bearer against the main API's `GET /api/v1/auth/token-info` endpoint before any tool call, binds the session to that verified principal, and forwards only the current request's validated bearer to the API. In HTTP mode, missing request tokens do not fall back to `FORTEMI_API_KEY`; stdio mode can still use `FORTEMI_API_KEY` for local operation.
 
-Required scopes: `mcp` or `read`
+Required scopes: `mcp` or `admin`
 
 401 responses include RFC 9728 compliant `WWW-Authenticate` headers pointing to the protected resource metadata.
 
