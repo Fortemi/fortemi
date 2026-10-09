@@ -12,6 +12,7 @@ mod hosted_exempt_routes;
 #[cfg(test)]
 mod hosted_exempt_routes_tests;
 mod hosted_route_qualification;
+mod job_batch_progress;
 mod middleware;
 mod migrate_only;
 mod oauth_consent;
@@ -22681,6 +22682,7 @@ async fn get_job(
         .get(id)
         .await?
         .ok_or_else(|| ApiError::NotFound("Job not found".to_string()))?;
+    let job = job_batch_progress::attach_child_job_progress(&state.db, job).await?;
     Ok(Json(JobResponse::from(job)))
 }
 
@@ -22742,10 +22744,14 @@ async fn list_jobs(
     // Get stats for summary
     let stats = state.db.jobs.queue_stats().await?;
 
-    let jobs: Vec<JobResponse> = jobs.into_iter().map(JobResponse::from).collect();
+    let mut job_responses = Vec::with_capacity(jobs.len());
+    for job in jobs {
+        let job = job_batch_progress::attach_child_job_progress(&state.db, job).await?;
+        job_responses.push(JobResponse::from(job));
+    }
 
     Ok(Json(serde_json::json!({
-        "jobs": jobs,
+        "jobs": job_responses,
         "total": stats.total,
         "pending": stats.pending,
         "delayed": stats.delayed,
@@ -39871,6 +39877,8 @@ async fn apply_validated_shard_components(
                 "DELETE FROM skos_concept_scheme",
                 "wipe SKOS schemes before knowledge shard import",
             ),
+            // Full knowledge-shard replacement intentionally wipes all vectors in
+            // the selected archive schema after archive validation succeeds.
             (
                 "embeddings",
                 "DELETE FROM embedding",

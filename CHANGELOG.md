@@ -15,6 +15,12 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   and `halfvec` vectors with rebuilt per-config HNSW indexes, and exports keep
   using the existing contract unless a non-768 or `halfvec` set requires the new
   one (#1175).
+- Scope re-embedding deletes to the target embedding set: set-scoped
+  `ReEmbedAll` now queues child embedding jobs with set/schema batch context,
+  default re-embedding only replaces default-set rows, external sets stay
+  read-only for background jobs, and `RefreshEmbeddingSet` can optionally queue
+  stale rows by contract or chunk/doc-hash mismatch while reporting child batch progress
+  through the existing job status result (#1182).
 
 ## [2026.10.1] - 2026-10-09
 

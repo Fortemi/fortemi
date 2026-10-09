@@ -12,6 +12,19 @@ use matric_core::{
     Result, SearchHit,
 };
 
+async fn default_embedding_set_id_tx(tx: &mut Transaction<'_, Postgres>) -> Result<Uuid> {
+    let embedding_set_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT get_default_embedding_set_id()")
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(Error::Database)?;
+    embedding_set_id.ok_or_else(|| {
+        Error::Internal(
+            "No default embedding set found. Run migrations to create default set.".to_string(),
+        )
+    })
+}
+
 fn fallback_document_text(chunks: &[(String, Vector)]) -> String {
     chunks
         .iter()
@@ -72,11 +85,15 @@ impl EmbeddingRepository for PgEmbeddingRepository {
     }
 
     async fn delete_for_note(&self, note_id: Uuid) -> Result<()> {
-        sqlx::query("DELETE FROM embedding WHERE note_id = $1")
-            .bind(note_id)
-            .execute(&self.pool)
-            .await
-            .map_err(Error::Database)?;
+        sqlx::query(
+            "DELETE FROM embedding
+             WHERE note_id = $1
+               AND embedding_set_id = (SELECT get_default_embedding_set_id())",
+        )
+        .bind(note_id)
+        .execute(&self.pool)
+        .await
+        .map_err(Error::Database)?;
         Ok(())
     }
 
@@ -615,9 +632,11 @@ impl PgEmbeddingRepository {
         model: &str,
         document_text: &str,
     ) -> Result<()> {
-        // Delete existing embeddings
-        sqlx::query("DELETE FROM embedding WHERE note_id = $1")
+        let embedding_set_id = default_embedding_set_id_tx(tx).await?;
+
+        sqlx::query("DELETE FROM embedding WHERE note_id = $1 AND embedding_set_id = $2")
             .bind(note_id)
+            .bind(embedding_set_id)
             .execute(&mut **tx)
             .await
             .map_err(Error::Database)?;
@@ -625,24 +644,6 @@ impl PgEmbeddingRepository {
         if chunks.is_empty() {
             return Ok(());
         }
-
-        // Get the default embedding set ID
-        let default_set_id: Option<Uuid> =
-            sqlx::query_scalar("SELECT get_default_embedding_set_id()")
-                .fetch_optional(&mut **tx)
-                .await
-                .map_err(Error::Database)?;
-
-        // If no default set exists, create one
-        let embedding_set_id = match default_set_id {
-            Some(id) => id,
-            None => {
-                return Err(Error::Internal(
-                    "No default embedding set found. Run migrations to create default set."
-                        .to_string(),
-                ));
-            }
-        };
 
         let now = Utc::now();
         let contract = contract_for_set(tx, embedding_set_id).await?;
@@ -706,8 +707,11 @@ impl PgEmbeddingRepository {
         contract_fingerprint: &str,
         document_text: &str,
     ) -> Result<()> {
-        sqlx::query("DELETE FROM embedding WHERE note_id = $1")
+        let embedding_set_id = default_embedding_set_id_tx(tx).await?;
+
+        sqlx::query("DELETE FROM embedding WHERE note_id = $1 AND embedding_set_id = $2")
             .bind(note_id)
+            .bind(embedding_set_id)
             .execute(&mut **tx)
             .await
             .map_err(Error::Database)?;
@@ -716,16 +720,6 @@ impl PgEmbeddingRepository {
             return Ok(());
         }
 
-        let embedding_set_id: Option<Uuid> =
-            sqlx::query_scalar("SELECT get_default_embedding_set_id()")
-                .fetch_optional(&mut **tx)
-                .await
-                .map_err(Error::Database)?;
-        let embedding_set_id = embedding_set_id.ok_or_else(|| {
-            Error::Internal(
-                "No default embedding set found. Run migrations to create default set.".to_string(),
-            )
-        })?;
         let now = Utc::now();
         let contract = contract_for_set(tx, embedding_set_id).await?;
         let vector_param = contract.storage_param("$5");

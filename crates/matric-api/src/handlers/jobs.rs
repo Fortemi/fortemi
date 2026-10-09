@@ -28,7 +28,7 @@ use matric_jobs::adapters::exif::{
     extract_exif_metadata, parse_exif_datetime, prepare_attachment_metadata,
 };
 use matric_jobs::{job_correlation_token, JobContext, JobHandler, JobResult};
-use sqlx;
+use sqlx::{self, Row};
 
 #[cfg(test)]
 use matric_core::EmbeddingBackend;
@@ -241,32 +241,56 @@ fn reembed_all_job_result(
     failed: usize,
     total_notes: usize,
     embedding_set_slug: Option<&str>,
+    batch_id: uuid::Uuid,
 ) -> serde_json::Value {
     serde_json::json!({
         "notes_queued": queued,
         "notes_failed": failed,
         "total_notes": total_notes,
-        "embedding_set_slug_len": embedding_set_slug.map(diagnostic_len)
+        "embedding_set_slug_len": embedding_set_slug.map(diagnostic_len),
+        "batch_id": batch_id.to_string(),
+        "child_job_progress": {
+            "completed": 0,
+            "failed": 0,
+            "total": queued
+        }
     })
 }
 
-fn reembed_all_no_notes_job_result() -> serde_json::Value {
+fn reembed_all_no_notes_job_result(batch_id: uuid::Uuid) -> serde_json::Value {
     serde_json::json!({
         "notes_queued": 0,
-        "reason": "no_active_notes"
+        "reason": "no_active_notes",
+        "batch_id": batch_id.to_string(),
+        "child_job_progress": {
+            "completed": 0,
+            "failed": 0,
+            "total": 0
+        }
     })
 }
 
 fn refresh_embedding_set_job_result(
     set_slug: &str,
     missing_count: usize,
+    stale_count: usize,
     jobs_queued: usize,
+    refresh_stale: bool,
+    batch_id: uuid::Uuid,
 ) -> serde_json::Value {
     serde_json::json!({
         "set_id_present": true,
         "set_slug_len": diagnostic_len(set_slug),
         "missing_count": missing_count,
-        "jobs_queued": jobs_queued
+        "stale_count": stale_count,
+        "refresh_stale": refresh_stale,
+        "jobs_queued": jobs_queued,
+        "batch_id": batch_id.to_string(),
+        "child_job_progress": {
+            "completed": 0,
+            "failed": 0,
+            "total": jobs_queued
+        }
     })
 }
 
@@ -674,6 +698,114 @@ fn schema_context(db: &Database, schema: &str) -> Result<SchemaContext, JobResul
         );
         JobResult::Failed(SCHEMA_CONTEXT_JOB_FAILURE.to_string())
     })
+}
+
+fn embedding_child_job_payload(
+    schema: &str,
+    parent_job_id: uuid::Uuid,
+    batch_id: uuid::Uuid,
+    embedding_set_id: Option<uuid::Uuid>,
+) -> serde_json::Value {
+    let mut payload = serde_json::json!({
+        "parent_job_id": parent_job_id.to_string(),
+        "embedding_batch_id": batch_id.to_string(),
+    });
+    if schema != "public" {
+        payload["schema"] = serde_json::json!(schema);
+    }
+    if let Some(set_id) = embedding_set_id {
+        payload["embedding_set_id"] = serde_json::json!(set_id.to_string());
+    }
+    payload
+}
+
+fn refresh_stale_requested(payload: Option<&serde_json::Value>) -> bool {
+    payload
+        .and_then(|payload| payload.get("refresh_stale"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn embedding_config_chunker_config(embed_config: Option<&EmbeddingConfigProfile>) -> ChunkerConfig {
+    embed_config
+        .map(|config| {
+            let max = config.chunk_size as usize;
+            ChunkerConfig {
+                max_chunk_size: max,
+                min_chunk_size: (max / 10).max(50),
+                overlap: config.chunk_overlap as usize,
+            }
+        })
+        .unwrap_or_default()
+}
+
+fn embedding_contract_fingerprint_for_profile(
+    profile: &EmbeddingConfigProfile,
+    truncate_dimension: Option<i32>,
+    embedding_set_id: uuid::Uuid,
+) -> std::result::Result<String, JobResult> {
+    let dimension = usize::try_from(profile.effective_dimension(truncate_dimension))
+        .ok()
+        .filter(|dimension| *dimension > 0)
+        .ok_or_else(|| {
+            warn!(
+                provider_id_len = diagnostic_len(embedding_profile_provider_id(profile)),
+                model_len = diagnostic_len(&profile.model),
+                "Embedding refresh contract has an invalid configured dimension"
+            );
+            JobResult::Failed(REFRESH_EMBEDDING_SET_JOB_FAILURE.to_string())
+        })?;
+    EmbeddingContract::new(
+        embedding_profile_provider_id(profile),
+        profile.model.clone(),
+        dimension,
+        Some(embedding_set_id),
+    )
+    .map(|contract| contract.fingerprint())
+    .map_err(|error| {
+        warn!(
+            error_len = diagnostic_len(error),
+            "Embedding refresh contract fingerprint resolution failed"
+        );
+        JobResult::Failed(REFRESH_EMBEDDING_SET_JOB_FAILURE.to_string())
+    })
+}
+
+async fn render_embedding_document_text_tx(
+    db: &Database,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    note_id: uuid::Uuid,
+    embed_config: Option<&EmbeddingConfigProfile>,
+) -> std::result::Result<String, JobResult> {
+    let note =
+        db.notes.fetch_tx(tx, note_id).await.map_err(|error| {
+            refresh_embedding_set_job_failure(error, "fetch_note_for_stale_check")
+        })?;
+    let max_doc_freq = matric_core::defaults::embed_concept_max_doc_freq();
+    let concept_labels: Vec<String> = sqlx::query_scalar(
+        "SELECT l.value FROM note_skos_concept nc \
+         JOIN skos_concept_label l ON nc.concept_id = l.concept_id \
+         JOIN skos_concept c ON nc.concept_id = c.id \
+         WHERE nc.note_id = $1 AND l.label_type = 'pref_label' \
+           AND c.note_count::float / GREATEST((SELECT COUNT(*) FROM note WHERE deleted_at IS NULL), 1) <= $2 \
+         ORDER BY nc.is_primary DESC, nc.relevance_score DESC",
+    )
+    .bind(note_id)
+    .bind(max_doc_freq)
+    .fetch_all(&mut **tx)
+    .await
+    .unwrap_or_default();
+
+    let base_content = if !note.revised.content.is_empty() {
+        note.revised.content.as_str()
+    } else {
+        note.original.content.as_str()
+    };
+    let title = note.note.title.as_deref().unwrap_or("");
+    let composition = embed_config
+        .map(|config| config.document_composition.clone())
+        .unwrap_or_default();
+    Ok(composition.build_text(title, base_content, &concept_labels))
 }
 
 async fn default_embedding_target_is_internal(db: &Database, schema: &str) -> bool {
@@ -2808,6 +2940,8 @@ impl JobHandler for EmbeddingHandler {
             .as_ref()
             .is_some_and(|set| set.vector_source.is_external())
         {
+            // #1177 E hook: explicit external import/delete flows may opt into
+            // external ownership; background re-embedding must stay read-only.
             warn!(
                 embedding_set_scoped = embedding_set_id.is_some(),
                 "Refusing to write embeddings for an externally managed embedding set"
@@ -7329,6 +7463,12 @@ impl JobHandler for ReEmbedAllHandler {
     )]
     async fn execute(&self, ctx: JobContext) -> JobResult {
         let start = Instant::now();
+        let schema = extract_schema(&ctx);
+        let schema_ctx = match schema_context(&self.db, schema) {
+            Ok(ctx) => ctx,
+            Err(e) => return e,
+        };
+        let batch_id = ctx.job.id;
         ctx.report_progress(5, Some("Starting bulk re-embedding..."));
 
         // Check if we're filtering by embedding set
@@ -7337,43 +7477,98 @@ impl JobHandler for ReEmbedAllHandler {
             .and_then(|p| p.get("embedding_set"))
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
+        let embedding_set_id = match ctx
+            .payload()
+            .and_then(|p| p.get("embedding_set_id"))
+            .and_then(|v| v.as_str())
+        {
+            Some(value) => match uuid::Uuid::parse_str(value) {
+                Ok(id) => Some(id),
+                Err(e) => return reembed_all_job_failure(e, "parse_embedding_set_id"),
+            },
+            None => None,
+        };
 
         // Get note IDs to process
-        let note_ids: Vec<uuid::Uuid> = if let Some(slug) = &embedding_set_slug {
-            let progress_message = embedding_set_progress_message(slug);
-            ctx.report_progress(10, Some(&progress_message));
-
-            match self.db.embedding_sets.get_by_slug(slug).await {
+        let (note_ids, scoped_set_id, result_set_slug): (
+            Vec<uuid::Uuid>,
+            Option<uuid::Uuid>,
+            Option<String>,
+        ) = if embedding_set_slug.is_some() || embedding_set_id.is_some() {
+            let mut tx = match schema_ctx.begin_tx().await {
+                Ok(tx) => tx,
+                Err(e) => return reembed_all_job_failure(e, "lookup_set_begin_tx"),
+            };
+            let set_result = if let Some(set_id) = embedding_set_id {
+                self.db.embedding_sets.get_by_id_tx(&mut tx, set_id).await
+            } else {
+                self.db
+                    .embedding_sets
+                    .get_by_slug_tx(
+                        &mut tx,
+                        embedding_set_slug
+                            .as_deref()
+                            .expect("embedding_set_slug checked above"),
+                    )
+                    .await
+            };
+            let set = match set_result {
                 Ok(Some(set)) if set.vector_source.is_external() => {
+                    if let Err(e) = tx.commit().await {
+                        return reembed_all_job_failure(e, "lookup_external_set_commit");
+                    }
                     ctx.report_progress(100, Some("External embedding set skipped"));
-                    return JobResult::Success(Some(reembed_all_job_result(0, 0, 0, Some(slug))));
+                    return JobResult::Success(Some(reembed_all_job_result(
+                        0,
+                        0,
+                        0,
+                        Some(&set.slug),
+                        batch_id,
+                    )));
                 }
-                Ok(Some(_)) => {}
+                Ok(Some(set)) => set,
                 Ok(None) => {
                     return reembed_all_job_failure("embedding set not found", "lookup_set");
                 }
                 Err(e) => return reembed_all_job_failure(e, "lookup_set"),
-            }
+            };
+            let progress_message = embedding_set_progress_message(&set.slug);
+            ctx.report_progress(10, Some(&progress_message));
 
-            // Get notes from specific embedding set
-            // Use a large limit to get all members
-            match self.db.embedding_sets.list_members(slug, 100000, 0).await {
-                Ok(members) => members.into_iter().map(|m| m.note_id).collect(),
+            let members: Vec<uuid::Uuid> = match sqlx::query_scalar(
+                "SELECT note_id FROM embedding_set_member WHERE embedding_set_id = $1 ORDER BY added_at DESC",
+            )
+            .bind(set.id)
+            .fetch_all(&mut *tx)
+            .await
+            {
+                Ok(ids) => ids,
                 Err(e) => return reembed_all_job_failure(e, "list_embedding_set_members"),
+            };
+            if let Err(e) = tx.commit().await {
+                return reembed_all_job_failure(e, "list_embedding_set_members_commit");
             }
+            (members, Some(set.id), Some(set.slug))
         } else {
             ctx.report_progress(10, Some("Getting all active notes..."));
 
-            // Get all active notes
-            match self.db.notes.list_all_ids().await {
+            let mut tx = match schema_ctx.begin_tx().await {
+                Ok(tx) => tx,
+                Err(e) => return reembed_all_job_failure(e, "list_all_notes_begin_tx"),
+            };
+            let ids = match self.db.notes.list_all_ids_tx(&mut tx).await {
                 Ok(ids) => ids,
                 Err(e) => return reembed_all_job_failure(e, "list_all_notes"),
+            };
+            if let Err(e) = tx.commit().await {
+                return reembed_all_job_failure(e, "list_all_notes_commit");
             }
+            (ids, None, None)
         };
 
         let total_notes = note_ids.len();
         if total_notes == 0 {
-            return JobResult::Success(Some(reembed_all_no_notes_job_result()));
+            return JobResult::Success(Some(reembed_all_no_notes_job_result(batch_id)));
         }
 
         ctx.report_progress(
@@ -7389,13 +7584,17 @@ impl JobHandler for ReEmbedAllHandler {
         let mut failed = 0;
 
         for (i, note_id) in note_ids.iter().enumerate() {
+            let payload = embedding_child_job_payload(schema, ctx.job.id, batch_id, scoped_set_id);
             match self
                 .db
                 .jobs
-                .queue(Some(*note_id), JobType::Embedding, 5, None, None)
+                .queue(Some(*note_id), JobType::Embedding, 5, Some(payload), None)
                 .await
             {
-                Ok(_) => queued += 1,
+                Ok(job_id) => {
+                    ctx.emit_job_queued(job_id, JobType::Embedding, Some(*note_id));
+                    queued += 1;
+                }
                 Err(e) => {
                     debug!(
                         error_len = diagnostic_len(&e),
@@ -7422,7 +7621,7 @@ impl JobHandler for ReEmbedAllHandler {
             total_notes = total_notes,
             queued = queued,
             failed = failed,
-            embedding_set_slug_len = embedding_set_slug.as_deref().map(diagnostic_len),
+            embedding_set_slug_len = result_set_slug.as_deref().map(diagnostic_len),
             duration_ms = start.elapsed().as_millis() as u64,
             "Bulk re-embedding completed"
         );
@@ -7431,7 +7630,8 @@ impl JobHandler for ReEmbedAllHandler {
             queued,
             failed,
             total_notes,
-            embedding_set_slug.as_deref(),
+            result_set_slug.as_deref(),
+            batch_id,
         )))
     }
 }
@@ -7613,16 +7813,27 @@ impl JobHandler for RefreshEmbeddingSetHandler {
     )]
     async fn execute(&self, ctx: JobContext) -> JobResult {
         let start = Instant::now();
+        let schema = extract_schema(&ctx);
+        let schema_ctx = match schema_context(&self.db, schema) {
+            Ok(ctx) => ctx,
+            Err(e) => return e,
+        };
+        let batch_id = ctx.job.id;
+        let refresh_stale = refresh_stale_requested(ctx.payload());
 
         ctx.report_progress(10, Some("Looking up embedding set..."));
 
         let payload = ctx.payload();
+        let mut tx = match schema_ctx.begin_tx().await {
+            Ok(tx) => tx,
+            Err(e) => return refresh_embedding_set_job_failure(e, "lookup_set_begin_tx"),
+        };
         let set = if let Some(set_id) = payload
             .and_then(|p| p.get("set_id"))
             .and_then(|v| v.as_str())
         {
             match uuid::Uuid::parse_str(set_id) {
-                Ok(id) => match self.db.embedding_sets.get_by_id(id).await {
+                Ok(id) => match self.db.embedding_sets.get_by_id_tx(&mut tx, id).await {
                     Ok(Some(s)) => s,
                     Ok(None) => {
                         return refresh_embedding_set_job_failure(
@@ -7638,7 +7849,12 @@ impl JobHandler for RefreshEmbeddingSetHandler {
             .and_then(|p| p.get("set_slug"))
             .and_then(|v| v.as_str())
         {
-            match self.db.embedding_sets.get_by_slug(set_slug).await {
+            match self
+                .db
+                .embedding_sets
+                .get_by_slug_tx(&mut tx, set_slug)
+                .await
+            {
                 Ok(Some(s)) => s,
                 Ok(None) => {
                     return refresh_embedding_set_job_failure(
@@ -7653,34 +7869,146 @@ impl JobHandler for RefreshEmbeddingSetHandler {
         };
 
         if set.vector_source.is_external() {
+            if let Err(e) = tx.commit().await {
+                return refresh_embedding_set_job_failure(e, "skip_external_commit");
+            }
             ctx.report_progress(100, Some("External embedding set skipped"));
-            return JobResult::Success(Some(refresh_embedding_set_job_result(&set.slug, 0, 0)));
+            return JobResult::Success(Some(refresh_embedding_set_job_result(
+                &set.slug,
+                0,
+                0,
+                0,
+                refresh_stale,
+                batch_id,
+            )));
         }
 
-        ctx.report_progress(20, Some("Finding members missing embeddings..."));
+        ctx.report_progress(20, Some("Finding members needing embeddings..."));
 
-        // Find members that don't have embeddings for this set
-        let missing_note_ids: Vec<uuid::Uuid> = match sqlx::query_scalar(
+        let embed_config = match set.embedding_config_id {
+            Some(config_id) => match self
+                .db
+                .embedding_sets
+                .get_config_tx(&mut tx, config_id)
+                .await
+            {
+                Ok(config) => config,
+                Err(e) => return refresh_embedding_set_job_failure(e, "lookup_embedding_config"),
+            },
+            None => match self.db.embedding_sets.get_default_config_tx(&mut tx).await {
+                Ok(config) => config,
+                Err(e) => {
+                    return refresh_embedding_set_job_failure(e, "lookup_default_embedding_config");
+                }
+            },
+        };
+        let target_contract_fingerprint = match embed_config.as_ref() {
+            Some(config) => {
+                match embedding_contract_fingerprint_for_profile(config, set.truncate_dim, set.id) {
+                    Ok(fingerprint) => Some(fingerprint),
+                    Err(error) => return error,
+                }
+            }
+            None => None,
+        };
+
+        let member_rows = match sqlx::query(
             r#"
-            SELECT m.note_id
+            SELECT m.note_id,
+                   COUNT(e.id)::bigint AS embedding_count,
+                   COALESCE(
+                       BOOL_OR(e.contract_fingerprint IS DISTINCT FROM $2)
+                           FILTER (WHERE e.id IS NOT NULL),
+                       FALSE
+                   ) AS contract_mismatch,
+                   COALESCE(
+                       ARRAY_REMOVE(ARRAY_AGG(DISTINCT e.doc_hash)
+                           FILTER (WHERE e.id IS NOT NULL), NULL::text),
+                       ARRAY[]::text[]
+                   ) AS doc_hashes,
+                   COALESCE(
+                       ARRAY_AGG(e.chunk_hash ORDER BY e.chunk_index)
+                           FILTER (WHERE e.id IS NOT NULL AND e.chunk_hash IS NOT NULL),
+                       ARRAY[]::text[]
+                   ) AS chunk_hashes
             FROM embedding_set_member m
             LEFT JOIN embedding e ON e.note_id = m.note_id AND e.embedding_set_id = m.embedding_set_id
-            WHERE m.embedding_set_id = $1 AND e.id IS NULL
+            WHERE m.embedding_set_id = $1
+            GROUP BY m.note_id
+            ORDER BY m.note_id
             "#,
         )
         .bind(set.id)
-        .fetch_all(&self.db.pool)
+        .bind(target_contract_fingerprint.as_deref())
+        .fetch_all(&mut *tx)
         .await
         {
-            Ok(ids) => ids,
-            Err(e) => return refresh_embedding_set_job_failure(e, "find_missing_embeddings"),
+            Ok(rows) => rows,
+            Err(e) => return refresh_embedding_set_job_failure(e, "find_refresh_candidates"),
         };
+
+        let mut missing_note_ids = Vec::new();
+        let mut stale_note_ids = Vec::new();
+        for row in member_rows {
+            let note_id: uuid::Uuid = row.get("note_id");
+            let embedding_count: i64 = row.get("embedding_count");
+            if embedding_count == 0 {
+                missing_note_ids.push(note_id);
+                continue;
+            }
+
+            if !refresh_stale {
+                continue;
+            }
+
+            let contract_mismatch: bool = row.get("contract_mismatch");
+            if target_contract_fingerprint.is_some() && contract_mismatch {
+                stale_note_ids.push(note_id);
+                continue;
+            }
+
+            let doc_hashes: Vec<String> = row.get("doc_hashes");
+            let stored_chunk_hashes: Vec<String> = row.get("chunk_hashes");
+            let document_text = match render_embedding_document_text_tx(
+                &self.db,
+                &mut tx,
+                note_id,
+                embed_config.as_ref(),
+            )
+            .await
+            {
+                Ok(text) => text,
+                Err(error) => return error,
+            };
+            let expected_doc_hash = embedding_doc_hash(&document_text);
+            if doc_hashes.len() != 1 || doc_hashes.first() != Some(&expected_doc_hash) {
+                stale_note_ids.push(note_id);
+                continue;
+            }
+
+            let chunker_config = embedding_config_chunker_config(embed_config.as_ref());
+            let expected_chunk_hashes: Vec<String> =
+                chunk_embedding_content(&document_text, &chunker_config)
+                    .iter()
+                    .map(|chunk| embedding_chunk_hash(chunk))
+                    .collect();
+            if stored_chunk_hashes != expected_chunk_hashes {
+                stale_note_ids.push(note_id);
+            }
+        }
+        if let Err(e) = tx.commit().await {
+            return refresh_embedding_set_job_failure(e, "find_refresh_candidates_commit");
+        }
 
         ctx.report_progress(50, Some("Queuing embedding jobs..."));
 
         let mut queued = 0;
-        for note_id in &missing_note_ids {
-            let payload = serde_json::json!({ "embedding_set_id": set.id.to_string() });
+        let mut note_ids_to_queue = missing_note_ids.clone();
+        note_ids_to_queue.extend(stale_note_ids.iter().copied());
+        note_ids_to_queue.sort_unstable();
+        note_ids_to_queue.dedup();
+        for note_id in &note_ids_to_queue {
+            let payload = embedding_child_job_payload(schema, ctx.job.id, batch_id, Some(set.id));
             match self
                 .db
                 .jobs
@@ -7693,7 +8021,10 @@ impl JobHandler for RefreshEmbeddingSetHandler {
                 )
                 .await
             {
-                Ok(_) => queued += 1,
+                Ok(job_id) => {
+                    ctx.emit_job_queued(job_id, JobType::Embedding, Some(*note_id));
+                    queued += 1;
+                }
                 Err(e) => warn!(
                     error_len = diagnostic_len(&e),
                     detail = JOB_REEMBED_QUEUE_DIAGNOSTIC_FAILURE_DETAIL,
@@ -7703,20 +8034,25 @@ impl JobHandler for RefreshEmbeddingSetHandler {
             }
         }
 
-        // Update set status
-        let _ = sqlx::query(
-            "UPDATE embedding_set SET last_refresh_at = NOW(), index_status = 'building', updated_at = NOW() WHERE id = $1",
-        )
-        .bind(set.id)
-        .execute(&self.db.pool)
-        .await;
+        // Update set status in the same schema the refresh targeted.
+        if let Ok(mut tx) = schema_ctx.begin_tx().await {
+            let _ = sqlx::query(
+                "UPDATE embedding_set SET last_refresh_at = NOW(), index_status = 'building', updated_at = NOW() WHERE id = $1",
+            )
+            .bind(set.id)
+            .execute(&mut *tx)
+            .await;
+            let _ = tx.commit().await;
+        }
 
         ctx.report_progress(100, Some("Refresh complete"));
         info!(
             set_id_present = true,
             set_slug_len = diagnostic_len(&set.slug),
             missing = missing_note_ids.len(),
+            stale = stale_note_ids.len(),
             queued = queued,
+            refresh_stale,
             duration_ms = start.elapsed().as_millis() as u64,
             "Embedding set refresh completed"
         );
@@ -7724,7 +8060,10 @@ impl JobHandler for RefreshEmbeddingSetHandler {
         JobResult::Success(Some(refresh_embedding_set_job_result(
             &set.slug,
             missing_note_ids.len(),
+            stale_note_ids.len(),
             queued,
+            refresh_stale,
+            batch_id,
         )))
     }
 }
@@ -9001,6 +9340,346 @@ mod tests {
         );
     }
 
+    async fn create_test_embedding_set(
+        db: &Database,
+        unique: &str,
+        label: &str,
+        vector_source: matric_core::EmbeddingVectorSource,
+    ) -> matric_core::EmbeddingSet {
+        db.embedding_sets
+            .create(matric_core::CreateEmbeddingSetRequest {
+                name: format!("{label} {unique}"),
+                slug: Some(format!("{label}-{unique}")),
+                description: None,
+                purpose: None,
+                usage_hints: None,
+                keywords: vec![],
+                set_type: matric_core::EmbeddingSetType::Full,
+                mode: matric_core::EmbeddingSetMode::Manual,
+                criteria: Default::default(),
+                agent_metadata: Default::default(),
+                embedding_config_id: None,
+                truncate_dim: None,
+                auto_embed_rules: Default::default(),
+                vector_source,
+            })
+            .await
+            .expect("create test embedding set")
+    }
+
+    async fn seed_embedding_row(
+        db: &Database,
+        note_id: uuid::Uuid,
+        set_id: uuid::Uuid,
+        label: &str,
+        value: f32,
+    ) {
+        let text = format!("{label} sentinel");
+        let vector = matric_core::Vector::from(vec![value; 768]);
+        sqlx::query(
+            "INSERT INTO embedding (
+                id, note_id, chunk_index, text, vector, model, created_at,
+                embedding_set_id, contract_fingerprint, chunk_hash, doc_hash
+             ) VALUES ($1, $2, 0, $3, $4, $5, NOW(), $6, $7, $8, $9)",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .bind(note_id)
+        .bind(&text)
+        .bind(&vector)
+        .bind(format!("{label}-model"))
+        .bind(set_id)
+        .bind(format!("{label}-contract"))
+        .bind(embedding_chunk_hash(&text))
+        .bind(embedding_doc_hash(&text))
+        .execute(&db.pool)
+        .await
+        .expect("seed embedding row");
+    }
+
+    async fn embedding_snapshot(
+        db: &Database,
+        note_id: uuid::Uuid,
+        set_id: uuid::Uuid,
+    ) -> Vec<(
+        String,
+        i32,
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        String,
+    )> {
+        sqlx::query_as(
+            "SELECT id::text, chunk_index, text, vector::text, model,
+                    chunk_hash, doc_hash, contract_fingerprint, created_at::text
+             FROM embedding
+             WHERE note_id = $1 AND embedding_set_id = $2
+             ORDER BY chunk_index",
+        )
+        .bind(note_id)
+        .bind(set_id)
+        .fetch_all(&db.pool)
+        .await
+        .expect("snapshot embeddings")
+    }
+
+    fn running_job(
+        note_id: Option<uuid::Uuid>,
+        job_type: JobType,
+        payload: Option<serde_json::Value>,
+    ) -> matric_core::Job {
+        let now = Utc::now();
+        matric_core::Job {
+            id: uuid::Uuid::now_v7(),
+            note_id,
+            job_type,
+            status: matric_core::JobStatus::Running,
+            priority: 1,
+            payload,
+            result: None,
+            error_message: None,
+            progress_percent: 0,
+            progress_message: None,
+            retry_count: 0,
+            max_retries: 1,
+            created_at: now,
+            started_at: Some(now),
+            completed_at: None,
+            cost_tier: None,
+        }
+    }
+
+    async fn queued_child_job(
+        db: &Database,
+        parent_job_id: uuid::Uuid,
+        note_id: uuid::Uuid,
+    ) -> matric_core::Job {
+        let batch_id = parent_job_id.to_string();
+        let child_id: uuid::Uuid = sqlx::query_scalar(
+            "SELECT id FROM job_queue
+             WHERE note_id = $1
+               AND job_type = 'embedding'::job_type
+               AND payload->>'embedding_batch_id' = $2
+             ORDER BY created_at DESC
+             LIMIT 1",
+        )
+        .bind(note_id)
+        .bind(batch_id)
+        .fetch_one(&db.pool)
+        .await
+        .expect("find queued child embedding job");
+        db.jobs
+            .get(child_id)
+            .await
+            .expect("load queued child job")
+            .expect("queued child job exists")
+    }
+
+    async fn run_embedding_job(db: &Database, job: matric_core::Job) -> serde_json::Value {
+        let handler = EmbeddingHandler::new(
+            db.clone(),
+            Arc::new(ProviderRegistry::from_env()),
+            Arc::new(matric_core::InMemoryMeter::default()),
+        )
+        .with_backend_override(Arc::new(SuccessfulEmbeddingBackend { dimension: 768 }));
+        match handler.execute(JobContext::new(job)).await {
+            JobResult::Success(result) => result.unwrap_or_default(),
+            other => panic!("expected successful embedding job, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn reembed_paths_preserve_other_sets_and_external_vectors() {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return;
+        };
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect test database");
+        let unique = uuid::Uuid::now_v7().simple().to_string();
+        let default_set = db
+            .embedding_sets
+            .get_default()
+            .await
+            .expect("lookup default set")
+            .expect("default set exists");
+        let set_x = create_test_embedding_set(
+            &db,
+            &unique,
+            "internal-x",
+            matric_core::EmbeddingVectorSource::Internal,
+        )
+        .await;
+        let set_y = create_test_embedding_set(
+            &db,
+            &unique,
+            "internal-y",
+            matric_core::EmbeddingVectorSource::Internal,
+        )
+        .await;
+        let external_set = create_test_embedding_set(
+            &db,
+            &unique,
+            "external-owned",
+            matric_core::EmbeddingVectorSource::External,
+        )
+        .await;
+        let note_id = db
+            .notes
+            .insert(matric_core::CreateNoteRequest {
+                content: "Set-scoped re-embedding safety regression note".to_string(),
+                format: "markdown".to_string(),
+                source: "test".to_string(),
+                collection_id: None,
+                tags: None,
+                metadata: None,
+                document_type_id: None,
+                title: Some("Embedding safety".to_string()),
+            })
+            .await
+            .expect("create test note");
+
+        for set in [&set_x, &set_y, &external_set] {
+            db.embedding_sets
+                .add_members(
+                    &set.slug,
+                    matric_core::AddMembersRequest {
+                        note_ids: vec![note_id],
+                        added_by: Some("test".to_string()),
+                    },
+                )
+                .await
+                .expect("add set member");
+        }
+
+        seed_embedding_row(&db, note_id, default_set.id, "default", 0.11).await;
+        seed_embedding_row(&db, note_id, set_x.id, "set-x", 0.22).await;
+        seed_embedding_row(&db, note_id, set_y.id, "set-y", 0.33).await;
+        seed_embedding_row(&db, note_id, external_set.id, "external", 0.44).await;
+
+        let default_original = embedding_snapshot(&db, note_id, default_set.id).await;
+        let y_original = embedding_snapshot(&db, note_id, set_y.id).await;
+        let external_original = embedding_snapshot(&db, note_id, external_set.id).await;
+
+        let scoped_parent = running_job(
+            None,
+            JobType::ReEmbedAll,
+            Some(serde_json::json!({ "embedding_set_id": set_x.id.to_string() })),
+        );
+        let scoped_parent_id = scoped_parent.id;
+        let scoped_result = ReEmbedAllHandler::new(db.clone())
+            .execute(JobContext::new(scoped_parent))
+            .await;
+        assert!(matches!(scoped_result, JobResult::Success(_)));
+        let scoped_child = queued_child_job(&db, scoped_parent_id, note_id).await;
+        let child_payload = scoped_child.payload.as_ref().expect("child payload");
+        assert_eq!(
+            child_payload["embedding_set_id"],
+            serde_json::json!(set_x.id.to_string()),
+            "scoped ReEmbedAll must carry the target set"
+        );
+        assert_eq!(
+            child_payload["embedding_batch_id"],
+            serde_json::json!(scoped_parent_id.to_string())
+        );
+        run_embedding_job(&db, scoped_child).await;
+        assert_eq!(
+            embedding_snapshot(&db, note_id, default_set.id).await,
+            default_original
+        );
+        assert_eq!(embedding_snapshot(&db, note_id, set_y.id).await, y_original);
+        assert_eq!(
+            embedding_snapshot(&db, note_id, external_set.id).await,
+            external_original
+        );
+
+        let default_parent = running_job(None, JobType::ReEmbedAll, None);
+        let default_parent_id = default_parent.id;
+        let default_result = ReEmbedAllHandler::new(db.clone())
+            .execute(JobContext::new(default_parent))
+            .await;
+        assert!(matches!(default_result, JobResult::Success(_)));
+        let default_child = queued_child_job(&db, default_parent_id, note_id).await;
+        assert!(
+            default_child
+                .payload
+                .as_ref()
+                .and_then(|payload| payload.get("embedding_set_id"))
+                .is_none(),
+            "unscoped ReEmbedAll must use the default path"
+        );
+        let x_before_default = embedding_snapshot(&db, note_id, set_x.id).await;
+        run_embedding_job(&db, default_child).await;
+        assert_ne!(
+            embedding_snapshot(&db, note_id, default_set.id).await,
+            default_original,
+            "default re-embed should replace only the default set row"
+        );
+        assert_eq!(
+            embedding_snapshot(&db, note_id, set_x.id).await,
+            x_before_default
+        );
+        assert_eq!(embedding_snapshot(&db, note_id, set_y.id).await, y_original);
+        assert_eq!(
+            embedding_snapshot(&db, note_id, external_set.id).await,
+            external_original
+        );
+
+        sqlx::query("UPDATE embedding SET doc_hash = 'sha256:stale' WHERE note_id = $1 AND embedding_set_id = $2")
+            .bind(note_id)
+            .bind(set_x.id)
+            .execute(&db.pool)
+            .await
+            .expect("mark set x stale");
+        let refresh_parent = running_job(
+            None,
+            JobType::RefreshEmbeddingSet,
+            Some(serde_json::json!({
+                "set_id": set_x.id.to_string(),
+                "refresh_stale": true
+            })),
+        );
+        let refresh_parent_id = refresh_parent.id;
+        let refresh_result = RefreshEmbeddingSetHandler::new(db.clone())
+            .execute(JobContext::new(refresh_parent))
+            .await;
+        match refresh_result {
+            JobResult::Success(Some(result)) => {
+                assert_eq!(result["stale_count"], serde_json::json!(1));
+                assert_eq!(result["jobs_queued"], serde_json::json!(1));
+            }
+            other => panic!("expected successful refresh, got {other:?}"),
+        }
+        let refresh_child = queued_child_job(&db, refresh_parent_id, note_id).await;
+        assert_eq!(
+            refresh_child
+                .payload
+                .as_ref()
+                .expect("refresh child payload")["embedding_set_id"],
+            serde_json::json!(set_x.id.to_string())
+        );
+        run_embedding_job(&db, refresh_child).await;
+        assert_eq!(embedding_snapshot(&db, note_id, set_y.id).await, y_original);
+        assert_eq!(
+            embedding_snapshot(&db, note_id, external_set.id).await,
+            external_original
+        );
+
+        let single_x = running_job(
+            Some(note_id),
+            JobType::Embedding,
+            Some(serde_json::json!({ "embedding_set_id": set_x.id.to_string() })),
+        );
+        run_embedding_job(&db, single_x).await;
+        assert_eq!(embedding_snapshot(&db, note_id, set_y.id).await, y_original);
+        assert_eq!(
+            embedding_snapshot(&db, note_id, external_set.id).await,
+            external_original
+        );
+    }
+
     #[tokio::test]
     async fn embedding_usage_records_exact_vectors_unavailable_tokens_and_replay() {
         let meter = matric_core::InMemoryMeter::default();
@@ -9314,8 +9993,9 @@ mod tests {
     #[test]
     fn embedding_set_job_results_redact_raw_slugs() {
         let slug = "private-client-archive /srv/fortemi token=sk-secret";
-        let bulk_result = reembed_all_job_result(5, 1, 6, Some(slug));
-        let refresh_result = refresh_embedding_set_job_result(slug, 3, 2);
+        let batch_id = uuid::Uuid::nil();
+        let bulk_result = reembed_all_job_result(5, 1, 6, Some(slug), batch_id);
+        let refresh_result = refresh_embedding_set_job_result(slug, 3, 1, 4, true, batch_id);
         let rendered = format!("{}\n{}", bulk_result, refresh_result);
 
         assert!(rendered.contains("embedding_set_slug_len"));
@@ -9365,7 +10045,7 @@ mod tests {
             ai_revision_skip_job_result("revision_mode_none"),
             ai_revision_deferred_job_result("media_attachments_defer_revision"),
             ai_contextual_revision_skip_job_result("no_related_notes", true),
-            reembed_all_no_notes_job_result()
+            reembed_all_no_notes_job_result(uuid::Uuid::nil())
         );
 
         assert!(result.contains("content_type_name_len"));
