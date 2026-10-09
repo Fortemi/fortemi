@@ -2938,6 +2938,119 @@ paths:
           description: Global request rate limit exceeded
       security:
       - bearerAuth: []
+  /api/v1/entities/similar:
+    get:
+      tags:
+      - Search
+      summary: Find profile-vector-similar entities for an external source identity.
+      operationId: find_similar_external_entities
+      parameters:
+      - name: source
+        in: query
+        description: Source namespace for the query entity
+        required: true
+        schema:
+          type: string
+      - name: external_id
+        in: query
+        description: External source identifier for the query entity
+        required: true
+        schema:
+          type: string
+      - name: set
+        in: query
+        description: Embedding set slug or ID
+        required: true
+        schema:
+          type: string
+      - name: kind
+        in: query
+        description: Entity vector kind. Only profile is supported.
+        required: false
+        schema:
+          type: string
+      - name: k
+        in: query
+        description: Maximum results to return (default 10, max 100)
+        required: false
+        schema:
+          type: integer
+          format: int64
+      - name: filter
+        in: query
+        description: Legacy filter expression or metadata predicate JSON array
+        required: false
+        schema:
+          type: string
+      - name: strict_filter
+        in: query
+        description: SKOS strict filter JSON
+        required: false
+        schema:
+          type: string
+      - name: metadata_predicates
+        in: query
+        description: Typed metadata predicate JSON array
+        required: false
+        schema:
+          type: string
+      - name: metadata
+        in: query
+        description: Comma-separated metadata fields to include
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Similar entity profiles
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EntitySimilarityResponse'
+        '400':
+          description: Malformed or unsupported request
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '403':
+          description: Authorization denied
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '404':
+          description: Source entity or embedding set unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '503':
+          description: Tenant dependency unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
   /api/v1/events/tokens:
     post:
       tags:
@@ -5455,6 +5568,114 @@ paths:
           description: Success
         '404':
           description: Not found
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
+  /api/v1/notes/{id}/similar:
+    get:
+      tags:
+      - Search
+      summary: Find profile-vector-similar entities for a note.
+      operationId: find_similar_note_entities
+      parameters:
+      - name: id
+        in: path
+        description: Query note ID
+        required: true
+        schema:
+          type: string
+          format: uuid
+      - name: set
+        in: query
+        description: Embedding set slug or ID
+        required: true
+        schema:
+          type: string
+      - name: kind
+        in: query
+        description: Entity vector kind. Only profile is supported.
+        required: false
+        schema:
+          type: string
+      - name: k
+        in: query
+        description: Maximum results to return (default 10, max 100)
+        required: false
+        schema:
+          type: integer
+          format: int64
+      - name: filter
+        in: query
+        description: Legacy filter expression or metadata predicate JSON array
+        required: false
+        schema:
+          type: string
+      - name: strict_filter
+        in: query
+        description: SKOS strict filter JSON
+        required: false
+        schema:
+          type: string
+      - name: metadata_predicates
+        in: query
+        description: Typed metadata predicate JSON array
+        required: false
+        schema:
+          type: string
+      - name: metadata
+        in: query
+        description: Comma-separated metadata fields to include
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Similar entity profiles
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EntitySimilarityResponse'
+        '400':
+          description: Malformed or unsupported request
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '403':
+          description: Authorization denied
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '404':
+          description: Note or embedding set unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '500':
+          description: Internal error
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '503':
+          description: Tenant dependency unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
         '429':
           content:
             application/problem+json:
@@ -10350,6 +10571,52 @@ components:
           type: integer
           format: int64
           minimum: 0
+    EntitySimilarityResponse:
+      type: object
+      required:
+      - query_note_id
+      - set_id
+      - kind
+      - results
+      properties:
+        kind:
+          type: string
+        query_note_id:
+          type: string
+          format: uuid
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/EntitySimilarityResult'
+        set_id:
+          type: string
+          format: uuid
+    EntitySimilarityResult:
+      type: object
+      required:
+      - note_id
+      - score
+      - metadata
+      properties:
+        external_source_id:
+          type:
+          - string
+          - 'null'
+        metadata: {}
+        note_id:
+          type: string
+          format: uuid
+        score:
+          type: number
+          format: float
+        source_namespace:
+          type:
+          - string
+          - 'null'
+        title:
+          type:
+          - string
+          - 'null'
     EntityStats:
       type: object
       description: Entity statistics for IDF weighting.

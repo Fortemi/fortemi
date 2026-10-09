@@ -1373,6 +1373,7 @@ impl AppState {
         get_note_provenance, search_memories, get_memory_provenance_handler, export_note,
         get_full_document, list_note_versions, get_note_version, restore_note_version,
         delete_note_version, diff_note_versions, search_notes, federated_search,
+        find_similar_note_entities, find_similar_external_entities,
         evidence_resolution::resolve_search_evidence,
         memories_overview, list_embedding_sets, get_embedding_set, create_embedding_set,
         update_embedding_set, delete_embedding_set, list_embedding_set_members, add_embedding_set_members,
@@ -1504,6 +1505,7 @@ impl AppState {
             BulkCreateNotesBody, CreateNoteBody,
             CallDetailResponse, PaginationMeta, ReprocessNoteBody, SetTagsBody,
             UpdateNoteBody, UpdateStatusBody, UpdateWebhookBody,
+            EntitySimilarityResponse, EntitySimilarityResult,
             ProblemDetails, ProblemTypeCatalogEntry,
         )
     ),
@@ -19952,7 +19954,7 @@ impl fmt::Debug for ExternalEntitySimilarityQuery {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 struct EntitySimilarityResponse {
     query_note_id: Uuid,
     set_id: Uuid,
@@ -19960,7 +19962,7 @@ struct EntitySimilarityResponse {
     results: Vec<EntitySimilarityResult>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 struct EntitySimilarityResult {
     note_id: Uuid,
     title: Option<String>,
@@ -19970,6 +19972,32 @@ struct EntitySimilarityResult {
     metadata: serde_json::Value,
 }
 
+/// Find profile-vector-similar entities for a note.
+#[utoipa::path(
+    get,
+    path = "/api/v1/notes/{id}/similar",
+    tag = "Search",
+    params(
+        ("id" = Uuid, Path, description = "Query note ID"),
+        ("set" = String, Query, description = "Embedding set slug or ID"),
+        ("kind" = Option<String>, Query, description = "Entity vector kind. Only profile is supported."),
+        ("k" = Option<i64>, Query, description = "Maximum results to return (default 10, max 100)"),
+        ("filter" = Option<String>, Query, description = "Legacy filter expression or metadata predicate JSON array"),
+        ("strict_filter" = Option<String>, Query, description = "SKOS strict filter JSON"),
+        ("metadata_predicates" = Option<String>, Query, description = "Typed metadata predicate JSON array"),
+        ("metadata" = Option<String>, Query, description = "Comma-separated metadata fields to include")
+    ),
+    responses(
+        (status = 200, description = "Similar entity profiles", body = EntitySimilarityResponse),
+        (status = 400, description = "Malformed or unsupported request", body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 401, description = "Authentication required", body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 403, description = "Authorization denied", body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 404, description = "Note or embedding set unavailable", body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 500, description = "Internal error", body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 503, description = "Tenant dependency unavailable", body = ProblemDetails, content_type = "application/problem+json")
+    ),
+    security(("bearerAuth" = []))
+)]
 async fn find_similar_note_entities(
     State(state): State<AppState>,
     scope: Option<Extension<TenantRequestScope>>,
@@ -19987,6 +20015,33 @@ async fn find_similar_note_entities(
     .await
 }
 
+/// Find profile-vector-similar entities for an external source identity.
+#[utoipa::path(
+    get,
+    path = "/api/v1/entities/similar",
+    tag = "Search",
+    params(
+        ("source" = String, Query, description = "Source namespace for the query entity"),
+        ("external_id" = String, Query, description = "External source identifier for the query entity"),
+        ("set" = String, Query, description = "Embedding set slug or ID"),
+        ("kind" = Option<String>, Query, description = "Entity vector kind. Only profile is supported."),
+        ("k" = Option<i64>, Query, description = "Maximum results to return (default 10, max 100)"),
+        ("filter" = Option<String>, Query, description = "Legacy filter expression or metadata predicate JSON array"),
+        ("strict_filter" = Option<String>, Query, description = "SKOS strict filter JSON"),
+        ("metadata_predicates" = Option<String>, Query, description = "Typed metadata predicate JSON array"),
+        ("metadata" = Option<String>, Query, description = "Comma-separated metadata fields to include")
+    ),
+    responses(
+        (status = 200, description = "Similar entity profiles", body = EntitySimilarityResponse),
+        (status = 400, description = "Malformed or unsupported request", body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 401, description = "Authentication required", body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 403, description = "Authorization denied", body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 404, description = "Source entity or embedding set unavailable", body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 500, description = "Internal error", body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 503, description = "Tenant dependency unavailable", body = ProblemDetails, content_type = "application/problem+json")
+    ),
+    security(("bearerAuth" = []))
+)]
 async fn find_similar_external_entities(
     State(state): State<AppState>,
     scope: Option<Extension<TenantRequestScope>>,

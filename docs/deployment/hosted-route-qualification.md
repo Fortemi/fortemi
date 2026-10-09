@@ -75,7 +75,7 @@ is qualified.
 
 | Route class | Workload required | Class status | Qualified | Gap | Excluded | Public |
 |---|---|---|---:|---:|---:|---:|
-| `search` | yes | partial | 2 | 2 | 0 | 0 |
+| `search` | yes | partial | 4 | 2 | 0 | 0 |
 | `notes` | yes | partial | 13 | 12 | 0 | 0 |
 | `links_graph` | yes | partial | 1 | 14 | 0 | 0 |
 | `archives_memories` | yes | partial | 1 | 18 | 0 | 0 |
@@ -93,13 +93,15 @@ is qualified.
 | `knowledge_health` | no | excluded | 0 | 0 | 6 | 0 |
 | `operator` | no | excluded | 0 | 0 | 55 | 2 |
 | `public_protocol` | no | public | 0 | 0 | 0 | 18 |
-| **total** | | | 35 | 86 | 144 | 21 |
+| **total** | | | 37 | 86 | 144 | 21 |
 
 ```json
 {
   "profile": "single_tenant_dedicated",
   "operations": [
+    {"method":"GET","path":"/api/v1/entities/similar","class":"search","status":"qualified","enforcement":"tenant_transaction"},
     {"method":"GET","path":"/api/v1/memories/search","class":"search","status":"gap","enforcement":"hosted_503"},
+    {"method":"GET","path":"/api/v1/notes/{id}/similar","class":"search","status":"qualified","enforcement":"tenant_transaction"},
     {"method":"GET","path":"/api/v1/search","class":"search","status":"qualified","enforcement":"tenant_transaction"},
     {"method":"POST","path":"/api/v1/search/evidence/resolve","class":"search","status":"qualified","enforcement":"tenant_transaction"},
     {"method":"POST","path":"/api/v1/search/federated","class":"search","status":"gap","enforcement":"hosted_503"},

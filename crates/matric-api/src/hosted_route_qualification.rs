@@ -235,7 +235,10 @@ pub fn route_class(policy: &RoutePolicy) -> RouteClass {
             .is_some_and(|rest| rest == suffix || rest.starts_with(&format!("{suffix}/")))
     };
 
-    if under("/api/v1/search") || path == "/api/v1/memories/search" {
+    if under("/api/v1/search")
+        || path == "/api/v1/memories/search"
+        || policy.action_family == "search"
+    {
         RouteClass::Search
     } else if under("/api/v1/graph") || ["links", "backlinks", "related"].into_iter().any(note_sub)
     {
