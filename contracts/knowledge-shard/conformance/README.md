@@ -69,3 +69,10 @@ and resource-limit rejection, repeated import, and semantic re-export to
 independent PGlite and Fortemi consumer evidence. The exact AIWG receipt commit,
 native Fortemi cell receipt, and clean-database CI jobs are immutable inputs for
 those two cells.
+
+Schema `2.1.0/full-v1` adds the configurable embedding vector storage contract
+for Fortemi issue #1175. Its conformance evidence is scoped to the new
+dimension/type preflight and Fortemi self-import/export behavior until sibling
+producer and consumer receipts are recorded. Existing `2.0.0/full-v1` cells
+remain their own immutable compatibility claims and are not widened by the
+`2.1.0` contract.

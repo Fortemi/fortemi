@@ -27,6 +27,7 @@ mod route_policy;
 #[cfg(all(test, feature = "hosted-auth"))]
 mod scoped_search_tests;
 mod search_contract;
+mod shard_embedding_contract;
 mod shard_signature;
 mod trusted_proxy;
 
@@ -26413,6 +26414,8 @@ struct ShardEmbeddingConfigRecord {
     description: Option<String>,
     model: String,
     dimension: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    vector_type: Option<String>,
     chunk_size: i32,
     chunk_overlap: i32,
     hnsw_m: Option<i32>,
@@ -26624,6 +26627,7 @@ const FULL_V1_COUNT_FIELDS: &[&str] = &[
 ];
 const DEFAULT_SHARD_PROFILE: &str = "core-v1";
 const SHARD_SCHEMA_2_VERSION: &str = "2.0.0";
+const SHARD_SCHEMA_2_1_VERSION: &str = shard_embedding_contract::SHARD_SCHEMA_2_1_VERSION;
 const REGISTERED_SHARD_PROFILES: &[&str] = &["core-v1", "full-v1", "record-v1"];
 const DEFAULT_SHARD_EXPORT_COMPONENTS: &str = "notes,collections,tags,templates,links";
 const SHARD_MAX_COMPRESSED_BYTES: usize = matric_core::defaults::MAX_UPLOAD_SIZE_BYTES;
@@ -27350,7 +27354,9 @@ fn validate_shard_json_schema(
         FULL_V1_COMMUNITY_ASSIGNMENT_SCHEMA => {
             FULL_COMMUNITY_ASSIGNMENT.as_ref().map_err(Clone::clone)?
         }
-        _ if schema_json.contains("/knowledge-shard/2.0.0/") => {
+        _ if schema_json.contains("/knowledge-shard/2.0.0/")
+            || schema_json.contains("/knowledge-shard/2.1.0/") =>
+        {
             dynamic_validator = compile_shard_json_schema(schema_json)?;
             &dynamic_validator
         }
@@ -27365,6 +27371,7 @@ fn validate_shard_json_schema(
 
 fn shard_manifest_schema(version: &str, profile: &str) -> Option<&'static str> {
     match (version, profile) {
+        (SHARD_SCHEMA_2_1_VERSION, _) => shard_embedding_contract::manifest_schema(profile),
         ("2.0.0", "core-v1") => Some(include_str!(
             "../../../contracts/knowledge-shard/2.0.0/core-v1/manifest.schema.json"
         )),
@@ -27413,6 +27420,9 @@ fn parse_and_validate_shard_manifest(data: &[u8]) -> Result<ShardManifest, Strin
 }
 
 fn shard_component_schema(version: &str, profile: &str, component: &str) -> Option<&'static str> {
+    if shard_embedding_contract::is_schema_2_1(version) {
+        return shard_embedding_contract::component_schema(profile, component);
+    }
     if version == SHARD_SCHEMA_2_VERSION {
         return match (profile, component) {
             ("core-v1", "notes") | ("full-v1", "notes") => Some(include_str!(
@@ -29297,15 +29307,15 @@ fn validate_shard_manifest_contract(manifest: &ShardManifest) -> Result<(), Stri
                 "Knowledge shard minimum reader version must be strict SemVer.".to_string()
             })
         })?;
-    let schema_2 = manifest.version == SHARD_SCHEMA_2_VERSION;
-    if schema_2 && min_reader != Version::parse(SHARD_SCHEMA_2_VERSION).unwrap() {
-        return Err("Knowledge shard schema 2 requires exact minimum reader 2.0.0.".to_string());
+    let schema_2_family = shard_embedding_contract::is_schema_2_family(&manifest.version);
+    if schema_2_family && min_reader != Version::parse(&manifest.version).unwrap() {
+        return Err("Knowledge shard schema 2 requires exact matching minimum reader.".to_string());
     }
-    if !schema_2 && !current.is_compatible_with(&min_reader) {
+    if !schema_2_family && !current.is_compatible_with(&min_reader) {
         return Err("Knowledge shard requires a newer reader contract.".to_string());
     }
 
-    if !schema_2 {
+    if !schema_2_family {
         match check_shard_compatibility(&manifest.version) {
             CompatibilityResult::Compatible => {}
             CompatibilityResult::RequiresMigration { from, to } => {
@@ -29456,6 +29466,9 @@ fn validate_shard_component_inventory(
             validate_shard_community_count(data, manifest.counts.communities)?;
         }
     }
+    if shard_embedding_contract::is_schema_2_1(&manifest.version) && profile == "full-v1" {
+        shard_embedding_contract::validate_schema_2_1_embedding_contract(files)?;
+    }
 
     Ok(())
 }
@@ -29543,7 +29556,9 @@ fn migrate_shard_archive_to_current(
     use matric_core::shard::{migrations, MigrationRegistry, CURRENT_SHARD_VERSION};
     use sha2::{Digest, Sha256};
 
-    if manifest.version == CURRENT_SHARD_VERSION || manifest.version == SHARD_SCHEMA_2_VERSION {
+    if manifest.version == CURRENT_SHARD_VERSION
+        || shard_embedding_contract::is_schema_2_family(&manifest.version)
+    {
         return Ok(MigratedShardArchive {
             manifest,
             files,
@@ -29821,19 +29836,20 @@ async fn knowledge_shard(
 
     use tar::Builder;
 
-    let schema_version = query
-        .schema_version
-        .as_deref()
-        .unwrap_or(matric_core::shard::CURRENT_SHARD_VERSION);
+    let requested_schema_version = query.schema_version.as_deref();
+    let mut schema_version = requested_schema_version
+        .unwrap_or(matric_core::shard::CURRENT_SHARD_VERSION)
+        .to_string();
     if !matches!(
-        schema_version,
-        matric_core::shard::CURRENT_SHARD_VERSION | SHARD_SCHEMA_2_VERSION
+        schema_version.as_str(),
+        matric_core::shard::CURRENT_SHARD_VERSION
+            | SHARD_SCHEMA_2_VERSION
+            | SHARD_SCHEMA_2_1_VERSION
     ) {
         return Err(shard_validation_failed(
             "Knowledge shard export schema version is not supported.",
         ));
     }
-    let include_live_only_component_rows = schema_version != SHARD_SCHEMA_2_VERSION;
     let profile = query.profile.as_deref().unwrap_or(DEFAULT_SHARD_PROFILE);
     let profile_components = shard_profile_components(profile).ok_or_else(|| {
         shard_validation_failed("Knowledge shard export profile is not supported.")
@@ -29883,6 +29899,38 @@ async fn knowledge_shard(
     // Schema-scoped transaction for the entire export
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let mut tx = ctx.begin_tx().await?;
+    if requested_schema_version.is_none()
+        && profile == "full-v1"
+        && unique_components.contains("embedding_sets")
+        && unique_components.contains("embedding_configs")
+    {
+        let requires_schema_2_1: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1
+                FROM embedding_set es
+                LEFT JOIN embedding_config ec ON es.embedding_config_id = ec.id
+                WHERE es.embedding_config_id IS NOT NULL
+                  AND ($1 OR es.shard_export_present)
+                  AND (
+                      COALESCE(es.truncate_dim, ec.dimension) <> 768
+                      OR ec.vector_type = 'halfvec'
+                  )
+            )
+            "#,
+        )
+        .bind(true)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|error| shard_operation_failed("select knowledge shard schema version", error))?;
+        schema_version = if requires_schema_2_1 {
+            SHARD_SCHEMA_2_1_VERSION.to_string()
+        } else {
+            SHARD_SCHEMA_2_VERSION.to_string()
+        };
+    }
+    let include_live_only_component_rows = requested_schema_version.is_none()
+        || !shard_embedding_contract::is_schema_2_family(&schema_version);
     let source_identity_loss_count: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM source_identity")
             .fetch_one(&mut *tx)
@@ -29988,7 +30036,7 @@ async fn knowledge_shard(
                         "tags": note_tags,
                         "attachments": attachments,
                     });
-                    if schema_version == SHARD_SCHEMA_2_VERSION
+                    if shard_embedding_contract::is_schema_2_family(&schema_version)
                         && !row.get::<bool, _>("shard_deleted_at_present")
                     {
                         note_obj
@@ -31030,7 +31078,9 @@ async fn knowledge_shard(
                  FROM collection c
                  ORDER BY c.created_at_utc, c.id",
             )
-            .bind(schema_version == SHARD_SCHEMA_2_VERSION)
+            .bind(shard_embedding_contract::is_schema_2_family(
+                &schema_version,
+            ))
             .fetch_all(&mut *tx)
             .await
             .map_err(|error| shard_operation_failed("read collections", error))?;
@@ -31240,7 +31290,7 @@ async fn knowledge_shard(
                 r#"
                 SELECT
                     id, name, description, model, dimension, chunk_size, chunk_overlap,
-                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default,
+                    vector_type, hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default,
                     supports_mrl, matryoshka_dims, default_truncate_dim,
                     provider::text AS provider, provider_config, content_types,
                     strengths, limitations, recommended_for, benchmark_scores,
@@ -31278,6 +31328,8 @@ async fn knowledge_shard(
                     description: row.get("description"),
                     model: row.get("model"),
                     dimension: row.get("dimension"),
+                    vector_type: shard_embedding_contract::is_schema_2_1(&schema_version)
+                        .then(|| row.get::<String, _>("vector_type")),
                     chunk_size: row.get("chunk_size"),
                     chunk_overlap: row.get("chunk_overlap"),
                     hnsw_m: row.get("hnsw_m"),
@@ -31342,7 +31394,9 @@ async fn knowledge_shard(
                 let contract_fingerprint_present = record.contract_fingerprint_present;
                 let mut record = serde_json::to_value(&record)
                     .map_err(|error| shard_operation_failed("serialize embedding", error))?;
-                if schema_version == SHARD_SCHEMA_2_VERSION && !contract_fingerprint_present {
+                if shard_embedding_contract::is_schema_2_family(&schema_version)
+                    && !contract_fingerprint_present
+                {
                     record
                         .as_object_mut()
                         .expect("serialized shard embedding must be an object")
@@ -31458,7 +31512,7 @@ async fn knowledge_shard(
 
         // Create manifest (added last)
         let manifest = ShardManifest {
-            version: schema_version.to_string(),
+            version: schema_version.clone(),
             profile: Some(profile.to_string()),
             producer: Some(ShardProducer {
                 name: "fortemi".to_string(),
@@ -31471,7 +31525,7 @@ async fn knowledge_shard(
             components: components.iter().map(|s| s.to_string()).collect(),
             counts,
             checksums: checksums.clone(),
-            min_reader_version: Some(schema_version.to_string()),
+            min_reader_version: Some(schema_version.clone()),
             migrated_from: None,
             migration_history: vec![],
         };
@@ -38726,6 +38780,62 @@ async fn prepare_shard_embedding_set_replacement_tx(
     Ok(())
 }
 
+fn shard_embedding_storage_param(
+    placeholder: &str,
+    dimension: usize,
+    vector_type: matric_core::EmbeddingVectorType,
+) -> String {
+    match vector_type {
+        matric_core::EmbeddingVectorType::Vector => {
+            format!("{placeholder}::vector({dimension})")
+        }
+        matric_core::EmbeddingVectorType::Halfvec => {
+            format!("({placeholder}::vector::halfvec({dimension})::vector)")
+        }
+    }
+}
+
+async fn shard_embedding_storage_param_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    embedding_set_id: Uuid,
+    vector: &pgvector::Vector,
+) -> Result<String, ApiError> {
+    use sqlx::Row;
+
+    let row = sqlx::query(
+        "SELECT ec.dimension, ec.vector_type
+         FROM embedding_set es
+         JOIN embedding_config ec ON ec.id = es.embedding_config_id
+         WHERE es.id = $1",
+    )
+    .bind(embedding_set_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(|error| shard_operation_failed("read embedding storage contract", error))?
+    .ok_or_else(|| shard_validation_failed("Knowledge shard embedding set config is required."))?;
+    let dimension: i32 = row.get("dimension");
+    let dimension = usize::try_from(dimension).map_err(|_| {
+        shard_validation_failed("Knowledge shard embedding config dimension is invalid.")
+    })?;
+    let vector_type = row
+        .get::<String, _>("vector_type")
+        .parse::<matric_core::EmbeddingVectorType>()
+        .map_err(|_| {
+            shard_validation_failed("Knowledge shard embedding config vector type is invalid.")
+        })?;
+    matric_core::validate_embedding_dimension(dimension, vector_type).map_err(|_| {
+        shard_validation_failed(
+            "Knowledge shard embedding config dimension exceeds vector type limit.",
+        )
+    })?;
+    matric_core::validate_embedding_values(vector.as_slice(), dimension).map_err(|_| {
+        shard_validation_failed(
+            "Knowledge shard embedding vector length does not match declared dimension.",
+        )
+    })?;
+    Ok(shard_embedding_storage_param("$6", dimension, vector_type))
+}
+
 async fn apply_shard_embedding_components_tx(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     files: &std::collections::HashMap<String, Vec<u8>>,
@@ -38736,8 +38846,18 @@ async fn apply_shard_embedding_components_tx(
 ) -> Result<(), ApiError> {
     let should_import = |component: &str| selected_components.contains(component);
     let replace = matches!(opts.on_conflict, ConflictStrategy::Replace);
+    let schema_2_1_import = match files.get("manifest.json") {
+        Some(data) => {
+            let manifest = parse_and_validate_shard_manifest(data)
+                .map_err(|_| shard_validation_failed("Invalid knowledge shard manifest."))?;
+            shard_embedding_contract::is_schema_2_1(&manifest.version)
+        }
+        None => false,
+    };
 
     let mut adopted_sets = std::collections::HashSet::new();
+    let mut affected_config_ids = std::collections::HashSet::<Uuid>::new();
+    let mut affected_set_ids = std::collections::HashSet::<Uuid>::new();
     sqlx::query("SELECT set_config('app.shard_import', 'on', true)")
         .execute(&mut **tx)
         .await
@@ -38751,6 +38871,30 @@ async fn apply_shard_embedding_components_tx(
                 })?;
             configs.sort_by_key(|config| config.id);
             for config in configs {
+                if schema_2_1_import {
+                    let vector_type = config
+                        .vector_type
+                        .as_deref()
+                        .unwrap_or("vector")
+                        .parse::<matric_core::EmbeddingVectorType>()
+                        .map_err(|_| {
+                            shard_validation_failed(
+                                "Knowledge shard embedding config vector type is invalid.",
+                            )
+                        })?;
+                    let dimension = usize::try_from(config.dimension).map_err(|_| {
+                        shard_validation_failed(
+                            "Knowledge shard embedding config dimension is invalid.",
+                        )
+                    })?;
+                    matric_core::validate_embedding_dimension(dimension, vector_type).map_err(
+                        |_| {
+                            shard_validation_failed(
+                                "Knowledge shard embedding config dimension exceeds vector type limit.",
+                            )
+                        },
+                    )?;
+                }
                 if replace {
                     guard_shard_shared_config_replacement(tx, &config).await?;
                 }
@@ -38762,7 +38906,7 @@ async fn apply_shard_embedding_components_tx(
                     sqlx::query(
                         "INSERT INTO embedding_config (
                              id, name, description, model, dimension, chunk_size, chunk_overlap,
-                             hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default,
+                             vector_type, hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default,
                              supports_mrl, matryoshka_dims, default_truncate_dim,
                              provider, provider_config, content_types, strengths, limitations,
                              recommended_for, benchmark_scores, is_available,
@@ -38770,17 +38914,18 @@ async fn apply_shard_embedding_components_tx(
                              shard_export_present
                          ) VALUES (
                              $1, $2, $3, $4, $5, $6, $7,
-                             $8, $9, $10, $11,
-                             $12, $13, $14,
-                             $15::embedding_provider, $16, $17, $18, $19,
-                             $20, $21, $22,
-                             $23, $24, $25, TRUE
+                             COALESCE($8::text, 'vector'), $9, $10, $11, $12,
+                             $13, $14, $15,
+                             $16::embedding_provider, $17, $18, $19, $20,
+                             $21, $22, $23,
+                             $24, $25, $26, TRUE
                          )
                          ON CONFLICT (id) DO UPDATE SET
                              name = EXCLUDED.name,
                              description = EXCLUDED.description,
                              model = EXCLUDED.model,
                              dimension = EXCLUDED.dimension,
+                             vector_type = EXCLUDED.vector_type,
                              chunk_size = EXCLUDED.chunk_size,
                              chunk_overlap = EXCLUDED.chunk_overlap,
                              hnsw_m = EXCLUDED.hnsw_m,
@@ -38806,7 +38951,7 @@ async fn apply_shard_embedding_components_tx(
                     sqlx::query(
                         "INSERT INTO embedding_config (
                              id, name, description, model, dimension, chunk_size, chunk_overlap,
-                             hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default,
+                             vector_type, hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default,
                              supports_mrl, matryoshka_dims, default_truncate_dim,
                              provider, provider_config, content_types, strengths, limitations,
                              recommended_for, benchmark_scores, is_available,
@@ -38814,11 +38959,11 @@ async fn apply_shard_embedding_components_tx(
                              shard_export_present
                          ) VALUES (
                              $1, $2, $3, $4, $5, $6, $7,
-                             $8, $9, $10, $11,
-                             $12, $13, $14,
-                             $15::embedding_provider, $16, $17, $18, $19,
-                             $20, $21, $22,
-                             $23, $24, $25, TRUE
+                             COALESCE($8::text, 'vector'), $9, $10, $11, $12,
+                             $13, $14, $15,
+                             $16::embedding_provider, $17, $18, $19, $20,
+                             $21, $22, $23,
+                             $24, $25, $26, TRUE
                          )
                          ON CONFLICT (id) DO NOTHING",
                     )
@@ -38830,6 +38975,7 @@ async fn apply_shard_embedding_components_tx(
                 .bind(config.dimension)
                 .bind(config.chunk_size)
                 .bind(config.chunk_overlap)
+                .bind(config.vector_type)
                 .bind(config.hnsw_m)
                 .bind(config.hnsw_ef_construction)
                 .bind(config.ivfflat_lists)
@@ -38867,6 +39013,7 @@ async fn apply_shard_embedding_components_tx(
                 if result.rows_affected() == 0 {
                     skipped.embedding_configs += 1;
                 } else {
+                    affected_config_ids.insert(config.id);
                     imported.embedding_configs += 1;
                 }
             }
@@ -38996,6 +39143,10 @@ async fn apply_shard_embedding_components_tx(
                     if adopted_sets.insert(set.id) {
                         adopt_shard_embedding_set_tx(tx, set.id).await?;
                     }
+                    if let Some(config_id) = set.embedding_config_id {
+                        affected_config_ids.insert(config_id);
+                    }
+                    affected_set_ids.insert(set.id);
                     imported.embedding_sets += 1;
                 }
             }
@@ -39236,42 +39387,49 @@ async fn apply_shard_embedding_components_tx(
                     continue;
                 }
                 let vector = embedding.vector.map(pgvector::Vector::from);
-                let result = if replace {
-                    sqlx::query(
+                let vector_param = match (&vector, embedding.embedding_set_id) {
+                    (Some(vector), Some(set_id)) => {
+                        shard_embedding_storage_param_tx(tx, set_id, vector).await?
+                    }
+                    _ => "$6".to_string(),
+                };
+                let sql = if replace {
+                    format!(
                         "INSERT INTO embedding
                          (id, note_id, embedding_set_id, chunk_index, text, vector, model,
                           contract_fingerprint, shard_contract_fingerprint_present, created_at)
-                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                         VALUES ($1, $2, $3, $4, $5, {vector_param}, $7, $8, $9, $10)
                          ON CONFLICT (id) DO UPDATE SET
                             note_id = EXCLUDED.note_id, embedding_set_id = EXCLUDED.embedding_set_id,
                             chunk_index = EXCLUDED.chunk_index, text = EXCLUDED.text,
                             vector = EXCLUDED.vector, model = EXCLUDED.model,
                             contract_fingerprint = EXCLUDED.contract_fingerprint,
                             shard_contract_fingerprint_present = EXCLUDED.shard_contract_fingerprint_present,
-                            created_at = EXCLUDED.created_at",
+                            created_at = EXCLUDED.created_at"
                     )
                 } else {
-                    sqlx::query(
+                    format!(
                         "INSERT INTO embedding
                      (id, note_id, embedding_set_id, chunk_index, text, vector, model,
                       contract_fingerprint, shard_contract_fingerprint_present, created_at)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                     ON CONFLICT DO NOTHING",
+                     VALUES ($1, $2, $3, $4, $5, {vector_param}, $7, $8, $9, $10)
+                     ON CONFLICT DO NOTHING"
                     )
-                }
-                .bind(embedding.id)
-                .bind(embedding.note_id)
-                .bind(embedding.embedding_set_id)
-                .bind(embedding.chunk_index)
-                .bind(embedding.text)
-                .bind(vector)
-                .bind(embedding.model)
-                .bind(embedding.contract_fingerprint)
-                .bind(embedding.contract_fingerprint_present)
-                .bind(embedding.created_at)
-                .execute(&mut **tx)
-                .await
-                .map_err(|error| shard_operation_failed("apply embedding import", error))?;
+                };
+                let result = sqlx::query(&sql)
+                    .bind(embedding.id)
+                    .bind(embedding.note_id)
+                    .bind(embedding.embedding_set_id)
+                    .bind(embedding.chunk_index)
+                    .bind(embedding.text)
+                    .bind(vector)
+                    .bind(embedding.model)
+                    .bind(embedding.contract_fingerprint)
+                    .bind(embedding.contract_fingerprint_present)
+                    .bind(embedding.created_at)
+                    .execute(&mut **tx)
+                    .await
+                    .map_err(|error| shard_operation_failed("apply embedding import", error))?;
                 if result.rows_affected() == 0 {
                     skipped.embeddings += 1;
                 } else {
@@ -39279,6 +39437,7 @@ async fn apply_shard_embedding_components_tx(
                         if adopted_sets.insert(set_id) {
                             adopt_shard_embedding_set_tx(tx, set_id).await?;
                         }
+                        affected_set_ids.insert(set_id);
                     }
                     imported.embeddings += 1;
                 }
@@ -39322,6 +39481,37 @@ async fn apply_shard_embedding_components_tx(
                     shard_operation_failed("restore embedding set snapshot state", error)
                 })?;
             }
+        }
+    }
+
+    if !opts.dry_run {
+        if !affected_set_ids.is_empty() {
+            let set_ids = affected_set_ids.iter().copied().collect::<Vec<_>>();
+            affected_config_ids.extend(
+                sqlx::query_scalar::<_, Uuid>(
+                    "SELECT DISTINCT embedding_config_id
+                     FROM embedding_set
+                     WHERE id = ANY($1::uuid[])
+                       AND embedding_config_id IS NOT NULL",
+                )
+                .bind(set_ids)
+                .fetch_all(&mut **tx)
+                .await
+                .map_err(|error| {
+                    shard_operation_failed("select affected embedding config indexes", error)
+                })?,
+            );
+        }
+        let mut config_ids = affected_config_ids.into_iter().collect::<Vec<_>>();
+        config_ids.sort();
+        for config_id in config_ids {
+            sqlx::query("SELECT public.recreate_embedding_hnsw_index($1)")
+                .bind(config_id)
+                .execute(&mut **tx)
+                .await
+                .map_err(|error| {
+                    shard_operation_failed("rebuild imported embedding HNSW index", error)
+                })?;
         }
     }
 
@@ -40762,7 +40952,9 @@ where
         ValidatedShardApplyPolicy {
             wipe_before_apply,
             preserve_empty_revisions: manifest.profile.is_some(),
-            preserve_schema_2_component_presence: manifest.version == SHARD_SCHEMA_2_VERSION,
+            preserve_schema_2_component_presence: shard_embedding_contract::is_schema_2_family(
+                &manifest.version,
+            ),
             sidecar_journal_id,
         },
     )
@@ -58172,7 +58364,7 @@ not-json
     }
 
     #[test]
-    fn shard_contract_accepts_exact_schema_2_and_rejects_other_incompatible_versions() {
+    fn shard_contract_accepts_exact_schema_2_versions_and_rejects_other_incompatible_versions() {
         let mut manifest = valid_core_shard_manifest();
         for version in ["1.0", "01.0.0", "1.0.0-beta"] {
             manifest.version = version.to_string();
@@ -58186,6 +58378,11 @@ not-json
         manifest.min_reader_version = Some("2.0.0".to_string());
         validate_shard_manifest_contract(&manifest)
             .expect("released schema 2 authority must be accepted");
+
+        manifest.version = "2.1.0".to_string();
+        manifest.min_reader_version = Some("2.1.0".to_string());
+        validate_shard_manifest_contract(&manifest)
+            .expect("released schema 2.1 authority must be accepted");
 
         manifest.version = "3.0.0".to_string();
         manifest.min_reader_version = Some("3.0.0".to_string());
@@ -61292,6 +61489,467 @@ not-json
         );
         validate_shard_embedding_relationships(&files, &note_ids)
             .expect("set truncation dimension must define the persisted vector width");
+    }
+
+    #[test]
+    fn shard_schema_2_1_embedding_preflight_accepts_variable_vector_types() {
+        let files = std::collections::HashMap::from([
+            (
+                "embedding_configs.json".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-embedding-v2.1-variable/embedding_configs.json"
+                )
+                .to_vec(),
+            ),
+            (
+                "embedding_sets.json".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-embedding-v2.1-variable/embedding_sets.json"
+                )
+                .to_vec(),
+            ),
+            (
+                "embedding_set_members.jsonl".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-embedding-v2.1-variable/embedding_set_members.jsonl"
+                )
+                .to_vec(),
+            ),
+            (
+                "embeddings.jsonl".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-embedding-v2.1-variable/embeddings.jsonl"
+                )
+                .to_vec(),
+            ),
+        ]);
+        let note_ids = std::collections::HashSet::from([
+            Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f6492121").unwrap(),
+            Uuid::parse_str("018f4c11-9f14-7d33-8a21-1c80f6492122").unwrap(),
+        ]);
+
+        validate_shard_embedding_relationships(&files, &note_ids)
+            .expect("variable vector fixture relationships must validate");
+        shard_embedding_contract::validate_schema_2_1_embedding_contract(&files)
+            .expect("schema 2.1 vector dimensions must follow declared config contracts");
+
+        let configs: Vec<serde_json::Value> =
+            serde_json::from_slice(&files["embedding_configs.json"]).unwrap();
+        for config in configs {
+            validate_shard_json_schema(
+                &config,
+                shard_embedding_contract::component_schema("full-v1", "embedding_configs").unwrap(),
+                "Knowledge shard component does not match canonical full-v1 candidate schema.",
+            )
+            .expect("fixture config must match schema 2.1");
+        }
+        for embedding in parse_shard_component_records("embeddings", &files["embeddings.jsonl"])
+            .expect("fixture embeddings must parse")
+        {
+            validate_shard_json_schema(
+                &embedding,
+                shard_embedding_contract::component_schema("full-v1", "embeddings").unwrap(),
+                "Knowledge shard component does not match canonical full-v1 candidate schema.",
+            )
+            .expect("fixture embedding must match schema 2.1");
+        }
+    }
+
+    #[test]
+    fn shard_schema_2_1_embedding_preflight_rejects_declared_dimension_mismatch() {
+        let mut files = std::collections::HashMap::from([
+            (
+                "embedding_configs.json".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-embedding-v2.1-variable/embedding_configs.json"
+                )
+                .to_vec(),
+            ),
+            (
+                "embedding_sets.json".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-embedding-v2.1-variable/embedding_sets.json"
+                )
+                .to_vec(),
+            ),
+            (
+                "embeddings.jsonl".to_string(),
+                include_bytes!(
+                    "../../../tests/fixtures/shards/full-v1-embedding-v2.1-variable/embeddings.jsonl"
+                )
+                .to_vec(),
+            ),
+        ]);
+        let mut configs: Vec<serde_json::Value> =
+            serde_json::from_slice(&files["embedding_configs.json"]).unwrap();
+        configs[0]["dimension"] = serde_json::json!(1025);
+        files.insert(
+            "embedding_configs.json".to_string(),
+            serde_json::to_vec(&configs).unwrap(),
+        );
+
+        assert_eq!(
+            shard_embedding_contract::validate_schema_2_1_embedding_contract(&files).unwrap_err(),
+            "Knowledge shard embedding vector length does not match declared dimension."
+        );
+    }
+
+    #[tokio::test]
+    async fn shard_schema_2_1_round_trips_variable_embedding_storage() {
+        async fn export_full_v1_auto(state: &AppState, schema: &str) -> Vec<u8> {
+            let response = knowledge_shard(
+                State(state.clone()),
+                Extension(ArchiveContext {
+                    schema: schema.to_string(),
+                    is_default: false,
+                    name: None,
+                }),
+                Query(ShardExportQuery {
+                    schema_version: None,
+                    profile: Some("full-v1".to_string()),
+                    include: None,
+                    include_blobs: true,
+                }),
+            )
+            .await
+            .expect("export full-v1 shard")
+            .into_response();
+            assert_eq!(response.status(), StatusCode::OK);
+            axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("read full-v1 export")
+                .to_vec()
+        }
+
+        /// (config id, set id, note id, embedding id, slug, dimension, vector type, vector)
+        type VariableEmbeddingSeed = (
+            Uuid,
+            Uuid,
+            Uuid,
+            Uuid,
+            &'static str,
+            usize,
+            &'static str,
+            Vec<f32>,
+        );
+
+        async fn seed_embedding_archive(
+            db: &Database,
+            schema: &str,
+            rows: &[VariableEmbeddingSeed],
+        ) {
+            let ctx = db.for_schema(schema).unwrap();
+            let mut tx = ctx.begin_tx().await.expect("begin variable embedding seed");
+            for (config_id, set_id, note_id, embedding_id, slug, dimension, vector_type, vector) in
+                rows
+            {
+                matric_db::PgNoteRepository::new(db.pool.clone())
+                    .insert_with_id_tx(
+                        &mut tx,
+                        *note_id,
+                        CreateNoteRequest {
+                            content: format!("{slug} semantic note"),
+                            format: "markdown".to_string(),
+                            source: "knowledge-shard-variable-embedding-test".to_string(),
+                            collection_id: None,
+                            tags: Some(Vec::new()),
+                            metadata: Some(serde_json::json!({})),
+                            document_type_id: None,
+                            title: Some(format!("{slug} note")),
+                        },
+                    )
+                    .await
+                    .expect("seed variable embedding note");
+                sqlx::query(
+                    "INSERT INTO embedding_config
+                     (id, name, model, dimension, vector_type, chunk_size, chunk_overlap,
+                      document_composition, shard_export_present)
+                     VALUES ($1, $2, $3, $4, $5, 512, 64, '{}'::jsonb, TRUE)",
+                )
+                .bind(*config_id)
+                .bind(format!("{slug} config"))
+                .bind(format!("{slug}-model"))
+                .bind(*dimension as i32)
+                .bind(*vector_type)
+                .execute(&mut *tx)
+                .await
+                .expect("seed variable embedding config");
+                sqlx::query(
+                    "INSERT INTO embedding_set
+                     (id, name, slug, set_type, mode, embedding_config_id, index_status,
+                      is_system, is_active, shard_export_present)
+                     VALUES ($1, $2, $3, 'full', 'manual', $4, 'ready', false, true, TRUE)",
+                )
+                .bind(*set_id)
+                .bind(format!("{slug} set"))
+                .bind(*slug)
+                .bind(*config_id)
+                .execute(&mut *tx)
+                .await
+                .expect("seed variable embedding set");
+                sqlx::query(
+                    "INSERT INTO embedding_set_member
+                     (embedding_set_id, note_id, membership_type, shard_export_present)
+                     VALUES ($1, $2, 'include', TRUE)",
+                )
+                .bind(*set_id)
+                .bind(*note_id)
+                .execute(&mut *tx)
+                .await
+                .expect("seed variable embedding set member");
+                let vector_param = match *vector_type {
+                    "halfvec" => format!("($5::vector::halfvec({dimension})::vector)"),
+                    _ => format!("$5::vector({dimension})"),
+                };
+                let sql = format!(
+                    "INSERT INTO embedding
+                     (id, note_id, embedding_set_id, chunk_index, text, vector, model,
+                      contract_fingerprint, shard_contract_fingerprint_present)
+                     VALUES ($1, $2, $3, 0, $4, {vector_param}, $6, NULL, TRUE)"
+                );
+                sqlx::query(&sql)
+                    .bind(*embedding_id)
+                    .bind(*note_id)
+                    .bind(*set_id)
+                    .bind(format!("{slug} semantic note"))
+                    .bind(pgvector::Vector::from(vector.clone()))
+                    .bind(format!("{slug}-model"))
+                    .execute(&mut *tx)
+                    .await
+                    .expect("seed variable embedding vector");
+            }
+            tx.commit().await.expect("commit variable embedding seed");
+        }
+
+        let _shard_test_guard = SHARD_INTEGRATION_TEST_LOCK.lock().await;
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must explicitly select a disposable integration database");
+        let storage = tempfile::tempdir().expect("create variable embedding storage");
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect integration database")
+            .with_filesystem_storage(&storage.path().to_string_lossy(), 0);
+        db.migrate().await.expect("migrate integration database");
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+
+        let source_name = format!("sh-var-src-{}", Uuid::new_v4().simple());
+        let clean_name = format!("sh-var-clean-{}", Uuid::new_v4().simple());
+        let legacy_name = format!("sh-var-768-{}", Uuid::new_v4().simple());
+        let source = db
+            .archives
+            .create_archive_schema(&source_name, None)
+            .await
+            .unwrap();
+        let clean = db
+            .archives
+            .create_archive_schema(&clean_name, None)
+            .await
+            .unwrap();
+        let legacy = db
+            .archives
+            .create_archive_schema(&legacy_name, None)
+            .await
+            .unwrap();
+
+        let vector_config_id = Uuid::new_v4();
+        let vector_set_id = Uuid::new_v4();
+        let vector_note_id = Uuid::new_v4();
+        let vector_embedding_id = Uuid::new_v4();
+        let half_config_id = Uuid::new_v4();
+        let half_set_id = Uuid::new_v4();
+        let half_note_id = Uuid::new_v4();
+        let half_embedding_id = Uuid::new_v4();
+        let vector_values = (0..1024)
+            .map(|i| (i as f32 + 1.0) / 2048.0)
+            .collect::<Vec<_>>();
+        let half_values = (0..2560)
+            .map(|i| if i % 2 == 0 { 0.25_f32 } else { -0.5_f32 })
+            .collect::<Vec<_>>();
+        seed_embedding_archive(
+            &db,
+            &source.schema_name,
+            &[
+                (
+                    vector_config_id,
+                    vector_set_id,
+                    vector_note_id,
+                    vector_embedding_id,
+                    "vector-1024",
+                    1024,
+                    "vector",
+                    vector_values.clone(),
+                ),
+                (
+                    half_config_id,
+                    half_set_id,
+                    half_note_id,
+                    half_embedding_id,
+                    "halfvec-2560",
+                    2560,
+                    "halfvec",
+                    half_values.clone(),
+                ),
+            ],
+        )
+        .await;
+
+        let exported = export_full_v1_auto(&state, &source.schema_name).await;
+        let exported_files = read_shard_archive(&exported, ShardArchiveLimits::default()).unwrap();
+        let exported_manifest =
+            parse_and_validate_shard_manifest(&exported_files["manifest.json"]).unwrap();
+        assert_eq!(exported_manifest.version, SHARD_SCHEMA_2_1_VERSION);
+        let exported_configs: Vec<serde_json::Value> =
+            serde_json::from_slice(&exported_files["embedding_configs.json"]).unwrap();
+        assert!(exported_configs.iter().any(|config| {
+            config["id"] == vector_config_id.to_string()
+                && config["dimension"] == 1024
+                && config["vector_type"] == "vector"
+        }));
+        assert!(exported_configs.iter().any(|config| {
+            config["id"] == half_config_id.to_string()
+                && config["dimension"] == 2560
+                && config["vector_type"] == "halfvec"
+        }));
+
+        let opts = ShardImportOptions {
+            include: None,
+            dry_run: false,
+            on_conflict: ConflictStrategy::Replace,
+            skip_embedding_regen: true,
+        };
+        knowledge_shard_import_internal(&state, &exported, &opts, &clean.schema_name)
+            .await
+            .expect("import variable embedding shard");
+
+        let clean_ctx = db.for_schema(&clean.schema_name).unwrap();
+        let restored = clean_ctx
+            .query(|tx| {
+                Box::pin(async move {
+                    let configs = sqlx::query_as::<_, (Uuid, i32, String)>(
+                        "SELECT id, dimension, vector_type FROM embedding_config
+                         WHERE id = ANY($1::uuid[]) ORDER BY id",
+                    )
+                    .bind(vec![vector_config_id, half_config_id])
+                    .fetch_all(&mut **tx)
+                    .await
+                    .map_err(matric_db::Error::Database)?;
+                    let vector: pgvector::Vector =
+                        sqlx::query_scalar("SELECT vector FROM embedding WHERE id = $1")
+                            .bind(vector_embedding_id)
+                            .fetch_one(&mut **tx)
+                            .await
+                            .map_err(matric_db::Error::Database)?;
+                    let half: pgvector::Vector =
+                        sqlx::query_scalar("SELECT vector FROM embedding WHERE id = $1")
+                            .bind(half_embedding_id)
+                            .fetch_one(&mut **tx)
+                            .await
+                            .map_err(matric_db::Error::Database)?;
+                    Ok::<_, matric_db::Error>((configs, vector, half))
+                })
+            })
+            .await
+            .expect("read restored variable embeddings");
+        assert!(restored
+            .0
+            .contains(&(vector_config_id, 1024, "vector".to_string())));
+        assert!(restored
+            .0
+            .contains(&(half_config_id, 2560, "halfvec".to_string())));
+        assert_eq!(restored.1.as_slice(), vector_values.as_slice());
+        assert!(restored
+            .2
+            .as_slice()
+            .iter()
+            .zip(half_values.iter())
+            .all(|(actual, expected)| (actual - expected).abs() <= 0.001));
+
+        for config_id in [vector_config_id, half_config_id] {
+            let index_name = format!("idx_embedding_hnsw_{}", config_id.simple());
+            let exists: bool = sqlx::query_scalar(
+                "SELECT to_regclass(format('%I.%I', $1::text, $2::text)) IS NOT NULL",
+            )
+            .bind(&clean.schema_name)
+            .bind(index_name)
+            .fetch_one(&db.pool)
+            .await
+            .expect("check imported embedding HNSW index");
+            assert!(exists, "HNSW index missing for imported config {config_id}");
+        }
+
+        for (set_id, note_id, dimension, vector) in [
+            (vector_set_id, vector_note_id, 1024, vector_values.clone()),
+            (half_set_id, half_note_id, 2560, half_values.clone()),
+        ] {
+            let (lhs, rhs) = if dimension == 2560 {
+                (
+                    format!("vector::halfvec({dimension})"),
+                    format!("($1::vector::halfvec({dimension}))"),
+                )
+            } else {
+                (
+                    format!("vector::vector({dimension})"),
+                    format!("$1::vector({dimension})"),
+                )
+            };
+            let sql = format!(
+                "SELECT note_id FROM embedding
+                 WHERE embedding_set_id = $2
+                 ORDER BY {lhs} <=> {rhs}
+                 LIMIT 1"
+            );
+            let returned_note_id: Uuid = clean_ctx
+                .query(|tx| {
+                    let sql = sql.clone();
+                    let vector = vector.clone();
+                    Box::pin(async move {
+                        sqlx::query_scalar(&sql)
+                            .bind(pgvector::Vector::from(vector))
+                            .bind(set_id)
+                            .fetch_one(&mut **tx)
+                            .await
+                            .map_err(matric_db::Error::Database)
+                    })
+                })
+                .await
+                .expect("run set-scoped semantic search");
+            assert_eq!(returned_note_id, note_id);
+        }
+
+        let legacy_config_id = Uuid::new_v4();
+        seed_embedding_archive(
+            &db,
+            &legacy.schema_name,
+            &[(
+                legacy_config_id,
+                Uuid::new_v4(),
+                Uuid::new_v4(),
+                Uuid::new_v4(),
+                "vector-768",
+                768,
+                "vector",
+                vec![0.125_f32; 768],
+            )],
+        )
+        .await;
+        let legacy_exported = export_full_v1_auto(&state, &legacy.schema_name).await;
+        let legacy_files =
+            read_shard_archive(&legacy_exported, ShardArchiveLimits::default()).unwrap();
+        let legacy_manifest =
+            parse_and_validate_shard_manifest(&legacy_files["manifest.json"]).unwrap();
+        assert_eq!(legacy_manifest.version, SHARD_SCHEMA_2_VERSION);
+
+        for archive_name in [source_name, clean_name, legacy_name] {
+            db.archives
+                .drop_archive_schema(&archive_name)
+                .await
+                .unwrap();
+        }
+        sqlx::query("DELETE FROM public.embedding_config WHERE id = ANY($1::uuid[])")
+            .bind(vec![vector_config_id, half_config_id, legacy_config_id])
+            .execute(&db.pool)
+            .await
+            .expect("delete shared variable embedding configs");
     }
 
     #[tokio::test]

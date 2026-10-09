@@ -115,3 +115,23 @@ The 1.x runtime still has the documented absent-versus-null limitation. The
 `2.0.0/full-v1` cells named by the immutable interoperability receipt.
 Advertisement does not authorize suite-wide compatibility, portability,
 complete backup, or parity; Fortemi #1081 remains the independent audit gate.
+
+## Schema 2.1 embedding vector storage authority
+
+Schema `2.1.0` is published under
+`contracts/knowledge-shard/2.1.0/` for `full-v1` shards whose exported
+embedding sets cannot be represented by the fixed 768-element vector contract.
+It preserves the schema-2 presence model and changes only the full profile's
+embedding vector boundary: embedding configs now declare `dimension` and
+`vector_type` (`vector` or `halfvec`), importer preflight verifies every
+embedding vector length against its set's effective declared dimension, and the
+declared storage type caps dimensions at 2000 for `vector` and 4000 for
+`halfvec`. SKOS concept and scheme embedding arrays are no longer fixed at 768
+items and are bounded by the same 4000-item schema ceiling.
+
+Exporters keep emitting the existing contract when all exported embedding sets
+remain 768-dimensional `vector` storage. They emit `2.1.0/full-v1` when an
+exported set is non-768 or uses `halfvec`, so existing consumers are unaffected
+unless the archive actually needs the widened vector contract. Consumers must
+negotiate the complete `(manifest.version, manifest.profile)` tuple and reject
+dimension/type mismatches before any persistent write.

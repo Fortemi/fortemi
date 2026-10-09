@@ -1,0 +1,157 @@
+{
+  "$schema": "https://schemas.fortemi.dev/knowledge-shard/2.1.0/contract.schema.json",
+  "schemaVersion": 1,
+  "contractRevision": "22",
+  "status": "supported",
+  "authority": {
+    "repository": "Fortemi/fortemi",
+    "adr": "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
+  },
+  "knowledgeShard": {
+    "format": "matric-shard",
+    "schemaVersion": "2.1.0",
+    "minimumReaderVersion": "2.1.0",
+    "profileIdentity": "(manifest.version, manifest.profile)",
+    "wireRepresentation": "direct-json-key-presence-with-declared-vector-storage"
+  },
+  "profiles": {
+    "core-v1": {
+      "schemaRoot": "contracts/knowledge-shard/2.1.0/core-v1",
+      "advertised": false
+    },
+    "record-v1": {
+      "schemaRoot": "contracts/knowledge-shard/2.1.0/record-v1",
+      "advertised": false
+    },
+    "full-v1": {
+      "schemaRoot": "contracts/knowledge-shard/2.1.0/full-v1",
+      "advertised": true
+    }
+  },
+  "selection": {
+    "default": {
+      "schemaVersion": "1.2.0",
+      "profile": "core-v1"
+    },
+    "advertisedOptIn": [
+      {
+        "schemaVersion": "2.0.0",
+        "profile": "full-v1"
+      },
+      {
+        "schemaVersion": "2.1.0",
+        "profile": "full-v1"
+      }
+    ],
+    "unadvertised": [
+      {
+        "schemaVersion": "2.1.0",
+        "profile": "core-v1"
+      },
+      {
+        "schemaVersion": "2.1.0",
+        "profile": "record-v1"
+      }
+    ]
+  },
+  "evidence": {
+    "runtimeReceipt": {
+      "path": "tests/fixtures/shards/external/schema-2-runtime.implementation-receipt.json",
+      "sha256": "88a11341f6cd120a937974babc83539d7837548fbceaf4bb2dd23c9e9f19fbca",
+      "authorityCommit": "6343bd899958445bbc7e7e87b0dc92a8429d5a06",
+      "authorityContractRevision": "20"
+    },
+    "fullV1InteropReceipt": {
+      "path": "tests/fixtures/shards/external/schema-2-full-v1.interop-receipt.json",
+      "sha256": "48f622afc02279b2360534af3aa542de96efea1e752f4a80a4cd6f3d6e2066cc",
+      "tuple": {
+        "schemaVersion": "2.0.0",
+        "profile": "full-v1"
+      }
+    }
+  },
+  "presenceSemantics": {
+    "inventory": "contracts/knowledge-shard/2.1.0/field-semantics.json",
+    "inventorySchema": "contracts/knowledge-shard/2.1.0/field-semantics.schema.json",
+    "fieldCount": 220,
+    "states": [
+      "absent",
+      "null",
+      "empty",
+      "value",
+      "unsupported"
+    ]
+  },
+  "schemaBundle": {
+    "aggregateAlgorithm": "sha256(raw file bytes concatenated in lexicographic path order)",
+    "sha256": "894356871fd30b7f521a95501d0b2f59f2b7aa34066c2570ec0b9c261d1f4e26",
+    "files": {
+      "contracts/knowledge-shard/2.1.0/contract.schema.json": "0700410e02d9f0028613d138d70552c363c6bdef1befca336b633e44f679ae00",
+      "contracts/knowledge-shard/2.1.0/core-v1/collection.schema.json": "7507e3d8889c298f058246adecfa3fe8cf529f9c54f51a6beeec5a2229e8afff",
+      "contracts/knowledge-shard/2.1.0/core-v1/link.schema.json": "e654ca15596d4c3bddd99061f1011ae84085725db7b5b877023491d4c70a55fd",
+      "contracts/knowledge-shard/2.1.0/core-v1/manifest.schema.json": "6b639f9a9ec673c53818d76309601d32a614e7ca61fb5045a65812dae3f33c06",
+      "contracts/knowledge-shard/2.1.0/core-v1/note.schema.json": "f43082707710b1222afba6bd4f39ca694868257cdc0f6c3741fea48a48f322b8",
+      "contracts/knowledge-shard/2.1.0/core-v1/tag.schema.json": "dba94d9b65ef485667a618594d4e543da3db743b1608073daf340af39c83586f",
+      "contracts/knowledge-shard/2.1.0/core-v1/template.schema.json": "45d452c0d0ec82d8d8640d01b4db6ceeb92e8409597986f2d1c2361eccd8a3b6",
+      "contracts/knowledge-shard/2.1.0/field-semantics.json": "a52a85374aca19f52249a2ee02534c52917e235685092f476532ee156b4036fb",
+      "contracts/knowledge-shard/2.1.0/field-semantics.schema.json": "9d3d6342256b20c8e61a2a8d09733cade70b1761b3ae98462d8a84d7e13b57e7",
+      "contracts/knowledge-shard/2.1.0/full-v1/community-assignment.schema.json": "43caae37ff83af794e3b33c5c5a890c29891391c9013894b6a27a368d1d1a1e1",
+      "contracts/knowledge-shard/2.1.0/full-v1/community-set.schema.json": "44b5ba4dfafffafca4cd2dcbeb613e84b5eac40b8141ee42b64acdd442fc505c",
+      "contracts/knowledge-shard/2.1.0/full-v1/embedding-config.schema.json": "5ef73c4818478f038ba2aecaf203c68ede85b8fac578fe34b65193dbd2ad46ea",
+      "contracts/knowledge-shard/2.1.0/full-v1/embedding-set-member.schema.json": "c3ec095a34bc679caf5953e103f8ff340def3e7f7d24354f84c0b23a50e685b9",
+      "contracts/knowledge-shard/2.1.0/full-v1/embedding-set.schema.json": "a1a92c6cf529bed76e4326c6d8f29d4072d4b71c88933e066a71c61752ce0584",
+      "contracts/knowledge-shard/2.1.0/full-v1/embedding.schema.json": "55b84637fdda5ce2f4940288bdf0983cde1923372b5d51f9badd958c4ba74c4f",
+      "contracts/knowledge-shard/2.1.0/full-v1/graph-edge.schema.json": "ec03fd6f149f93ad59f1da43fda9584307c7e3a1d1fa9a66bb532b9d5cb09619",
+      "contracts/knowledge-shard/2.1.0/full-v1/graph-source.schema.json": "4df54f110cefad9204af4d5a334b42a865488a256acb3100e71319582c9692dc",
+      "contracts/knowledge-shard/2.1.0/full-v1/manifest.schema.json": "6d48e5819f78e02dd74efb02e6152becf502b8dbc3a89b6b38cd37ba98e3886a",
+      "contracts/knowledge-shard/2.1.0/full-v1/named-location.schema.json": "4fdacb534ae5d061e930fd3a6e5a248eff9724e106c86013400600ef42dbc860",
+      "contracts/knowledge-shard/2.1.0/full-v1/note-original-history.schema.json": "41246036eff831ec9dd3b84868ad089983bb375289eff0886f69ae80fe27760d",
+      "contracts/knowledge-shard/2.1.0/full-v1/note-original.schema.json": "85ed82382d951107d508e0628822b5342aa9ec19c1e9231c1f22dcecdd7316fe",
+      "contracts/knowledge-shard/2.1.0/full-v1/note-revised-current.schema.json": "506cff36ced7b63b06f4c37341aac2784b8dd20df6c1a0f969584288a11c4e2a",
+      "contracts/knowledge-shard/2.1.0/full-v1/note-revision.schema.json": "29366d0d5c5dc738fbb8ae3ad129086b51da1471b00c6fa27827b1d3d70b769f",
+      "contracts/knowledge-shard/2.1.0/full-v1/note-skos-tag.schema.json": "9be98ac497399dcc8696db6ba5582e58b3a5c4f57191e5dcf45d666c2954cf42",
+      "contracts/knowledge-shard/2.1.0/full-v1/provenance-activity.schema.json": "a91766df21408b770913ffc2f01b0d94c22d22e6282169392758d9a0cc491999",
+      "contracts/knowledge-shard/2.1.0/full-v1/provenance-device.schema.json": "b3fbb075bf1b3102d684254ebc9bd7cdb65358bf3fa91c831f8bd307701bb1ee",
+      "contracts/knowledge-shard/2.1.0/full-v1/provenance-edge.schema.json": "bb60c4762c410c82879a47f79f75b34f885e8599d3e2f842ea72381c4bf7aba3",
+      "contracts/knowledge-shard/2.1.0/full-v1/provenance-location.schema.json": "d497ea4cf761e04966dbd086c6559b975f6f04a36b537e2c994da0b5db7e1bcc",
+      "contracts/knowledge-shard/2.1.0/full-v1/provenance-record.schema.json": "4b780451a3beae7557a0af7ae29e07ea7652dc7825acd072adf3c8bd58420c17",
+      "contracts/knowledge-shard/2.1.0/full-v1/signature.schema.json": "f3ff9a478f425855716f18f0921aeebcd9992884d6040df72dc397c0e3531f99",
+      "contracts/knowledge-shard/2.1.0/full-v1/skos-collection-member.schema.json": "cfcbed164958e27834075be91e7907e386e29089b65f1a79383cc4472890d2e7",
+      "contracts/knowledge-shard/2.1.0/full-v1/skos-collection.schema.json": "0820fd02247fb82ee31aee2a77481906b9e82af90f04bb12038ab519c2b39fa5",
+      "contracts/knowledge-shard/2.1.0/full-v1/skos-concept.schema.json": "7a352094ece588501dc06960abf781a642e5df82c6a47ff6002b0b2023621b1c",
+      "contracts/knowledge-shard/2.1.0/full-v1/skos-label.schema.json": "256d1f370268cdc53cbc3d0fc2dc7fa4872cfbe28c22d8162f0b07bec67565d6",
+      "contracts/knowledge-shard/2.1.0/full-v1/skos-mapping-relation.schema.json": "149c978086247bfc6da3b5a655fc6e20958fcd4f11f533eb634f1fb58eb7feac",
+      "contracts/knowledge-shard/2.1.0/full-v1/skos-note.schema.json": "87d13a0391ec78b7354af34448083096e8c767fe481d34f05ecab831aa957469",
+      "contracts/knowledge-shard/2.1.0/full-v1/skos-relation.schema.json": "5b9fc1004137e5d3d7f1a8b2d74470863b0d708dd28b148456ebf52a16ff2432",
+      "contracts/knowledge-shard/2.1.0/full-v1/skos-scheme-membership.schema.json": "7547f5fd19c1012a4045d3415af03d9ddeb9a0997ea229af490169c97730f60e",
+      "contracts/knowledge-shard/2.1.0/full-v1/skos-scheme.schema.json": "a0ce0892d56f9a6871282210192f05c97db3a92675c4b9f7c6f8d784f3100d25",
+      "contracts/knowledge-shard/2.1.0/record-v1/collection.schema.json": "5fcc8d3ecfc9be1936f2c0a4cf930dde523852630eae559130348862565c61a6",
+      "contracts/knowledge-shard/2.1.0/record-v1/link.schema.json": "ad49a888f5bb78b9a4ddcb596394800b3cf0c07e7d673da98bd9a3215baef33c",
+      "contracts/knowledge-shard/2.1.0/record-v1/manifest.schema.json": "a71d97cde173f1bf3b096ab9b07cd44e9dba16b0471e21911cc9e8aeb1cc3136",
+      "contracts/knowledge-shard/2.1.0/record-v1/note.schema.json": "fce8cf4be61f7e9b18cffadf0626435a39f79d701d4f23e38b3419ca37c5d6b0",
+      "contracts/knowledge-shard/2.1.0/record-v1/tag.schema.json": "93998a421de3c3d8f7bca94ecbf0be034a0b32843bf4153cb450439694e91da0"
+    }
+  },
+  "canonicalCorpus": {
+    "path": "tests/fixtures/shards/presence-semantics-v2.0.json",
+    "sha256": "cdb069819bee1bf89abad6aab012629c0fc2f40044ca2510ae73f7fdfa3d8552",
+    "verifier": "scripts/ci/verify-knowledge-shard-presence.py"
+  },
+  "compatibility": {
+    "upMigration": "2.0.0 -> 2.1.0 is a full-v1 vector storage contract widening; vector length follows the declared embedding config/set dimension.",
+    "downgrade": "No implicit downgrade. Shards using non-768 vectors or halfvec storage require 2.1.0 readers.",
+    "unknownTuple": "Reject before archive staging, database writes, or blob mutation.",
+    "rollback": "Disable 2.1.0 production/default selection but retain released 2.0.0 readers and stored presence metadata."
+  },
+  "previousAuthority": {
+    "contractPath": "contracts/knowledge-shard/2.0.0/contract.json",
+    "contractRevision": "21",
+    "schemaVersion": "2.0.0",
+    "schemaBundleSha256": "731700868cc93ba95e2c1d9e896df265d0757438b06fa002d9b643ab05b5f74d",
+    "immutable": true
+  },
+  "tracking": {
+    "authority": "https://git.integrolabs.net/Fortemi/fortemi/issues/1175"
+  },
+  "claimPolicy": "Schema 2.1.0 advertises full-v1 archives whose embedding configs declare vector_type and dimension. It does not authorize suite-wide compatibility, portability, complete backup, or parity claims."
+}

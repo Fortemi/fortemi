@@ -7,6 +7,15 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+### Changed
+
+- Add Knowledge Shard `2.1.0/full-v1` for configurable embedding storage:
+  exported embedding configs declare `dimension` and `vector_type`, importer
+  preflight rejects vector/dimension/type mismatches, import preserves non-768
+  and `halfvec` vectors with rebuilt per-config HNSW indexes, and exports keep
+  using the existing contract unless a non-768 or `halfvec` set requires the new
+  one (#1175).
+
 ## [2026.10.1] - 2026-10-09
 
 First published release of the 2026.10 line. It contains everything listed under
