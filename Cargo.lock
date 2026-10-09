@@ -1863,7 +1863,7 @@ dependencies = [
 [[package]]
 name = "fortemi-auth-clerk"
 version = "2026.10.1"
-source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?rev=40276e0cae4cb8ac942ad495a346db051e6a2dd9#40276e0cae4cb8ac942ad495a346db051e6a2dd9"
+source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.1#40276e0cae4cb8ac942ad495a346db051e6a2dd9"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1882,7 +1882,7 @@ dependencies = [
 [[package]]
 name = "fortemi-auth-core"
 version = "2026.10.1"
-source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?rev=40276e0cae4cb8ac942ad495a346db051e6a2dd9#40276e0cae4cb8ac942ad495a346db051e6a2dd9"
+source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.1#40276e0cae4cb8ac942ad495a346db051e6a2dd9"
 dependencies = [
  "chrono",
  "serde",
@@ -2398,7 +2398,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -4007,7 +4007,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.3",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -4045,7 +4045,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "tracing",
  "windows-sys 0.61.2",
 ]

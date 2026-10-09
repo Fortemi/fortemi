@@ -565,7 +565,7 @@ fn fortemi_enforces_the_calver_release_policy() {
 fn fortemi_pins_the_signed_authority_release_commit() {
     let lock = include_str!("../Cargo.lock");
     let source = format!(
-        "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?rev=40276e0cae4cb8ac942ad495a346db051e6a2dd9#{AUTHORITY_COMMIT}"
+        "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.1#{AUTHORITY_COMMIT}"
     );
     assert!(
         lock.contains(&source),
