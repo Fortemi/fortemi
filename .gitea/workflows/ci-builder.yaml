@@ -1160,7 +1160,9 @@ jobs:
     name: Integration Tests (GPU)
     runs-on: titan
     needs: test-container
-    timeout-minutes: 30
+    # The budget covers the GPU lease wait (up to 30m while shared ROKO tasks
+    # drain on Titan) plus a cold build and the serial inference tests.
+    timeout-minutes: 75
     env:
       INFERENCE_BACKEND: ollama
       CARGO_BUILD_JOBS: '2'
