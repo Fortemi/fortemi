@@ -1,0 +1,11 @@
+---
+# Fortémi in its own namespace under the restricted Pod Security Standard: the
+# server and MCP images run as uid 1000 with a read-only root, no capabilities
+# and RuntimeDefault seccomp, so nothing here needs `baseline`.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fortemi
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest

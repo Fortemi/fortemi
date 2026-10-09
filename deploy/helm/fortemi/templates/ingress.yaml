@@ -23,6 +23,15 @@ spec:
     - host: {{ $ing.host | quote }}
       http:
         paths:
+          # RFC 9728 protected-resource metadata is served by the API. Route
+          # it explicitly so bearer clients always reach Fortemi (SR-52).
+          - path: /.well-known/oauth-protected-resource
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "fortemi.fullname" . }}-api
+                port:
+                  name: http
           - path: /
             pathType: Prefix
             backend:

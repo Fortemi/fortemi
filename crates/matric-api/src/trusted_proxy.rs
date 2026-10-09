@@ -206,6 +206,12 @@ impl ExternalRequestContext {
         self.socket_peer.is_some()
     }
 
+    /// Best-effort client address: the first untrusted hop when the immediate
+    /// peer is a configured proxy, otherwise the socket peer itself.
+    pub(crate) fn client_ip(&self) -> Option<IpAddr> {
+        self.client_ip
+    }
+
     pub(crate) fn client_ip_present(&self) -> bool {
         self.client_ip.is_some()
     }

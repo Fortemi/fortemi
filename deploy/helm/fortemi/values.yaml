@@ -286,3 +286,49 @@ httpRoute:
   #    namespace: gateway-system
   hostnames:
     - memory.example.com
+
+# ---------------------------------------------------------------------------
+# Bearer front door: API and MCP paths carry OAuth Bearer tokens straight to
+# Fortemi (see docs/deployment/front-door.md).
+# ---------------------------------------------------------------------------
+frontDoor:
+  # The bearer paths the Ingress/HTTPRoute above route straight to the API
+  # and MCP Services. Never place these behind a cookie gate (for example an
+  # oauth2-proxy auth-url/sign-in), and never convert cookies into
+  # Authorization headers on them (SR-52). The chart's Ingress/HTTPRoute set
+  # no authenticating annotations; keep it that way on these paths.
+  bearerPaths:
+    - /api/*
+    - /mcp
+    - /.well-known/oauth-protected-resource*
+  # Strip the identity headers the edge must never trust on bearer paths
+  # (SR-50). Fortemi itself only reads Authorization, but anything behind the
+  # edge that honors proxy headers must not see client-supplied ones. For
+  # ingress-nginx, merge a snippet like this into ingress.annotations and
+  # ingress.mcpAnnotations (annotation strings cannot express the wildcard in
+  # X-Auth-Request-*, so list the oauth2-proxy names explicitly):
+  #   nginx.ingress.kubernetes.io/configuration-snippet: |
+  #     proxy_set_header X-Forwarded-User "";
+  #     proxy_set_header X-Forwarded-Email "";
+  #     proxy_set_header X-Forwarded-Access-Token "";
+  #     proxy_set_header X-Auth-Request-User "";
+  #     proxy_set_header X-Auth-Request-Email "";
+  #     proxy_set_header X-Auth-Request-Groups "";
+  #     proxy_set_header X-Auth-Request-Preferred-Username "";
+  #     proxy_set_header X-Auth-Request-Access-Token "";
+  # FORTEMI_TRUSTED_PROXY_CIDRS must list only the ingress/gateway pod
+  # addresses (SR-51): set it under env: with the pod CIDRs of your
+  # cluster, for example from `kubectl -n ingress-nginx get pods -o wide`.
+  # Never use node or pod-wide CIDRs.
+  # Optional Istio defense in depth (SR-53). Fortemi validation remains
+  # authoritative: RequestAuthentication alone admits requests that carry no
+  # token, so it is always paired with the AuthorizationPolicy below.
+  istio:
+    enabled: false
+    # External OIDC issuer, for example https://idp.example.com/realms/fortemi.
+    issuer: ""
+    # JWKS document of the issuer.
+    jwksUri: ""
+    # Accepted audiences, for example ["https://memory.example.com",
+    # "https://memory.example.com/mcp"].
+    audiences: []

@@ -7,6 +7,19 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+### Added
+
+- Bearer front door for external OIDC deployments (#1197): the Helm chart and
+  Kustomize base route `/api/*`, `/mcp` and
+  `/.well-known/oauth-protected-resource*` straight to the API and MCP
+  services with no cookie gate, with an optional Istio
+  `RequestAuthentication`/`AuthorizationPolicy` pair, ingress-nginx and Istio
+  identity-header stripping examples, and ingress-pod-only
+  `FORTEMI_TRUSTED_PROXY_CIDRS` guidance (`docs/deployment/front-door.md`).
+  The API budgets authentication failures per client IP before verification
+  (`FORTEMI_AUTH_FAILURE_RATE_LIMIT`, default 20/min, then 429 with
+  `Retry-After`) and caps the `Authorization` header at 8 KiB (431).
+
 ### Security
 
 - Harden Fortemi's local OAuth authorization server: redirect URI matching now

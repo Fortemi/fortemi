@@ -33,10 +33,11 @@ mod shard_embedding_contract;
 mod shard_signature;
 mod trusted_proxy;
 
+use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Datelike, Utc};
 use query_types::FlexibleDateTime;
@@ -45,7 +46,7 @@ use axum::{
     body::{Body, Bytes},
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        DefaultBodyLimit, Extension, OriginalUri, Path, Query, State,
+        ConnectInfo, DefaultBodyLimit, Extension, OriginalUri, Path, Query, State,
     },
     http::{header, HeaderMap, HeaderValue, Method, StatusCode, Uri},
     response::{
@@ -1205,6 +1206,8 @@ struct AppState {
     issuer: String,
     /// Global rate limiter (None if rate limiting is disabled).
     rate_limiter: Option<Arc<GlobalRateLimiter>>,
+    /// Pre-authentication failure budget per client IP (None if disabled).
+    auth_failure_limiter: Option<Arc<AuthFailureLimiter>>,
     /// Shared atomic request admission required by hosted multi-instance mode.
     hosted_quota: Option<Arc<RedisRequestQuotaGate>>,
     /// Redis search cache (reduces latency for repeated queries).
@@ -2530,6 +2533,44 @@ fn parse_rate_limit_period_value(name: &str, raw: Option<&str>) -> anyhow::Resul
         anyhow::bail!("{name} must be <= {MAX_RATE_LIMIT_PERIOD_SECS}");
     }
     Ok(value)
+}
+
+/// Default per-IP authentication-failure budget: 20 failures per minute.
+const DEFAULT_AUTH_FAILURE_RATE_LIMIT: u32 = 20;
+const MAX_AUTH_FAILURE_RATE_LIMIT: u32 = 10_000;
+/// Sliding window for the pre-authentication failure budget.
+const AUTH_FAILURE_WINDOW_SECS: u64 = 60;
+/// Upper bound on tracked client IPs; beyond it new IPs are not tracked
+/// (fail open) so the limiter itself cannot grow without bound.
+const MAX_AUTH_FAILURE_TRACKED_IPS: usize = 16_384;
+/// Maximum accepted Authorization header value in bytes (SR-54).
+const MAX_AUTHORIZATION_HEADER_BYTES: usize = 8192;
+
+fn parse_auth_failure_rate_limit() -> anyhow::Result<Option<u32>> {
+    parse_auth_failure_rate_limit_with_env(|name| std::env::var(name).ok())
+}
+
+fn parse_auth_failure_rate_limit_with_env<F>(env: F) -> anyhow::Result<Option<u32>>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let raw = env("FORTEMI_AUTH_FAILURE_RATE_LIMIT");
+    let Some(raw) = raw.as_deref() else {
+        return Ok(Some(DEFAULT_AUTH_FAILURE_RATE_LIMIT));
+    };
+    if raw.trim().is_empty() {
+        return Ok(Some(DEFAULT_AUTH_FAILURE_RATE_LIMIT));
+    }
+    let value: u32 = raw.parse().map_err(|_| {
+        anyhow::anyhow!("FORTEMI_AUTH_FAILURE_RATE_LIMIT must be an integer, got '{raw}'")
+    })?;
+    if value == 0 {
+        return Ok(None);
+    }
+    if value > MAX_AUTH_FAILURE_RATE_LIMIT {
+        anyhow::bail!("FORTEMI_AUTH_FAILURE_RATE_LIMIT must be <= {MAX_AUTH_FAILURE_RATE_LIMIT}");
+    }
+    Ok(Some(value))
 }
 
 fn validated_issuer_url(
@@ -4511,6 +4552,17 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
+    // Pre-authentication failure budget (SR-54): per client IP, enforced in
+    // auth_middleware before any token verification attempt.
+    let auth_failure_limiter = parse_auth_failure_rate_limit()?.map(|max_failures| {
+        info!(
+            max_failures,
+            window_secs = AUTH_FAILURE_WINDOW_SECS,
+            "Pre-auth failure limiter enabled"
+        );
+        Arc::new(AuthFailureLimiter::new(max_failures))
+    });
+
     // Create tus staging directory for resumable uploads (Issue #528)
     let tus_staging_path =
         std::env::var("TUS_STAGING_DIR").unwrap_or_else(|_| "/tmp/matric-tus-staging".to_string());
@@ -4585,6 +4637,7 @@ async fn main() -> anyhow::Result<()> {
         search,
         issuer,
         rate_limiter,
+        auth_failure_limiter,
         hosted_quota,
         search_cache,
         chat_stream_store,
@@ -9292,6 +9345,132 @@ fn api_request_usage_event(
 }
 
 // =============================================================================
+// PRE-AUTHENTICATION FAILURE LIMITER (SR-54)
+// =============================================================================
+//
+// Bounds invalid-token floods per client IP *before* token verification
+// runs. `auth_middleware` consults this limiter first: when the budget for
+// the caller IP is exhausted the request is rejected with 429 without a
+// verification attempt, and every presented-but-invalid credential records
+// one failure. Requests without an Authorization header are never counted,
+// so unauthenticated discovery (for example MCP protected-resource
+// metadata) keeps working while an IP is over budget.
+#[derive(Debug)]
+struct AuthFailureLimiter {
+    max_failures: u32,
+    window: std::time::Duration,
+    failures: Mutex<HashMap<IpAddr, VecDeque<std::time::Instant>>>,
+}
+
+impl AuthFailureLimiter {
+    fn new(max_failures: u32) -> Self {
+        Self {
+            max_failures,
+            window: std::time::Duration::from_secs(AUTH_FAILURE_WINDOW_SECS),
+            failures: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn prune_locked(
+        window: std::time::Duration,
+        now: std::time::Instant,
+        entries: &mut VecDeque<std::time::Instant>,
+    ) {
+        while entries
+            .front()
+            .is_some_and(|seen| now.duration_since(*seen) >= window)
+        {
+            entries.pop_front();
+        }
+    }
+
+    /// Budget check: `Some(retry_after)` when the IP already spent
+    /// `max_failures` failures inside the window.
+    fn check(&self, ip: IpAddr) -> Option<std::time::Duration> {
+        let mut failures = self.failures.lock().expect("auth failure limiter lock");
+        let now = std::time::Instant::now();
+        let entries = failures.get_mut(&ip)?;
+        Self::prune_locked(self.window, now, entries);
+        let oldest = *entries.front()?;
+        if entries.len() as u32 >= self.max_failures {
+            Some((oldest + self.window).saturating_duration_since(now))
+        } else {
+            None
+        }
+    }
+
+    /// Record one presented-but-invalid credential for the IP.
+    fn record(&self, ip: IpAddr) {
+        let mut failures = self.failures.lock().expect("auth failure limiter lock");
+        let now = std::time::Instant::now();
+        // Opportunistically drop fully expired buckets so a slow trickle of
+        // distinct scanners cannot grow the map without bound.
+        failures.retain(|_, entries| {
+            Self::prune_locked(self.window, now, entries);
+            !entries.is_empty()
+        });
+        if !failures.contains_key(&ip) && failures.len() >= MAX_AUTH_FAILURE_TRACKED_IPS {
+            return;
+        }
+        failures.entry(ip).or_default().push_back(now);
+    }
+}
+
+/// Whether the Authorization header value exceeds the 8 KiB cap. Checked
+/// before any verification attempt.
+fn authorization_header_too_large(value: &HeaderValue) -> bool {
+    value.len() > MAX_AUTHORIZATION_HEADER_BYTES
+}
+
+/// Resolve the caller IP for pre-auth decisions from the trusted-proxy
+/// policy: the first untrusted hop behind a configured proxy, otherwise the
+/// socket peer. Unknown when neither is available (fail open).
+fn pre_auth_client_ip(state: &AppState, request: &axum::extract::Request) -> Option<IpAddr> {
+    let peer = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|connect| connect.0);
+    match ExternalRequestContext::from_request(
+        &state.trusted_proxy_config,
+        peer,
+        request.headers(),
+        request.uri(),
+    ) {
+        Ok(context) => context.client_ip().or_else(|| peer.map(|peer| peer.ip())),
+        Err(_) => peer.map(|peer| peer.ip()),
+    }
+}
+
+/// Pre-verification gate for requests that present an Authorization header:
+/// reject oversized headers with 431 and exhausted per-IP failure budgets
+/// with 429, both without attempting token verification.
+fn pre_auth_gate_response(
+    auth_failure_limiter: Option<&AuthFailureLimiter>,
+    authorization: Option<&HeaderValue>,
+    client_ip: Option<IpAddr>,
+) -> Option<axum::response::Response> {
+    let value = authorization?;
+    if authorization_header_too_large(value) {
+        return Some(problem_response(
+            StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE,
+            ProblemType::Validation,
+            "Authorization header exceeds 8 KiB.".to_string(),
+            None,
+        ));
+    }
+    let (Some(limiter), Some(ip)) = (auth_failure_limiter, client_ip) else {
+        return None;
+    };
+    limiter.check(ip).map(rate_limit_rejection_response)
+}
+
+fn note_auth_failure(auth_failure_limiter: Option<&AuthFailureLimiter>, client_ip: Option<IpAddr>) {
+    if let (Some(limiter), Some(ip)) = (auth_failure_limiter, client_ip) {
+        limiter.record(ip);
+    }
+}
+
+// =============================================================================
 // RATE LIMITING MIDDLEWARE
 // =============================================================================
 
@@ -9977,6 +10156,24 @@ async fn auth_middleware(
         return next.run(request).await;
     }
 
+    // Pre-auth gate (SR-54, T-26): enforce the Authorization header cap and
+    // the per-IP authentication-failure budget before any verification
+    // attempt. Requests without credentials skip the gate, so unauthenticated
+    // discovery and probes keep working while an IP is over budget.
+    let presents_credential = request.headers().contains_key(header::AUTHORIZATION);
+    let client_ip = if presents_credential {
+        pre_auth_client_ip(&state, &request)
+    } else {
+        None
+    };
+    if let Some(response) = pre_auth_gate_response(
+        state.auth_failure_limiter.as_deref(),
+        request.headers().get(header::AUTHORIZATION),
+        client_ip,
+    ) {
+        return response;
+    }
+
     // Always try to parse Bearer token if present
     let auth_header = request
         .headers()
@@ -10041,18 +10238,28 @@ async fn auth_middleware(
             });
             next.run(request).await
         }
-        Some(Err(failure)) => problem_response(
-            failure.status,
-            failure.problem_type,
-            failure.detail.to_string(),
-            None,
-        ),
-        None if has_token => problem_response(
-            StatusCode::UNAUTHORIZED,
-            ProblemType::Unauthorized,
-            "Invalid or expired bearer token.".to_string(),
-            None,
-        ),
+        Some(Err(failure)) => {
+            // A presented credential failed verification: spend one failure
+            // from the caller IP budget (SR-54).
+            note_auth_failure(state.auth_failure_limiter.as_deref(), client_ip);
+            problem_response(
+                failure.status,
+                failure.problem_type,
+                failure.detail.to_string(),
+                None,
+            )
+        }
+        None if has_token => {
+            // A credential was presented but is not verifiable as-is
+            // (wrong scheme or undecodable): also an authentication failure.
+            note_auth_failure(state.auth_failure_limiter.as_deref(), client_ip);
+            problem_response(
+                StatusCode::UNAUTHORIZED,
+                ProblemType::Unauthorized,
+                "Invalid or expired bearer token.".to_string(),
+                None,
+            )
+        }
         None => {
             // No token provided
             if requires_bearer {
@@ -44104,6 +44311,107 @@ mod tests {
         assert!(problem.get("retry_after").is_none());
     }
 
+    #[test]
+    fn parse_auth_failure_rate_limit_defaults_validates_and_disables() {
+        assert_eq!(
+            parse_auth_failure_rate_limit_with_env(|_: &str| None).unwrap(),
+            Some(DEFAULT_AUTH_FAILURE_RATE_LIMIT)
+        );
+        assert_eq!(DEFAULT_AUTH_FAILURE_RATE_LIMIT, 20);
+        for raw in ["", "   "] {
+            let parsed =
+                parse_auth_failure_rate_limit_with_env(|_: &str| Some(raw.to_string())).unwrap();
+            assert_eq!(parsed, Some(20), "blank input must use the default");
+        }
+        let parsed =
+            parse_auth_failure_rate_limit_with_env(|_: &str| Some("5".to_string())).unwrap();
+        assert_eq!(parsed, Some(5));
+        let parsed =
+            parse_auth_failure_rate_limit_with_env(|_: &str| Some("0".to_string())).unwrap();
+        assert_eq!(parsed, None, "zero disables the limiter");
+        for raw in ["nope", "-1", "20/min", "10001", "4294967296"] {
+            assert!(
+                parse_auth_failure_rate_limit_with_env(|_: &str| Some(raw.to_string())).is_err(),
+                "{raw} must fail startup"
+            );
+        }
+        assert!(parse_auth_failure_rate_limit_with_env(|_: &str| Some(
+            MAX_AUTH_FAILURE_RATE_LIMIT.to_string()
+        ))
+        .is_ok());
+    }
+
+    #[test]
+    fn auth_failure_limiter_trips_after_budget_and_isolates_ips() {
+        let limiter = AuthFailureLimiter::new(20);
+        let attacker: IpAddr = "198.51.100.7".parse().unwrap();
+        let bystander: IpAddr = "203.0.113.9".parse().unwrap();
+        // A 200-request invalid-credential flood from one IP: the first 20
+        // spend the budget, the rest are rejected without verification.
+        let mut rejected = 0;
+        for _ in 0..200 {
+            if limiter.check(attacker).is_none() {
+                limiter.record(attacker);
+            } else {
+                rejected += 1;
+            }
+        }
+        assert_eq!(rejected, 180);
+        let wait = limiter
+            .check(attacker)
+            .expect("exhausted budget must reject");
+        assert!(wait < std::time::Duration::from_secs(AUTH_FAILURE_WINDOW_SECS));
+        // The rejection surfaces as 429 with Retry-After.
+        let response = rate_limit_rejection_response(wait);
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(response.headers().contains_key(header::RETRY_AFTER));
+        // Another IP is unaffected.
+        assert!(limiter.check(bystander).is_none());
+    }
+
+    #[tokio::test]
+    async fn pre_auth_gate_rejects_oversized_header_before_verification() {
+        // The gate takes no limiter and no verifier: an oversized header is
+        // rejected purely on size.
+        let oversized =
+            HeaderValue::from_bytes(&vec![b'a'; MAX_AUTHORIZATION_HEADER_BYTES + 1]).unwrap();
+        let response = pre_auth_gate_response(None, Some(&oversized), None)
+            .expect("oversized header must be rejected");
+        assert_eq!(
+            response.status(),
+            StatusCode::REQUEST_HEADER_FIELDS_TOO_LARGE
+        );
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let problem: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(problem["status"], 431);
+
+        // Exactly 8 KiB passes the size check (no limiter, unknown IP).
+        let exact = HeaderValue::from_bytes(&vec![b'a'; MAX_AUTHORIZATION_HEADER_BYTES]).unwrap();
+        assert!(pre_auth_gate_response(None, Some(&exact), None).is_none());
+    }
+
+    #[test]
+    fn pre_auth_gate_returns_429_once_budget_spent() {
+        let limiter = AuthFailureLimiter::new(2);
+        let ip: IpAddr = "198.51.100.7".parse().unwrap();
+        let credential = HeaderValue::from_static("Bearer invalid");
+        // Under budget: no rejection, even with an unknown IP (fail open).
+        assert!(pre_auth_gate_response(Some(&limiter), Some(&credential), None).is_none());
+        assert!(pre_auth_gate_response(Some(&limiter), Some(&credential), Some(ip)).is_none());
+        // Two failures spend the budget of 2; the next attempt gets 429.
+        limiter.record(ip);
+        limiter.record(ip);
+        let response = pre_auth_gate_response(Some(&limiter), Some(&credential), Some(ip))
+            .expect("exhausted budget must reject");
+        assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert!(response.headers().contains_key(header::RETRY_AFTER));
+        // Requests without credentials are never gated, so unauthenticated
+        // discovery keeps working while the IP is over budget.
+        assert!(pre_auth_gate_response(Some(&limiter), None, Some(ip)).is_none());
+    }
+
     #[tokio::test]
     async fn cors_rejects_unlisted_custom_request_header() {
         let response = cors_preflight("x-unrelated-custom-header").await;
@@ -71151,6 +71459,7 @@ not-json
             search: Arc::new(matric_search::HybridSearchEngine::new(db.clone())),
             issuer: "http://localhost:3000".to_string(),
             rate_limiter: None,
+            auth_failure_limiter: None,
             hosted_quota: None,
             search_cache: matric_api::services::SearchCache::disabled(),
             event_bus: Arc::new(EventBus::new(matric_core::defaults::EVENT_BUS_CAPACITY)),
@@ -77222,6 +77531,7 @@ not-json
             )),
             issuer: "http://localhost:3000".to_string(),
             rate_limiter: None,
+            auth_failure_limiter: None,
             hosted_quota: None,
             search_cache: matric_api::services::SearchCache::disabled(),
             event_bus: event_bus.clone(),
@@ -79022,6 +79332,7 @@ not-json
             )),
             issuer: "http://localhost:3000".to_string(),
             rate_limiter: None,
+            auth_failure_limiter: None,
             hosted_quota: None,
             search_cache: matric_api::services::SearchCache::disabled(),
             event_bus: event_bus.clone(),
@@ -79375,6 +79686,7 @@ not-json
             ))),
             issuer: "http://localhost:3000".to_string(),
             rate_limiter: None,
+            auth_failure_limiter: None,
             hosted_quota: None,
             search_cache: matric_api::services::SearchCache::disabled(),
             event_bus,

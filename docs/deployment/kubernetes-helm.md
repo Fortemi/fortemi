@@ -229,6 +229,13 @@ gives running jobs time to finish on scale-down. HPAs need metrics-server.
 Set `mcp.baseUrl` to the public MCP URL so OAuth protected-resource metadata is
 correct.
 
+For external OIDC deployments, read the [bearer front door](front-door.md)
+before exposing the routes: `/api/*`, `/mcp` and
+`/.well-known/oauth-protected-resource*` must reach Fortemi with the
+client's bearer token and no cookie gate, identity headers must be stripped,
+`FORTEMI_TRUSTED_PROXY_CIDRS` must list only the ingress pod addresses, and
+the optional Istio policies add a mesh-level JWT check.
+
 ## Workload identity
 
 `serviceAccount.annotations` applies to the API, worker, and MCP

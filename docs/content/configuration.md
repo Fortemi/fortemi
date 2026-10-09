@@ -302,6 +302,7 @@ See `docs/operations/hosted-user-credentials.md`,
 | `RATE_LIMIT_REQUESTS` | Integer | `100` | Maximum requests per time window. Must be `1..1000000`; parse failures, zero, and overflow fail startup. |
 | `RATE_LIMIT_PERIOD_SECS` | Integer | `60` | Rate limit time window in seconds. Must be `1..86400`; parse failures and zero fail startup. |
 | `FORTEMI_QUOTA_REDIS_URL` | Redis URL | None | Required when `FORTEMI_MULTI_TENANT=true`. Hosted startup sends `PING` and fails closed when shared quota state is unavailable. Not used by CE. |
+| `FORTEMI_AUTH_FAILURE_RATE_LIMIT` | Integer | `20` | Authentication failures allowed per client IP per 60 s before the API answers 429 with `Retry-After`, enforced before token verification. `0` disables. Must be `1..10000`. The `Authorization` header value is additionally capped at 8 KiB (larger values receive 431). See [bearer front door](../deployment/front-door.md). |
 | `FORTEMI_QUOTA_REQUESTS` | Integer | `600` | Hosted authenticated request limit per fixed window and identity tuple. Must be `1..1000000`. This preview is not a tenant plan or billing limit. |
 | `FORTEMI_QUOTA_WINDOW_SECS` | Integer | `60` | Hosted fixed-window duration in seconds. Must be `1..86400`. |
 

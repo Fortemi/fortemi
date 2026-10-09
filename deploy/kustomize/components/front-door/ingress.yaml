@@ -1,0 +1,95 @@
+---
+# Bearer front door as Kustomize Ingresses: the same bearer paths the Helm
+# chart routes (deploy/helm/fortemi `frontDoor.bearerPaths`), applied with
+# plain namespace-agnostic objects for GitOps platforms.
+#
+# NO COOKIE GATE (SR-52). These Ingresses carry no authenticating annotations
+# (no oauth2-proxy auth-url/sign-in) and the proxy MUST NOT convert cookies
+# into Authorization headers on these paths. API and MCP paths carry OAuth
+# Bearer tokens straight to Fortemi; see docs/deployment/front-door.md.
+#
+# The `memory.example.com` host below is a placeholder: set your public host
+# in the overlay (patch the `host` fields or replace this file). TLS is also
+# an overlay concern.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fortemi-api
+  labels:
+    app.kubernetes.io/name: fortemi
+    app.kubernetes.io/instance: fortemi
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: fortemi
+  annotations:
+    # Strip client-supplied identity headers before they reach anything behind
+    # the edge (SR-50). Fortemi itself only reads Authorization, but nothing
+    # behind the edge may see forged proxy headers.
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header X-Forwarded-User "";
+      proxy_set_header X-Forwarded-Email "";
+      proxy_set_header X-Forwarded-Access-Token "";
+      proxy_set_header X-Auth-Request-User "";
+      proxy_set_header X-Auth-Request-Email "";
+      proxy_set_header X-Auth-Request-Groups "";
+      proxy_set_header X-Auth-Request-Preferred-Username "";
+      proxy_set_header X-Auth-Request-Access-Token "";
+spec:
+  rules:
+    - host: memory.example.com
+      http:
+        paths:
+          # RFC 9728 protected-resource metadata is served by the API. Route
+          # it explicitly so bearer clients always reach Fortemi (SR-52).
+          - path: /.well-known/oauth-protected-resource
+            pathType: Prefix
+            backend:
+              service:
+                name: fortemi-api
+                port:
+                  name: http
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: fortemi-api
+                port:
+                  name: http
+---
+# Separate Ingress so MCP can carry the controller-specific prefix-strip
+# annotations, the same split as the chart's ingress.yaml.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: fortemi-mcp
+  labels:
+    app.kubernetes.io/name: fortemi
+    app.kubernetes.io/instance: fortemi
+    app.kubernetes.io/component: mcp
+    app.kubernetes.io/part-of: fortemi
+  annotations:
+    # The MCP server serves at "/" internally; strip the public /mcp prefix
+    # (ingress-nginx example; adapt to your controller).
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    # Strip client-supplied identity headers (SR-50), as on the API Ingress.
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header X-Forwarded-User "";
+      proxy_set_header X-Forwarded-Email "";
+      proxy_set_header X-Forwarded-Access-Token "";
+      proxy_set_header X-Auth-Request-User "";
+      proxy_set_header X-Auth-Request-Email "";
+      proxy_set_header X-Auth-Request-Groups "";
+      proxy_set_header X-Auth-Request-Preferred-Username "";
+      proxy_set_header X-Auth-Request-Access-Token "";
+spec:
+  rules:
+    - host: memory.example.com
+      http:
+        paths:
+          - path: /mcp(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: fortemi-mcp
+                port:
+                  name: http

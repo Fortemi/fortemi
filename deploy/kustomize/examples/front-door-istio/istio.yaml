@@ -1,0 +1,67 @@
+---
+# Optional Istio defense in depth for the bearer front door (SR-53). This is
+# the Kustomize equivalent of the chart's `frontDoor.istio` policies
+# (deploy/helm/fortemi/templates/frontdoor-istio.yaml). Fortemi's own token
+# validation remains authoritative.
+#
+# RequestAuthentication alone admits requests that carry no token, so it is
+# always paired with the AuthorizationPolicy below, which requires a request
+# principal and one of the accepted audiences on the bearer paths.
+# forwardOriginalToken keeps the Bearer token on the upstream request so it
+# reaches Fortemi for verification.
+#
+# The `idp.example.com` / `memory.example.com` values are placeholders in the
+# same style as examples/single-tenant: replace them in your overlay. The mesh
+# gateway or virtual services in front of these workloads must route the
+# bearer paths (/api/*, /mcp, /.well-known/oauth-protected-resource*) to the
+# fortemi-api / fortemi-mcp Services with no cookie gate (SR-52); see
+# docs/deployment/front-door.md for the header-stripping VirtualService.
+apiVersion: security.istio.io/v1
+kind: RequestAuthentication
+metadata:
+  name: fortemi-bearer
+  labels:
+    app.kubernetes.io/name: fortemi
+    app.kubernetes.io/instance: fortemi
+    app.kubernetes.io/part-of: fortemi
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fortemi
+      app.kubernetes.io/instance: fortemi
+  jwtRules:
+    - issuer: https://idp.example.com/realms/fortemi
+      jwksUri: https://idp.example.com/realms/fortemi/protocol/openid-connect/certs
+      forwardOriginalToken: true
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: fortemi-bearer
+  labels:
+    app.kubernetes.io/name: fortemi
+    app.kubernetes.io/instance: fortemi
+    app.kubernetes.io/part-of: fortemi
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fortemi
+      app.kubernetes.io/instance: fortemi
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            requestPrincipals:
+              - https://idp.example.com/realms/fortemi/*
+      when:
+        - key: request.auth.claims[aud]
+          values:
+            - https://memory.example.com
+            - https://memory.example.com/mcp
+      to:
+        - operation:
+            paths:
+              - /api/*
+              - /mcp
+              - /mcp/*
+              - /.well-known/oauth-protected-resource*

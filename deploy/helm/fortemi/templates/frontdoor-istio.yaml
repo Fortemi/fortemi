@@ -1,0 +1,58 @@
+{{- if .Values.frontDoor.istio.enabled }}
+{{- $istio := .Values.frontDoor.istio -}}
+{{- if not $istio.issuer }}{{ fail "frontDoor.istio.issuer is required when frontDoor.istio.enabled is true" }}{{- end }}
+{{- if not $istio.jwksUri }}{{ fail "frontDoor.istio.jwksUri is required when frontDoor.istio.enabled is true" }}{{- end }}
+{{- if not $istio.audiences }}{{ fail "frontDoor.istio.audiences is required when frontDoor.istio.enabled is true" }}{{- end }}
+# Optional Istio defense in depth for the bearer front door (SR-53, decision
+# 8). Fortemi's own token validation remains authoritative.
+#
+# RequestAuthentication alone admits requests that carry no token, so it is
+# always paired with the AuthorizationPolicy below, which requires a request
+# principal and one of the accepted audiences on the bearer paths.
+# forwardOriginalToken keeps the Bearer token on the upstream request so it
+# reaches Fortemi for verification.
+apiVersion: security.istio.io/v1
+kind: RequestAuthentication
+metadata:
+  name: {{ include "fortemi.fullname" . }}-bearer
+  labels:
+    {{- include "fortemi.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "fortemi.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  jwtRules:
+    - issuer: {{ $istio.issuer | quote }}
+      jwksUri: {{ $istio.jwksUri | quote }}
+      forwardOriginalToken: true
+---
+apiVersion: security.istio.io/v1
+kind: AuthorizationPolicy
+metadata:
+  name: {{ include "fortemi.fullname" . }}-bearer
+  labels:
+    {{- include "fortemi.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "fortemi.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  action: ALLOW
+  rules:
+    - from:
+        - source:
+            requestPrincipals:
+              - {{ printf "%s/*" $istio.issuer | quote }}
+      when:
+        - key: request.auth.claims[aud]
+          values:
+            {{- toYaml $istio.audiences | nindent 12 }}
+      to:
+        - operation:
+            paths:
+              - /api/*
+              - /mcp
+              - /mcp/*
+              - /.well-known/oauth-protected-resource*
+{{- end }}

@@ -1,0 +1,22 @@
+---
+# Bearer front door component: Kustomize Ingresses routing the bearer paths
+# (/api/*, /mcp, /.well-known/oauth-protected-resource*) straight to the
+# Fortemi API and MCP Services with no cookie gate (SR-52) and with
+# client-supplied identity headers stripped (SR-50).
+#
+# Add it to the overlay next to the other components:
+#   components:
+#     - <base-ref>/components/front-door?ref=<same commit>
+# then set the public host (and TLS) for your deployment; the component
+# ships the `memory.example.com` placeholder.
+#
+# FORTEMI_TRUSTED_PROXY_CIDRS (SR-51) is an API setting, not a route: add it
+# to the overlay with a `fortemi-server-env` configMapGenerator merge
+# listing ONLY the ingress/gateway pod addresses (no node or pod-wide
+# CIDRs), for example from `kubectl -n ingress-nginx get pods -o wide`.
+# See docs/deployment/front-door.md.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - ingress.yaml
