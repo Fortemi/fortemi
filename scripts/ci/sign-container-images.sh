@@ -95,16 +95,39 @@ if [[ "$signing" == 1 && "$KEY_REF" == hashivault://* ]]; then
   export SSL_CERT_FILE="$work/ca-bundle.pem"
 fi
 
-if [[ "$signing" == 1 && "$KEY_REF" == hashivault://* && -z "${VAULT_TOKEN:-}" ]]; then
-  VAULT_TOKEN="$(
+# AppRole signing tokens are short-lived (5 minutes on the CI role) and
+# signing every image takes longer, so an owned token is refreshed before
+# each subject once it is older than TOKEN_REFRESH_SECONDS.
+TOKEN_REFRESH_SECONDS="${SIGN_TOKEN_REFRESH_SECONDS:-120}"
+vault_token_issued_at=0
+vault_login() {
+  local fresh
+  fresh="$(
     jq -n --arg role_id "$VAULT_CI_ROLE_ID" --arg secret_id "$VAULT_CI_SECRET_ID" \
       '{role_id:$role_id, secret_id:$secret_id}' |
     curl -fsS --cacert "$VAULT_CACERT" --max-time 20 -X POST --data @- \
       "$VAULT_ADDR/v1/auth/approle/login" | jq -er '.auth.client_token'
   )"
-  if [[ -n "${CI:-}${GITHUB_ACTIONS:-}" ]]; then printf '::add-mask::%s\n' "$VAULT_TOKEN"; fi
+  if [[ -n "${CI:-}${GITHUB_ACTIONS:-}" ]]; then printf '::add-mask::%s\n' "$fresh"; fi
+  if [[ "$vault_token_owned" == 1 && -n "${VAULT_TOKEN:-}" ]]; then
+    curl -fsS --cacert "$VAULT_CACERT" --max-time 10 -H "X-Vault-Token: ${VAULT_TOKEN}" \
+      -X POST "${VAULT_ADDR}/v1/auth/token/revoke-self" >/dev/null 2>&1 || true
+  fi
+  VAULT_TOKEN="$fresh"
   export VAULT_TOKEN
   vault_token_owned=1
+  vault_token_issued_at="$(date +%s)"
+}
+refresh_vault_token() {
+  [[ "$vault_token_owned" == 1 ]] || return 0
+  if (( $(date +%s) - vault_token_issued_at >= TOKEN_REFRESH_SECONDS )); then
+    vault_login
+    echo "OpenBao signing token refreshed"
+  fi
+}
+
+if [[ "$signing" == 1 && "$KEY_REF" == hashivault://* && -z "${VAULT_TOKEN:-}" ]]; then
+  vault_login
   echo "OpenBao AppRole login succeeded for Transit signing"
 fi
 
@@ -136,6 +159,7 @@ verified_attestation() { # <type> <reference> -> decoded statements, one JSON pe
 subject_count=0
 while read -r family ref extra; do
   [[ -z "${family:-}" || "$family" == \#* ]] && continue
+  [[ "$signing" == 1 ]] && refresh_vault_token
   [[ -z "${extra:-}" && "$ref" =~ $DIGEST_RE ]] || {
     echo "sign-container-images: invalid subject line: $family $ref $extra" >&2; exit 1; }
   repo="${ref%@*}"; digest="${ref#*@}"; registry="${repo%%/*}"
