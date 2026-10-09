@@ -637,6 +637,13 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         PrivateUserData,
     ),
     r(
+        "/api/v1/embedding-sets/{slug}/build-index",
+        TenantObject,
+        "embedding_control",
+        Authenticated,
+        NoStore,
+    ),
+    r(
         "/api/v1/embedding-sets/{slug}/refresh",
         TenantObject,
         "embedding_control",

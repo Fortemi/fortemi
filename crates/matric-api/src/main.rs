@@ -39661,11 +39661,10 @@ async fn apply_shard_embedding_components_tx(
             .await
             .map_err(|error| shard_operation_failed("resolve shard import schema", error))?;
         for config_id in config_ids {
-            matric_db::vector_index::enqueue_build_for_config_tx(
+            matric_db::vector_index::enqueue_build_job_only_for_config_tx(
                 tx,
                 &schema,
                 config_id,
-                false,
                 "shard_import",
             )
             .await

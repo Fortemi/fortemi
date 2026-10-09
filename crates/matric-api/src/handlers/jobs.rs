@@ -259,11 +259,12 @@ fn reembed_all_job_result(
     })
 }
 
-fn reembed_all_no_notes_job_result(batch_id: uuid::Uuid) -> serde_json::Value {
+fn reembed_all_no_notes_job_result() -> serde_json::Value {
+    // No batch exists when nothing was queued, and stored job results carry no
+    // identifiers.
     serde_json::json!({
         "notes_queued": 0,
         "reason": "no_active_notes",
-        "batch_id": batch_id.to_string(),
         "child_job_progress": {
             "completed": 0,
             "failed": 0,
@@ -7583,7 +7584,7 @@ impl JobHandler for ReEmbedAllHandler {
 
         let total_notes = note_ids.len();
         if total_notes == 0 {
-            return JobResult::Success(Some(reembed_all_no_notes_job_result(batch_id)));
+            return JobResult::Success(Some(reembed_all_no_notes_job_result()));
         }
 
         ctx.report_progress(
@@ -9458,7 +9459,10 @@ mod tests {
         .bind(&vector)
         .bind(format!("{label}-model"))
         .bind(set_id)
-        .bind(format!("{label}-contract"))
+        .bind(format!(
+            "{:x}",
+            <sha2::Sha256 as sha2::Digest>::digest(format!("{label}-contract").as_bytes())
+        ))
         .bind(embedding_chunk_hash(&text))
         .bind(embedding_doc_hash(&text))
         .execute(&db.pool)
@@ -10115,7 +10119,7 @@ mod tests {
             ai_revision_skip_job_result("revision_mode_none"),
             ai_revision_deferred_job_result("media_attachments_defer_revision"),
             ai_contextual_revision_skip_job_result("no_related_notes", true),
-            reembed_all_no_notes_job_result(uuid::Uuid::nil())
+            reembed_all_no_notes_job_result()
         );
 
         assert!(result.contains("content_type_name_len"));

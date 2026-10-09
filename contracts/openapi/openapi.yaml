@@ -2806,6 +2806,30 @@ paths:
           description: Global request rate limit exceeded
       security:
       - bearerAuth: []
+  /api/v1/embedding-sets/{slug}/build-index:
+    post:
+      tags:
+      - Embeddings
+      summary: Clear deferred index mode and queue a concurrent vector index build.
+      operationId: build_embedding_set_index
+      parameters:
+      - name: slug
+        in: path
+        description: Embedding set slug or UUID
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Success
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
   /api/v1/embedding-sets/{slug}/members:
     get:
       tags:
@@ -8613,6 +8637,16 @@ components:
           $ref: '#/components/schemas/EmbeddingProvider'
         provider_config:
           $ref: '#/components/schemas/Value'
+        space_contract:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/Value'
+            description: Optional embedding-space contract JSON. The server computes `space_id`.
+        space_id:
+          type:
+          - string
+          - 'null'
+          description: Optional client assertion for the computed contract identity.
         supports_mrl:
           type: boolean
         vector_type:
@@ -8630,6 +8664,11 @@ components:
           description: Auto-embedding rules (only for full sets)
         criteria:
           $ref: '#/components/schemas/EmbeddingSetCriteria'
+        defer_index_build:
+          type: boolean
+          description: |-
+            When true, set/config creation records the shape but leaves HNSW build
+            queuing to the explicit build-index action.
         description:
           type:
           - string
@@ -9903,6 +9942,16 @@ components:
         provider_config:
           $ref: '#/components/schemas/Value'
           description: Provider-specific configuration (API key env var, base URL, etc.)
+        space_contract:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/Value'
+            description: Stored embedding-space contract JSON for this config.
+        space_id:
+          type:
+          - string
+          - 'null'
+          description: SHA-256 lowercase hex identity of the canonical space contract.
         supports_mrl:
           type: boolean
           description: Whether this model supports Matryoshka dimension truncation
@@ -9963,6 +10012,8 @@ components:
           - 'null'
         criteria:
           $ref: '#/components/schemas/EmbeddingSetCriteria'
+        defer_index_build:
+          type: boolean
         description:
           type:
           - string
@@ -10010,6 +10061,16 @@ components:
           $ref: '#/components/schemas/EmbeddingSetType'
         slug:
           type: string
+        space_contract:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/Value'
+            description: Space contract inherited from the embedding config, if present.
+        space_id:
+          type:
+          - string
+          - 'null'
+          description: Space identity inherited from the embedding config, if present.
         truncate_dim:
           type:
           - integer
@@ -10185,6 +10246,8 @@ components:
       - index_status
       - is_system
       properties:
+        defer_index_build:
+          type: boolean
         description:
           type:
           - string
@@ -10225,6 +10288,16 @@ components:
           $ref: '#/components/schemas/EmbeddingSetType'
         slug:
           type: string
+        space_contract:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/Value'
+            description: Space contract inherited from the embedding config, if present.
+        space_id:
+          type:
+          - string
+          - 'null'
+          description: Space identity inherited from the embedding config, if present.
         supports_mrl:
           type: boolean
         truncate_dim:
@@ -14245,6 +14318,16 @@ components:
           oneOf:
           - type: 'null'
           - $ref: '#/components/schemas/Value'
+        space_contract:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/Value'
+            description: Optional embedding-space contract JSON. The server computes `space_id`.
+        space_id:
+          type:
+          - string
+          - 'null'
+          description: Optional client assertion for the computed or existing contract identity.
         supports_mrl:
           type:
           - boolean
@@ -14269,6 +14352,10 @@ components:
           oneOf:
           - type: 'null'
           - $ref: '#/components/schemas/EmbeddingSetCriteria'
+        defer_index_build:
+          type:
+          - boolean
+          - 'null'
         description:
           type:
           - string

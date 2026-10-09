@@ -183,9 +183,12 @@ async fn embedding_config_rejects_mismatched_client_space_id() {
         .create_config(request)
         .await
         .expect_err("mismatched space_id must be rejected");
-    assert!(error
-        .to_string()
-        .contains("space_id does not match canonical space_contract hash"));
+    // Error display redacts messages; match on the variant's payload.
+    assert!(matches!(
+        &error,
+        matric_core::Error::InvalidInput(message)
+            if message.contains("space_id does not match canonical space_contract hash")
+    ));
 }
 
 #[tokio::test]

@@ -2,8 +2,19 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
-use crate::schema_validation::validate_schema_name;
 use matric_core::{validate_embedding_dimension, EmbeddingVectorType, Error, JobType, Result};
+
+/// Validate a schema name the way PostgreSQL resolves it. Archive schema names
+/// can exceed the 63-byte identifier limit; PostgreSQL truncates them (in DDL
+/// and in queries alike), so validate the truncated form it actually stores.
+fn validate_schema_name(name: &str) -> Result<()> {
+    const PG_IDENTIFIER_MAX: usize = 63;
+    let mut end = name.len().min(PG_IDENTIFIER_MAX);
+    while !name.is_char_boundary(end) {
+        end -= 1;
+    }
+    crate::schema_validation::validate_schema_name(&name[..end])
+}
 
 const DEFAULT_HNSW_M: i32 = 16;
 const DEFAULT_HNSW_EF_CONSTRUCTION: i32 = 64;
@@ -116,6 +127,28 @@ pub async fn enqueue_build_for_config_tx(
         return Ok(None);
     };
     enqueue_shape_tx(tx, &shape, Some(config_id), force, reason).await
+}
+
+/// Queue a background index build for a config's shape without touching any
+/// embedding_set row. Shard import uses this so that applying a shard, which
+/// may leave native sets unchanged, never rewrites their operational status;
+/// the worker reports status when it builds.
+pub async fn enqueue_build_job_only_for_config_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    schema: &str,
+    config_id: Uuid,
+    reason: &str,
+) -> Result<Option<Uuid>> {
+    validate_schema_name(schema)?;
+    let Some(shape) = shape_for_config_tx(tx, schema, config_id).await? else {
+        return Ok(None);
+    };
+    if valid_index_exists_tx(tx, &shape, &shape.embedding_index_name()).await?
+        || pending_job_exists_tx(tx, &shape).await?
+    {
+        return Ok(None);
+    }
+    insert_job_tx(tx, &shape, false, reason).await
 }
 
 pub async fn clear_defer_and_enqueue_for_set_tx(
@@ -422,14 +455,16 @@ async fn update_sets_status(
     let query = format!(
         "UPDATE {schema}.embedding_set es
          SET index_status = $1::embedding_index_status,
-             last_indexed_at = CASE WHEN $1 = 'ready' THEN NOW() ELSE last_indexed_at END,
-             updated_at = NOW()
+             last_indexed_at = CASE WHEN $1 = 'ready' THEN NOW() ELSE last_indexed_at END
          FROM public.embedding_config ec
          WHERE ec.id = es.embedding_config_id
            AND ec.dimension = $2
            AND ec.vector_type = $3
            AND COALESCE(es.defer_index_build, FALSE) IS FALSE
-           AND ($4::uuid IS NULL OR ec.id = $4)",
+           AND ($4::uuid IS NULL OR ec.id = $4)
+           -- Operational status only: no-op when unchanged, and never a content
+           -- edit (updated_at untouched), so repeat imports leave sets unchanged.
+           AND es.index_status IS DISTINCT FROM $1::embedding_index_status",
         schema = shape.schema
     );
     sqlx::query(&query)
@@ -452,14 +487,16 @@ async fn update_sets_status_tx(
     let query = format!(
         "UPDATE {schema}.embedding_set es
          SET index_status = $1::embedding_index_status,
-             last_indexed_at = CASE WHEN $1 = 'ready' THEN NOW() ELSE last_indexed_at END,
-             updated_at = NOW()
+             last_indexed_at = CASE WHEN $1 = 'ready' THEN NOW() ELSE last_indexed_at END
          FROM public.embedding_config ec
          WHERE ec.id = es.embedding_config_id
            AND ec.dimension = $2
            AND ec.vector_type = $3
            AND COALESCE(es.defer_index_build, FALSE) IS FALSE
-           AND ($4::uuid IS NULL OR ec.id = $4)",
+           AND ($4::uuid IS NULL OR ec.id = $4)
+           -- Operational status only: no-op when unchanged, and never a content
+           -- edit (updated_at untouched), so repeat imports leave sets unchanged.
+           AND es.index_status IS DISTINCT FROM $1::embedding_index_status",
         schema = shape.schema
     );
     sqlx::query(&query)
@@ -689,13 +726,13 @@ async fn set_shape_status(
     let query = format!(
         "UPDATE {schema}.embedding_set es
          SET index_status = $1::embedding_index_status,
-             last_indexed_at = CASE WHEN $1 = 'ready' THEN NOW() ELSE last_indexed_at END,
-             updated_at = NOW()
+             last_indexed_at = CASE WHEN $1 = 'ready' THEN NOW() ELSE last_indexed_at END
          FROM public.embedding_config ec
          WHERE ec.id = es.embedding_config_id
            AND ec.dimension = $2
            AND ec.vector_type = $3
-           AND COALESCE(es.defer_index_build, FALSE) IS FALSE",
+           AND COALESCE(es.defer_index_build, FALSE) IS FALSE
+           AND es.index_status IS DISTINCT FROM $1::embedding_index_status",
         schema = shape.schema
     );
     sqlx::query(&query)
