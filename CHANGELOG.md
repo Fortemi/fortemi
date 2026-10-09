@@ -7,6 +7,19 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.10.1] - 2026-10-09
+
+First published release of the 2026.10 line. It contains everything listed under
+2026.10.0. The signed `v2026.10.0` tag stays as published but produced no images
+or release assets: its release pipeline stopped at the documentation-shard
+freshness gate. Following the release policy, the correction ships as a new
+patch version instead of a re-tag.
+
+### Fixed
+
+- Regenerate the bundled documentation shard (`docker/seed-data/fortemi-docs.shard`)
+  and its receipt for this version, so the shard-freshness release gate passes.
+
 ## [2026.10.0] - 2026-10-09
 
 ### Highlights
