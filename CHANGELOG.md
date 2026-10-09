@@ -29,6 +29,10 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   read-only for background jobs, and `RefreshEmbeddingSet` can optionally queue
   stale rows by contract or chunk/doc-hash mismatch while reporting child batch progress
   through the existing job status result (#1182).
+- Add R1 entity profile vectors on the embedding table, idempotent profile-vector
+  upsert/delete storage APIs, profile-to-profile similarity endpoints plus MCP
+  `find_similar_entities`, and Knowledge Shard 2.1.0 round-trip fields for
+  profile vector metadata (#1183).
 
 ## [2026.10.1] - 2026-10-09
 

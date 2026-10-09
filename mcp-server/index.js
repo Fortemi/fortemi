@@ -317,6 +317,28 @@ function createMcpServer() {
             : args);
           break;
 
+        case "find_similar_entities": {
+          if (!args.set) throw new Error("'set' is required");
+          const params = new URLSearchParams();
+          params.set("set", args.set);
+          params.set("kind", "profile");
+          if (args.k !== undefined) params.set("k", String(args.k));
+          if (args.filter) params.set("filter", args.filter);
+          if (args.strict_filter) params.set("strict_filter", args.strict_filter);
+          if (args.metadata_predicates) params.set("metadata_predicates", args.metadata_predicates);
+          if (args.metadata) params.set("metadata", args.metadata);
+          if (args.note_id) {
+            result = await apiRequest("GET", `/api/v1/notes/${encodeURIComponent(args.note_id)}/similar?${params}`);
+          } else {
+            if (!args.source) throw new Error("'source' is required when note_id is omitted");
+            if (!args.external_id) throw new Error("'external_id' is required when note_id is omitted");
+            params.set("source", args.source);
+            params.set("external_id", args.external_id);
+            result = await apiRequest("GET", `/api/v1/entities/similar?${params}`);
+          }
+          break;
+        }
+
         case "capture_knowledge": {
           const action = args.action;
           if (action === "create") {

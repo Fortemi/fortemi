@@ -651,6 +651,13 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         NoStore,
     ),
     r(
+        "/api/v1/entities/similar",
+        TenantObject,
+        "search",
+        Authenticated,
+        PrivateUserData,
+    ),
+    r(
         "/api/v1/events",
         RealtimeTransport,
         "event_stream",
@@ -1225,6 +1232,13 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         PrivateUserData,
     ),
     r(
+        "/api/v1/notes/{id}/similar",
+        TenantObject,
+        "search",
+        Authenticated,
+        PrivateUserData,
+    ),
+    r(
         "/api/v1/notes/{id}/reprocess",
         TenantObject,
         "note",
@@ -1652,6 +1666,7 @@ pub fn hosted_tenant_transaction_ready(method: &Method, path: &str) -> bool {
             | (&Method::GET, "/api/v1/memory/context")
             | (&Method::POST, "/api/v1/memory/export")
             | (&Method::GET, "/api/v1/search")
+            | (&Method::GET, "/api/v1/entities/similar")
             | (&Method::POST, "/api/v1/search/evidence/resolve")
             | (&Method::GET, "/api/v1/notes")
             | (&Method::POST, "/api/v1/notes")
@@ -1664,6 +1679,7 @@ pub fn hosted_tenant_transaction_ready(method: &Method, path: &str) -> bool {
                 "/api/v1/lifecycle-purge/{operation_id}/resume"
             )
             | (&Method::GET, "/api/v1/notes/{id}")
+            | (&Method::GET, "/api/v1/notes/{id}/similar")
             | (&Method::DELETE, "/api/v1/notes/{id}")
             | (&Method::PATCH, "/api/v1/notes/{id}/status")
             | (&Method::GET, "/api/v1/notes/{id}/tags")

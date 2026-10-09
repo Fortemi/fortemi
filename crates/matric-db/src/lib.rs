@@ -41,6 +41,7 @@ pub mod document_types;
 pub mod embedding_sets;
 mod embedding_storage_contract;
 pub mod embeddings;
+pub mod entity_vectors;
 pub mod file_storage;
 pub mod hashtag_extraction;
 pub mod inbound_sources;
@@ -127,6 +128,12 @@ pub use collections::PgCollectionRepository;
 pub use document_types::PgDocumentTypeRepository;
 pub use embedding_sets::PgEmbeddingSetRepository;
 pub use embeddings::{utils as embedding_utils, PgEmbeddingRepository};
+pub use entity_vectors::{
+    delete_profile_vector_tx, explain_similar_profiles_for_note_tx,
+    find_similar_profiles_for_note_tx, note_id_for_source_identity_tx, upsert_profile_vectors_tx,
+    EntityProfileVectorBatchOutcome, EntityProfileVectorRow, EntitySimilarityFilter,
+    EntitySimilarityHit, DEFAULT_ENTITY_SIMILARITY_EF_SEARCH,
+};
 pub use file_storage::{
     compute_content_hash, generate_storage_path, AttachmentScanFile, FileDownloadInfo, FileSource,
     FilesystemBackend, PgFileStorageRepository, ShardImportJournal, ShardImportJournalBlob,

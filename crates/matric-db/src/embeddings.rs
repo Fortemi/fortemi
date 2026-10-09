@@ -59,6 +59,7 @@ impl EmbeddingRepository for PgEmbeddingRepository {
             "SELECT id, note_id, chunk_index, text, vector, model, chunk_hash, doc_hash, contract_fingerprint
              FROM embedding
              WHERE note_id = $1
+               AND vector_kind = 'body_chunk'
              ORDER BY chunk_index",
         )
         .bind(note_id)
@@ -88,7 +89,8 @@ impl EmbeddingRepository for PgEmbeddingRepository {
         sqlx::query(
             "DELETE FROM embedding
              WHERE note_id = $1
-               AND embedding_set_id = (SELECT get_default_embedding_set_id())",
+               AND embedding_set_id = (SELECT get_default_embedding_set_id())
+               AND vector_kind = 'body_chunk'",
         )
         .bind(note_id)
         .execute(&self.pool)
@@ -129,7 +131,7 @@ impl EmbeddingRepository for PgEmbeddingRepository {
             JOIN note n ON n.id = e.note_id
             LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
-            WHERE {set_predicate} {}
+            WHERE e.vector_kind = 'body_chunk' AND {set_predicate} {}
             ORDER BY e.note_id, {distance}
             "#,
             archive_clause
@@ -206,7 +208,7 @@ impl EmbeddingRepository for PgEmbeddingRepository {
             JOIN note n ON n.id = e.note_id
             LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
-            WHERE {set_predicate} {}
+            WHERE e.vector_kind = 'body_chunk' AND {set_predicate} {}
             ORDER BY e.note_id, {distance}
             "#,
             archive_clause
@@ -366,7 +368,7 @@ impl PgEmbeddingRepository {
             JOIN note n ON n.id = e.note_id
             LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
-            WHERE {set_predicate} {}
+            WHERE e.vector_kind = 'body_chunk' AND {set_predicate} {}
             ORDER BY e.note_id, {distance}
             "#,
             archive_clause
@@ -473,7 +475,7 @@ impl PgEmbeddingRepository {
             JOIN note n ON n.id = e.note_id
             LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
-            WHERE {set_predicate}
+            WHERE e.vector_kind = 'body_chunk' AND {set_predicate}
             ORDER BY e.note_id, {distance}
             "#,
             archive_clause, strict_filter_clause
@@ -570,12 +572,15 @@ impl PgEmbeddingRepository {
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
 
         // Delete only embeddings for this specific set
-        sqlx::query("DELETE FROM embedding WHERE note_id = $1 AND embedding_set_id = $2")
-            .bind(note_id)
-            .bind(embedding_set_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(Error::Database)?;
+        sqlx::query(
+            "DELETE FROM embedding
+             WHERE note_id = $1 AND embedding_set_id = $2 AND vector_kind = 'body_chunk'",
+        )
+        .bind(note_id)
+        .bind(embedding_set_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
 
         if !chunks.is_empty() {
             let contract = contract_for_set(&mut tx, embedding_set_id).await?;
@@ -634,12 +639,15 @@ impl PgEmbeddingRepository {
     ) -> Result<()> {
         let embedding_set_id = default_embedding_set_id_tx(tx).await?;
 
-        sqlx::query("DELETE FROM embedding WHERE note_id = $1 AND embedding_set_id = $2")
-            .bind(note_id)
-            .bind(embedding_set_id)
-            .execute(&mut **tx)
-            .await
-            .map_err(Error::Database)?;
+        sqlx::query(
+            "DELETE FROM embedding
+             WHERE note_id = $1 AND embedding_set_id = $2 AND vector_kind = 'body_chunk'",
+        )
+        .bind(note_id)
+        .bind(embedding_set_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
 
         if chunks.is_empty() {
             return Ok(());
@@ -709,12 +717,15 @@ impl PgEmbeddingRepository {
     ) -> Result<()> {
         let embedding_set_id = default_embedding_set_id_tx(tx).await?;
 
-        sqlx::query("DELETE FROM embedding WHERE note_id = $1 AND embedding_set_id = $2")
-            .bind(note_id)
-            .bind(embedding_set_id)
-            .execute(&mut **tx)
-            .await
-            .map_err(Error::Database)?;
+        sqlx::query(
+            "DELETE FROM embedding
+             WHERE note_id = $1 AND embedding_set_id = $2 AND vector_kind = 'body_chunk'",
+        )
+        .bind(note_id)
+        .bind(embedding_set_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
 
         if chunks.is_empty() {
             return Ok(());
@@ -762,6 +773,7 @@ impl PgEmbeddingRepository {
             "SELECT id, note_id, chunk_index, text, vector, model, chunk_hash, doc_hash, contract_fingerprint
              FROM embedding
              WHERE note_id = $1
+               AND vector_kind = 'body_chunk'
              ORDER BY chunk_index",
         )
         .bind(note_id)
@@ -796,7 +808,9 @@ impl PgEmbeddingRepository {
         note_id: Uuid,
     ) -> Result<Option<Vector>> {
         let row = sqlx::query(
-            "SELECT vector FROM embedding WHERE note_id = $1 ORDER BY chunk_index LIMIT 1",
+            "SELECT vector FROM embedding
+             WHERE note_id = $1 AND vector_kind = 'body_chunk'
+             ORDER BY chunk_index LIMIT 1",
         )
         .bind(note_id)
         .fetch_optional(&mut **tx)
@@ -839,7 +853,7 @@ impl PgEmbeddingRepository {
             JOIN note n ON n.id = e.note_id
             LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
-            WHERE {set_predicate} {}
+            WHERE e.vector_kind = 'body_chunk' AND {set_predicate} {}
             ORDER BY e.note_id, {distance}
             "#,
             archive_clause
@@ -917,7 +931,7 @@ impl PgEmbeddingRepository {
             JOIN note n ON n.id = e.note_id
             LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
-            WHERE {set_predicate} {}
+            WHERE e.vector_kind = 'body_chunk' AND {set_predicate} {}
             ORDER BY e.note_id, {distance}
             "#,
             archive_clause

@@ -1388,7 +1388,8 @@ impl PgLinkRepository {
             SELECT
                 (SELECT COUNT(*) FROM note WHERE deleted_at IS NULL) as note_count,
                 (SELECT COUNT(*) FROM embedding
-                 WHERE embedding_set_id IN (
+                 WHERE vector_kind = 'body_chunk'
+                   AND embedding_set_id IN (
                      SELECT id FROM embedding_set WHERE set_type = 'full'
                      UNION
                      SELECT get_default_embedding_set_id()
@@ -1413,6 +1414,7 @@ impl PgLinkRepository {
                 SELECT e.note_id, e.vector
                 FROM embedding e
                 WHERE e.chunk_index = 0
+                  AND e.vector_kind = 'body_chunk'
                   AND e.embedding_set_id IN (
                       SELECT id FROM embedding_set WHERE set_type = 'full'
                       UNION
@@ -1998,6 +2000,7 @@ impl PgLinkRepository {
             JOIN embedding e2
               ON e1.note_id < e2.note_id
              AND e1.chunk_index = 0 AND e2.chunk_index = 0
+             AND e1.vector_kind = 'body_chunk' AND e2.vector_kind = 'body_chunk'
             WHERE e1.chunk_index = 0
               AND 1.0 - ((e1.vector::float4[])[1:$1]::vector
                       <=> (e2.vector::float4[])[1:$1]::vector) >= $2::real

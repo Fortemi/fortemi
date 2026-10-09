@@ -352,6 +352,58 @@ export default [
     annotations: {"destructiveHint": true, "idempotentHint": true},
   },
   {
+    name: "find_similar_entities",
+    description: "Find entity-profile nearest neighbours in an embedding set, using either a Fortemi note ID or a source-addressed external entity key.",
+    inputSchema: {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "note_id": {
+          "type": "string",
+          "format": "uuid",
+          "description": "Fortemi note/entity ID to use as the query profile."
+        },
+        "source": {
+          "type": "string",
+          "description": "Source namespace for external lookup."
+        },
+        "external_id": {
+          "type": "string",
+          "description": "External entity ID within the source namespace."
+        },
+        "set": {
+          "type": "string",
+          "description": "Embedding set slug or UUID containing profile vectors."
+        },
+        "k": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 10,
+          "description": "Maximum neighbours to return."
+        },
+        "filter": {
+          "type": "string",
+          "description": "Optional legacy filter string or metadata predicate JSON array."
+        },
+        "strict_filter": {
+          "type": "string",
+          "description": "Optional strict tag filter JSON, matching search_notes strict_filter."
+        },
+        "metadata_predicates": {
+          "type": "string",
+          "description": "Optional metadata predicate JSON array."
+        },
+        "metadata": {
+          "type": "string",
+          "description": "Comma-separated metadata fields to include in results."
+        }
+      },
+      "required": ["set"]
+    },
+    annotations: {"readOnlyHint": true},
+  },
+  {
     name: "capture_knowledge",
     description: `Add knowledge to the active memory. Each note triggers the full NLP pipeline: AI revision, title generation, SKOS concept tagging (8-15 tags), metadata extraction, tag-enriched embedding, and semantic linking — all automatic. Default revision_mode is 'standard' (isolated intelligent revision). Use 'contextual' for cross-referencing with related notes, or 'none' to skip AI revision. See \`get_documentation(topic='notes')\`.`,
     inputSchema: {

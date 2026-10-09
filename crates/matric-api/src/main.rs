@@ -4684,6 +4684,14 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/api/v1/notes/{id}/backlinks", get(get_note_backlinks))
         .route("/api/v1/notes/{id}/related", get(get_related_notes))
+        .route(
+            "/api/v1/notes/{id}/similar",
+            get(find_similar_note_entities),
+        )
+        .route(
+            "/api/v1/entities/similar",
+            get(find_similar_external_entities),
+        )
         .route("/api/v1/notes/{id}/export", get(export_note))
         .route("/api/v1/notes/{id}/full", get(get_full_document))
         // Provenance (W3C PROV)
@@ -19885,6 +19893,275 @@ impl std::fmt::Debug for RelatedNotesResponse {
     }
 }
 
+#[derive(Deserialize)]
+struct EntitySimilarityQuery {
+    #[serde(rename = "set")]
+    embedding_set: String,
+    kind: Option<String>,
+    k: Option<i64>,
+    filter: Option<String>,
+    strict_filter: Option<String>,
+    metadata_predicates: Option<String>,
+    metadata: Option<String>,
+}
+
+impl fmt::Debug for EntitySimilarityQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EntitySimilarityQuery")
+            .field(
+                "embedding_set_len",
+                &telemetry_text_len(&self.embedding_set),
+            )
+            .field("kind_len", &self.kind.as_deref().map(telemetry_text_len))
+            .field("k", &self.k)
+            .field(
+                "filter_len",
+                &self.filter.as_deref().map(telemetry_text_len),
+            )
+            .field(
+                "strict_filter_len",
+                &self.strict_filter.as_deref().map(telemetry_text_len),
+            )
+            .field(
+                "metadata_predicates_set",
+                &self.metadata_predicates.is_some(),
+            )
+            .field(
+                "metadata_len",
+                &self.metadata.as_deref().map(telemetry_text_len),
+            )
+            .finish()
+    }
+}
+
+#[derive(Deserialize)]
+struct ExternalEntitySimilarityQuery {
+    source: String,
+    external_id: String,
+    #[serde(flatten)]
+    similarity: EntitySimilarityQuery,
+}
+
+impl fmt::Debug for ExternalEntitySimilarityQuery {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ExternalEntitySimilarityQuery")
+            .field("source_len", &telemetry_text_len(&self.source))
+            .field("external_id_len", &telemetry_text_len(&self.external_id))
+            .field("similarity", &self.similarity)
+            .finish()
+    }
+}
+
+#[derive(Serialize)]
+struct EntitySimilarityResponse {
+    query_note_id: Uuid,
+    set_id: Uuid,
+    kind: String,
+    results: Vec<EntitySimilarityResult>,
+}
+
+#[derive(Serialize)]
+struct EntitySimilarityResult {
+    note_id: Uuid,
+    title: Option<String>,
+    score: f32,
+    source_namespace: Option<String>,
+    external_source_id: Option<String>,
+    metadata: serde_json::Value,
+}
+
+async fn find_similar_note_entities(
+    State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Path(id): Path<Uuid>,
+    Query(query): Query<EntitySimilarityQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    find_similar_entities_for_note(
+        state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx,
+        id,
+        query,
+    )
+    .await
+}
+
+async fn find_similar_external_entities(
+    State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Query(query): Query<ExternalEntitySimilarityQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    let scope = scope.map(|Extension(scope)| scope);
+    let source = query.source.clone();
+    let external_id = query.external_id.clone();
+    let note_id = with_request_schema(
+        &state,
+        scope.clone(),
+        archive_ctx.schema.clone(),
+        move |connection| {
+            Box::pin(async move {
+                matric_db::note_id_for_source_identity_tx(connection, &source, &external_id).await
+            })
+        },
+    )
+    .await?;
+
+    find_similar_entities_for_note(state, scope, archive_ctx, note_id, query.similarity).await
+}
+
+async fn find_similar_entities_for_note(
+    state: AppState,
+    scope: Option<TenantRequestScope>,
+    archive_ctx: ArchiveContext,
+    note_id: Uuid,
+    query: EntitySimilarityQuery,
+) -> Result<Json<EntitySimilarityResponse>, ApiError> {
+    if query.kind.as_deref().unwrap_or("profile") != "profile" {
+        return Err(ApiError::BadRequest(
+            "Only kind=profile is supported.".to_string(),
+        ));
+    }
+    let limit = query.k.unwrap_or(10).clamp(1, 100);
+    let metadata_fields = parse_entity_metadata_fields(query.metadata.as_deref())?;
+    let filter =
+        build_entity_similarity_filter(&state, scope.clone(), &archive_ctx, &query).await?;
+    let set_ref = query.embedding_set.clone();
+    let set_id = with_request_schema(
+        &state,
+        scope.clone(),
+        archive_ctx.schema.clone(),
+        move |connection| {
+            Box::pin(async move { resolve_entity_similarity_set_tx(connection, &set_ref).await })
+        },
+    )
+    .await?
+    .ok_or_else(embedding_set_not_found)?;
+
+    let hits = with_request_schema(&state, scope, archive_ctx.schema, move |connection| {
+        Box::pin(async move {
+            matric_db::find_similar_profiles_for_note_tx(
+                connection,
+                note_id,
+                set_id,
+                limit,
+                filter,
+                metadata_fields,
+            )
+            .await
+        })
+    })
+    .await?;
+
+    Ok(Json(EntitySimilarityResponse {
+        query_note_id: note_id,
+        set_id,
+        kind: "profile".to_string(),
+        results: hits
+            .into_iter()
+            .map(|hit| EntitySimilarityResult {
+                note_id: hit.note_id,
+                title: hit.title,
+                score: hit.score,
+                source_namespace: hit.source_namespace,
+                external_source_id: hit.external_source_id,
+                metadata: hit.metadata,
+            })
+            .collect(),
+    }))
+}
+
+async fn build_entity_similarity_filter(
+    state: &AppState,
+    scope: Option<TenantRequestScope>,
+    archive_ctx: &ArchiveContext,
+    query: &EntitySimilarityQuery,
+) -> Result<matric_db::EntitySimilarityFilter, ApiError> {
+    let mut legacy_filters = String::new();
+    let mut metadata_raw = query.metadata_predicates.as_deref();
+    if let Some(filter) = query
+        .filter
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        let trimmed = filter.trim();
+        if trimmed.starts_with('[') {
+            metadata_raw = Some(trimmed);
+        } else {
+            legacy_filters = trimmed.to_string();
+        }
+    }
+
+    let metadata = parse_search_metadata_predicates(metadata_raw)?;
+    let strict = if let Some(filter_json) = &query.strict_filter {
+        let filter_input: StrictTagFilterInput = serde_json::from_str(filter_json)
+            .map_err(|_| ApiError::BadRequest("Invalid strict_filter JSON.".to_string()))?;
+        Some(
+            with_request_schema(
+                state,
+                scope,
+                archive_ctx.schema.clone(),
+                move |connection| {
+                    Box::pin(async move {
+                        TagResolver::resolve_filter_on_connection(connection, filter_input).await
+                    })
+                },
+            )
+            .await?,
+        )
+    } else {
+        None
+    };
+
+    Ok(matric_db::EntitySimilarityFilter {
+        metadata,
+        strict,
+        legacy_filters,
+    })
+}
+
+async fn resolve_entity_similarity_set_tx(
+    connection: &mut sqlx::PgConnection,
+    set_ref: &str,
+) -> matric_core::Result<Option<Uuid>> {
+    if let Ok(id) = Uuid::parse_str(set_ref) {
+        sqlx::query_scalar("SELECT id FROM embedding_set WHERE id = $1")
+            .bind(id)
+            .fetch_optional(connection)
+            .await
+            .map_err(matric_core::Error::Database)
+    } else {
+        sqlx::query_scalar("SELECT id FROM embedding_set WHERE slug = $1")
+            .bind(set_ref)
+            .fetch_optional(connection)
+            .await
+            .map_err(matric_core::Error::Database)
+    }
+}
+
+fn parse_entity_metadata_fields(raw: Option<&str>) -> Result<Vec<String>, ApiError> {
+    let Some(raw) = raw else {
+        return Ok(Vec::new());
+    };
+    let fields = raw
+        .split(',')
+        .map(str::trim)
+        .filter(|field| !field.is_empty())
+        .map(|field| {
+            if field
+                .chars()
+                .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
+            {
+                Ok(field.to_string())
+            } else {
+                Err(ApiError::BadRequest("Invalid metadata field.".to_string()))
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(fields)
+}
+
 /// Get related notes via semantic similarity and graph links.
 ///
 /// Combines vector-similarity search (if the note has embeddings) with
@@ -26576,6 +26853,14 @@ struct ShardEmbeddingRecord {
     text: String,
     vector: Option<Vec<f32>>,
     model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    vector_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    template_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    profile_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    profile_text: Option<String>,
     contract_fingerprint: Option<String>,
     #[serde(skip)]
     contract_fingerprint_present: bool,
@@ -31491,6 +31776,7 @@ async fn knowledge_shard(
             let rows = sqlx::query(
                 r#"
                 SELECT id, note_id, embedding_set_id, chunk_index, text, vector, model,
+                       vector_kind, template_version, profile_hash, profile_text,
                        contract_fingerprint, shard_contract_fingerprint_present, created_at
                 FROM embedding
                 ORDER BY note_id, embedding_set_id, chunk_index
@@ -31514,6 +31800,18 @@ async fn knowledge_shard(
                     text: row.get("text"),
                     vector: vector.map(|value| value.as_slice().to_vec()),
                     model: row.get("model"),
+                    vector_kind: shard_embedding_contract::is_schema_2_1(&schema_version)
+                        .then(|| row.get::<String, _>("vector_kind"))
+                        .filter(|kind| kind != "body_chunk"),
+                    template_version: shard_embedding_contract::is_schema_2_1(&schema_version)
+                        .then(|| row.get::<Option<String>, _>("template_version"))
+                        .flatten(),
+                    profile_hash: shard_embedding_contract::is_schema_2_1(&schema_version)
+                        .then(|| row.get::<Option<String>, _>("profile_hash"))
+                        .flatten(),
+                    profile_text: shard_embedding_contract::is_schema_2_1(&schema_version)
+                        .then(|| row.get::<Option<String>, _>("profile_text"))
+                        .flatten(),
                     contract_fingerprint: row.get("contract_fingerprint"),
                     contract_fingerprint_present: row.get("shard_contract_fingerprint_present"),
                     created_at: row.get("created_at"),
@@ -39533,7 +39831,27 @@ async fn apply_shard_embedding_components_tx(
                     })?;
                 }
             }
-            for embedding in embeddings {
+            for mut embedding in embeddings {
+                if !schema_2_1_import {
+                    embedding.vector_kind = None;
+                    embedding.template_version = None;
+                    embedding.profile_hash = None;
+                    embedding.profile_text = None;
+                }
+                let vector_kind = embedding
+                    .vector_kind
+                    .as_deref()
+                    .unwrap_or("body_chunk")
+                    .to_string();
+                if vector_kind == "profile"
+                    && (embedding.template_version.is_none()
+                        || embedding.profile_hash.is_none()
+                        || embedding.profile_text.is_none())
+                {
+                    return Err(shard_validation_failed(
+                        "Knowledge shard profile embedding fields are invalid.",
+                    ));
+                }
                 if opts.dry_run {
                     imported.embeddings += 1;
                     continue;
@@ -39549,12 +39867,17 @@ async fn apply_shard_embedding_components_tx(
                     format!(
                         "INSERT INTO embedding
                          (id, note_id, embedding_set_id, chunk_index, text, vector, model,
+                          vector_kind, template_version, profile_hash, profile_text,
                           contract_fingerprint, shard_contract_fingerprint_present, created_at)
-                         VALUES ($1, $2, $3, $4, $5, {vector_param}, $7, $8, $9, $10)
+                         VALUES ($1, $2, $3, $4, $5, {vector_param}, $7, $8, $9, $10, $11, $12, $13, $14)
                          ON CONFLICT (id) DO UPDATE SET
                             note_id = EXCLUDED.note_id, embedding_set_id = EXCLUDED.embedding_set_id,
                             chunk_index = EXCLUDED.chunk_index, text = EXCLUDED.text,
                             vector = EXCLUDED.vector, model = EXCLUDED.model,
+                            vector_kind = EXCLUDED.vector_kind,
+                            template_version = EXCLUDED.template_version,
+                            profile_hash = EXCLUDED.profile_hash,
+                            profile_text = EXCLUDED.profile_text,
                             contract_fingerprint = EXCLUDED.contract_fingerprint,
                             shard_contract_fingerprint_present = EXCLUDED.shard_contract_fingerprint_present,
                             created_at = EXCLUDED.created_at"
@@ -39563,8 +39886,9 @@ async fn apply_shard_embedding_components_tx(
                     format!(
                         "INSERT INTO embedding
                      (id, note_id, embedding_set_id, chunk_index, text, vector, model,
+                      vector_kind, template_version, profile_hash, profile_text,
                       contract_fingerprint, shard_contract_fingerprint_present, created_at)
-                     VALUES ($1, $2, $3, $4, $5, {vector_param}, $7, $8, $9, $10)
+                     VALUES ($1, $2, $3, $4, $5, {vector_param}, $7, $8, $9, $10, $11, $12, $13, $14)
                      ON CONFLICT DO NOTHING"
                     )
                 };
@@ -39576,6 +39900,10 @@ async fn apply_shard_embedding_components_tx(
                     .bind(embedding.text)
                     .bind(vector)
                     .bind(embedding.model)
+                    .bind(vector_kind)
+                    .bind(embedding.template_version)
+                    .bind(embedding.profile_hash)
+                    .bind(embedding.profile_text)
                     .bind(embedding.contract_fingerprint)
                     .bind(embedding.contract_fingerprint_present)
                     .bind(embedding.created_at)

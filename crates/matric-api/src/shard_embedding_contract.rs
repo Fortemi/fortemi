@@ -254,6 +254,23 @@ pub fn validate_schema_2_1_embedding_contract(
         for line in text.lines().filter(|line| !line.trim().is_empty()) {
             let value = serde_json::from_str::<Value>(line)
                 .map_err(|_| "Knowledge shard embeddings are invalid.".to_string())?;
+            let vector_kind = value
+                .get("vector_kind")
+                .and_then(Value::as_str)
+                .unwrap_or("body_chunk");
+            if !matches!(vector_kind, "body_chunk" | "profile") {
+                return Err("Knowledge shard embedding vector kind is invalid.".to_string());
+            }
+            if vector_kind == "profile"
+                && (value
+                    .get("template_version")
+                    .and_then(Value::as_str)
+                    .is_none()
+                    || value.get("profile_hash").and_then(Value::as_str).is_none()
+                    || value.get("profile_text").and_then(Value::as_str).is_none())
+            {
+                return Err("Knowledge shard profile embedding fields are invalid.".to_string());
+            }
             let Some(set_id) = parse_uuid_field(&value, "embedding_set_id") else {
                 continue;
             };
@@ -280,4 +297,86 @@ fn parse_uuid_field(value: &Value, field: &str) -> Option<Uuid> {
         .get(field)
         .and_then(Value::as_str)
         .and_then(|value| Uuid::parse_str(value).ok())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn schema_2_1_accepts_profile_embedding_fields() {
+        let config_id = Uuid::new_v4();
+        let set_id = Uuid::new_v4();
+        let note_id = Uuid::new_v4();
+        let mut files = HashMap::new();
+        files.insert(
+            "embedding_configs.json".to_string(),
+            serde_json::to_vec(&serde_json::json!([{
+                "id": config_id,
+                "dimension": 3,
+                "vector_type": "vector"
+            }]))
+            .unwrap(),
+        );
+        files.insert(
+            "embedding_sets.json".to_string(),
+            serde_json::to_vec(&serde_json::json!([{
+                "id": set_id,
+                "embedding_config_id": config_id
+            }]))
+            .unwrap(),
+        );
+        files.insert(
+            "embeddings.jsonl".to_string(),
+            serde_json::to_vec(&serde_json::json!({
+                "id": Uuid::new_v4(),
+                "note_id": note_id,
+                "embedding_set_id": set_id,
+                "chunk_index": -1,
+                "text": "profile text",
+                "vector": [1.0, 0.0, 0.0],
+                "model": "profile-model",
+                "vector_kind": "profile",
+                "template_version": "entity-profile-v1",
+                "profile_hash": "hash-1",
+                "profile_text": "profile text",
+                "created_at": null
+            }))
+            .unwrap(),
+        );
+
+        validate_schema_2_1_embedding_contract(&files).unwrap();
+    }
+
+    #[test]
+    fn schema_2_1_rejects_profile_embedding_without_profile_text() {
+        let set_id = Uuid::new_v4();
+        let mut files = HashMap::new();
+        files.insert(
+            "embedding_sets.json".to_string(),
+            serde_json::to_vec(&serde_json::json!([])).unwrap(),
+        );
+        files.insert(
+            "embeddings.jsonl".to_string(),
+            serde_json::to_vec(&serde_json::json!({
+                "id": Uuid::new_v4(),
+                "note_id": Uuid::new_v4(),
+                "embedding_set_id": set_id,
+                "chunk_index": -1,
+                "text": "profile text",
+                "vector": [1.0, 0.0, 0.0],
+                "model": "profile-model",
+                "vector_kind": "profile",
+                "template_version": "entity-profile-v1",
+                "profile_hash": "hash-1",
+                "created_at": null
+            }))
+            .unwrap(),
+        );
+
+        assert_eq!(
+            validate_schema_2_1_embedding_contract(&files).unwrap_err(),
+            "Knowledge shard profile embedding fields are invalid."
+        );
+    }
 }

@@ -443,7 +443,7 @@ impl HybridSearchEngine {
                 let ids = results.iter().map(|h| h.note_id).collect::<Vec<_>>();
                 // The set and transaction remain pinned during MMR lookup; no
                 // second pool checkout or cross-set vector can affect ranking.
-                let rows = sqlx::query("SELECT DISTINCT ON (e.note_id) e.note_id, e.vector FROM embedding e JOIN note n ON n.id = e.note_id AND n.tenant_id = e.tenant_id WHERE e.note_id = ANY($1) AND ($2::uuid IS NULL OR e.embedding_set_id = $2) AND n.deleted_at IS NULL AND e.vector IS NOT NULL ORDER BY e.note_id, e.id")
+                let rows = sqlx::query("SELECT DISTINCT ON (e.note_id) e.note_id, e.vector FROM embedding e JOIN note n ON n.id = e.note_id AND n.tenant_id = e.tenant_id WHERE e.note_id = ANY($1) AND ($2::uuid IS NULL OR e.embedding_set_id = $2) AND n.deleted_at IS NULL AND e.vector_kind = 'body_chunk' AND e.vector IS NOT NULL ORDER BY e.note_id, e.id")
                     .bind(&ids).bind(config.embedding_set_id).fetch_all(&mut *connection).await?;
                 let vectors = rows.into_iter().map(|row| Ok((row.try_get("note_id")?, row.try_get("vector")?)))
                     .collect::<std::result::Result<std::collections::HashMap<Uuid, Vector>, sqlx::Error>>()?;

@@ -3255,13 +3255,15 @@ impl JobHandler for EmbeddingHandler {
         };
         let store_result = if let Some(set_id) = embedding_set_id {
             // Delete existing embeddings for this specific set
-            if let Err(e) =
-                sqlx::query("DELETE FROM embedding WHERE note_id = $1 AND embedding_set_id = $2")
-                    .bind(note_id)
-                    .bind(set_id)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(matric_core::Error::Database)
+            if let Err(e) = sqlx::query(
+                "DELETE FROM embedding
+                     WHERE note_id = $1 AND embedding_set_id = $2 AND vector_kind = 'body_chunk'",
+            )
+            .bind(note_id)
+            .bind(set_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(matric_core::Error::Database)
             {
                 if let Some(usage) = &usage {
                     usage

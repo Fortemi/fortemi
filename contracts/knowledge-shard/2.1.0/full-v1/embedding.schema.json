@@ -49,6 +49,22 @@
       "type": "string",
       "minLength": 1
     },
+    "vector_kind": {
+      "type": "string",
+      "enum": ["body_chunk", "profile"]
+    },
+    "template_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profile_hash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "profile_text": {
+      "type": "string",
+      "minLength": 1
+    },
     "contract_fingerprint": {
       "oneOf": [
         {
@@ -71,6 +87,19 @@
       ]
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "vector_kind": { "const": "profile" }
+        },
+        "required": ["vector_kind"]
+      },
+      "then": {
+        "required": ["template_version", "profile_hash", "profile_text"]
+      }
+    }
+  ],
   "$defs": {
     "uuid": {
       "type": "string",
