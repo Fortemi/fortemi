@@ -1,5 +1,6 @@
 //! Released OIDC authority integration for hosted Fortemi requests.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use anyhow::Context;
@@ -17,9 +18,15 @@ pub const AUTH_ISSUER_ENV: &str = "FORTEMI_AUTH_ISSUER";
 pub struct HostedAuthConfig {
     pub issuer: String,
     pub audience: String,
+    pub accepted_audiences: Vec<String>,
+    pub allow_multi_audience: bool,
     pub tenant_claim_name: String,
+    pub default_tenant_id: Option<Uuid>,
     pub clock_skew_seconds: i64,
     pub jwks_cache_capacity: usize,
+    pub jwks_unknown_kid_throttle_seconds: u64,
+    pub jwks_grace_seconds: u64,
+    pub max_token_lifetime_seconds: i64,
     pub http_timeout_seconds: u64,
     /// Optional PEM trust roots, read once when the verifier is initialized.
     pub ca_bundle_path: Option<String>,
@@ -53,23 +60,55 @@ impl HostedAuthConfig {
             .ok_or(AuthError::ConfigError)?;
         let audience = env("FORTEMI_AUTH_AUDIENCE")
             .filter(|value| !value.trim().is_empty())
+            .or_else(|| {
+                env("FORTEMI_AUTH_AUDIENCES")
+                    .and_then(|value| parse_audience_list(&value).into_iter().next())
+            })
             .ok_or(AuthError::ConfigError)?;
+        let accepted_audiences = env("FORTEMI_AUTH_AUDIENCES")
+            .map(|value| parse_audience_list(&value))
+            .unwrap_or_default();
+        let allow_multi_audience = parse_bool(env("FORTEMI_AUTH_ALLOW_MULTI_AUDIENCE"), false)?;
         let tenant_claim_name = env("FORTEMI_AUTH_TENANT_CLAIM")
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| "fortemi:tenant_id".to_string());
+        let default_tenant_id = env("FORTEMI_AUTH_DEFAULT_TENANT")
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| Uuid::parse_str(value.trim()).map_err(|_| AuthError::ConfigError))
+            .transpose()?;
         let clock_skew_seconds =
             parse_bounded::<i64>(env("FORTEMI_AUTH_CLOCK_SKEW_SECONDS"), 60, 0, 60)?;
         let jwks_cache_capacity =
             parse_bounded::<usize>(env("FORTEMI_AUTH_JWKS_CACHE_CAPACITY"), 128, 1, 4096)?;
+        let jwks_unknown_kid_throttle_seconds = parse_bounded::<u64>(
+            env("FORTEMI_AUTH_JWKS_UNKNOWN_KID_THROTTLE_SECONDS"),
+            30,
+            1,
+            3600,
+        )?;
+        let jwks_grace_seconds =
+            parse_bounded::<u64>(env("FORTEMI_AUTH_JWKS_GRACE_SECONDS"), 300, 0, 3600)?;
+        let max_token_lifetime_seconds = parse_bounded::<i64>(
+            env("FORTEMI_AUTH_MAX_TOKEN_LIFETIME_SECONDS"),
+            3600,
+            1,
+            86_400,
+        )?;
         let http_timeout_seconds =
             parse_bounded::<u64>(env("FORTEMI_AUTH_HTTP_TIMEOUT_SECONDS"), 5, 1, 30)?;
 
         let config = Self {
             issuer,
             audience,
+            accepted_audiences,
+            allow_multi_audience,
             tenant_claim_name,
+            default_tenant_id,
             clock_skew_seconds,
             jwks_cache_capacity,
+            jwks_unknown_kid_throttle_seconds,
+            jwks_grace_seconds,
+            max_token_lifetime_seconds,
             http_timeout_seconds,
             ca_bundle_path: env("FORTEMI_AUTH_CA_BUNDLE"),
             claim_policy_path: env("FORTEMI_AUTH_CLAIM_POLICY_FILE"),
@@ -77,6 +116,26 @@ impl HostedAuthConfig {
         ClerkConfig::from(&config).validate()?;
         Ok(config)
     }
+}
+
+fn parse_bool(value: Option<String>, default: bool) -> Result<bool, AuthError> {
+    match value.as_deref() {
+        Some("true" | "1") => Ok(true),
+        Some("false" | "0") => Ok(false),
+        Some(_) => Err(AuthError::ConfigError),
+        None => Ok(default),
+    }
+}
+
+fn parse_audience_list(value: &str) -> Vec<String> {
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.trim_end_matches('/').to_string())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 fn ca_bundle_env_value(
@@ -115,9 +174,16 @@ impl From<&HostedAuthConfig> for ClerkConfig {
         Self {
             issuer: config.issuer.clone(),
             audience: config.audience.clone(),
+            accepted_audiences: config.accepted_audiences.clone(),
+            allow_multi_audience: config.allow_multi_audience,
             tenant_claim_name: config.tenant_claim_name.clone(),
+            default_tenant_id: config.default_tenant_id,
             clock_skew_seconds: config.clock_skew_seconds,
             jwks_cache_capacity: config.jwks_cache_capacity,
+            jwks_unknown_kid_throttle_seconds: config.jwks_unknown_kid_throttle_seconds,
+            jwks_grace_seconds: config.jwks_grace_seconds,
+            max_token_lifetime_seconds: config.max_token_lifetime_seconds,
+            verification_time_seconds: None,
             http_timeout_seconds: config.http_timeout_seconds,
         }
     }
@@ -186,6 +252,18 @@ pub fn build_clerk_authenticator(
     config: &HostedAuthConfig,
     pool: PgPool,
 ) -> anyhow::Result<Arc<dyn HostedAuthenticator>> {
+    build_clerk_authenticator_with_claim_policy_options(
+        config,
+        pool,
+        &crate::hosted_claim_policy::ClaimPolicyLoadOptions::hosted_default(),
+    )
+}
+
+pub fn build_clerk_authenticator_with_claim_policy_options(
+    config: &HostedAuthConfig,
+    pool: PgPool,
+    options: &crate::hosted_claim_policy::ClaimPolicyLoadOptions<'_>,
+) -> anyhow::Result<Arc<dyn HostedAuthenticator>> {
     let ca_bundle = load_ca_bundle(config.ca_bundle_path.as_deref())?;
     let provider = match ca_bundle {
         Some(bytes) => ClerkProvider::new_with_ca_bundle(
@@ -197,8 +275,10 @@ pub fn build_clerk_authenticator(
         None => ClerkProvider::new(ClerkConfig::from(config), PgTenantStore::new(pool))
             .context("hosted OIDC verifier initialization failed")?,
     };
-    let claim_policy =
-        crate::hosted_claim_policy::load_claim_policy(config.claim_policy_path.as_deref())?;
+    let claim_policy = crate::hosted_claim_policy::load_claim_policy_with_options(
+        config.claim_policy_path.as_deref(),
+        options,
+    )?;
     Ok(Arc::new(provider.with_claim_policy(claim_policy)))
 }
 
@@ -231,6 +311,7 @@ mod tests {
         .unwrap();
         assert_eq!(config.tenant_claim_name, "fortemi:tenant_id");
         assert_eq!(config.clock_skew_seconds, 60);
+        assert_eq!(config.accepted_audiences, Vec::<String>::new());
 
         let explicit = HostedAuthConfig::from_env(|name| match name {
             "ISSUER_URL" => Some("https://local.example".to_string()),
@@ -240,6 +321,27 @@ mod tests {
         })
         .unwrap();
         assert_eq!(explicit.issuer, "https://issuer.example");
+
+        let audiences = HostedAuthConfig::from_env(|name| match name {
+            "FORTEMI_AUTH_ISSUER" => Some("https://issuer.example".to_string()),
+            "FORTEMI_AUTH_AUDIENCES" => {
+                Some("https://api.example,https://api.example/mcp".to_string())
+            }
+            "FORTEMI_AUTH_ALLOW_MULTI_AUDIENCE" => Some("true".to_string()),
+            "FORTEMI_AUTH_DEFAULT_TENANT" => Some(Uuid::nil().to_string()),
+            _ => None,
+        })
+        .unwrap();
+        assert_eq!(audiences.audience, "https://api.example");
+        assert_eq!(
+            audiences.accepted_audiences,
+            vec![
+                "https://api.example".to_string(),
+                "https://api.example/mcp".to_string()
+            ]
+        );
+        assert!(audiences.allow_multi_audience);
+        assert_eq!(audiences.default_tenant_id, Some(Uuid::nil()));
 
         assert!(HostedAuthConfig::from_env(|_| None).is_err());
         assert!(HostedAuthConfig::from_env(|name| match name {

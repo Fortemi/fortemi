@@ -105,6 +105,7 @@ async fn inject_identity(
         request.extensions_mut().insert(ValidatedBearerIdentity {
             principal,
             tenant_id: Some(identity.0),
+            request_principal: None,
             canonical_context: Some(fortemi_auth_core::AuthContext {
                 tenant_id: identity.0,
                 principal_id: "hosted-create-regression".into(),
@@ -119,6 +120,7 @@ async fn inject_identity(
                 session_id: None,
                 principal_kind: fortemi_auth_core::PrincipalKind::Human,
                 scope_grants: Vec::new(),
+                dropped_scope_count: 0,
             }),
         });
     }

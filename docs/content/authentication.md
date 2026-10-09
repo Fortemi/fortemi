@@ -207,6 +207,65 @@ The command prints the tenant id to emit in the configured tenant claim and
 seeds the tenant's default memory. See
 [Hosted tenant bootstrap](../deployment/hosted-bootstrap.md).
 
+### External OIDC (single-tenant)
+
+Single-tenant deployments can run Fortemi as an OAuth resource server without
+enabling hosted multi-tenancy. This mode validates external access-token JWTs,
+maps verified claims to Fortemi scopes, injects a configured default tenant, and
+uses the scope-enforcing authorization policy for every protected route.
+
+```text
+FORTEMI_AUTH_MODE=external-oidc
+REQUIRE_AUTH=true
+ISSUER_URL=https://fortemi.example.com
+FORTEMI_AUTH_ISSUER=https://idp.example.com/realms/acme
+FORTEMI_AUTH_AUDIENCES=https://fortemi.example.com,https://fortemi.example.com/mcp
+FORTEMI_AUTH_CLAIM_POLICY_FILE=/run/secrets/fortemi-claim-policy.json
+FORTEMI_AUTH_DEFAULT_TENANT=8e7a9ab6-08e0-4b3a-8dc2-e2be91a8f7ef
+```
+
+| Setting | Required | Description |
+|---|---:|---|
+| `FORTEMI_AUTH_MODE=external-oidc` | yes | Enables single-tenant external OIDC mode. Do not combine with `FORTEMI_MULTI_TENANT=true`. |
+| `FORTEMI_AUTH_ISSUER` | yes | Exact external IdP issuer. It must differ from Fortemi's own `ISSUER_URL` when both are explicit. |
+| `FORTEMI_AUTH_AUDIENCES` | yes | Comma-separated exact `https` resource URIs. Include the API origin and MCP path when both are used. Values must not equal claim-policy client ids. |
+| `FORTEMI_AUTH_CLAIM_POLICY_FILE` | yes | JSON policy mapping IdP roles/groups to `read`, `write`, `admin`, and `mcp`. |
+| `FORTEMI_AUTH_DEFAULT_TENANT` | yes | UUID of the single tenant. Fortemi creates the active tenant row and default memory at startup when missing. |
+| `FORTEMI_AUTH_ALLOW_MULTI_AUDIENCE` | no | Defaults to `false`; when enabled, multi-audience JWTs also require an allowed `azp`. |
+| `FORTEMI_AUTH_ALLOW_TOKEN_SCOPES` | no | Defaults to `false`; required before `scope_source=token` or `scope_source=union` is accepted. |
+| `FORTEMI_AUTH_MAX_TOKEN_LIFETIME_SECONDS` | no | Defaults to `3600`, maximum `86400`; tokens with a longer `exp - iat` are rejected. |
+| `FORTEMI_AUTH_ALLOW_LEGACY_TOKENS` | no | Defaults to `false`; permits existing `mm_at_` and `mm_key_` tokens only during migration. |
+| `FORTEMI_AUTH_LEGACY_SCOPE_CEILING` | no | Defaults to `read mcp`; caps legacy-token effective scopes when legacy tokens are enabled. |
+
+Keycloak example using client roles for a Fortemi API client:
+
+```json
+{
+  "scope_mapping": {
+    "claim": "/resource_access/fortemi-api/roles",
+    "rules": [
+      {"id": "api-read", "value": "reader", "scopes": ["read"]},
+      {"id": "api-write", "value": "writer", "scopes": ["read", "write"]},
+      {"id": "api-mcp", "value": "agent", "scopes": ["read", "mcp"]},
+      {"id": "api-admin", "value": "admin", "scopes": ["admin"]}
+    ]
+  },
+  "clients": {
+    "claim": "azp",
+    "allowed": ["fortemi-web", "fortemi-cli"],
+    "service": ["fortemi-etl"],
+    "ceilings": {
+      "fortemi-cli": ["read", "write", "mcp"]
+    }
+  }
+}
+```
+
+Prefer client roles such as `resource_access.<client>.roles` (or a JSON Pointer
+equivalent as above) over bare group names. Bare names collide across nested
+groups and make it harder to reason about which OAuth client is allowed to turn
+an IdP role into Fortemi authority.
+
 #### Mapping IdP groups and roles to scopes
 
 External IdPs express authorization as groups or roles. Set

@@ -74,7 +74,14 @@ use utoipa_swagger_ui::{Config, SwaggerUi};
 use uuid::Uuid;
 
 #[cfg(feature = "hosted-auth")]
-use matric_api::hosted_auth::{build_clerk_authenticator, HostedAuthConfig, HostedAuthenticator};
+use matric_api::external_oidc::{
+    self, auth_mode_from_env, ceil_legacy_scope, config_from_env, legacy_token_extension_lifetime,
+    resolve_user_principal, AuthMode, ExternalOidcConfig, RequestPrincipal,
+};
+#[cfg(feature = "hosted-auth")]
+use matric_api::hosted_auth::{
+    build_clerk_authenticator_with_claim_policy_options, HostedAuthConfig, HostedAuthenticator,
+};
 use matric_api::services::{
     InferenceBreakerConfig, InferenceCircuitBreakerRegistry, RedisRequestQuotaGate,
     RequestQuotaDecision, RequestQuotaIdentity, RequestQuotaPolicy, UserSecretRewrapWorkerConfig,
@@ -1230,6 +1237,15 @@ struct AppState {
     require_auth: bool,
     /// Hosted mode changes both authorization and persistence invariants.
     multi_tenant: bool,
+    /// Selected bearer-auth authority mode.
+    #[cfg(feature = "hosted-auth")]
+    auth_mode: AuthMode,
+    /// External OIDC single-tenant options.
+    #[cfg(feature = "hosted-auth")]
+    external_oidc: Option<ExternalOidcConfig>,
+    /// Issuer trusted by the OIDC verifier, carried into request principals.
+    #[cfg(feature = "hosted-auth")]
+    oidc_issuer: Option<String>,
     /// Shared outbound inference destination policy (#920).
     inference_destination_policy:
         Arc<matric_inference::destination_policy::OutboundDestinationPolicy>,
@@ -3032,8 +3048,16 @@ fn telemetry_error_class(raw: &str) -> &'static str {
     }
 }
 
+#[cfg(test)]
 fn authorization_policy_for_mode(multi_tenant: bool) -> Arc<dyn AuthorizationPolicy> {
-    if multi_tenant {
+    authorization_policy_for_auth(multi_tenant, false)
+}
+
+fn authorization_policy_for_auth(
+    multi_tenant: bool,
+    external_oidc: bool,
+) -> Arc<dyn AuthorizationPolicy> {
+    if multi_tenant || external_oidc {
         Arc::new(RoleBasedPolicy)
     } else {
         Arc::new(AllowAllPolicy)
@@ -3530,6 +3554,27 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or(matric_core::defaults::SERVER_PORT);
 
     let security_config = parse_startup_security_config()?;
+    #[cfg(feature = "hosted-auth")]
+    let auth_mode = auth_mode_from_env(
+        |name| std::env::var(name).ok(),
+        security_config.multi_tenant,
+    )?;
+    #[cfg(feature = "hosted-auth")]
+    let external_oidc = config_from_env(
+        |name| std::env::var(name).ok(),
+        auth_mode,
+        security_config.multi_tenant,
+    )?;
+    #[cfg(not(feature = "hosted-auth"))]
+    if std::env::var("FORTEMI_AUTH_MODE")
+        .ok()
+        .as_deref()
+        .is_some_and(|value| value == "external-oidc")
+    {
+        anyhow::bail!(
+            "FORTEMI_AUTH_MODE=external-oidc requires a build compiled with the hosted-auth feature"
+        );
+    }
     let trusted_proxy_config = TrustedProxyConfig::from_env()?;
     info!(
         trusted_proxy_source_count = trusted_proxy_config.trusted_source_count(),
@@ -3634,10 +3679,20 @@ async fn main() -> anyhow::Result<()> {
     }
     let oauth_authorize = Arc::new(oauth_consent::AuthorizeRuntime::new(oauth_authorize_config));
     if !security_config.require_auth {
-        if security_config.multi_tenant {
+        let external_auth_requires_bearer = security_config.multi_tenant || {
+            #[cfg(feature = "hosted-auth")]
+            {
+                auth_mode.external_oidc()
+            }
+            #[cfg(not(feature = "hosted-auth"))]
+            {
+                false
+            }
+        };
+        if external_auth_requires_bearer {
             anyhow::bail!(
-                "Refusing to start: FORTEMI_MULTI_TENANT=true is incompatible with \
-                 REQUIRE_AUTH=false. Multi-tenant deployments cannot run anonymous. \
+                "Refusing to start: external bearer authentication is incompatible with \
+                 REQUIRE_AUTH=false. Multi-tenant and external OIDC deployments cannot run anonymous. \
                  See ADR-090 Rev 1 and ADR-094."
             );
         }
@@ -3739,6 +3794,10 @@ async fn main() -> anyhow::Result<()> {
     if security_config.multi_tenant {
         assert_hosted_runtime_role(&db.pool).await?;
     }
+    #[cfg(feature = "hosted-auth")]
+    if let Some(config) = &external_oidc {
+        external_oidc::ensure_default_tenant(&db.pool, config.default_tenant_id).await?;
+    }
     let audit_sink = audit_sink_for_mode(&db, security_config.multi_tenant).await?;
     let key_custody = key_provider_for_mode(security_config.multi_tenant).await?;
     if let Some(custody) = &key_custody {
@@ -3753,16 +3812,33 @@ async fn main() -> anyhow::Result<()> {
     let user_secret_rewrap = user_secret_rewrap_worker_config(security_config.multi_tenant)?;
 
     #[cfg(feature = "hosted-auth")]
-    let hosted_auth = if security_config.multi_tenant {
-        let auth_config = HostedAuthConfig::from_process_env()?;
-        let authenticator = build_clerk_authenticator(&auth_config, db.pool.clone())?;
+    let mut oidc_issuer = None;
+    #[cfg(feature = "hosted-auth")]
+    let hosted_auth = if auth_mode.external_jwt() {
+        let mut auth_config = HostedAuthConfig::from_process_env()?;
+        if let Some(config) = &external_oidc {
+            auth_config.accepted_audiences = config.audiences.iter().cloned().collect();
+            if let Some(audience) = auth_config.accepted_audiences.first().cloned() {
+                auth_config.audience = audience;
+            }
+            auth_config.allow_multi_audience = config.allow_multi_audience;
+            auth_config.default_tenant_id = Some(config.default_tenant_id);
+            auth_config.max_token_lifetime_seconds = config.max_token_lifetime_seconds;
+        }
+        let claim_options = external_oidc::claim_policy_options(external_oidc.as_ref());
+        let authenticator = build_clerk_authenticator_with_claim_policy_options(
+            &auth_config,
+            db.pool.clone(),
+            &claim_options,
+        )?;
         info!(
             target: "fortemi.security",
             clock_skew_seconds = auth_config.clock_skew_seconds,
             jwks_cache_capacity = auth_config.jwks_cache_capacity,
             http_timeout_seconds = auth_config.http_timeout_seconds,
-            "Released hosted OIDC verifier initialized"
+            "Released OIDC verifier initialized"
         );
+        oidc_issuer = Some(auth_config.issuer.clone());
         Some(authenticator)
     } else {
         None
@@ -4654,12 +4730,27 @@ async fn main() -> anyhow::Result<()> {
         ))),
         require_auth: security_config.require_auth, // ADR-094: fail-closed default — see startup validation block in main()
         multi_tenant: security_config.multi_tenant,
+        #[cfg(feature = "hosted-auth")]
+        auth_mode,
+        #[cfg(feature = "hosted-auth")]
+        external_oidc,
+        #[cfg(feature = "hosted-auth")]
+        oidc_issuer,
         inference_destination_policy,
         inference_breakers,
         #[cfg(feature = "hosted-auth")]
         hosted_auth,
         call_recording_require_confirmation: security_config.call_recording_require_confirmation,
-        authorization_policy: authorization_policy_for_mode(security_config.multi_tenant),
+        authorization_policy: authorization_policy_for_auth(security_config.multi_tenant, {
+            #[cfg(feature = "hosted-auth")]
+            {
+                auth_mode.external_oidc()
+            }
+            #[cfg(not(feature = "hosted-auth"))]
+            {
+                false
+            }
+        }),
         usage_meter,
         audit_sink,
         key_provider,
@@ -10077,6 +10168,8 @@ struct ValidatedBearerIdentity {
     principal: AuthPrincipal,
     tenant_id: Option<Uuid>,
     #[cfg(feature = "hosted-auth")]
+    request_principal: Option<RequestPrincipal>,
+    #[cfg(feature = "hosted-auth")]
     canonical_context: Option<fortemi_auth_core::AuthContext>,
 }
 
@@ -10233,6 +10326,10 @@ async fn auth_middleware(
             if let Some(context) = identity.canonical_context {
                 request.extensions_mut().insert(context);
             }
+            #[cfg(feature = "hosted-auth")]
+            if let Some(principal) = identity.request_principal {
+                request.extensions_mut().insert(principal);
+            }
             request.extensions_mut().insert(Auth {
                 principal: identity.principal,
             });
@@ -10242,32 +10339,29 @@ async fn auth_middleware(
             // A presented credential failed verification: spend one failure
             // from the caller IP budget (SR-54).
             note_auth_failure(state.auth_failure_limiter.as_deref(), client_ip);
-            problem_response(
+            auth_problem_response(
                 failure.status,
                 failure.problem_type,
                 failure.detail.to_string(),
-                None,
             )
         }
         None if has_token => {
             // A credential was presented but is not verifiable as-is
             // (wrong scheme or undecodable): also an authentication failure.
             note_auth_failure(state.auth_failure_limiter.as_deref(), client_ip);
-            problem_response(
+            auth_problem_response(
                 StatusCode::UNAUTHORIZED,
                 ProblemType::Unauthorized,
                 "Invalid or expired bearer token.".to_string(),
-                None,
             )
         }
         None => {
             // No token provided
             if requires_bearer {
-                problem_response(
+                auth_problem_response(
                     StatusCode::UNAUTHORIZED,
                     ProblemType::Unauthorized,
                     "Authentication required. Provide a valid Bearer token.".to_string(),
-                    None,
                 )
             } else {
                 // Anonymous access allowed — inject Anonymous principal
@@ -10286,30 +10380,88 @@ async fn auth_middleware(
     }
 }
 
+fn bearer_www_authenticate_header() -> HeaderValue {
+    HeaderValue::from_static("Bearer realm=\"fortemi\"")
+}
+
+fn auth_problem_response(
+    status: StatusCode,
+    problem_type: ProblemType,
+    detail: String,
+) -> axum::response::Response {
+    let mut response = problem_response(status, problem_type, detail, None);
+    if status == StatusCode::UNAUTHORIZED {
+        response
+            .headers_mut()
+            .insert(header::WWW_AUTHENTICATE, bearer_www_authenticate_header());
+    }
+    response
+}
+
 async fn validate_bearer_identity(
     state: &AppState,
     token: &str,
 ) -> Result<ValidatedBearerIdentity, BearerValidationFailure> {
     if token.starts_with("mm_at_") {
+        #[cfg(feature = "hosted-auth")]
+        if state.auth_mode.external_oidc()
+            && !state
+                .external_oidc
+                .as_ref()
+                .is_some_and(|config| config.allow_legacy_tokens)
+        {
+            return Err(BearerValidationFailure::unauthorized());
+        }
         if state.multi_tenant {
             return Err(BearerValidationFailure::unauthorized());
         }
         match state.db.oauth.validate_access_token(token).await {
             Ok(Some(oauth_token)) => {
-                // Sliding window refresh
-                let lifetime = state.token_lifetime_for_scope(&oauth_token.scope);
-                let _ = state
-                    .db
-                    .oauth
-                    .validate_and_extend_token(token, lifetime)
-                    .await;
+                let scope = oauth_token.scope.clone();
+                let lifetime = Some(state.token_lifetime_for_scope(&scope));
+                #[cfg(feature = "hosted-auth")]
+                let (scope, lifetime) = {
+                    if let Some(config) = state
+                        .external_oidc
+                        .as_ref()
+                        .filter(|_| state.auth_mode.external_oidc())
+                    {
+                        let scope = ceil_legacy_scope(&scope, &config.legacy_scope_ceiling);
+                        let lifetime = legacy_token_extension_lifetime(
+                            oauth_token.created_at,
+                            state.token_lifetime_for_scope(&scope),
+                            config.max_token_lifetime_seconds,
+                        );
+                        if scope.is_empty() || lifetime.is_none() {
+                            return Err(BearerValidationFailure::unauthorized());
+                        }
+                        (scope, lifetime)
+                    } else {
+                        (scope, lifetime)
+                    }
+                };
+                if let Some(lifetime) = lifetime {
+                    let _ = state
+                        .db
+                        .oauth
+                        .validate_and_extend_token(token, lifetime)
+                        .await;
+                }
+                let principal = AuthPrincipal::OAuthClient {
+                    client_id: oauth_token.client_id,
+                    scope,
+                    user_id: oauth_token.user_id,
+                };
+                #[cfg(feature = "hosted-auth")]
+                let request_principal = state
+                    .auth_mode
+                    .external_oidc()
+                    .then(|| RequestPrincipal::legacy(&principal));
                 Ok(ValidatedBearerIdentity {
-                    principal: AuthPrincipal::OAuthClient {
-                        client_id: oauth_token.client_id,
-                        scope: oauth_token.scope,
-                        user_id: oauth_token.user_id,
-                    },
+                    principal,
                     tenant_id: None,
+                    #[cfg(feature = "hosted-auth")]
+                    request_principal,
                     #[cfg(feature = "hosted-auth")]
                     canonical_context: None,
                 })
@@ -10317,19 +10469,55 @@ async fn validate_bearer_identity(
             _ => Err(BearerValidationFailure::unauthorized()),
         }
     } else if token.starts_with("mm_key_") {
+        #[cfg(feature = "hosted-auth")]
+        if state.auth_mode.external_oidc()
+            && !state
+                .external_oidc
+                .as_ref()
+                .is_some_and(|config| config.allow_legacy_tokens)
+        {
+            return Err(BearerValidationFailure::unauthorized());
+        }
         if state.multi_tenant {
             return Err(BearerValidationFailure::unauthorized());
         }
         match state.db.oauth.validate_api_key(token).await {
-            Ok(Some(api_key)) => Ok(ValidatedBearerIdentity {
-                principal: AuthPrincipal::ApiKey {
-                    key_id: api_key.id,
-                    scope: api_key.scope,
-                },
-                tenant_id: None,
+            Ok(Some(api_key)) => {
+                let scope = api_key.scope;
                 #[cfg(feature = "hosted-auth")]
-                canonical_context: None,
-            }),
+                let scope = {
+                    if let Some(config) = state
+                        .external_oidc
+                        .as_ref()
+                        .filter(|_| state.auth_mode.external_oidc())
+                    {
+                        let scope = ceil_legacy_scope(&scope, &config.legacy_scope_ceiling);
+                        if scope.is_empty() {
+                            return Err(BearerValidationFailure::unauthorized());
+                        }
+                        scope
+                    } else {
+                        scope
+                    }
+                };
+                let principal = AuthPrincipal::ApiKey {
+                    key_id: api_key.id,
+                    scope,
+                };
+                #[cfg(feature = "hosted-auth")]
+                let request_principal = state
+                    .auth_mode
+                    .external_oidc()
+                    .then(|| RequestPrincipal::legacy(&principal));
+                Ok(ValidatedBearerIdentity {
+                    principal,
+                    tenant_id: None,
+                    #[cfg(feature = "hosted-auth")]
+                    request_principal,
+                    #[cfg(feature = "hosted-auth")]
+                    canonical_context: None,
+                })
+            }
             _ => Err(BearerValidationFailure::unauthorized()),
         }
     } else {
@@ -10346,13 +10534,22 @@ async fn validate_bearer_identity(
             let tenant_id = context.tenant_id;
             let principal_id = context.principal_id.clone();
             let scope = context.scopes.join(" ");
+            let request_principal = state
+                .oidc_issuer
+                .as_deref()
+                .map(|issuer| resolve_user_principal(issuer, &context));
             Ok(ValidatedBearerIdentity {
                 principal: AuthPrincipal::OAuthClient {
-                    client_id: "hosted-oidc".to_string(),
+                    client_id: if state.auth_mode.external_oidc() {
+                        "external-oidc".to_string()
+                    } else {
+                        "hosted-oidc".to_string()
+                    },
                     scope,
                     user_id: Some(principal_id),
                 },
                 tenant_id: Some(tenant_id),
+                request_principal,
                 canonical_context: Some(context),
             })
         }
@@ -10404,6 +10601,7 @@ async fn authorize_middleware(
     let input = apply_claim_policy_audit_context(
         input,
         request.extensions().get::<fortemi_auth_core::AuthContext>(),
+        request.extensions().get::<RequestPrincipal>(),
     );
     let input =
         normalize_route_policy_input_for_authorization(&state, input, archive_ctx.as_ref(), scope)
@@ -12362,6 +12560,7 @@ fn hosted_policy_requires_normalized_resource(
 fn apply_claim_policy_audit_context(
     mut input: route_policy::RoutePolicyInput,
     context: Option<&fortemi_auth_core::AuthContext>,
+    principal: Option<&RequestPrincipal>,
 ) -> route_policy::RoutePolicyInput {
     if let Some(context) = context {
         input.context.environment.insert(
@@ -12371,6 +12570,32 @@ fn apply_claim_policy_audit_context(
         input.context.environment.insert(
             "scope_grants".to_string(),
             serde_json::json!(context.scope_grants),
+        );
+        input.context.environment.insert(
+            "dropped_scope_count".to_string(),
+            serde_json::json!(context.dropped_scope_count),
+        );
+    }
+    if let Some(principal) = principal {
+        input.context.environment.insert(
+            "credential_class".to_string(),
+            serde_json::json!(principal.credential_class.as_str()),
+        );
+        input.context.environment.insert(
+            "principal_kind".to_string(),
+            serde_json::json!(principal.kind_label()),
+        );
+        input.context.environment.insert(
+            "issuer_len".to_string(),
+            serde_json::json!(principal.iss.chars().count()),
+        );
+        input.context.environment.insert(
+            "subject_len".to_string(),
+            serde_json::json!(principal.sub.chars().count()),
+        );
+        input.context.environment.insert(
+            "azp_present".to_string(),
+            serde_json::json!(principal.azp.is_some()),
         );
     }
     input
@@ -12415,7 +12640,15 @@ fn auth_decision_audit_event(
         .with_attr("route_template", input.policy.path.to_string())
         .with_attr("policy_class", format!("{:?}", input.policy.class))
         .with_attr("resource_kind", format!("{:?}", input.resource.kind));
-    for key in ["principal_kind", "scope_grants"] {
+    for key in [
+        "principal_kind",
+        "scope_grants",
+        "dropped_scope_count",
+        "credential_class",
+        "issuer_len",
+        "subject_len",
+        "azp_present",
+    ] {
         if let Some(value) = input.context.environment.get(key) {
             event = event.with_attr(key, value.clone());
         }
@@ -71473,6 +71706,12 @@ not-json
             ),
             inference_breakers: None,
             #[cfg(feature = "hosted-auth")]
+            auth_mode: AuthMode::Local,
+            #[cfg(feature = "hosted-auth")]
+            external_oidc: None,
+            #[cfg(feature = "hosted-auth")]
+            oidc_issuer: None,
+            #[cfg(feature = "hosted-auth")]
             hosted_auth: None,
             call_recording_require_confirmation: false,
             authorization_policy: Arc::new(AllowAllPolicy),
@@ -72986,6 +73225,44 @@ not-json
         assert!(err.to_string().contains("must not name the same issuer"));
     }
 
+    #[cfg(feature = "hosted-auth")]
+    #[test]
+    fn external_oidc_selects_role_policy_and_rejects_allow_all_pairing() {
+        assert_eq!(
+            authorization_policy_for_auth(false, true).policy_id(),
+            "role_based"
+        );
+        assert_eq!(
+            authorization_policy_for_auth(false, false).policy_id(),
+            "allow_all"
+        );
+    }
+
+    #[cfg(feature = "hosted-auth")]
+    #[test]
+    fn key_source_unavailable_maps_to_auth_503() {
+        let failure = BearerValidationFailure::from_contract(
+            fortemi_auth_core::AuthError::KeySourceUnavailable,
+        );
+        assert_eq!(failure.status, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[cfg(feature = "hosted-auth")]
+    #[test]
+    fn external_single_tenant_does_not_apply_hosted_route_503_gate() {
+        for (method, path) in [
+            (Method::POST, "/api/v1/embedding-sets/{slug}/refresh"),
+            (Method::GET, "/api/v1/jobs"),
+        ] {
+            let mode = AuthMode::ExternalOidc;
+            let multi_tenant = matches!(mode, AuthMode::HostedMultiTenant);
+            let hosted_gate = multi_tenant
+                && !route_policy::hosted_tenant_transaction_ready(&method, path)
+                && !hosted_exempt_routes::hosted_requires_bearer(&method, path);
+            assert!(!hosted_gate, "{method} {path}");
+        }
+    }
+
     #[test]
     fn validated_issuer_normalizes_trailing_slash_only() {
         let issuer =
@@ -73791,11 +74068,12 @@ not-json
             session_id: None,
             principal_kind: fortemi_auth_core::PrincipalKind::Service,
             scope_grants: vec!["kc-agents".to_string()],
+            dropped_scope_count: 0,
         };
         let input =
             route_policy::authorization_input_for_request(&Method::GET, "/api/v1/notes", None)
                 .expect("notes route has policy input");
-        let input = apply_claim_policy_audit_context(input, Some(&context));
+        let input = apply_claim_policy_audit_context(input, Some(&context), None);
 
         let event = auth_decision_audit_event(
             &auth,
@@ -73817,7 +74095,7 @@ not-json
                 .expect("notes route has policy input");
         let event = auth_decision_audit_event(
             &auth,
-            &apply_claim_policy_audit_context(without, None),
+            &apply_claim_policy_audit_context(without, None, None),
             AuditOutcome::Success,
             None,
             "role_based",
@@ -77335,6 +77613,26 @@ not-json
     }
 
     #[tokio::test]
+    async fn external_read_principal_gets_403_on_post_notes() {
+        let auth = Auth {
+            principal: AuthPrincipal::OAuthClient {
+                client_id: "external-oidc".to_string(),
+                scope: "read".to_string(),
+                user_id: Some("subject".to_string()),
+            },
+        };
+        let input =
+            route_policy::authorization_input_for_request(&Method::POST, "/api/v1/notes", None)
+                .expect("notes create route has policy input");
+
+        let response = authorize_policy_input(&RoleBasedPolicy, &TracingSink, &auth, &input)
+            .await
+            .expect_err("read principal must not write notes");
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
     async fn role_policy_denies_non_admin_backup_restore() {
         let auth = Auth {
             principal: AuthPrincipal::ApiKey {
@@ -77544,6 +77842,12 @@ not-json
                     .expect("valid test destination policy"),
             ),
             inference_breakers: None,
+            #[cfg(feature = "hosted-auth")]
+            auth_mode: AuthMode::Local,
+            #[cfg(feature = "hosted-auth")]
+            external_oidc: None,
+            #[cfg(feature = "hosted-auth")]
+            oidc_issuer: None,
             #[cfg(feature = "hosted-auth")]
             hosted_auth: None,
             call_recording_require_confirmation: false,
@@ -79346,6 +79650,12 @@ not-json
             ),
             inference_breakers: None,
             #[cfg(feature = "hosted-auth")]
+            auth_mode: AuthMode::Local,
+            #[cfg(feature = "hosted-auth")]
+            external_oidc: None,
+            #[cfg(feature = "hosted-auth")]
+            oidc_issuer: None,
+            #[cfg(feature = "hosted-auth")]
             hosted_auth: None,
             call_recording_require_confirmation: false,
             authorization_policy: Arc::new(AllowAllPolicy),
@@ -79699,6 +80009,12 @@ not-json
                     .expect("valid test destination policy"),
             ),
             inference_breakers: None,
+            #[cfg(feature = "hosted-auth")]
+            auth_mode: AuthMode::Local,
+            #[cfg(feature = "hosted-auth")]
+            external_oidc: None,
+            #[cfg(feature = "hosted-auth")]
+            oidc_issuer: None,
             #[cfg(feature = "hosted-auth")]
             hosted_auth: None,
             call_recording_require_confirmation: false,

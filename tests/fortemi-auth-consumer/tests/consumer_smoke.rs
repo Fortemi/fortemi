@@ -1,4 +1,4 @@
-//! Downstream smoke for the public `fortemi-auth` v2.0 contract.
+//! Downstream smoke for the public `fortemi-auth` v3.0 contract.
 //!
 //! Full hosted router and tenant-transaction integration remains owned by
 //! #728 after its RLS and hardened-role prerequisites are complete.
@@ -28,10 +28,10 @@ use uuid::Uuid;
 use xjp_oidc::{HttpClient, HttpClientError, JwtVerifier, MemoryCache};
 
 const TENANT_ID: Uuid = Uuid::from_u128(0x00000000000040008000000000000001);
-const AUTHORITY_COMMIT: &str = "f2d3b33e39d68e2a05d1bc7d6718205123185252";
-const MANIFEST_SHA256: &str = "068c4f5ff6bc8ff294bde7d9e92cacb59b7602ec90a8cd374ac2a957d09f31f7";
+const AUTHORITY_COMMIT: &str = "40276e0cae4cb8ac942ad495a346db051e6a2dd9";
+const MANIFEST_SHA256: &str = "4efe18a5c6eff29a658254f368ed36ac10983746fa186f3cda4dae28c60efffa";
 const RELEASE_POLICY_SHA256: &str =
-    "8dcd516138a1c323106fca2f98a8381d93b463fbfbc97e0bd334159d9f040d4b";
+    "716862625a7f19aee4a9f9b55f727c4cfbc47610d8e69091bbc03d04c7c167ba";
 
 struct FixtureClaims(AuthContext);
 
@@ -78,6 +78,7 @@ impl OAuthProvider for FixtureProvider {
             session_id: Some("fixture-session-001".into()),
             principal_kind: PrincipalKind::Human,
             scope_grants: Vec::new(),
+            dropped_scope_count: 0,
         }))
     }
 
@@ -349,9 +350,16 @@ fn corpus_provider(
     let config = ClerkConfig {
         issuer: manifest.config.issuer.clone(),
         audience: manifest.config.audience.clone(),
+        accepted_audiences: Vec::new(),
+        allow_multi_audience: false,
         tenant_claim_name: manifest.config.tenant_claim_name.clone(),
+        default_tenant_id: None,
         clock_skew_seconds: manifest.config.clock_skew_seconds,
         jwks_cache_capacity: 4,
+        jwks_unknown_kid_throttle_seconds: 30,
+        jwks_grace_seconds: 3600,
+        max_token_lifetime_seconds: 3600,
+        verification_time_seconds: Some(1_700_000_000),
         http_timeout_seconds: 5,
     };
     let verifier: JwtVerifier<MemoryCache, CorpusHttp> = JwtVerifier::builder()
@@ -370,20 +378,27 @@ fn corpus_provider(
 }
 
 #[tokio::test]
-async fn fortemi_executes_the_canonical_v2_corpus() {
+async fn fortemi_executes_the_canonical_v3_corpus() {
     let manifest_bytes = include_bytes!("../fixtures/fortemi-auth-v1.json");
     assert_eq!(sha256(manifest_bytes), MANIFEST_SHA256);
     let manifest: CorpusManifest =
         serde_json::from_slice(manifest_bytes).expect("canonical auth manifest must parse");
     assert_eq!(manifest.contract_id, "fortemi-auth-conformance");
-    assert_eq!(manifest.contract_version, "2.0.0");
+    assert_eq!(manifest.contract_version, "3.0.0");
     assert_eq!(manifest.profile, "rust-node-jwt-v1");
     let config = ClerkConfig {
         issuer: manifest.config.issuer.clone(),
         audience: manifest.config.audience.clone(),
+        accepted_audiences: Vec::new(),
+        allow_multi_audience: false,
         tenant_claim_name: manifest.config.tenant_claim_name,
+        default_tenant_id: None,
         clock_skew_seconds: manifest.config.clock_skew_seconds,
         jwks_cache_capacity: 4,
+        jwks_unknown_kid_throttle_seconds: 30,
+        jwks_grace_seconds: 3600,
+        max_token_lifetime_seconds: 3600,
+        verification_time_seconds: Some(1_700_000_000),
         http_timeout_seconds: 5,
     };
     let verifier: JwtVerifier<MemoryCache, CorpusHttp> = JwtVerifier::builder()
@@ -497,6 +512,7 @@ async fn fortemi_executes_the_canonical_tenant_store_cases() {
             session_id: None,
             principal_kind: PrincipalKind::Human,
             scope_grants: Vec::new(),
+            dropped_scope_count: 0,
         });
         let error =
             extract_tenant_id_strategy_a(&claims, &FixtureTenantStore(case.store_result.as_str()))
@@ -523,9 +539,9 @@ fn fortemi_enforces_the_calver_release_policy() {
     assert_eq!(AUTHORITY_COMMIT.len(), 40);
     assert_eq!(policy.policy_version, "1.1.0");
     assert_eq!(policy.release_scheme, "calver-yyyy-m-patch");
-    assert_eq!(policy.current_release.version, "2026.10.0");
-    assert_eq!(policy.current_release.tag.as_deref(), Some("v2026.10.0"));
-    assert_eq!(policy.current_release.contract_version, "2.0.0");
+    assert_eq!(policy.current_release.version, "2026.10.1");
+    assert_eq!(policy.current_release.tag.as_deref(), Some("v2026.10.1"));
+    assert_eq!(policy.current_release.contract_version, "3.0.0");
     assert_eq!(policy.current_release.profile, "rust-node-jwt-v1");
     assert_eq!(policy.current_release.manifest_sha256, MANIFEST_SHA256);
     assert_calver(&policy.current_release.version);
@@ -549,7 +565,7 @@ fn fortemi_enforces_the_calver_release_policy() {
 fn fortemi_pins_the_signed_authority_release_commit() {
     let lock = include_str!("../Cargo.lock");
     let source = format!(
-        "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.0#{AUTHORITY_COMMIT}"
+        "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?rev=40276e0cae4cb8ac942ad495a346db051e6a2dd9#{AUTHORITY_COMMIT}"
     );
     assert!(
         lock.contains(&source),
@@ -558,12 +574,12 @@ fn fortemi_pins_the_signed_authority_release_commit() {
 }
 
 #[test]
-fn fortemi_executes_the_contract_v2_claim_policy_cases() {
+fn fortemi_executes_the_contract_v3_claim_policy_cases() {
     let manifest_bytes = include_bytes!("../fixtures/fortemi-auth-v1.json");
     assert_eq!(sha256(manifest_bytes), MANIFEST_SHA256);
     let manifest: CorpusManifest =
         serde_json::from_slice(manifest_bytes).expect("canonical auth manifest must parse");
-    assert_eq!(manifest.contract_version, "2.0.0");
+    assert_eq!(manifest.contract_version, "3.0.0");
     assert!(manifest.claim_policy_cases.len() >= 10);
 
     for case in &manifest.claim_policy_cases {
@@ -604,7 +620,7 @@ async fn fortemi_applies_claim_policy_after_signed_token_verification() {
     assert_eq!(sha256(manifest_bytes), MANIFEST_SHA256);
     let manifest: CorpusManifest =
         serde_json::from_slice(manifest_bytes).expect("canonical auth manifest must parse");
-    assert_eq!(manifest.contract_version, "2.0.0");
+    assert_eq!(manifest.contract_version, "3.0.0");
     assert!(!manifest.provider_policy_cases.is_empty());
 
     for case in &manifest.provider_policy_cases {

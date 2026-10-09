@@ -70,6 +70,7 @@ impl HostedAuthenticator for FixtureIdentity {
             session_id: None,
             principal_kind: fortemi_auth_core::PrincipalKind::Human,
             scope_grants: Vec::new(),
+            dropped_scope_count: 0,
         })
     }
 }
@@ -591,26 +592,39 @@ async fn run_scoped_fixture(admin: PgPool, installed_http: bool) {
             let config = HostedAuthConfig {
                 issuer,
                 audience: "fortemi-http-fixture".into(),
+                accepted_audiences: vec!["fortemi-http-fixture".into()],
+                allow_multi_audience: false,
                 tenant_claim_name: "fortemi:tenant_id".into(),
+                default_tenant_id: None,
                 clock_skew_seconds: 0,
                 jwks_cache_capacity: 2,
+                jwks_unknown_kid_throttle_seconds: 1,
+                jwks_grace_seconds: 300,
+                max_token_lifetime_seconds: 3600,
                 http_timeout_seconds: 2,
                 ca_bundle_path: Some(std::env::var("FORTEMI_TEST_CA").unwrap()),
                 claim_policy_path: None,
             };
-            state.hosted_auth = Some(build_clerk_authenticator(&config, runtime.clone()).unwrap());
+            state.hosted_auth = Some(
+                matric_api::hosted_auth::build_clerk_authenticator(&config, runtime.clone())
+                    .unwrap(),
+            );
             http_app = router(state.clone(), runtime.clone());
             let mut denied = state.clone();
             denied.authorization_policy = Arc::new(DenyNoteReads);
             http_denied = router(denied, runtime.clone());
             let mut cold_state = state.clone();
-            cold_state.hosted_auth =
-                Some(build_clerk_authenticator(&config, runtime.clone()).unwrap());
+            cold_state.hosted_auth = Some(
+                matric_api::hosted_auth::build_clerk_authenticator(&config, runtime.clone())
+                    .unwrap(),
+            );
             cold = Some(router(cold_state, runtime.clone()));
             let mut no_trust = config;
             no_trust.ca_bundle_path = None;
-            state.hosted_auth =
-                Some(build_clerk_authenticator(&no_trust, runtime.clone()).unwrap());
+            state.hosted_auth = Some(
+                matric_api::hosted_auth::build_clerk_authenticator(&no_trust, runtime.clone())
+                    .unwrap(),
+            );
             untrusted = Some(router(state.clone(), runtime.clone()));
         }
         // Schema provisioning is complete. Release owner connections before

@@ -22,6 +22,11 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Security
 
+- Add single-tenant `FORTEMI_AUTH_MODE=external-oidc`: external IdP JWTs can now
+  protect the full API surface outside hosted multi-tenancy, with required
+  claim-policy mapping, exact resource audiences, default-tenant bootstrap,
+  scope-enforcing authorization, `key_source_unavailable` as 503, and legacy
+  `mm_at_`/`mm_key_` tokens disabled unless explicitly capped (#1190).
 - Harden Fortemi's local OAuth authorization server: redirect URI matching now
   parses URLs before applying the RFC 8252 loopback port exception, dynamic
   client registration rejects unsafe redirect metadata, and deployments with an

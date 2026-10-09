@@ -118,6 +118,7 @@ mod tests {
         let identity = ValidatedBearerIdentity {
             principal: principal.clone(),
             tenant_id: Some(tenant),
+            request_principal: None,
             canonical_context: Some(AuthContext {
                 tenant_id: tenant,
                 principal_id: "subject-sentinel".into(),
@@ -132,6 +133,7 @@ mod tests {
                 session_id: None,
                 principal_kind: fortemi_auth_core::PrincipalKind::Human,
                 scope_grants: Vec::new(),
+                dropped_scope_count: 0,
             }),
         };
         let info = token_info_for(&principal, Some(&identity));

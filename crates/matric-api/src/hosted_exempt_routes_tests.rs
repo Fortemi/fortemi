@@ -158,6 +158,7 @@ mod hosted_bearer {
                 session_id: None,
                 principal_kind: fortemi_auth_core::PrincipalKind::Human,
                 scope_grants: Vec::new(),
+                dropped_scope_count: 0,
             })
         }
     }

@@ -2,6 +2,8 @@
 
 pub mod admin_bootstrap;
 #[cfg(feature = "hosted-auth")]
+pub mod external_oidc;
+#[cfg(feature = "hosted-auth")]
 pub mod hosted_auth;
 #[cfg(feature = "hosted-auth")]
 pub mod hosted_claim_policy;
