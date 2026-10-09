@@ -349,7 +349,7 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   Optional client allowlist (`client_not_allowed`) and service-principal
   classification for client-credentials callers (Fortemi/fortemi-auth#52).
   Authorization audit records `principal_kind` and matched rule ids in
-  `scope_grants`, never raw group values. Requires fortemi-auth `v2026.10.0`
+  `scope_grants`, never raw group values. Consumes fortemi-auth `v2026.10.0`
   (contract 2.0.0).
 
 - The MCP server accepts externally issued OIDC tokens by delegating

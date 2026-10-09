@@ -3,11 +3,11 @@
   "policy_version": "1.1.0",
   "release_scheme": "calver-yyyy-m-patch",
   "current_release": {
-    "version": "2026.9.0",
-    "tag": "v2026.9.0",
-    "contract_version": "1.1.0",
+    "version": "2026.10.0",
+    "tag": "v2026.10.0",
+    "contract_version": "2.0.0",
     "profile": "rust-node-jwt-v1",
-    "manifest_sha256": "2df0a35edad67cc3e8869286183a4d098b1eb8fc2161432ed0b54ba69b17e242"
+    "manifest_sha256": "068c4f5ff6bc8ff294bde7d9e92cacb59b7602ec90a8cd374ac2a957d09f31f7"
   },
   "compatibility_cases": [
     {
@@ -63,12 +63,25 @@
       }
     },
     {
-      "id": "current-exact",
+      "id": "previous-ca-trust-release",
       "candidate": {
         "version": "2026.9.0",
         "contract_version": "1.1.0",
         "profile": "rust-node-jwt-v1",
         "manifest_sha256": "2df0a35edad67cc3e8869286183a4d098b1eb8fc2161432ed0b54ba69b17e242"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "unsupported_release"
+      }
+    },
+    {
+      "id": "current-exact",
+      "candidate": {
+        "version": "2026.10.0",
+        "contract_version": "2.0.0",
+        "profile": "rust-node-jwt-v1",
+        "manifest_sha256": "068c4f5ff6bc8ff294bde7d9e92cacb59b7602ec90a8cd374ac2a957d09f31f7"
       },
       "expected": {
         "outcome": "accepted"
@@ -77,10 +90,10 @@
     {
       "id": "current-contract-drift",
       "candidate": {
-        "version": "2026.9.0",
-        "contract_version": "1.0.0",
+        "version": "2026.10.0",
+        "contract_version": "1.1.0",
         "profile": "rust-node-jwt-v1",
-        "manifest_sha256": "2df0a35edad67cc3e8869286183a4d098b1eb8fc2161432ed0b54ba69b17e242"
+        "manifest_sha256": "068c4f5ff6bc8ff294bde7d9e92cacb59b7602ec90a8cd374ac2a957d09f31f7"
       },
       "expected": {
         "outcome": "rejected",
@@ -90,10 +103,10 @@
     {
       "id": "current-profile-drift",
       "candidate": {
-        "version": "2026.9.0",
-        "contract_version": "1.1.0",
+        "version": "2026.10.0",
+        "contract_version": "2.0.0",
         "profile": "rust-node-jwt-v2",
-        "manifest_sha256": "2df0a35edad67cc3e8869286183a4d098b1eb8fc2161432ed0b54ba69b17e242"
+        "manifest_sha256": "068c4f5ff6bc8ff294bde7d9e92cacb59b7602ec90a8cd374ac2a957d09f31f7"
       },
       "expected": {
         "outcome": "rejected",
@@ -103,8 +116,8 @@
     {
       "id": "current-manifest-drift",
       "candidate": {
-        "version": "2026.9.0",
-        "contract_version": "1.1.0",
+        "version": "2026.10.0",
+        "contract_version": "2.0.0",
         "profile": "rust-node-jwt-v1",
         "manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       },
@@ -116,10 +129,10 @@
     {
       "id": "next-calendar-train",
       "candidate": {
-        "version": "2026.10.0",
-        "contract_version": "1.1.0",
+        "version": "2026.11.0",
+        "contract_version": "2.0.0",
         "profile": "rust-node-jwt-v1",
-        "manifest_sha256": "2df0a35edad67cc3e8869286183a4d098b1eb8fc2161432ed0b54ba69b17e242"
+        "manifest_sha256": "068c4f5ff6bc8ff294bde7d9e92cacb59b7602ec90a8cd374ac2a957d09f31f7"
       },
       "expected": {
         "outcome": "rejected",
@@ -130,9 +143,9 @@
       "id": "next-calendar-year",
       "candidate": {
         "version": "2027.1.0",
-        "contract_version": "1.1.0",
+        "contract_version": "2.0.0",
         "profile": "rust-node-jwt-v1",
-        "manifest_sha256": "2df0a35edad67cc3e8869286183a4d098b1eb8fc2161432ed0b54ba69b17e242"
+        "manifest_sha256": "068c4f5ff6bc8ff294bde7d9e92cacb59b7602ec90a8cd374ac2a957d09f31f7"
       },
       "expected": {
         "outcome": "rejected",

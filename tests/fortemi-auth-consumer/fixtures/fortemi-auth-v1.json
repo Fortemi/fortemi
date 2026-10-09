@@ -1,8 +1,8 @@
 {
   "contract_id": "fortemi-auth-conformance",
-  "contract_version": "1.1.0",
+  "contract_version": "2.0.0",
   "profile": "rust-node-jwt-v1",
-  "generated_at": "2026-08-24T23:56:07Z",
+  "generated_at": "2026-10-08T00:00:00Z",
   "test_only": true,
   "config": {
     "issuer": "https://issuer.fixture.invalid",
@@ -188,6 +188,681 @@
         "principal_id": "fixture-user-001",
         "scopes": ["read:note", "write:note"],
         "key_id": "fixture-key-2"
+      }
+    }
+  ],
+  "claim_policy_cases": [
+    {
+      "id": "mapped-group",
+      "policy": {
+        "scope_mapping": {
+          "claim": "realm_access.roles",
+          "rules": [
+            {
+              "id": "kc-readers",
+              "value": "fortemi-read",
+              "scopes": [
+                "read"
+              ]
+            },
+            {
+              "id": "kc-writers",
+              "value": "fortemi-write",
+              "scopes": [
+                "read",
+                "write"
+              ]
+            },
+            {
+              "id": "kc-agents",
+              "value": "fortemi-mcp",
+              "scopes": [
+                "mcp"
+              ]
+            }
+          ]
+        }
+      },
+      "token_scopes": [
+        "openid"
+      ],
+      "claims": {
+        "realm_access": {
+          "roles": [
+            "fortemi-read",
+            "offline_access"
+          ]
+        }
+      },
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [
+          "read"
+        ],
+        "scope_grants": [
+          "kc-readers"
+        ],
+        "principal_kind": "human"
+      }
+    },
+    {
+      "id": "multiple-groups-union",
+      "policy": {
+        "scope_mapping": {
+          "claim": "realm_access.roles",
+          "rules": [
+            {
+              "id": "kc-readers",
+              "value": "fortemi-read",
+              "scopes": [
+                "read"
+              ]
+            },
+            {
+              "id": "kc-writers",
+              "value": "fortemi-write",
+              "scopes": [
+                "read",
+                "write"
+              ]
+            },
+            {
+              "id": "kc-agents",
+              "value": "fortemi-mcp",
+              "scopes": [
+                "mcp"
+              ]
+            }
+          ]
+        }
+      },
+      "token_scopes": [],
+      "claims": {
+        "realm_access": {
+          "roles": [
+            "fortemi-mcp",
+            "fortemi-write",
+            "fortemi-read"
+          ]
+        }
+      },
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [
+          "mcp",
+          "read",
+          "write"
+        ],
+        "scope_grants": [
+          "kc-agents",
+          "kc-readers",
+          "kc-writers"
+        ],
+        "principal_kind": "human"
+      }
+    },
+    {
+      "id": "unmapped-denies",
+      "policy": {
+        "scope_mapping": {
+          "claim": "realm_access.roles",
+          "rules": [
+            {
+              "id": "kc-readers",
+              "value": "fortemi-read",
+              "scopes": [
+                "read"
+              ]
+            },
+            {
+              "id": "kc-writers",
+              "value": "fortemi-write",
+              "scopes": [
+                "read",
+                "write"
+              ]
+            },
+            {
+              "id": "kc-agents",
+              "value": "fortemi-mcp",
+              "scopes": [
+                "mcp"
+              ]
+            }
+          ]
+        }
+      },
+      "token_scopes": [
+        "read",
+        "write"
+      ],
+      "claims": {
+        "realm_access": {
+          "roles": [
+            "FORTEMI-READ",
+            "offline_access"
+          ]
+        }
+      },
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [],
+        "scope_grants": [],
+        "principal_kind": "human"
+      }
+    },
+    {
+      "id": "absent-claim-denies",
+      "policy": {
+        "scope_mapping": {
+          "claim": "realm_access.roles",
+          "rules": [
+            {
+              "id": "kc-readers",
+              "value": "fortemi-read",
+              "scopes": [
+                "read"
+              ]
+            },
+            {
+              "id": "kc-writers",
+              "value": "fortemi-write",
+              "scopes": [
+                "read",
+                "write"
+              ]
+            },
+            {
+              "id": "kc-agents",
+              "value": "fortemi-mcp",
+              "scopes": [
+                "mcp"
+              ]
+            }
+          ]
+        }
+      },
+      "token_scopes": [
+        "read"
+      ],
+      "claims": {},
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [],
+        "scope_grants": [],
+        "principal_kind": "human"
+      }
+    },
+    {
+      "id": "single-string-is-one-value",
+      "policy": {
+        "scope_mapping": {
+          "claim": "realm_access.roles",
+          "rules": [
+            {
+              "id": "kc-readers",
+              "value": "fortemi-read",
+              "scopes": [
+                "read"
+              ]
+            },
+            {
+              "id": "kc-writers",
+              "value": "fortemi-write",
+              "scopes": [
+                "read",
+                "write"
+              ]
+            },
+            {
+              "id": "kc-agents",
+              "value": "fortemi-mcp",
+              "scopes": [
+                "mcp"
+              ]
+            }
+          ]
+        }
+      },
+      "token_scopes": [],
+      "claims": {
+        "realm_access": {
+          "roles": "fortemi-read fortemi-write"
+        }
+      },
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [],
+        "scope_grants": [],
+        "principal_kind": "human"
+      }
+    },
+    {
+      "id": "malformed-array-member",
+      "policy": {
+        "scope_mapping": {
+          "claim": "realm_access.roles",
+          "rules": [
+            {
+              "id": "kc-readers",
+              "value": "fortemi-read",
+              "scopes": [
+                "read"
+              ]
+            },
+            {
+              "id": "kc-writers",
+              "value": "fortemi-write",
+              "scopes": [
+                "read",
+                "write"
+              ]
+            },
+            {
+              "id": "kc-agents",
+              "value": "fortemi-mcp",
+              "scopes": [
+                "mcp"
+              ]
+            }
+          ]
+        }
+      },
+      "token_scopes": [],
+      "claims": {
+        "realm_access": {
+          "roles": [
+            "fortemi-read",
+            7
+          ]
+        }
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid_authorization_claim"
+      }
+    },
+    {
+      "id": "malformed-intermediate",
+      "policy": {
+        "scope_mapping": {
+          "claim": "realm_access.roles",
+          "rules": [
+            {
+              "id": "kc-readers",
+              "value": "fortemi-read",
+              "scopes": [
+                "read"
+              ]
+            },
+            {
+              "id": "kc-writers",
+              "value": "fortemi-write",
+              "scopes": [
+                "read",
+                "write"
+              ]
+            },
+            {
+              "id": "kc-agents",
+              "value": "fortemi-mcp",
+              "scopes": [
+                "mcp"
+              ]
+            }
+          ]
+        }
+      },
+      "token_scopes": [],
+      "claims": {
+        "realm_access": "fortemi-read"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid_authorization_claim"
+      }
+    },
+    {
+      "id": "json-pointer-dotted-client",
+      "policy": {
+        "scope_mapping": {
+          "claim": "/resource_access/fortemi.api/roles",
+          "rules": [
+            {
+              "id": "client-admin",
+              "value": "admin",
+              "scopes": [
+                "admin"
+              ]
+            }
+          ]
+        }
+      },
+      "token_scopes": [],
+      "claims": {
+        "resource_access": {
+          "fortemi.api": {
+            "roles": [
+              "admin"
+            ]
+          }
+        }
+      },
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [
+          "admin"
+        ],
+        "scope_grants": [
+          "client-admin"
+        ],
+        "principal_kind": "human"
+      }
+    },
+    {
+      "id": "union-source",
+      "policy": {
+        "scope_source": "union",
+        "scope_mapping": {
+          "claim": "groups",
+          "rules": [
+            {
+              "id": "staff",
+              "value": "/acme/staff",
+              "scopes": [
+                "read",
+                "openid"
+              ]
+            }
+          ]
+        }
+      },
+      "token_scopes": [
+        "openid",
+        "profile"
+      ],
+      "claims": {
+        "groups": [
+          "/acme/staff"
+        ]
+      },
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [
+          "openid",
+          "profile",
+          "read"
+        ],
+        "scope_grants": [
+          "staff"
+        ],
+        "principal_kind": "human"
+      }
+    },
+    {
+      "id": "service-client-allowlisted",
+      "policy": {
+        "clients": {
+          "allowed": [
+            "fortemi-web"
+          ],
+          "service": [
+            "fortemi-etl"
+          ]
+        }
+      },
+      "token_scopes": [
+        "read"
+      ],
+      "claims": {
+        "sub": "service-account-fortemi-etl",
+        "azp": "fortemi-etl"
+      },
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [
+          "read"
+        ],
+        "scope_grants": [],
+        "principal_kind": "service"
+      }
+    },
+    {
+      "id": "human-client-allowlisted",
+      "policy": {
+        "clients": {
+          "allowed": [
+            "fortemi-web"
+          ],
+          "service": [
+            "fortemi-etl"
+          ]
+        }
+      },
+      "token_scopes": [
+        "read"
+      ],
+      "claims": {
+        "sub": "user-1",
+        "azp": "fortemi-web"
+      },
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [
+          "read"
+        ],
+        "scope_grants": [],
+        "principal_kind": "human"
+      }
+    },
+    {
+      "id": "client-not-listed",
+      "policy": {
+        "clients": {
+          "allowed": [
+            "fortemi-web"
+          ],
+          "service": [
+            "fortemi-etl"
+          ]
+        }
+      },
+      "token_scopes": [
+        "read"
+      ],
+      "claims": {
+        "sub": "user-1",
+        "azp": "other-client"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "client_not_allowed"
+      }
+    },
+    {
+      "id": "client-absent-with-allowlist",
+      "policy": {
+        "clients": {
+          "allowed": [
+            "fortemi-web"
+          ]
+        }
+      },
+      "token_scopes": [
+        "read"
+      ],
+      "claims": {
+        "sub": "user-1"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "client_not_allowed"
+      }
+    },
+    {
+      "id": "client-claim-wrong-type",
+      "policy": {
+        "clients": {
+          "service": [
+            "fortemi-etl"
+          ]
+        }
+      },
+      "token_scopes": [
+        "read"
+      ],
+      "claims": {
+        "azp": [
+          "fortemi-etl"
+        ]
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid_authorization_claim"
+      }
+    },
+    {
+      "id": "invalid-policy-duplicate-rule",
+      "policy": {
+        "scope_mapping": {
+          "claim": "groups",
+          "rules": [
+            {
+              "id": "r",
+              "value": "a",
+              "scopes": [
+                "read"
+              ]
+            },
+            {
+              "id": "r",
+              "value": "b",
+              "scopes": [
+                "read"
+              ]
+            }
+          ]
+        }
+      },
+      "token_scopes": [],
+      "claims": {},
+      "expected": {
+        "outcome": "config_rejected",
+        "error": "config_error"
+      }
+    },
+    {
+      "id": "invalid-policy-token-source-with-mapping",
+      "policy": {
+        "scope_source": "token",
+        "scope_mapping": {
+          "claim": "groups",
+          "rules": [
+            {
+              "id": "r",
+              "value": "a",
+              "scopes": [
+                "read"
+              ]
+            }
+          ]
+        }
+      },
+      "token_scopes": [],
+      "claims": {},
+      "expected": {
+        "outcome": "config_rejected",
+        "error": "config_error"
+      }
+    }
+  ],
+  "provider_policy_cases": [
+    {
+      "id": "signed-token-unmapped-groups",
+      "token_case": "valid",
+      "policy": {
+        "scope_mapping": {
+          "claim": "groups",
+          "rules": [
+            {
+              "id": "staff",
+              "value": "/acme/staff",
+              "scopes": [
+                "read:note"
+              ]
+            }
+          ]
+        }
+      },
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [],
+        "scope_grants": [],
+        "principal_kind": "human"
+      }
+    },
+    {
+      "id": "signed-token-union-keeps-token-scopes",
+      "token_case": "valid",
+      "policy": {
+        "scope_source": "union",
+        "scope_mapping": {
+          "claim": "groups",
+          "rules": [
+            {
+              "id": "staff",
+              "value": "/acme/staff",
+              "scopes": [
+                "read:note"
+              ]
+            }
+          ]
+        }
+      },
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [
+          "read:note",
+          "write:note"
+        ],
+        "scope_grants": [],
+        "principal_kind": "human"
+      }
+    },
+    {
+      "id": "signed-token-client-allowlist-rejects-missing-azp",
+      "token_case": "valid",
+      "policy": {
+        "clients": {
+          "allowed": [
+            "fortemi-web"
+          ]
+        }
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "client_not_allowed"
+      }
+    },
+    {
+      "id": "signed-token-service-by-configured-claim",
+      "token_case": "valid",
+      "policy": {
+        "clients": {
+          "claim": "sub",
+          "service": [
+            "fixture-user-001"
+          ]
+        }
+      },
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [
+          "read:note",
+          "write:note"
+        ],
+        "scope_grants": [],
+        "principal_kind": "service"
       }
     }
   ]

@@ -156,6 +156,8 @@ mod hosted_bearer {
                 issued_at: Utc::now(),
                 expires_at: Utc::now() + chrono::Duration::minutes(5),
                 session_id: None,
+                principal_kind: fortemi_auth_core::PrincipalKind::Human,
+                scope_grants: Vec::new(),
             })
         }
     }

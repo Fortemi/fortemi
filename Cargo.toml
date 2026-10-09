@@ -30,8 +30,8 @@ matric-api = { path = "crates/matric-api" }
 
 # Public, versioned authentication authority. Runtime consumers pin the signed
 # release; local paths and floating branches are forbidden for hosted builds.
-fortemi-auth-clerk = { version = "=2026.10.0", git = "https://git.integrolabs.net/Fortemi/fortemi-auth.git", rev = "773165d14669191c6feb640463af3dc8374badb1" }
-fortemi-auth-core = { version = "=2026.10.0", git = "https://git.integrolabs.net/Fortemi/fortemi-auth.git", rev = "773165d14669191c6feb640463af3dc8374badb1" }
+fortemi-auth-clerk = { version = "=2026.10.0", git = "https://git.integrolabs.net/Fortemi/fortemi-auth.git", tag = "v2026.10.0" }
+fortemi-auth-core = { version = "=2026.10.0", git = "https://git.integrolabs.net/Fortemi/fortemi-auth.git", tag = "v2026.10.0" }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
