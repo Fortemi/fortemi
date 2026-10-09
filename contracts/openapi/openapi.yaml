@@ -8615,6 +8615,8 @@ components:
           $ref: '#/components/schemas/Value'
         supports_mrl:
           type: boolean
+        vector_type:
+          $ref: '#/components/schemas/EmbeddingVectorType'
     CreateEmbeddingSetRequest:
       type: object
       description: Request to create a new embedding set.
@@ -9809,6 +9811,9 @@ components:
         model:
           type: string
           description: Embedding model name
+        vector_type:
+          $ref: '#/components/schemas/EmbeddingVectorType'
+          description: Vector family used for indexing this config
     EmbeddingConfigProfile:
       type: object
       description: Database-stored embedding configuration profile.
@@ -9901,6 +9906,8 @@ components:
         updated_at:
           type: string
           format: date-time
+        vector_type:
+          $ref: '#/components/schemas/EmbeddingVectorType'
     EmbeddingIndexStatus:
       type: string
       description: Index build status for embedding sets.
@@ -10234,6 +10241,11 @@ components:
       - pending
       - failed
       - none
+    EmbeddingVectorType:
+      type: string
+      enum:
+      - vector
+      - halfvec
     EntityExportStats:
       type: object
       required:
@@ -14224,6 +14236,10 @@ components:
           type:
           - boolean
           - 'null'
+        vector_type:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/EmbeddingVectorType'
     UpdateEmbeddingSetRequest:
       type: object
       description: Request to update an embedding set.

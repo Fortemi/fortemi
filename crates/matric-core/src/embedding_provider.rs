@@ -1,6 +1,7 @@
 //! Embedding provider types and configuration for dynamic embedding generation.
 
 use crate::models::DocumentComposition;
+use crate::EmbeddingVectorType;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::fmt;
@@ -70,6 +71,8 @@ pub struct CreateEmbeddingConfigRequest {
     pub description: Option<String>,
     pub model: String,
     pub dimension: i32,
+    #[serde(default)]
+    pub vector_type: EmbeddingVectorType,
     #[serde(default = "default_chunk_size")]
     pub chunk_size: i32,
     #[serde(default = "default_chunk_overlap")]
@@ -106,6 +109,7 @@ impl fmt::Debug for CreateEmbeddingConfigRequest {
             )
             .field("model_len", &text_len(&self.model))
             .field("dimension", &self.dimension)
+            .field("vector_type", &self.vector_type)
             .field("chunk_size", &self.chunk_size)
             .field("chunk_overlap", &self.chunk_overlap)
             .field("provider", &self.provider)
@@ -146,6 +150,7 @@ pub struct UpdateEmbeddingConfigRequest {
     pub description: Option<String>,
     pub model: Option<String>,
     pub dimension: Option<i32>,
+    pub vector_type: Option<EmbeddingVectorType>,
     pub chunk_size: Option<i32>,
     pub chunk_overlap: Option<i32>,
     pub provider: Option<EmbeddingProvider>,
@@ -171,6 +176,7 @@ impl fmt::Debug for UpdateEmbeddingConfigRequest {
             )
             .field("model_len", &self.model.as_deref().map(text_len))
             .field("dimension", &self.dimension)
+            .field("vector_type", &self.vector_type)
             .field("chunk_size", &self.chunk_size)
             .field("chunk_overlap", &self.chunk_overlap)
             .field("provider", &self.provider)
@@ -299,6 +305,7 @@ mod tests {
             description: Some("Voyage AI code embedding".to_string()),
             model: "voyage-code-2".to_string(),
             dimension: 1536,
+            vector_type: EmbeddingVectorType::Vector,
             chunk_size: 512,
             chunk_overlap: 50,
             provider: EmbeddingProvider::Voyage,
@@ -330,6 +337,7 @@ mod tests {
             description: Some("priváté description with /tmp/path".to_string()),
             model: "priváté-model-sk-live-secret".to_string(),
             dimension: 1536,
+            vector_type: EmbeddingVectorType::Vector,
             chunk_size: 800,
             chunk_overlap: 80,
             provider: EmbeddingProvider::Custom,

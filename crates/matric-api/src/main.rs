@@ -42825,13 +42825,21 @@ async fn memory_info(
 
     // Get embedding set info
     let embedding_sets = sets_repo.list_tx(&mut tx).await.unwrap_or_default();
+    let default_embedding_dimension = sets_repo
+        .get_default_config_tx(&mut tx)
+        .await
+        .ok()
+        .flatten()
+        .map(|config| config.dimension)
+        .unwrap_or(matric_core::defaults::EMBED_DIMENSION as i32);
 
     tx.commit().await.map_err(matric_db::Error::Database)?;
     let mut set_infos = Vec::new();
 
     for set in &embedding_sets {
         // Calculate vector storage: embedding_count * dimension * 4 bytes per float
-        let vector_bytes = (set.embedding_count as i64) * (set.dimension.unwrap_or(768) as i64) * 4;
+        let dimension = set.dimension.unwrap_or(default_embedding_dimension);
+        let vector_bytes = (set.embedding_count as i64) * (dimension as i64) * 4;
 
         set_infos.push(EmbeddingSetInfo {
             id: set.id,
@@ -42840,7 +42848,7 @@ async fn memory_info(
             description: set.description.clone(),
             document_count: set.document_count,
             embedding_count: set.embedding_count,
-            dimension: set.dimension.unwrap_or(768),
+            dimension,
             vector_storage_bytes: vector_bytes,
             vector_storage_human: format_size(vector_bytes as u64),
             model: set.model.clone(),
@@ -42861,7 +42869,10 @@ async fn memory_info(
     let min_ram_gb = 2.0 + (total_vector_bytes as f64 / 1_073_741_824.0);
 
     let total_embeddings: i32 = set_infos.iter().map(|s| s.embedding_count).sum();
-    let dimension = set_infos.first().map(|s| s.dimension).unwrap_or(768);
+    let dimension = set_infos
+        .first()
+        .map(|s| s.dimension)
+        .unwrap_or(default_embedding_dimension);
 
     let recommendations = HardwareRecommendations {
         min_inference_ram_gb: min_ram_gb,
@@ -43388,6 +43399,7 @@ mod tests {
             description: None,
             model: "private-compatible-model".to_string(),
             dimension: 8,
+            vector_type: matric_core::EmbeddingVectorType::Vector,
             chunk_size: 512,
             chunk_overlap: 64,
             hnsw_m: None,

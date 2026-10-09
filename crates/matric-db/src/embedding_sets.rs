@@ -6,11 +6,11 @@ use sqlx::{Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use matric_core::{
-    new_v7, AddMembersRequest, CreateEmbeddingConfigRequest, CreateEmbeddingSetRequest,
-    EmbeddingConfigProfile, EmbeddingIndexStatus, EmbeddingProvider, EmbeddingSet,
-    EmbeddingSetAgentMetadata, EmbeddingSetCriteria, EmbeddingSetHealth, EmbeddingSetMember,
-    EmbeddingSetMode, EmbeddingSetSummary, Error, GarbageCollectionResult, Result,
-    UpdateEmbeddingConfigRequest, UpdateEmbeddingSetRequest,
+    new_v7, validate_embedding_dimension, AddMembersRequest, CreateEmbeddingConfigRequest,
+    CreateEmbeddingSetRequest, EmbeddingConfigProfile, EmbeddingIndexStatus, EmbeddingProvider,
+    EmbeddingSet, EmbeddingSetAgentMetadata, EmbeddingSetCriteria, EmbeddingSetHealth,
+    EmbeddingSetMember, EmbeddingSetMode, EmbeddingSetSummary, EmbeddingVectorType, Error,
+    GarbageCollectionResult, Result, UpdateEmbeddingConfigRequest, UpdateEmbeddingSetRequest,
 };
 
 fn embedding_set_not_found_by_slug_error(slug: &str) -> Error {
@@ -36,6 +36,19 @@ fn embedding_config_in_use_error(_usage_count: i64) -> Error {
     Error::InvalidInput(
         "Cannot delete embedding config; embedding_set_count_present=true".to_string(),
     )
+}
+
+fn parse_vector_type(value: String) -> Result<EmbeddingVectorType> {
+    value
+        .parse::<EmbeddingVectorType>()
+        .map_err(|error| Error::InvalidInput(error.to_string()))
+}
+
+fn validate_config_dimension(dimension: i32, vector_type: EmbeddingVectorType) -> Result<()> {
+    let dimension = usize::try_from(dimension)
+        .map_err(|_| Error::InvalidInput("embedding dimension must be positive".to_string()))?;
+    validate_embedding_dimension(dimension, vector_type)
+        .map_err(|error| Error::InvalidInput(error.to_string()))
 }
 
 /// PostgreSQL implementation of embedding set repository.
@@ -264,6 +277,14 @@ impl PgEmbeddingSetRepository {
         .execute(&self.pool)
         .await
         .map_err(Error::Database)?;
+
+        if let Some(config_id) = config_id {
+            sqlx::query("SELECT public.recreate_embedding_hnsw_index($1)")
+                .bind(config_id)
+                .execute(&self.pool)
+                .await
+                .map_err(Error::Database)?;
+        }
 
         self.get_by_id(id)
             .await?
@@ -584,7 +605,7 @@ impl PgEmbeddingSetRepository {
     pub async fn list_configs(&self) -> Result<Vec<EmbeddingConfigProfile>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, name, description, model, dimension, chunk_size, chunk_overlap,
+            SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
                    provider::text, provider_config, content_types, document_composition
@@ -609,6 +630,8 @@ impl PgEmbeddingSetRepository {
                     description: row.get("description"),
                     model: row.get("model"),
                     dimension: row.get("dimension"),
+                    vector_type: parse_vector_type(row.get::<String, _>("vector_type"))
+                        .unwrap_or_default(),
                     chunk_size: row.get("chunk_size"),
                     chunk_overlap: row.get("chunk_overlap"),
                     hnsw_m: row.get("hnsw_m"),
@@ -642,7 +665,7 @@ impl PgEmbeddingSetRepository {
     pub async fn get_default_config(&self) -> Result<Option<EmbeddingConfigProfile>> {
         let row = sqlx::query(
             r#"
-            SELECT id, name, description, model, dimension, chunk_size, chunk_overlap,
+            SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
                    provider::text, provider_config, content_types, document_composition
@@ -667,6 +690,8 @@ impl PgEmbeddingSetRepository {
                     description: row.get("description"),
                     model: row.get("model"),
                     dimension: row.get("dimension"),
+                    vector_type: parse_vector_type(row.get::<String, _>("vector_type"))
+                        .unwrap_or_default(),
                     chunk_size: row.get("chunk_size"),
                     chunk_overlap: row.get("chunk_overlap"),
                     hnsw_m: row.get("hnsw_m"),
@@ -699,7 +724,7 @@ impl PgEmbeddingSetRepository {
     pub async fn get_config(&self, id: Uuid) -> Result<Option<EmbeddingConfigProfile>> {
         let row = sqlx::query(
             r#"
-            SELECT id, name, description, model, dimension, chunk_size, chunk_overlap,
+            SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
                    provider::text, provider_config, content_types, document_composition
@@ -724,6 +749,8 @@ impl PgEmbeddingSetRepository {
                     description: row.get("description"),
                     model: row.get("model"),
                     dimension: row.get("dimension"),
+                    vector_type: parse_vector_type(row.get::<String, _>("vector_type"))
+                        .unwrap_or_default(),
                     chunk_size: row.get("chunk_size"),
                     chunk_overlap: row.get("chunk_overlap"),
                     hnsw_m: row.get("hnsw_m"),
@@ -757,6 +784,7 @@ impl PgEmbeddingSetRepository {
         &self,
         request: CreateEmbeddingConfigRequest,
     ) -> Result<EmbeddingConfigProfile> {
+        validate_config_dimension(request.dimension, request.vector_type)?;
         let id = new_v7();
         let now = Utc::now();
         // Bind matryoshka_dims as Vec<i32> directly (issue #126 EMB-017)
@@ -766,15 +794,15 @@ impl PgEmbeddingSetRepository {
         sqlx::query(
             r#"
             INSERT INTO embedding_config (
-                id, name, description, model, dimension, chunk_size, chunk_overlap,
+                id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
                 hnsw_m, hnsw_ef_construction, is_default, created_at, updated_at,
                 supports_mrl, matryoshka_dims, default_truncate_dim,
                 provider, provider_config, content_types, document_composition
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7,
-                $8, $9, FALSE, $10, $10,
-                $11, $12, $13,
-                $14::embedding_provider, $15, $16, $17
+                $1, $2, $3, $4, $5, $6, $7, $8,
+                $9, $10, FALSE, $11, $11,
+                $12, $13, $14,
+                $15::embedding_provider, $16, $17, $18
             )
             "#,
         )
@@ -783,6 +811,7 @@ impl PgEmbeddingSetRepository {
         .bind(&request.description)
         .bind(&request.model)
         .bind(request.dimension)
+        .bind(request.vector_type.to_string())
         .bind(request.chunk_size)
         .bind(request.chunk_overlap)
         .bind(request.hnsw_m)
@@ -799,6 +828,12 @@ impl PgEmbeddingSetRepository {
         .await
         .map_err(Error::Database)?;
 
+        sqlx::query("SELECT public.recreate_embedding_hnsw_index($1)")
+            .bind(id)
+            .execute(&self.pool)
+            .await
+            .map_err(Error::Database)?;
+
         // Fetch and return the created config
         self.get_config(id)
             .await?
@@ -811,6 +846,16 @@ impl PgEmbeddingSetRepository {
         id: Uuid,
         request: UpdateEmbeddingConfigRequest,
     ) -> Result<EmbeddingConfigProfile> {
+        if request.dimension.is_some() || request.vector_type.is_some() {
+            let current = self
+                .get_config(id)
+                .await?
+                .ok_or_else(|| embedding_config_not_found_error(id))?;
+            let dimension = request.dimension.unwrap_or(current.dimension);
+            let vector_type = request.vector_type.unwrap_or(current.vector_type);
+            validate_config_dimension(dimension, vector_type)?;
+        }
+
         // Build dynamic update query
         let mut updates = vec!["updated_at = NOW()".to_string()];
         let mut param_idx = 2; // $1 is id
@@ -829,6 +874,10 @@ impl PgEmbeddingSetRepository {
         }
         if request.dimension.is_some() {
             updates.push(format!("dimension = ${}", param_idx));
+            param_idx += 1;
+        }
+        if request.vector_type.is_some() {
+            updates.push(format!("vector_type = ${}", param_idx));
             param_idx += 1;
         }
         if request.chunk_size.is_some() {
@@ -895,6 +944,9 @@ impl PgEmbeddingSetRepository {
         if let Some(dimension) = request.dimension {
             query_builder = query_builder.bind(dimension);
         }
+        if let Some(vector_type) = request.vector_type {
+            query_builder = query_builder.bind(vector_type.to_string());
+        }
         if let Some(chunk_size) = request.chunk_size {
             query_builder = query_builder.bind(chunk_size);
         }
@@ -932,6 +984,12 @@ impl PgEmbeddingSetRepository {
         }
 
         query_builder
+            .execute(&self.pool)
+            .await
+            .map_err(Error::Database)?;
+
+        sqlx::query("SELECT public.recreate_embedding_hnsw_index($1)")
+            .bind(id)
             .execute(&self.pool)
             .await
             .map_err(Error::Database)?;
@@ -1016,7 +1074,7 @@ impl PgEmbeddingSetRepository {
     ) -> Result<Vec<EmbeddingConfigProfile>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, name, description, model, dimension, chunk_size, chunk_overlap,
+            SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
                    provider::text, provider_config, content_types, document_composition
@@ -1043,6 +1101,8 @@ impl PgEmbeddingSetRepository {
                     description: row.get("description"),
                     model: row.get("model"),
                     dimension: row.get("dimension"),
+                    vector_type: parse_vector_type(row.get::<String, _>("vector_type"))
+                        .unwrap_or_default(),
                     chunk_size: row.get("chunk_size"),
                     chunk_overlap: row.get("chunk_overlap"),
                     hnsw_m: row.get("hnsw_m"),
@@ -1079,7 +1139,7 @@ impl PgEmbeddingSetRepository {
     ) -> Result<Vec<EmbeddingConfigProfile>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, name, description, model, dimension, chunk_size, chunk_overlap,
+            SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
                    provider::text, provider_config, content_types, document_composition
@@ -1106,6 +1166,8 @@ impl PgEmbeddingSetRepository {
                     description: row.get("description"),
                     model: row.get("model"),
                     dimension: row.get("dimension"),
+                    vector_type: parse_vector_type(row.get::<String, _>("vector_type"))
+                        .unwrap_or_default(),
                     chunk_size: row.get("chunk_size"),
                     chunk_overlap: row.get("chunk_overlap"),
                     hnsw_m: row.get("hnsw_m"),
@@ -1803,6 +1865,14 @@ impl PgEmbeddingSetRepository {
         .await
         .map_err(Error::Database)?;
 
+        if let Some(config_id) = config_id {
+            sqlx::query("SELECT public.recreate_embedding_hnsw_index($1)")
+                .bind(config_id)
+                .execute(&mut **tx)
+                .await
+                .map_err(Error::Database)?;
+        }
+
         self.get_by_id_tx(tx, id)
             .await?
             .ok_or_else(|| Error::Internal("Failed to create embedding set".to_string()))
@@ -2278,7 +2348,7 @@ impl PgEmbeddingSetRepository {
     ) -> Result<Vec<EmbeddingConfigProfile>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, name, description, model, dimension, chunk_size, chunk_overlap,
+            SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
                    provider::text, provider_config, content_types, document_composition
@@ -2303,6 +2373,8 @@ impl PgEmbeddingSetRepository {
                     description: row.get("description"),
                     model: row.get("model"),
                     dimension: row.get("dimension"),
+                    vector_type: parse_vector_type(row.get::<String, _>("vector_type"))
+                        .unwrap_or_default(),
                     chunk_size: row.get("chunk_size"),
                     chunk_overlap: row.get("chunk_overlap"),
                     hnsw_m: row.get("hnsw_m"),
@@ -2339,7 +2411,7 @@ impl PgEmbeddingSetRepository {
     ) -> Result<Option<EmbeddingConfigProfile>> {
         let row = sqlx::query(
             r#"
-            SELECT id, name, description, model, dimension, chunk_size, chunk_overlap,
+            SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
                    provider::text, provider_config, content_types, document_composition
@@ -2364,6 +2436,8 @@ impl PgEmbeddingSetRepository {
                     description: row.get("description"),
                     model: row.get("model"),
                     dimension: row.get("dimension"),
+                    vector_type: parse_vector_type(row.get::<String, _>("vector_type"))
+                        .unwrap_or_default(),
                     chunk_size: row.get("chunk_size"),
                     chunk_overlap: row.get("chunk_overlap"),
                     hnsw_m: row.get("hnsw_m"),
@@ -2400,7 +2474,7 @@ impl PgEmbeddingSetRepository {
     ) -> Result<Option<EmbeddingConfigProfile>> {
         let row = sqlx::query(
             r#"
-            SELECT id, name, description, model, dimension, chunk_size, chunk_overlap,
+            SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
                    provider::text, provider_config, content_types, document_composition
@@ -2425,6 +2499,8 @@ impl PgEmbeddingSetRepository {
                     description: row.get("description"),
                     model: row.get("model"),
                     dimension: row.get("dimension"),
+                    vector_type: parse_vector_type(row.get::<String, _>("vector_type"))
+                        .unwrap_or_default(),
                     chunk_size: row.get("chunk_size"),
                     chunk_overlap: row.get("chunk_overlap"),
                     hnsw_m: row.get("hnsw_m"),

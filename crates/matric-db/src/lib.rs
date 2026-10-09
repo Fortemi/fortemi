@@ -39,6 +39,7 @@ pub mod colbert;
 pub mod collections;
 pub mod document_types;
 pub mod embedding_sets;
+mod embedding_storage_contract;
 pub mod embeddings;
 pub mod file_storage;
 pub mod hashtag_extraction;

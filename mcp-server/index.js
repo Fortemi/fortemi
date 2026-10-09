@@ -2870,6 +2870,7 @@ function createMcpServer() {
             name: args.name,
             model: args.model,
             dimension: toNum(args.dimension),
+            vector_type: args.vector_type,
             provider: args.provider,
             is_default: args.is_default || false,
             chunk_size: toNum(args.chunk_size),
@@ -2885,6 +2886,7 @@ function createMcpServer() {
           if (args.name !== undefined) body.name = args.name;
           if (args.model !== undefined) body.model = args.model;
           if (args.dimension !== undefined) body.dimension = toNum(args.dimension);
+          if (args.vector_type !== undefined) body.vector_type = args.vector_type;
           if (args.provider !== undefined) body.provider = args.provider;
           if (args.is_default !== undefined) body.is_default = args.is_default;
           if (args.chunk_size !== undefined) body.chunk_size = toNum(args.chunk_size);
@@ -5204,7 +5206,7 @@ Each config has a \`document_composition\` field that controls what goes into th
 \`\`\`
 // List all configs
 list_embedding_configs()
-// Returns: [{ id, name, model, dimensions, provider, is_default, document_composition }]
+// Returns: [{ id, name, model, dimension, vector_type, provider, is_default, document_composition }]
 
 // Get default config
 get_default_embedding_config()
@@ -5216,7 +5218,8 @@ get_embedding_config({ id: "uuid" })
 create_embedding_config({
   name: "Nomic Large",
   model: "nomic-embed-text",
-  dimensions: 768,
+  dimension: 768,
+  vector_type: "vector",
   provider: "ollama"
 })
 
@@ -5224,7 +5227,8 @@ create_embedding_config({
 create_embedding_config({
   name: "Tag-Aware Config",
   model: "nomic-embed-text",
-  dimensions: 768,
+  dimension: 768,
+  vector_type: "vector",
   provider: "ollama",
   document_composition: {
     include_title: true,

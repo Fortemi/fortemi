@@ -5575,7 +5575,13 @@ When called without note_ids, processes all notes in the current archive (up to 
         },
         "dimension": {
           "type": "number",
-          "description": "Vector dimension (e.g., 768, 384, 1536)"
+          "description": "Vector dimension. Use vector for 1-2000 dimensions, halfvec for 1-4000 dimensions."
+        },
+        "vector_type": {
+          "type": "string",
+          "enum": ["vector", "halfvec"],
+          "default": "vector",
+          "description": "pgvector index type. Use halfvec for HNSW dimensions above 2000."
         },
         "provider": {
           "type": "string",
@@ -5639,7 +5645,12 @@ When called without note_ids, processes all notes in the current archive (up to 
         },
         "dimension": {
           "type": "number",
-          "description": "New vector dimension"
+          "description": "New vector dimension. Use vector for 1-2000 dimensions, halfvec for 1-4000 dimensions."
+        },
+        "vector_type": {
+          "type": "string",
+          "enum": ["vector", "halfvec"],
+          "description": "New pgvector index type"
         },
         "provider": {
           "type": "string",

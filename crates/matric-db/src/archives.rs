@@ -609,6 +609,12 @@ impl PgArchiveRepository {
         .await
         .map_err(Error::Database)?;
 
+        sqlx::query("SELECT public.recreate_embedding_hnsw_index($1)")
+            .bind(default_config_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+
         sqlx::query(&format!(
             "INSERT INTO {}.shard_embedding_set_bootstrap (tenant_id, set_id)
              SELECT tenant_id, id FROM {}.embedding_set WHERE id = $1",
@@ -1055,6 +1061,12 @@ impl PgArchiveRepository {
             .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
+
+            sqlx::query("SELECT public.recreate_embedding_hnsw_index($1)")
+                .bind(default_config_id)
+                .execute(&mut *tx)
+                .await
+                .map_err(Error::Database)?;
 
             sqlx::query(&format!(
                 "INSERT INTO {}.shard_embedding_set_bootstrap (tenant_id, set_id)

@@ -550,6 +550,9 @@ pub struct EmbeddingConfig {
     pub model: String,
     /// Expected vector dimension
     pub dimension: usize,
+    /// Vector family used for indexing this config
+    #[serde(default)]
+    pub vector_type: crate::EmbeddingVectorType,
 }
 
 impl fmt::Debug for EmbeddingConfig {
@@ -559,6 +562,7 @@ impl fmt::Debug for EmbeddingConfig {
             .field("chunk_overlap", &self.chunk_overlap)
             .field("model_len", &debug_len(&self.model))
             .field("dimension", &self.dimension)
+            .field("vector_type", &self.vector_type)
             .finish()
     }
 }
@@ -570,6 +574,7 @@ impl Default for EmbeddingConfig {
             chunk_overlap: crate::defaults::CHUNK_OVERLAP,
             model: crate::defaults::EMBED_MODEL.to_string(),
             dimension: crate::defaults::EMBED_DIMENSION,
+            vector_type: crate::EmbeddingVectorType::Vector,
         }
     }
 }
@@ -1037,6 +1042,8 @@ pub struct EmbeddingConfigProfile {
     pub description: Option<String>,
     pub model: String,
     pub dimension: i32,
+    #[serde(default)]
+    pub vector_type: crate::EmbeddingVectorType,
     pub chunk_size: i32,
     pub chunk_overlap: i32,
     pub hnsw_m: Option<i32>,
@@ -1087,6 +1094,7 @@ impl fmt::Debug for EmbeddingConfigProfile {
             )
             .field("model_len", &debug_len(&self.model))
             .field("dimension", &self.dimension)
+            .field("vector_type", &self.vector_type)
             .field("chunk_size", &self.chunk_size)
             .field("chunk_overlap", &self.chunk_overlap)
             .field("hnsw_m", &self.hnsw_m)
@@ -5802,6 +5810,7 @@ mod tests {
             chunk_overlap: 128,
             model: "éé".to_string(),
             dimension: 3,
+            vector_type: crate::EmbeddingVectorType::Vector,
         };
 
         let debug = format!("{embedding:?}{config:?}");
@@ -7170,6 +7179,7 @@ mod tests {
             description: Some("Pröfile description private@example.test".to_string()),
             model: "prïvate-embedding-model".to_string(),
             dimension: 768,
+            vector_type: crate::EmbeddingVectorType::Vector,
             chunk_size: 512,
             chunk_overlap: 64,
             hnsw_m: Some(16),

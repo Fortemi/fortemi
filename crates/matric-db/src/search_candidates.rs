@@ -9,6 +9,7 @@ use sqlx::{postgres::PgArguments, query::Query, PgConnection, Postgres, Row};
 use uuid::Uuid;
 
 use crate::{
+    embedding_storage_contract::{contract_for_set, default_contract},
     escape_like,
     metadata_predicates::MetadataPredicateQueryBuilder,
     strict_filter::{QueryParam, StrictFilterQueryBuilder},
@@ -244,20 +245,28 @@ pub async fn vector_on_connection(
     if limit <= 0 {
         return Ok(Vec::new());
     }
-    let (cte, candidate, mut params) = scope.build(2);
-    let set_clause = if let Some(id) = scope.embedding_set_id {
-        params.push(QueryParam::Uuid(id));
-        format!("AND e.embedding_set_id = ${}", 2 + params.len())
-    } else {
-        String::new()
+    let contract = match scope.embedding_set_id {
+        Some(id) => contract_for_set(&mut *connection, id).await?,
+        None => default_contract(&mut *connection, vector.as_slice().len()).await?,
     };
+    contract.validate_vector(vector)?;
+    let distance = contract.distance_expr("e.vector", "$1");
+    let (cte, candidate, mut params) = scope.build(2);
+    let scoped_set_id = scope.embedding_set_id.unwrap_or(contract.embedding_set_id);
+    params.push(QueryParam::Uuid(scoped_set_id));
+    let set_clause = format!(
+        "AND {}",
+        contract.set_predicate("e", &format!("${}", 2 + params.len()))
+    );
     let (evidence, evidence_params) = crate::search_evidence_projection::projection(
         "SELECT 0, 'embedding'::text, e.id::text, e.chunk_index, NULLIF(e.text, '')",
         scope.metadata.as_ref(),
         2 + params.len(),
     );
     params.extend(evidence_params);
-    let sql = format!("{cte} SELECT ranked.*, {evidence} AS evidence FROM (SELECT DISTINCT ON (n.id) n.id AS note_id, e.id AS evidence_embedding_id, (1.0 - (e.vector <=> $1::vector))::real AS score, substring(COALESCE(noc.content, nrc.content) for 200) AS snippet, n.title, {TAGS} AS tags FROM note n JOIN embedding e ON e.note_id = n.id AND e.tenant_id = n.tenant_id LEFT JOIN note_original noc ON noc.note_id = n.id AND noc.tenant_id = n.tenant_id LEFT JOIN note_revised_current nrc ON nrc.note_id = n.id AND nrc.tenant_id = n.tenant_id WHERE ({candidate}) AND e.vector IS NOT NULL {set_clause} ORDER BY n.id, e.vector <=> $1::vector, e.id) ranked JOIN note n ON n.id = ranked.note_id JOIN embedding e ON e.id = ranked.evidence_embedding_id AND e.note_id = n.id AND e.tenant_id = n.tenant_id ORDER BY ranked.score DESC, ranked.note_id LIMIT $2");
+    let sql = format!(
+        "{cte} SELECT ranked.*, {evidence} AS evidence FROM (SELECT DISTINCT ON (n.id) n.id AS note_id, e.id AS evidence_embedding_id, (1.0 - ({distance}))::real AS score, substring(COALESCE(noc.content, nrc.content) for 200) AS snippet, n.title, {TAGS} AS tags FROM note n JOIN embedding e ON e.note_id = n.id AND e.tenant_id = n.tenant_id LEFT JOIN note_original noc ON noc.note_id = n.id AND noc.tenant_id = n.tenant_id LEFT JOIN note_revised_current nrc ON nrc.note_id = n.id AND nrc.tenant_id = n.tenant_id WHERE ({candidate}) AND e.vector IS NOT NULL {set_clause} ORDER BY n.id, {distance}, e.id) ranked JOIN note n ON n.id = ranked.note_id JOIN embedding e ON e.id = ranked.evidence_embedding_id AND e.note_id = n.id AND e.tenant_id = n.tenant_id ORDER BY ranked.score DESC, ranked.note_id LIMIT $2"
+    );
     hits(
         bind_params(sqlx::query(&sql).bind(vector).bind(limit), params)
             .fetch_all(connection)

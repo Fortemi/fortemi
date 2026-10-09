@@ -3103,25 +3103,54 @@ impl JobHandler for EmbeddingHandler {
             }
             if !chunk_vectors.is_empty() {
                 let now = chrono::Utc::now();
-                for (i, (text, vector)) in chunk_vectors.into_iter().enumerate() {
-                    if let Err(e) = sqlx::query(
-                        "INSERT INTO embedding (
+                let storage_dimension = resolved_backend.contract.dimension();
+                let storage_vector_type = embed_config
+                    .as_ref()
+                    .map(|config| config.vector_type)
+                    .unwrap_or_default();
+                let vector_param = match storage_vector_type {
+                    matric_core::EmbeddingVectorType::Vector => {
+                        format!("$5::vector({storage_dimension})")
+                    }
+                    matric_core::EmbeddingVectorType::Halfvec => {
+                        format!("($5::vector::halfvec({storage_dimension})::vector)")
+                    }
+                };
+                let insert_sql = format!(
+                    "INSERT INTO embedding (
                             id, note_id, chunk_index, text, vector, model, created_at,
                             embedding_set_id, contract_fingerprint
-                         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-                    )
-                    .bind(matric_db::new_v7())
-                    .bind(note_id)
-                    .bind(i as i32)
-                    .bind(&text)
-                    .bind(&vector)
-                    .bind(model_name)
-                    .bind(now)
-                    .bind(set_id)
-                    .bind(&contract_fingerprint)
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(matric_core::Error::Database)
+                         ) VALUES ($1, $2, $3, $4, {vector_param}, $6, $7, $8, $9)"
+                );
+                for (i, (text, vector)) in chunk_vectors.into_iter().enumerate() {
+                    if let Err(e) =
+                        matric_core::validate_embedding_values(vector.as_slice(), storage_dimension)
+                            .map_err(|error| matric_core::Error::InvalidInput(error.to_string()))
+                    {
+                        if let Some(usage) = &usage {
+                            usage
+                                .record(Some(vector_count), UsageOutcome::FailedAfterPartialUsage)
+                                .await;
+                        }
+                        return embedding_job_failure_for_job(
+                            e,
+                            "validate_embedding",
+                            &job_correlation,
+                        );
+                    }
+                    if let Err(e) = sqlx::query(&insert_sql)
+                        .bind(matric_db::new_v7())
+                        .bind(note_id)
+                        .bind(i as i32)
+                        .bind(&text)
+                        .bind(&vector)
+                        .bind(model_name)
+                        .bind(now)
+                        .bind(set_id)
+                        .bind(&contract_fingerprint)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(matric_core::Error::Database)
                     {
                         if let Some(usage) = &usage {
                             usage
@@ -8425,6 +8454,7 @@ mod tests {
             description: None,
             model: model.to_string(),
             dimension,
+            vector_type: matric_core::EmbeddingVectorType::Vector,
             chunk_size: 512,
             chunk_overlap: 64,
             hnsw_m: None,

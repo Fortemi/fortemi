@@ -47,6 +47,11 @@ name = "memory_export_contract_test"
 path = "tests/memory_export_contract_test.rs"
 required-features = ["migrations"]
 
+[[test]]
+name = "configurable_embedding_dimension_test"
+path = "tests/configurable_embedding_dimension_test.rs"
+required-features = ["migrations"]
+
 [dependencies]
 # Internal
 matric-core.workspace = true

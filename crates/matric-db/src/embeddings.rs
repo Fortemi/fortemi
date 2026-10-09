@@ -6,6 +6,7 @@ use pgvector::Vector;
 use sqlx::{Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
+use crate::embedding_storage_contract::{contract_for_set, default_contract};
 use matric_core::{new_v7, Embedding, EmbeddingRepository, Error, Result, SearchHit};
 
 /// PostgreSQL implementation of EmbeddingRepository.
@@ -72,6 +73,11 @@ impl EmbeddingRepository for PgEmbeddingRepository {
         limit: i64,
         exclude_archived: bool,
     ) -> Result<Vec<SearchHit>> {
+        let mut connection = self.pool.acquire().await.map_err(Error::Database)?;
+        let contract = default_contract(&mut connection, query_vec.as_slice().len()).await?;
+        contract.validate_vector(query_vec)?;
+        let distance = contract.distance_expr("e.vector", "$1");
+        let set_predicate = contract.set_predicate("e", "$3");
         let archive_clause = if exclude_archived {
             "AND (n.archived IS FALSE OR n.archived IS NULL) AND n.deleted_at IS NULL"
         } else {
@@ -82,7 +88,7 @@ impl EmbeddingRepository for PgEmbeddingRepository {
             r#"
             SELECT DISTINCT ON (e.note_id)
                    e.note_id AS note_id,
-                   1.0 - (e.vector <=> $1::vector) AS score,
+                   1.0 - ({distance}) AS score,
                    substring(COALESCE(noc.content, nrc.content) for 200) AS snippet,
                    n.title,
                    COALESCE(
@@ -93,8 +99,8 @@ impl EmbeddingRepository for PgEmbeddingRepository {
             JOIN note n ON n.id = e.note_id
             LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
-            WHERE TRUE {}
-            ORDER BY e.note_id, e.vector <=> $1::vector
+            WHERE {set_predicate} {}
+            ORDER BY e.note_id, {distance}
             "#,
             archive_clause
         );
@@ -108,7 +114,8 @@ impl EmbeddingRepository for PgEmbeddingRepository {
         let rows = sqlx::query(&wrapped_query)
             .bind(query_vec)
             .bind(limit)
-            .fetch_all(&self.pool)
+            .bind(contract.embedding_set_id)
+            .fetch_all(&mut *connection)
             .await
             .map_err(Error::Database)?;
 
@@ -142,6 +149,11 @@ impl EmbeddingRepository for PgEmbeddingRepository {
         limit: i64,
         exclude_archived: bool,
     ) -> Result<Vec<(SearchHit, Vector)>> {
+        let mut connection = self.pool.acquire().await.map_err(Error::Database)?;
+        let contract = default_contract(&mut connection, query_vec.as_slice().len()).await?;
+        contract.validate_vector(query_vec)?;
+        let distance = contract.distance_expr("e.vector", "$1");
+        let set_predicate = contract.set_predicate("e", "$3");
         let archive_clause = if exclude_archived {
             "AND (n.archived IS FALSE OR n.archived IS NULL) AND n.deleted_at IS NULL"
         } else {
@@ -152,7 +164,7 @@ impl EmbeddingRepository for PgEmbeddingRepository {
             r#"
             SELECT DISTINCT ON (e.note_id)
                    e.note_id AS note_id,
-                   1.0 - (e.vector <=> $1::vector) AS score,
+                   1.0 - ({distance}) AS score,
                    e.vector AS vector,
                    substring(COALESCE(noc.content, nrc.content) for 200) AS snippet,
                    n.title,
@@ -164,8 +176,8 @@ impl EmbeddingRepository for PgEmbeddingRepository {
             JOIN note n ON n.id = e.note_id
             LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
-            WHERE TRUE {}
-            ORDER BY e.note_id, e.vector <=> $1::vector
+            WHERE {set_predicate} {}
+            ORDER BY e.note_id, {distance}
             "#,
             archive_clause
         );
@@ -178,7 +190,8 @@ impl EmbeddingRepository for PgEmbeddingRepository {
         let rows = sqlx::query(&wrapped_query)
             .bind(query_vec)
             .bind(limit)
-            .fetch_all(&self.pool)
+            .bind(contract.embedding_set_id)
+            .fetch_all(&mut *connection)
             .await
             .map_err(Error::Database)?;
 
@@ -293,6 +306,11 @@ impl PgEmbeddingRepository {
         limit: i64,
         exclude_archived: bool,
     ) -> Result<Vec<SearchHit>> {
+        let mut connection = self.pool.acquire().await.map_err(Error::Database)?;
+        let contract = contract_for_set(&mut connection, embedding_set_id).await?;
+        contract.validate_vector(query_vec)?;
+        let distance = contract.distance_expr("e.vector", "$1");
+        let set_predicate = contract.set_predicate("e", "$3");
         let archive_clause = if exclude_archived {
             "AND (n.archived IS FALSE OR n.archived IS NULL) AND n.deleted_at IS NULL"
         } else {
@@ -303,7 +321,7 @@ impl PgEmbeddingRepository {
             r#"
             SELECT DISTINCT ON (e.note_id)
                    e.note_id AS note_id,
-                   1.0 - (e.vector <=> $1::vector) AS score,
+                   1.0 - ({distance}) AS score,
                    substring(COALESCE(noc.content, nrc.content) for 200) AS snippet,
                    n.title,
                    COALESCE(
@@ -314,8 +332,8 @@ impl PgEmbeddingRepository {
             JOIN note n ON n.id = e.note_id
             LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
-            WHERE e.embedding_set_id = $3 {}
-            ORDER BY e.note_id, e.vector <=> $1::vector
+            WHERE {set_predicate} {}
+            ORDER BY e.note_id, {distance}
             "#,
             archive_clause
         );
@@ -330,7 +348,7 @@ impl PgEmbeddingRepository {
             .bind(query_vec)
             .bind(limit)
             .bind(embedding_set_id)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *connection)
             .await
             .map_err(Error::Database)?;
 
@@ -371,6 +389,12 @@ impl PgEmbeddingRepository {
     ) -> Result<Vec<SearchHit>> {
         use crate::strict_filter::StrictFilterQueryBuilder;
 
+        let mut connection = self.pool.acquire().await.map_err(Error::Database)?;
+        let contract = default_contract(&mut connection, query_vec.as_slice().len()).await?;
+        contract.validate_vector(query_vec)?;
+        let distance = contract.distance_expr("e.vector", "$1");
+        let set_predicate = contract.set_predicate("e", "$3");
+
         // If filter is unsatisfiable, return empty results immediately
         if strict_filter.match_none {
             return Ok(Vec::new());
@@ -388,8 +412,8 @@ impl PgEmbeddingRepository {
         };
 
         // Build strict filter SQL using the query builder
-        // param $1 is query_vec, $2 is limit, strict filter starts at $3
-        let builder = StrictFilterQueryBuilder::new(strict_filter.clone(), 2);
+        // param $1 is query_vec, $2 is limit, $3 is the default set, strict filter starts at $4
+        let builder = StrictFilterQueryBuilder::new(strict_filter.clone(), 3);
         let (strict_filter_clause, filter_params) = builder.build();
 
         // Build the query with CTE for filtered notes
@@ -403,7 +427,7 @@ impl PgEmbeddingRepository {
             )
             SELECT DISTINCT ON (e.note_id)
                    e.note_id AS note_id,
-                   1.0 - (e.vector <=> $1::vector) AS score,
+                   1.0 - ({distance}) AS score,
                    substring(COALESCE(noc.content, nrc.content) for 200) AS snippet,
                    n.title,
                    COALESCE(
@@ -415,7 +439,8 @@ impl PgEmbeddingRepository {
             JOIN note n ON n.id = e.note_id
             LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
-            ORDER BY e.note_id, e.vector <=> $1::vector
+            WHERE {set_predicate}
+            ORDER BY e.note_id, {distance}
             "#,
             archive_clause, strict_filter_clause
         );
@@ -427,7 +452,10 @@ impl PgEmbeddingRepository {
         );
 
         // Build the query with dynamic parameters
-        let mut query_builder = sqlx::query(&wrapped_query).bind(query_vec).bind(limit);
+        let mut query_builder = sqlx::query(&wrapped_query)
+            .bind(query_vec)
+            .bind(limit)
+            .bind(contract.embedding_set_id);
 
         // Bind all strict filter parameters
         for param in filter_params {
@@ -443,7 +471,7 @@ impl PgEmbeddingRepository {
         }
 
         let rows = query_builder
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *connection)
             .await
             .map_err(Error::Database)?;
 
@@ -496,23 +524,27 @@ impl PgEmbeddingRepository {
             .map_err(Error::Database)?;
 
         if !chunks.is_empty() {
+            let contract = contract_for_set(&mut tx, embedding_set_id).await?;
+            let vector_param = contract.storage_param("$5");
+            let insert_sql = format!(
+                "INSERT INTO embedding (id, note_id, chunk_index, text, vector, model, created_at, embedding_set_id)
+                 VALUES ($1, $2, $3, $4, {vector_param}, $6, $7, $8)"
+            );
             let now = Utc::now();
             for (i, (text, vector)) in chunks.into_iter().enumerate() {
-                sqlx::query(
-                    "INSERT INTO embedding (id, note_id, chunk_index, text, vector, model, created_at, embedding_set_id)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-                )
-                .bind(new_v7())
-                .bind(note_id)
-                .bind(i as i32)
-                .bind(&text)
-                .bind(&vector)
-                .bind(model)
-                .bind(now)
-                .bind(embedding_set_id)
-                .execute(&mut *tx)
-                .await
-                .map_err(Error::Database)?;
+                contract.validate_vector(&vector)?;
+                sqlx::query(&insert_sql)
+                    .bind(new_v7())
+                    .bind(note_id)
+                    .bind(i as i32)
+                    .bind(&text)
+                    .bind(&vector)
+                    .bind(model)
+                    .bind(now)
+                    .bind(embedding_set_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(Error::Database)?;
             }
         }
 
@@ -558,23 +590,27 @@ impl PgEmbeddingRepository {
         };
 
         let now = Utc::now();
+        let contract = contract_for_set(tx, embedding_set_id).await?;
+        let vector_param = contract.storage_param("$5");
+        let insert_sql = format!(
+            "INSERT INTO embedding (id, note_id, chunk_index, text, vector, model, created_at, embedding_set_id)
+             VALUES ($1, $2, $3, $4, {vector_param}, $6, $7, $8)"
+        );
 
         for (i, (text, vector)) in chunks.into_iter().enumerate() {
-            sqlx::query(
-                "INSERT INTO embedding (id, note_id, chunk_index, text, vector, model, created_at, embedding_set_id)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-            )
-            .bind(new_v7())
-            .bind(note_id)
-            .bind(i as i32)
-            .bind(&text)
-            .bind(&vector)
-            .bind(model)
-            .bind(now)
-            .bind(embedding_set_id)
-            .execute(&mut **tx)
-            .await
-            .map_err(Error::Database)?;
+            contract.validate_vector(&vector)?;
+            sqlx::query(&insert_sql)
+                .bind(new_v7())
+                .bind(note_id)
+                .bind(i as i32)
+                .bind(&text)
+                .bind(&vector)
+                .bind(model)
+                .bind(now)
+                .bind(embedding_set_id)
+                .execute(&mut **tx)
+                .await
+                .map_err(Error::Database)?;
         }
 
         Ok(())
@@ -610,25 +646,29 @@ impl PgEmbeddingRepository {
             )
         })?;
         let now = Utc::now();
+        let contract = contract_for_set(tx, embedding_set_id).await?;
+        let vector_param = contract.storage_param("$5");
+        let insert_sql = format!(
+            "INSERT INTO embedding (
+                id, note_id, chunk_index, text, vector, model, created_at,
+                embedding_set_id, contract_fingerprint
+             ) VALUES ($1, $2, $3, $4, {vector_param}, $6, $7, $8, $9)"
+        );
         for (i, (text, vector)) in chunks.into_iter().enumerate() {
-            sqlx::query(
-                "INSERT INTO embedding (
-                    id, note_id, chunk_index, text, vector, model, created_at,
-                    embedding_set_id, contract_fingerprint
-                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-            )
-            .bind(new_v7())
-            .bind(note_id)
-            .bind(i as i32)
-            .bind(&text)
-            .bind(&vector)
-            .bind(model)
-            .bind(now)
-            .bind(embedding_set_id)
-            .bind(contract_fingerprint)
-            .execute(&mut **tx)
-            .await
-            .map_err(Error::Database)?;
+            contract.validate_vector(&vector)?;
+            sqlx::query(&insert_sql)
+                .bind(new_v7())
+                .bind(note_id)
+                .bind(i as i32)
+                .bind(&text)
+                .bind(&vector)
+                .bind(model)
+                .bind(now)
+                .bind(embedding_set_id)
+                .bind(contract_fingerprint)
+                .execute(&mut **tx)
+                .await
+                .map_err(Error::Database)?;
         }
         Ok(())
     }
@@ -693,6 +733,10 @@ impl PgEmbeddingRepository {
         limit: i64,
         exclude_archived: bool,
     ) -> Result<Vec<SearchHit>> {
+        let contract = default_contract(tx, query_vec.as_slice().len()).await?;
+        contract.validate_vector(query_vec)?;
+        let distance = contract.distance_expr("e.vector", "$1");
+        let set_predicate = contract.set_predicate("e", "$3");
         let archive_clause = if exclude_archived {
             "AND (n.archived IS FALSE OR n.archived IS NULL) AND n.deleted_at IS NULL"
         } else {
@@ -703,7 +747,7 @@ impl PgEmbeddingRepository {
             r#"
             SELECT DISTINCT ON (e.note_id)
                    e.note_id AS note_id,
-                   1.0 - (e.vector <=> $1::vector) AS score,
+                   1.0 - ({distance}) AS score,
                    substring(COALESCE(noc.content, nrc.content) for 200) AS snippet,
                    n.title,
                    COALESCE(
@@ -714,8 +758,8 @@ impl PgEmbeddingRepository {
             JOIN note n ON n.id = e.note_id
             LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
-            WHERE TRUE {}
-            ORDER BY e.note_id, e.vector <=> $1::vector
+            WHERE {set_predicate} {}
+            ORDER BY e.note_id, {distance}
             "#,
             archive_clause
         );
@@ -729,6 +773,7 @@ impl PgEmbeddingRepository {
         let rows = sqlx::query(&wrapped_query)
             .bind(query_vec)
             .bind(limit)
+            .bind(contract.embedding_set_id)
             .fetch_all(&mut **tx)
             .await
             .map_err(Error::Database)?;
@@ -765,6 +810,10 @@ impl PgEmbeddingRepository {
         limit: i64,
         exclude_archived: bool,
     ) -> Result<Vec<(SearchHit, Vector)>> {
+        let contract = default_contract(tx, query_vec.as_slice().len()).await?;
+        contract.validate_vector(query_vec)?;
+        let distance = contract.distance_expr("e.vector", "$1");
+        let set_predicate = contract.set_predicate("e", "$3");
         let archive_clause = if exclude_archived {
             "AND (n.archived IS FALSE OR n.archived IS NULL) AND n.deleted_at IS NULL"
         } else {
@@ -775,7 +824,7 @@ impl PgEmbeddingRepository {
             r#"
             SELECT DISTINCT ON (e.note_id)
                    e.note_id AS note_id,
-                   1.0 - (e.vector <=> $1::vector) AS score,
+                   1.0 - ({distance}) AS score,
                    e.vector AS vector,
                    substring(COALESCE(noc.content, nrc.content) for 200) AS snippet,
                    n.title,
@@ -787,8 +836,8 @@ impl PgEmbeddingRepository {
             JOIN note n ON n.id = e.note_id
             LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
-            WHERE TRUE {}
-            ORDER BY e.note_id, e.vector <=> $1::vector
+            WHERE {set_predicate} {}
+            ORDER BY e.note_id, {distance}
             "#,
             archive_clause
         );
@@ -801,6 +850,7 @@ impl PgEmbeddingRepository {
         let rows = sqlx::query(&wrapped_query)
             .bind(query_vec)
             .bind(limit)
+            .bind(contract.embedding_set_id)
             .fetch_all(&mut **tx)
             .await
             .map_err(Error::Database)?;
