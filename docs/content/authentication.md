@@ -10,6 +10,12 @@ fails closed when identity configuration or tenant lookup is unavailable. The
 hosted routes and requirements described below are not mounted by the public
 Community Edition image.
 
+End users connecting with an external identity provider (browsers, CLIs,
+agents, Claude Code, Claude Desktop, Cursor, VS Code, scripts, services)
+should start at [Connecting with Identity](#/getting-started-connect), which
+covers sign-in, the `fortemi-login` helper, ready-to-paste MCP configuration,
+scopes, and 401/403 troubleshooting.
+
 ## Table of Contents
 
 - [Quick Start](#quick-start)

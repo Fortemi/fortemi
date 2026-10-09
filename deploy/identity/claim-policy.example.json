@@ -1,0 +1,27 @@
+{
+  "$schema": "fortemi-auth-claim-policy",
+  "scope_source": "mapping",
+  "allow_token_scopes": false,
+  "scope_vocabulary": ["read", "write", "admin", "mcp"],
+  "scope_mapping": {
+    "claim": "/resource_access/fortemi/roles",
+    "rules": [
+      {"id": "fortemi-read", "value": "fortemi-read", "scopes": ["read"]},
+      {"id": "fortemi-write", "value": "fortemi-write", "scopes": ["read", "write"]},
+      {"id": "fortemi-admin", "value": "fortemi-admin", "scopes": ["read", "write", "admin"]},
+      {"id": "fortemi-mcp", "value": "fortemi-mcp", "scopes": ["mcp"]}
+    ]
+  },
+  "clients": {
+    "claim": "azp",
+    "allowed": ["fortemi-cli", "claude-code", "claude-desktop", "cursor", "vscode"],
+    "service": ["fortemi-service-example"],
+    "ceilings": {
+      "fortemi-cli": ["read", "write", "mcp"],
+      "claude-code": ["read", "write", "mcp"],
+      "claude-desktop": ["read", "write", "mcp"],
+      "cursor": ["read", "write", "mcp"],
+      "vscode": ["read", "write", "mcp"]
+    }
+  }
+}

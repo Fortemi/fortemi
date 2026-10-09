@@ -14,6 +14,7 @@
       "sections": [
         { "id": "getting-started-architecture", "title": "Architecture", "summary": "System architecture and crate layout.", "file": "architecture.md" },
         { "id": "getting-started-integration", "title": "Integration Guide", "summary": "Connecting to the API and configuring clients.", "file": "integration.md" },
+        { "id": "getting-started-connect", "title": "Connecting with Identity", "summary": "Sign in once and reach Fortemi from browsers, CLIs, agents, and MCP clients.", "file": "connect.md" },
         { "id": "getting-started-workflows", "title": "Workflows", "summary": "Common usage patterns and workflows.", "file": "workflows.md" },
         { "id": "getting-started-use-cases", "title": "Use Cases", "summary": "Representative use cases: personal KB, team knowledge, agent memory.", "file": "use-cases.md" }
       ]

@@ -14,6 +14,21 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   client registration rejects unsafe redirect metadata, and deployments with an
   external IdP configured fail closed unless `FORTEMI_OAUTH_ALLOW_LOCAL_AS=true`
   is paired with authenticated owner consent (#1189, #1195).
+### Added
+
+- Client onboarding for external OIDC (#1196): a reference Keycloak 26.7
+  realm (`deploy/identity/keycloak/realm-example.json`, linted in CI) with a
+  bearer-only `fortemi` resource client, `fortemi-api`/`fortemi-mcp` audience
+  scopes, `/fortemi-users` and `/fortemi-admins` groups, a public
+  `fortemi-cli` client (loopback PKCE plus device grant), pre-registered
+  Claude Code, Claude Desktop, Cursor and VS Code clients, locked-down
+  anonymous client registration, refresh rotation without default
+  `offline_access`, and a `fortemi-service-example` confidential client; a
+  matching claim policy (`deploy/identity/claim-policy.example.json`,
+  `scope_source=mapping`, `fortemi-cli` ceiling without `admin`); a
+  `fortemi-login` sign-in helper (`tools/fortemi-login/`, OS keychain
+  storage); and a [connection guide](#/getting-started-connect)
+  (`docs/content/connect.md`).
 
 ### Changed
 

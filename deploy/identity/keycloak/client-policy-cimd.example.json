@@ -1,0 +1,49 @@
+{
+  "_comment": "OPT-IN example only: Keycloak Client Policy that prefers Client ID Metadata Documents (CIMD) for MCP clients. Requires starting Keycloak with --features=cimd. Do NOT import blindly: the condition below trusts claude.ai plus loopback hosts, following the vendor guidance that Claude Code and Claude Desktop client IDs collide across separate policies, so they share one policy. Anonymous dynamic client registration stays locked down per realm-example.json; CIMD is the preferred path where the AS advertises client_id_metadata_document_supported, pre-registered clients stay first, DCR stays last.",
+  "_comment_apply": "Create via Admin Console (Realm Settings > Client Policies > Create policy, type client) or kcadm.sh using this file as the policy body. Requires Keycloak 26.7+ with the cimd feature flag; on servers without the flag this policy is inert and clients fall back to pre-registration or restricted DCR.",
+  "name": "fortemi-cimd",
+  "description": "Prefer CIMD for known MCP clients; show the redirect host on consent because CIMD cannot prevent localhost URL impersonation by itself.",
+  "enabled": true,
+  "conditions": [
+    {
+      "_comment": "Client roles / scopes condition is intentionally absent: this policy applies to clients presenting a Client ID Metadata Document.",
+      "providerId": "client-domain",
+      "configuration": {
+        "trusted-domains": [
+          "claude.ai",
+          "localhost",
+          "127.0.0.1"
+        ]
+      }
+    }
+  ],
+  "profiles": [
+    {
+      "name": "fortemi-cimd-profile",
+      "description": "Accept public CIMD clients that use confidential-only grant types (authorization code + PKCE, refresh token); auto-create the audience mapper from the resource-indicator allow-list when --features=resource-indicators is also enabled.",
+      "executors": [
+        {
+          "executorId": "restrict-same-domain",
+          "configuration": {
+            "_comment": "OFF: Claude Code (localhost callback) and Claude Desktop (claude.ai callback) share one policy, so same-domain restriction must stay off.",
+            "allow": false
+          }
+        },
+        {
+          "executorId": "accept-public-client-with-confidential-only-grant-types",
+          "configuration": {}
+        },
+        {
+          "executorId": "resource-indicator-allow-list",
+          "configuration": {
+            "_comment": "Only effective with --features=resource-indicators; without it, audiences come from the fortemi-api / fortemi-mcp scope mappers in realm-example.json.",
+            "allowed-resources": [
+              "https://fortemi.example.org",
+              "https://fortemi.example.org/mcp"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

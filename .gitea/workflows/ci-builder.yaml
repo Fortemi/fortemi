@@ -342,6 +342,11 @@ jobs:
       - name: Check migration immutability
         run: python3 scripts/ci/verify-migration-immutability.py
 
+      - name: Check reference realm and claim policy
+        run: |
+          python3 scripts/ci/verify-reference-realm.py
+          python3 -m unittest tests/test_verify_reference_realm.py
+
       - name: Check managed PostgreSQL extension matrix
         run: |
           python3 scripts/ci/verify-postgres-extension-matrix.py
