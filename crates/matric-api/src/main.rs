@@ -1378,6 +1378,9 @@ impl AppState {
         memories_overview, list_embedding_sets, get_embedding_set, create_embedding_set,
         update_embedding_set, delete_embedding_set, list_embedding_set_members, add_embedding_set_members,
         remove_embedding_set_member, refresh_embedding_set, build_embedding_set_index,
+        handlers::vector_import::import_embedding_run,
+        handlers::vector_import::list_embedding_runs,
+        handlers::vector_import::get_embedding_run,
         list_embedding_configs, get_default_embedding_config,
         get_embedding_config, create_embedding_config, update_embedding_config, delete_embedding_config,
         create_job, get_job, pending_jobs_count, list_jobs,
@@ -5075,6 +5078,15 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/api/v1/embedding-sets/{slug}/build-index",
             post(build_embedding_set_index),
+        )
+        .route(
+            "/api/v1/embedding-sets/{slug}/runs",
+            get(handlers::vector_import::list_embedding_runs)
+                .post(handlers::vector_import::import_embedding_run),
+        )
+        .route(
+            "/api/v1/embedding-sets/{slug}/runs/{run_id}",
+            get(handlers::vector_import::get_embedding_run),
         )
         .route(
             "/api/v1/embedding-configs",
@@ -71037,6 +71049,383 @@ not-json
             ingest_token_store: matric_api::services::IngestTokenStore::disabled(),
             idempotency_store: matric_api::services::IdempotencyStore::disabled(),
         }
+    }
+
+    async fn vector_import_set_with_source(
+        db: &Database,
+        slug: &str,
+        vector_source: &str,
+    ) -> (Uuid, String) {
+        let contract = serde_json::json!({
+            "provider": "external-fixture",
+            "model": "unit-3",
+            "normalization": "l2"
+        });
+        let space_id = matric_core::embedding_space_id(&contract);
+        let config_id = Uuid::new_v4();
+        let set_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO embedding_config (
+                id, name, model, dimension, vector_type, chunk_size, chunk_overlap,
+                provider, provider_config, content_types, document_composition,
+                space_contract, space_id
+             ) VALUES (
+                $1, $2, 'unit-3', 3, 'vector', 512, 0,
+                'custom'::embedding_provider, '{}'::jsonb, '{}'::text[], '{}'::jsonb,
+                $3, $4
+             )",
+        )
+        .bind(config_id)
+        .bind(format!("vector import fixture {slug}"))
+        .bind(&contract)
+        .bind(&space_id)
+        .execute(&db.pool)
+        .await
+        .expect("insert vector import embedding config");
+        sqlx::query(
+            "INSERT INTO embedding_set (
+                id, name, slug, set_type, mode, criteria, embedding_config_id,
+                auto_embed_rules, vector_source, defer_index_build, agent_metadata
+             ) VALUES (
+                $1, $2, $3, 'full'::embedding_set_type, 'manual'::embedding_set_mode,
+                '{}'::jsonb, $4, '{}'::jsonb, $5, TRUE, '{}'::jsonb
+             )",
+        )
+        .bind(set_id)
+        .bind(format!("vector import profiles {slug}"))
+        .bind(slug)
+        .bind(config_id)
+        .bind(vector_source)
+        .execute(&db.pool)
+        .await
+        .expect("insert vector import embedding set");
+        (set_id, space_id)
+    }
+
+    fn vector_import_profile_hash(template: &str, text: &str) -> String {
+        use sha2::{Digest, Sha256};
+
+        let mut hasher = Sha256::new();
+        hasher.update(template.as_bytes());
+        hasher.update(b"\n");
+        hasher.update(text.as_bytes());
+        hex::encode(hasher.finalize())
+    }
+
+    fn vector_import_profile(
+        entity: &str,
+        source: &str,
+        text: &str,
+        vector: [f32; 3],
+        space_id: &str,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "type": "profile",
+            "entity_id": entity,
+            "source": source,
+            "profile_hash": vector_import_profile_hash("profile-v1", text),
+            "profile_text": text,
+            "template_version": "profile-v1",
+            "space_id": space_id,
+            "dims": 3,
+            "embedding": vector,
+            "metadata": { "fixture": true }
+        })
+    }
+
+    fn vector_import_upload_body(
+        run_id: &str,
+        previous_run_id: Option<&str>,
+        space_id: &str,
+        profiles: Vec<serde_json::Value>,
+        deletions: Vec<serde_json::Value>,
+        body_sha256: Option<&str>,
+    ) -> String {
+        use sha2::{Digest, Sha256};
+
+        let mut body_lines = Vec::new();
+        body_lines.extend(
+            profiles
+                .iter()
+                .map(|row| serde_json::to_string(row).expect("serialize profile row")),
+        );
+        body_lines.extend(
+            deletions
+                .iter()
+                .map(|row| serde_json::to_string(row).expect("serialize deletion row")),
+        );
+        let data = if body_lines.is_empty() {
+            String::new()
+        } else {
+            body_lines.join("\n") + "\n"
+        };
+        let computed = hex::encode(Sha256::digest(data.as_bytes()));
+        let manifest = serde_json::json!({
+            "type": "manifest",
+            "run_id": run_id,
+            "previous_run_id": previous_run_id,
+            "space_id": space_id,
+            "created_at": "2026-10-09T04:00:00Z",
+            "counts": { "profiles": profiles.len(), "deletions": deletions.len() },
+            "template_version": "profile-v1",
+            "body_sha256": body_sha256.unwrap_or(&computed)
+        });
+        serde_json::to_string(&manifest).expect("serialize manifest") + "\n" + &data
+    }
+
+    fn vector_import_router(state: AppState) -> Router {
+        Router::new()
+            .route(
+                "/api/v1/embedding-sets/{slug}/runs",
+                post(handlers::vector_import::import_embedding_run),
+            )
+            .layer(Extension(ArchiveContext::default()))
+            .with_state(state)
+    }
+
+    async fn vector_import_post(
+        router: Router,
+        slug: &str,
+        body: String,
+        content_type: &str,
+    ) -> axum::response::Response {
+        router
+            .oneshot(
+                axum::http::Request::builder()
+                    .method(Method::POST)
+                    .uri(format!("/api/v1/embedding-sets/{slug}/runs"))
+                    .header(header::CONTENT_TYPE, content_type)
+                    .body(Body::from(body))
+                    .expect("build vector import request"),
+            )
+            .await
+            .expect("vector import route response")
+    }
+
+    #[tokio::test]
+    async fn vector_import_upload_api_imports_idempotently_and_reports_rejections() {
+        let database_url = std::env::var("DATABASE_URL")
+            .expect("DATABASE_URL must select a migrated test database");
+        let db = Database::connect(&database_url)
+            .await
+            .expect("connect migrated test database");
+        let state = build_call_api_test_state(db.clone(), &database_url).await;
+        let router = vector_import_router(state);
+        let slug = format!("api-vector-import-{}", Uuid::new_v4().simple());
+        let internal_slug = format!("{slug}-internal");
+        let (_set_id, space_id) = vector_import_set_with_source(&db, &slug, "external").await;
+        vector_import_set_with_source(&db, &internal_slug, "internal").await;
+
+        let before_jobs: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM job_queue WHERE job_type = 'embedding'")
+                .fetch_one(&db.pool)
+                .await
+                .expect("job count before vector import");
+
+        let run1_body = vector_import_upload_body(
+            "run-1",
+            None,
+            &space_id,
+            (0..1000)
+                .map(|i| {
+                    let vector = if i == 0 {
+                        [1.0, 0.0, 0.0]
+                    } else {
+                        [0.0, 1.0, 0.0]
+                    };
+                    vector_import_profile(
+                        &format!("entity-{i}"),
+                        "api-fixture-source",
+                        "profile text",
+                        vector,
+                        &space_id,
+                    )
+                })
+                .collect(),
+            Vec::new(),
+            None,
+        );
+
+        let internal = vector_import_post(
+            router.clone(),
+            &internal_slug,
+            run1_body.clone(),
+            "application/x-ndjson",
+        )
+        .await;
+        assert_eq!(internal.status(), StatusCode::BAD_REQUEST);
+
+        let response = vector_import_post(
+            router.clone(),
+            &slug,
+            run1_body.clone(),
+            "application/x-ndjson",
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let report: serde_json::Value = read_response_json(response).await;
+        assert_eq!(report["inserted"], 1000);
+        assert_eq!(report["rejected"]["total"], 0);
+
+        let replay =
+            vector_import_post(router.clone(), &slug, run1_body, "application/x-ndjson").await;
+        assert_eq!(replay.status(), StatusCode::OK);
+        let replay: serde_json::Value = read_response_json(replay).await;
+        assert_eq!(replay["status"], "already_applied");
+
+        let out_of_order = vector_import_upload_body(
+            "run-out-of-order",
+            Some("missing"),
+            &space_id,
+            Vec::new(),
+            Vec::new(),
+            None,
+        );
+        let response =
+            vector_import_post(router.clone(), &slug, out_of_order, "application/x-ndjson").await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+        let rejected = vector_import_upload_body(
+            "run-2",
+            Some("run-1"),
+            &space_id,
+            vec![
+                vector_import_profile(
+                    "entity-1000",
+                    "api-fixture-source",
+                    "new profile",
+                    [0.0, 0.0, 1.0],
+                    &space_id,
+                ),
+                serde_json::json!({
+                    "type": "profile",
+                    "entity_id": "bad-dims",
+                    "source": "api-fixture-source",
+                    "profile_hash": vector_import_profile_hash("profile-v1", "bad dims"),
+                    "profile_text": "bad dims",
+                    "template_version": "profile-v1",
+                    "space_id": space_id,
+                    "dims": 2,
+                    "embedding": [1.0, 0.0],
+                    "metadata": {}
+                }),
+            ],
+            Vec::new(),
+            None,
+        );
+        let response =
+            vector_import_post(router.clone(), &slug, rejected, "application/x-ndjson").await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let report: serde_json::Value = read_response_json(response).await;
+        assert_eq!(report["inserted"], 1);
+        assert_eq!(report["rejected"]["total"], 1);
+        assert!(report["rejected"]["rows"][0]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("dims"));
+
+        let checksum_mismatch = vector_import_upload_body(
+            "run-checksum-mismatch",
+            Some("run-2"),
+            &space_id,
+            vec![vector_import_profile(
+                "checksum-row",
+                "api-fixture-source",
+                "checksum profile",
+                [1.0, 0.0, 0.0],
+                &space_id,
+            )],
+            Vec::new(),
+            Some("0000000000000000000000000000000000000000000000000000000000000000"),
+        );
+        let response = vector_import_post(
+            router.clone(),
+            &slug,
+            checksum_mismatch,
+            "application/x-ndjson",
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let problem: serde_json::Value = read_response_json(response).await;
+        assert!(problem["detail"].as_str().unwrap().contains("body_sha256"));
+
+        let after_jobs: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM job_queue WHERE job_type = 'embedding'")
+                .fetch_one(&db.pool)
+                .await
+                .expect("job count after vector import");
+        assert_eq!(before_jobs, after_jobs);
+    }
+
+    #[tokio::test]
+    async fn vector_import_upload_read_scope_principal_gets_403() {
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "read".to_string(),
+            },
+        };
+        let input = route_policy::authorization_input_for_request(
+            &Method::POST,
+            "/api/v1/embedding-sets/demo/runs",
+            None,
+        )
+        .expect("vector import route has policy input");
+
+        let response = authorize_policy_input(&RoleBasedPolicy, &TracingSink, &auth, &input)
+            .await
+            .expect_err("read scope must not import vector runs");
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn vector_import_path_import_is_confined_to_configured_root() {
+        let parent = tempfile::tempdir().expect("vector import parent dir");
+        let root = parent.path().join("root");
+        let outside = parent.path().join("outside");
+        let inside = root.join("inside-run");
+        std::fs::create_dir_all(&inside).expect("create inside import dir");
+        std::fs::create_dir_all(&outside).expect("create outside import dir");
+        let _root_guard = ScopedEnvVar::set("FORTEMI_VECTOR_IMPORT_ROOT", root.as_os_str());
+
+        let confined = handlers::vector_import::confined_import_path("inside-run")
+            .await
+            .expect("inside path is allowed");
+        assert!(confined.starts_with(root.canonicalize().unwrap()));
+
+        let parent_escape = handlers::vector_import::confined_import_path("../outside")
+            .await
+            .expect_err("parent traversal must be rejected");
+        assert!(matches!(parent_escape, ApiError::Forbidden(_)));
+
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&outside, root.join("outside-link"))
+                .expect("create symlink escape");
+            let symlink_escape = handlers::vector_import::confined_import_path("outside-link")
+                .await
+                .expect_err("symlink escape must be rejected");
+            assert!(matches!(symlink_escape, ApiError::Forbidden(_)));
+        }
+    }
+
+    #[test]
+    fn vector_import_path_import_requires_admin_scope() {
+        let reader = AuthPrincipal::ApiKey {
+            key_id: Uuid::new_v4(),
+            scope: "read write".to_string(),
+        };
+        let admin = AuthPrincipal::ApiKey {
+            key_id: Uuid::new_v4(),
+            scope: "admin".to_string(),
+        };
+
+        assert!(matches!(
+            handlers::vector_import::require_admin_scope(&reader),
+            Err(ApiError::Forbidden(_))
+        ));
+        handlers::vector_import::require_admin_scope(&admin).expect("admin scope is allowed");
     }
 
     async fn create_asset_lifecycle_test_state(

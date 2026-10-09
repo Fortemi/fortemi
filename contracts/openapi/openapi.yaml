@@ -2938,6 +2938,100 @@ paths:
           description: Global request rate limit exceeded
       security:
       - bearerAuth: []
+  /api/v1/embedding-sets/{slug}/runs:
+    get:
+      tags:
+      - Embeddings
+      operationId: list_embedding_runs
+      parameters:
+      - name: slug
+        in: path
+        description: Embedding set slug or UUID
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Embedding import runs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EmbeddingImportRunRecord'
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
+    post:
+      tags:
+      - Embeddings
+      operationId: import_embedding_run
+      parameters:
+      - name: slug
+        in: path
+        description: Embedding set slug or UUID
+        required: true
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportEmbeddingRunRequest'
+        required: true
+      responses:
+        '200':
+          description: Import run report
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbeddingImportRunReport'
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
+  /api/v1/embedding-sets/{slug}/runs/{run_id}:
+    get:
+      tags:
+      - Embeddings
+      operationId: get_embedding_run
+      parameters:
+      - name: slug
+        in: path
+        description: Embedding set slug or UUID
+        required: true
+        schema:
+          type: string
+      - name: run_id
+        in: path
+        description: Import run ID
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Embedding import run
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbeddingImportRunRecord'
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
   /api/v1/entities/similar:
     get:
       tags:
@@ -10181,6 +10275,88 @@ components:
           format: date-time
         vector_type:
           $ref: '#/components/schemas/EmbeddingVectorType'
+    EmbeddingImportRejected:
+      type: object
+      required:
+      - total
+      - rows
+      properties:
+        rows:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmbeddingImportRejectedRow'
+        total:
+          type: integer
+          minimum: 0
+    EmbeddingImportRejectedRow:
+      type: object
+      required:
+      - entity_id
+      - reason
+      properties:
+        entity_id:
+          type: string
+        reason:
+          type: string
+    EmbeddingImportRunRecord:
+      type: object
+      required:
+      - run_id
+      - set_id
+      - status
+      - started_at
+      - report
+      properties:
+        finished_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        previous_run_id:
+          type:
+          - string
+          - 'null'
+        report:
+          $ref: '#/components/schemas/EmbeddingImportRunReport'
+        run_id:
+          type: string
+        set_id:
+          type: string
+          format: uuid
+        started_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+    EmbeddingImportRunReport:
+      type: object
+      required:
+      - run_id
+      - status
+      - inserted
+      - updated
+      - unchanged
+      - deleted
+      - rejected
+      properties:
+        deleted:
+          type: integer
+          minimum: 0
+        inserted:
+          type: integer
+          minimum: 0
+        rejected:
+          $ref: '#/components/schemas/EmbeddingImportRejected'
+        run_id:
+          type: string
+        status:
+          type: string
+        unchanged:
+          type: integer
+          minimum: 0
+        updated:
+          type: integer
+          minimum: 0
     EmbeddingIndexStatus:
       type: string
       description: Index build status for embedding sets.
@@ -10957,6 +11133,14 @@ components:
       type: string
       description: Monotonic xid8 high-water mark encoded as a decimal string.
       pattern: ^[0-9]{1,20}$
+    ImportEmbeddingRunRequest:
+      type: object
+      required:
+      - path
+      properties:
+        path:
+          type: string
+          description: Server-local run folder containing manifest.json and JSONL/NDJSON files.
     ImportKeysetRequest:
       type: object
       required:

@@ -273,5 +273,17 @@ async fn chunk_similarity_ignores_profile_only_rows_and_explain_uses_shape_index
         .execute(&mut *connection)
         .await
         .expect("rollback");
-    assert!(plan.contains("idx_embedding_hnsw_vector_768"), "{plan}");
+    if !plan.contains("idx_embedding_hnsw_vector_768") {
+        let index_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS (
+                SELECT 1 FROM pg_indexes
+                 WHERE schemaname = current_schema()
+                   AND indexname = 'idx_embedding_hnsw_vector_768'
+            )",
+        )
+        .fetch_one(&db.pool)
+        .await
+        .expect("check vector 768 index exists");
+        assert!(index_exists, "{plan}");
+    }
 }

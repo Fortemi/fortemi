@@ -1058,6 +1058,46 @@ export default [
     annotations: {"destructiveHint":false},
   },
   {
+    name: "import_embedding_run",
+    description: "Admin-only import of an externally generated profile-embedding run folder under FORTEMI_VECTOR_IMPORT_ROOT into an external embedding set. Streamed NDJSON upload is the primary REST contract for remote loaders.",
+    inputSchema: {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "set": {
+          "type": "string",
+          "description": "Embedding set slug or UUID. The set must have vector_source='external'."
+        },
+        "path": {
+          "type": "string",
+          "description": "Server-local run folder path under FORTEMI_VECTOR_IMPORT_ROOT containing manifest.json and referenced files."
+        }
+      },
+      "required": ["set", "path"]
+    },
+    annotations: {"destructiveHint":true, "idempotentHint":true},
+  },
+  {
+    name: "list_embedding_runs",
+    description: "List externally generated profile-embedding import runs for an embedding set, or fetch one run report by run_id.",
+    inputSchema: {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "set": {
+          "type": "string",
+          "description": "Embedding set slug or UUID."
+        },
+        "run_id": {
+          "type": "string",
+          "description": "Optional run ID to fetch a single report."
+        }
+      },
+      "required": ["set"]
+    },
+    annotations: {"readOnlyHint":true},
+  },
+  {
     name: "manage_embeddings",
     description: `Manage embedding sets — curated subsets of notes for focused semantic search. Actions: list, get, create, update, delete, list_members, add_members, remove_member, refresh.`,
     inputSchema: {

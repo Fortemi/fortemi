@@ -52,6 +52,11 @@ name = "configurable_embedding_dimension_test"
 path = "tests/configurable_embedding_dimension_test.rs"
 required-features = ["migrations"]
 
+[[test]]
+name = "embedding_vector_import_test"
+path = "tests/embedding_vector_import_test.rs"
+required-features = ["migrations"]
+
 [dependencies]
 # Internal
 matric-core.workspace = true
@@ -93,6 +98,7 @@ anyhow.workspace = true
 # Async
 tokio = { workspace = true, features = ["fs", "io-util"] }
 async-trait.workspace = true
+futures.workspace = true
 
 # Logging
 tracing.workspace = true
@@ -113,6 +119,8 @@ tempfile = "3"
 default = ["tree-sitter"]
 # Enable migrations (optional for consumers who manage schema externally)
 migrations = []
+# Reserved for future Parquet profile-run imports once Arrow/Parquet crates are available offline.
+parquet-vector-import = []
 # Exposes process-abort checkpoints only to dependent integration-test binaries.
 test-fault-injection = []
 # Enable tree-sitter for code-aware chunking

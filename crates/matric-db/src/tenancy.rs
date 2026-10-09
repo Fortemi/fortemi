@@ -47,6 +47,7 @@ pub const TENANT_SCOPED_TABLES: &[&str] = &[
     "embedding",
     "embedding_coarse",
     "embedding_config",
+    "embedding_import_run",
     "embedding_set",
     "embedding_set_member",
     "entity_stats",

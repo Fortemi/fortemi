@@ -428,7 +428,6 @@ fn validate_profile_row(row: &EntityProfileVectorRow) -> Result<()> {
     for (field, value) in [
         ("profile_hash", row.profile_hash.as_str()),
         ("template_version", row.template_version.as_str()),
-        ("profile_text", row.profile_text.as_str()),
     ] {
         if value.trim().is_empty() {
             return Err(Error::InvalidInput(format!("{field} is required")));

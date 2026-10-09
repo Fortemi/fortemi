@@ -33,6 +33,12 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   upsert/delete storage APIs, profile-to-profile similarity endpoints plus MCP
   `find_similar_entities`, and Knowledge Shard 2.1.0 round-trip fields for
   profile vector metadata (#1183).
+- Add entity-keyed external profile embedding run imports for R1: streamed
+  NDJSON uploads verify `body_sha256`, order by `previous_run_id`,
+  idempotently journal in `embedding_import_run`, apply through
+  source-addressed entity upsert plus profile-vector storage, and expose REST
+  run reports; server-side run folders remain admin-only and confined under
+  `FORTEMI_VECTOR_IMPORT_ROOT` (#1177/#1186).
 
 ## [2026.10.1] - 2026-10-09
 

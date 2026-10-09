@@ -19,6 +19,7 @@ pub mod provenance;
 pub mod token_info;
 #[cfg(feature = "hosted-auth")]
 pub mod user_secrets;
+pub mod vector_import;
 pub mod vision;
 
 // Re-export job handlers for backwards compatibility

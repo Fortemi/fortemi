@@ -3019,6 +3019,7 @@ dependencies = [
  "blake3",
  "chrono",
  "dotenvy",
+ "futures",
  "hex",
  "jsonschema",
  "matric-core",

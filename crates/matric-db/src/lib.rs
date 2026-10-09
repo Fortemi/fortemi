@@ -78,6 +78,7 @@ pub mod tus;
 pub mod unified_filter;
 pub mod usage_ledger;
 pub mod user_secrets;
+pub mod vector_import;
 pub mod vector_index;
 pub mod versioning;
 pub mod webhooks;
@@ -180,6 +181,10 @@ pub use usage_ledger::{
 pub use user_secrets::{
     PgUserSecretRepository, StoredUserSecret, UserSecretMetadata, UserSecretRewrapCandidate,
     UserSecretRewrapJob,
+};
+pub use vector_import::{
+    EmbeddingImportRejected, EmbeddingImportRejectedRow, EmbeddingImportRunRecord,
+    EmbeddingImportRunReport, PgEmbeddingImportRepository, DEFAULT_VECTOR_IMPORT_MAX_LINE_BYTES,
 };
 pub use versioning::{
     NoteVersions, OriginalVersion, RevisionVersionSummary, VersionSummary, VersioningRepository,

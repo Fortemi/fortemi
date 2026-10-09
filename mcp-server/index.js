@@ -339,6 +339,28 @@ function createMcpServer() {
           break;
         }
 
+        case "import_embedding_run": {
+          if (!args.set) throw new Error("'set' is required");
+          if (!args.path) throw new Error("'path' is required");
+          result = await apiRequest("POST", `/api/v1/embedding-sets/${encodeURIComponent(args.set)}/runs`, {
+            path: args.path,
+          });
+          break;
+        }
+
+        case "list_embedding_runs": {
+          if (!args.set) throw new Error("'set' is required");
+          if (args.run_id) {
+            result = await apiRequest(
+              "GET",
+              `/api/v1/embedding-sets/${encodeURIComponent(args.set)}/runs/${encodeURIComponent(args.run_id)}`
+            );
+          } else {
+            result = await apiRequest("GET", `/api/v1/embedding-sets/${encodeURIComponent(args.set)}/runs`);
+          }
+          break;
+        }
+
         case "capture_knowledge": {
           const action = args.action;
           if (action === "create") {

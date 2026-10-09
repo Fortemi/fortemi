@@ -644,6 +644,20 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         NoStore,
     ),
     r(
+        "/api/v1/embedding-sets/{slug}/runs",
+        TenantObject,
+        "embedding_control",
+        Operator,
+        NoStore,
+    ),
+    r(
+        "/api/v1/embedding-sets/{slug}/runs/{run_id}",
+        TenantObject,
+        "embedding_control",
+        Operator,
+        NoStore,
+    ),
+    r(
         "/api/v1/embedding-sets/{slug}/refresh",
         TenantObject,
         "embedding_control",
