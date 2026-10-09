@@ -9431,6 +9431,7 @@ mod tests {
                 truncate_dim: None,
                 auto_embed_rules: Default::default(),
                 vector_source,
+                defer_index_build: false,
             })
             .await
             .expect("create test embedding set")
