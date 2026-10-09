@@ -119,9 +119,10 @@ async fn profile_upsert_is_hash_idempotent_and_unique_per_note_set() {
 async fn profile_similarity_orders_filters_and_resolves_external_identity() {
     let db = setup_test_db().await;
     let set_id = default_set_id(&db).await;
-    let query = insert_note(&db, "Query Entity", "customer").await;
-    let near = insert_note(&db, "Near Entity", "customer").await;
-    let far = insert_note(&db, "Far Entity", "customer").await;
+    let role = format!("customer-{}", Uuid::new_v4().simple());
+    let query = insert_note(&db, "Query Entity", &role).await;
+    let near = insert_note(&db, "Near Entity", &role).await;
+    let far = insert_note(&db, "Far Entity", &role).await;
     let filtered = insert_note(&db, "Filtered Entity", "internal").await;
     let mut connection = db.pool.acquire().await.expect("acquire connection");
     let external_id = format!("external-query-{}", Uuid::new_v4().simple());
@@ -155,7 +156,7 @@ async fn profile_similarity_orders_filters_and_resolves_external_identity() {
     .expect("insert source identity");
 
     let metadata = MetadataPredicates::try_from(json!([
-        { "path": "role", "op": "eq", "value": "customer" }
+        { "path": "role", "op": "eq", "value": role }
     ]))
     .expect("metadata predicates");
     sqlx::query("BEGIN")
@@ -185,7 +186,7 @@ async fn profile_similarity_orders_filters_and_resolves_external_identity() {
     assert_eq!(ids, vec![near, far]);
     assert!(!ids.contains(&query));
     assert!(!ids.contains(&filtered));
-    assert_eq!(hits[0].metadata["role"], "customer");
+    assert_eq!(hits[0].metadata["role"], role);
 
     let resolved = note_id_for_source_identity_tx(&mut connection, "entity-test", &external_id)
         .await
@@ -245,6 +246,10 @@ async fn chunk_similarity_ignores_profile_only_rows_and_explain_uses_shape_index
     )
     .await
     .expect("build vector index");
+    sqlx::query("ANALYZE embedding")
+        .execute(&db.pool)
+        .await
+        .expect("analyze embedding");
 
     sqlx::query("BEGIN")
         .execute(&mut *connection)

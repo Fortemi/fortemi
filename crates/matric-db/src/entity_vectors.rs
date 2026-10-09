@@ -6,7 +6,7 @@ use uuid::Uuid;
 use matric_core::{new_v7, Error, Result, StrictTagFilter};
 
 use crate::{
-    embedding_storage_contract::contract_for_set,
+    embedding_storage_contract::{contract_for_set, EmbeddingStorageContract},
     search_candidates::{bind_params, SearchCandidateScope},
     strict_filter::QueryParam,
 };
@@ -163,16 +163,22 @@ pub async fn find_similar_profiles_for_note_tx(
     }
     let contract = contract_for_set(&mut *connection, embedding_set_id).await?;
     configure_hnsw(connection, embedding_set_id, filter.is_filtered()).await?;
+    let Some(query_vector) = query_profile_vector(connection, query_note_id, &contract).await?
+    else {
+        return Ok(Vec::new());
+    };
 
     let rows = profile_similarity_rows(
         connection,
-        query_note_id,
-        embedding_set_id,
-        limit,
-        filter,
-        metadata_fields,
-        false,
-        &contract,
+        ProfileSimilarityQuery {
+            query_note_id,
+            query_vector: &query_vector,
+            limit,
+            filter,
+            metadata_fields,
+            explain: false,
+            contract: &contract,
+        },
     )
     .await?;
 
@@ -188,19 +194,25 @@ pub async fn explain_similar_profiles_for_note_tx(
 ) -> Result<Vec<String>> {
     let contract = contract_for_set(&mut *connection, embedding_set_id).await?;
     configure_hnsw(connection, embedding_set_id, filter.is_filtered()).await?;
+    let Some(query_vector) = query_profile_vector(connection, query_note_id, &contract).await?
+    else {
+        return Ok(Vec::new());
+    };
     sqlx::query("SET LOCAL enable_seqscan = off")
         .execute(&mut *connection)
         .await
         .map_err(Error::Database)?;
     let rows = profile_similarity_rows(
         connection,
-        query_note_id,
-        embedding_set_id,
-        limit,
-        filter,
-        Vec::new(),
-        true,
-        &contract,
+        ProfileSimilarityQuery {
+            query_note_id,
+            query_vector: &query_vector,
+            limit,
+            filter,
+            metadata_fields: Vec::new(),
+            explain: true,
+            contract: &contract,
+        },
     )
     .await?;
     rows.into_iter()
@@ -231,48 +243,60 @@ pub async fn note_id_for_source_identity_tx(
     .ok_or_else(|| Error::NotFound("Source entity not found".to_string()))
 }
 
-async fn profile_similarity_rows(
-    connection: &mut PgConnection,
+struct ProfileSimilarityQuery<'a> {
     query_note_id: Uuid,
-    embedding_set_id: Uuid,
+    query_vector: &'a Vector,
     limit: i64,
     filter: EntitySimilarityFilter,
     metadata_fields: Vec<String>,
     explain: bool,
-    contract: &crate::embedding_storage_contract::EmbeddingStorageContract,
-) -> Result<Vec<sqlx::postgres::PgRow>> {
-    let distance = format!(
-        "{} <=> {}",
-        contract.similarity_lhs("e.vector"),
-        contract.similarity_rhs("qp.vector")
+    contract: &'a EmbeddingStorageContract,
+}
+
+async fn query_profile_vector(
+    connection: &mut PgConnection,
+    query_note_id: Uuid,
+    contract: &EmbeddingStorageContract,
+) -> Result<Option<Vector>> {
+    let set_predicate = contract.set_predicate("q", "$2");
+    let sql = format!(
+        r#"
+        SELECT q.vector
+        FROM embedding q
+        WHERE q.note_id = $1
+          AND q.vector_kind = 'profile'
+          AND q.vector IS NOT NULL
+          AND {set_predicate}
+        LIMIT 1
+        "#
     );
+    sqlx::query_scalar(&sql)
+        .bind(query_note_id)
+        .bind(contract.embedding_set_id)
+        .fetch_optional(connection)
+        .await
+        .map_err(Error::Database)
+}
+
+async fn profile_similarity_rows(
+    connection: &mut PgConnection,
+    query: ProfileSimilarityQuery<'_>,
+) -> Result<Vec<sqlx::postgres::PgRow>> {
+    let distance = query.contract.distance_expr("e.vector", "$3");
     let scope = SearchCandidateScope {
-        metadata: filter.metadata,
-        strict: filter.strict,
-        legacy_filters: filter.legacy_filters,
+        metadata: query.filter.metadata,
+        strict: query.filter.strict,
+        legacy_filters: query.filter.legacy_filters,
         exclude_archived: true,
         ..Default::default()
     };
-    let (cte, candidate, mut params) = scope.build(2);
-    params.push(QueryParam::Uuid(embedding_set_id));
-    params.push(QueryParam::StringArray(metadata_fields));
-    let set_placeholder = format!("${}", 2 + params.len() - 1);
-    let metadata_placeholder = format!("${}", 2 + params.len());
-    let set_predicate = contract.set_predicate("e", &set_placeholder);
-    let query_set_predicate = contract.set_predicate("q", &set_placeholder);
+    let (cte, candidate, mut params) = scope.build(3);
+    params.push(QueryParam::Uuid(query.contract.embedding_set_id));
+    params.push(QueryParam::StringArray(query.metadata_fields));
+    let set_placeholder = format!("${}", 3 + params.len() - 1);
+    let metadata_placeholder = format!("${}", 3 + params.len());
+    let set_predicate = query.contract.set_predicate("e", &set_placeholder);
 
-    let query_profile_cte = format!(
-        "query_profile AS (
-             SELECT q.vector
-             FROM embedding q
-             WHERE q.note_id = $1
-               AND q.vector_kind = 'profile'
-               AND q.vector IS NOT NULL
-               AND {query_set_predicate}
-             LIMIT 1
-         )"
-    );
-    let cte = append_cte(cte, &query_profile_cte);
     let select = format!(
         r#"
         {cte}
@@ -289,11 +313,7 @@ async fn profile_similarity_rows(
                        WHERE key = ANY({metadata_placeholder}::text[])
                    ), '{{}}'::jsonb)
                END AS metadata
-        FROM query_profile qp
-        JOIN embedding e ON e.vector_kind = 'profile'
-                        AND e.vector IS NOT NULL
-                        AND e.note_id <> $1
-                        AND {set_predicate}
+        FROM embedding e
         JOIN note n ON n.id = e.note_id AND n.tenant_id = e.tenant_id
         LEFT JOIN LATERAL (
             SELECT source_namespace, source_id
@@ -303,20 +323,30 @@ async fn profile_similarity_rows(
             ORDER BY si.updated_at DESC, si.id
             LIMIT 1
         ) si ON TRUE
-        WHERE ({candidate})
+        WHERE e.vector_kind = 'profile'
+          AND e.vector IS NOT NULL
+          AND e.note_id <> $1
+          AND {set_predicate}
+          AND ({candidate})
         ORDER BY {distance}, e.note_id
         LIMIT $2
         "#
     );
-    let sql = if explain {
+    let sql = if query.explain {
         format!("EXPLAIN {select}")
     } else {
         select
     };
-    bind_params(sqlx::query(&sql).bind(query_note_id).bind(limit), params)
-        .fetch_all(&mut *connection)
-        .await
-        .map_err(Error::Database)
+    bind_params(
+        sqlx::query(&sql)
+            .bind(query.query_note_id)
+            .bind(query.limit)
+            .bind(query.query_vector),
+        params,
+    )
+    .fetch_all(&mut *connection)
+    .await
+    .map_err(Error::Database)
 }
 
 async fn configure_hnsw(
@@ -394,19 +424,6 @@ fn parse_major_minor(version: &str) -> Option<(u32, u32)> {
     Some((major, minor))
 }
 
-fn append_cte(existing: String, next: &str) -> String {
-    let trimmed = existing.trim();
-    if trimmed.is_empty() {
-        format!("WITH {next}")
-    } else {
-        let rest = trimmed
-            .strip_prefix("WITH RECURSIVE ")
-            .unwrap_or(trimmed)
-            .trim_end();
-        format!("WITH RECURSIVE {rest}, {next}")
-    }
-}
-
 fn validate_profile_row(row: &EntityProfileVectorRow) -> Result<()> {
     for (field, value) in [
         ("profile_hash", row.profile_hash.as_str()),
@@ -444,15 +461,5 @@ mod tests {
         assert_eq!(parse_major_minor("0.8.0-dev"), Some((0, 8)));
         assert_eq!(parse_major_minor("1.0.0"), Some((1, 0)));
         assert_eq!(parse_major_minor("0.7.4"), Some((0, 7)));
-    }
-
-    #[test]
-    fn appends_query_profile_to_recursive_filter_cte() {
-        let sql = append_cte(
-            "WITH RECURSIVE selected AS (SELECT 1) ".to_string(),
-            "query_profile AS (SELECT 2)",
-        );
-        assert!(sql.starts_with("WITH RECURSIVE selected AS"));
-        assert!(sql.contains(", query_profile AS"));
     }
 }
