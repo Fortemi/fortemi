@@ -748,7 +748,7 @@ curl -X POST http://localhost:3000/oauth/register \
   -d '{
     "client_name": "MCP Server",
     "grant_types": ["client_credentials"],
-    "scope": "mcp read"
+    "scope": "mcp read write"
   }'
 ```
 
@@ -1182,7 +1182,7 @@ curl -X POST https://memory.example.com/oauth/register \
   -d '{
     "client_name": "MCP Server",
     "grant_types": ["client_credentials"],
-    "scope": "mcp read"
+    "scope": "mcp read write"
   }'
 ```
 
@@ -1193,7 +1193,7 @@ Response:
   "client_secret": "xxxxxxxxxxxxx",
   "client_name": "MCP Server",
   "grant_types": ["client_credentials"],
-  "scope": "mcp read"
+  "scope": "mcp read write"
 }
 ```
 

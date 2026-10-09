@@ -7,6 +7,59 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.10.0] - 2026-10-09
+
+### Highlights
+
+- Fortémi now ships signed multi-architecture API, bundle, standalone MCP, and
+  hosted image variants for `linux/amd64` and `linux/arm64`.
+- Kubernetes operators get the first Helm chart and Kustomize base for split
+  API, worker, MCP and migration workloads on external PostgreSQL 18 and Redis.
+- Hosted and MCP deployments fail closed in more places: MCP authentication is
+  on by default, hosted unsafe realtime and diagnostic routes are closed, and
+  hosted readiness now reflects KMS availability.
+- OAuth registration, authorization and external-issuer token handling are
+  stricter, with explicit `mcp` scope registration for MCP clients.
+- External IdP groups and roles (for example Keycloak `/fortemi-operators`) map
+  to Fortemi scopes through `FORTEMI_AUTH_CLAIM_POLICY_FILE`, with an optional
+  OAuth client allowlist and service-principal classification (#1152, built on
+  fortemi-auth `v2026.10.0`).
+- Memory export gains a point-in-time full and incremental contract exposed over
+  REST and MCP.
+
+### Breaking changes / config semantics
+
+- MCP no longer falls back to `https://fortemi.com`; configure
+  `MATRIC_API_URL`, `FORTEMI_URL`, or `MCP_API_LAYOUT` (`bundle` or `sidecar`),
+  otherwise startup fails closed (#1171).
+- MCP HTTP requires authentication by default. Anonymous MCP requires
+  `REQUIRE_AUTH=false` and `I_UNDERSTAND_NO_AUTH=true`, and is refused in hosted
+  mode (#1171).
+- OAuth clients registered with only `read` can no longer request `mcp`;
+  re-register MCP clients with `mcp read write` (#943/#944).
+- `FORTEMI_OAUTH_DYNAMIC_REGISTRATION` defaults to `enabled` for self-hosted and
+  `disabled` for hosted; `FORTEMI_OAUTH_AUTHORIZE_OWNER_AUTH` defaults to
+  `none` for self-hosted and must be `disabled` in hosted mode (#943/#944).
+- Hosted mode returns `401`/`503` for `/api/v1/ws`,
+  `/api/v1/ingest/stream`, and `/api/v1/health/*` knowledge diagnostics until
+  those routes are tenant-transaction qualified (#1163/#1164).
+- The all-in-one bundle can run non-root as uid/gid `999`; root starts remain
+  supported, but root-owned credential files can force MCP client
+  re-registration on first non-root start (#1173).
+- Release images are multi-architecture, add `fortemi-mcp:<version>`, and add
+  `fortemi:<version>-hosted` for hosted KMS-capable deployments (#623/#1172).
+- Hosted `/readyz` includes cached KMS/key-provider health (#1170).
+- OTLP traces and metrics are available when `OTEL_*` enables export (#1156).
+- Path-bearing HTTPS issuers such as `/realms/<name>` are accepted without
+  `FORTEMI_ALLOW_LOCAL_ISSUER`; local-issuer allowance no longer permits HTTP to
+  public hosts (#1155).
+- MCP accepts external-issuer tokens only through API token-info verification,
+  requires `mcp` scope at the transport, and rejects refresh tokens (#1151).
+- Point-in-time memory export is available through REST and
+  `export_memory_snapshot` (#1157).
+- Managed PostgreSQL deployments require PostgreSQL 18 because migrations and
+  runtime SQL use native `uuidv7()` (#1161).
+
 ### Breaking Changes
 
 - **Authorization requests may only ask for scopes the client registered (#943).**
@@ -2912,7 +2965,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.9.11...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.10.0...HEAD
+[2026.10.0]: https://github.com/fortemi/fortemi/compare/v2026.9.11...v2026.10.0
 [2026.9.11]: https://github.com/fortemi/fortemi/compare/v2026.9.10...v2026.9.11
 [2026.9.10]: https://github.com/fortemi/fortemi/compare/v2026.9.9...v2026.9.10
 [2026.9.9]: https://github.com/fortemi/fortemi/compare/v2026.9.8...v2026.9.9

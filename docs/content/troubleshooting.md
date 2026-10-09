@@ -973,7 +973,7 @@ curl -X POST http://localhost:3000/oauth/register \
   -d '{
     "client_name": "MCP Server",
     "grant_types": ["client_credentials"],
-    "scope": "mcp read"
+    "scope": "mcp read write"
   }'
 
 # Save the returned client_id and client_secret
