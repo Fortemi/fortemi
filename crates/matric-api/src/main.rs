@@ -10728,6 +10728,7 @@ async fn auth_middleware(
             // from the caller IP budget (SR-54).
             note_auth_failure(state.auth_failure_limiter.as_deref(), client_ip);
             auth_problem_response(
+                &state.issuer,
                 failure.status,
                 failure.problem_type,
                 failure.detail.to_string(),
@@ -10738,6 +10739,7 @@ async fn auth_middleware(
             // (wrong scheme or undecodable): also an authentication failure.
             note_auth_failure(state.auth_failure_limiter.as_deref(), client_ip);
             auth_problem_response(
+                &state.issuer,
                 StatusCode::UNAUTHORIZED,
                 ProblemType::Unauthorized,
                 "Invalid or expired bearer token.".to_string(),
@@ -10747,6 +10749,7 @@ async fn auth_middleware(
             // No token provided
             if requires_bearer {
                 auth_problem_response(
+                    &state.issuer,
                     StatusCode::UNAUTHORIZED,
                     ProblemType::Unauthorized,
                     "Authentication required. Provide a valid Bearer token.".to_string(),
@@ -10768,20 +10771,42 @@ async fn auth_middleware(
     }
 }
 
-fn bearer_www_authenticate_header() -> HeaderValue {
-    HeaderValue::from_static("Bearer realm=\"fortemi\"")
+fn oauth_protected_resource_metadata_url(resource: &str) -> String {
+    format!(
+        "{}/.well-known/oauth-protected-resource",
+        resource.trim_end_matches('/')
+    )
+}
+
+fn bearer_www_authenticate_header(resource: &str) -> HeaderValue {
+    HeaderValue::from_str(&format!(
+        "Bearer realm=\"fortemi\", resource_metadata=\"{}\"",
+        oauth_protected_resource_metadata_url(resource)
+    ))
+    .expect("resource metadata challenge must be a valid header")
+}
+
+fn insufficient_scope_www_authenticate_header(resource: &str, scopes: &[String]) -> HeaderValue {
+    HeaderValue::from_str(&format!(
+        "Bearer realm=\"fortemi\", error=\"insufficient_scope\", scope=\"{}\", resource_metadata=\"{}\"",
+        scopes.join(" "),
+        oauth_protected_resource_metadata_url(resource)
+    ))
+    .expect("insufficient-scope challenge must be a valid header")
 }
 
 fn auth_problem_response(
+    resource: &str,
     status: StatusCode,
     problem_type: ProblemType,
     detail: String,
 ) -> axum::response::Response {
     let mut response = problem_response(status, problem_type, detail, None);
     if status == StatusCode::UNAUTHORIZED {
-        response
-            .headers_mut()
-            .insert(header::WWW_AUTHENTICATE, bearer_www_authenticate_header());
+        response.headers_mut().insert(
+            header::WWW_AUTHENTICATE,
+            bearer_www_authenticate_header(resource),
+        );
     }
     response
 }
@@ -11141,13 +11166,21 @@ async fn authorize_middleware(
     let decision = if route_policy::is_operator_docs_route(input.policy.path) {
         // Generated API inventory is operator-only even when personal mode uses
         // AllowAllPolicy for the rest of the application.
-        authorize_policy_input(&RoleBasedPolicy, state.audit_sink.as_ref(), &auth, &input).await
+        authorize_policy_input_with_challenge(
+            &RoleBasedPolicy,
+            state.audit_sink.as_ref(),
+            &auth,
+            &input,
+            Some(&state.issuer),
+        )
+        .await
     } else {
-        authorize_policy_input(
+        authorize_policy_input_with_challenge(
             state.authorization_policy.as_ref(),
             state.audit_sink.as_ref(),
             &auth,
             &input,
+            Some(&state.issuer),
         )
         .await
     };
@@ -12939,6 +12972,17 @@ async fn authorize_policy_input(
     auth: &Auth,
     input: &route_policy::RoutePolicyInput,
 ) -> Result<(), axum::response::Response> {
+    authorize_policy_input_with_challenge(policy, audit_sink, auth, input, None).await
+}
+
+#[allow(clippy::result_large_err)]
+async fn authorize_policy_input_with_challenge(
+    policy: &dyn AuthorizationPolicy,
+    audit_sink: &dyn AuditSink,
+    auth: &Auth,
+    input: &route_policy::RoutePolicyInput,
+    resource: Option<&str>,
+) -> Result<(), axum::response::Response> {
     tracing::debug!(stage = "policy_entered", "Request admission stage");
     if hosted_policy_requires_normalized_resource(policy, input) {
         let _ = emit_auth_decision_audit_event(
@@ -13027,12 +13071,24 @@ async fn authorize_policy_input(
                 reason_len = telemetry_text_len(&format!("{reason:?}")),
                 "authorization denied"
             );
-            Err(problem_response(
+            let mut response = problem_response(
                 StatusCode::FORBIDDEN,
                 ProblemType::Forbidden,
                 "Authorization denied.".to_string(),
                 None,
-            ))
+            );
+            if reason == DenyReason::MissingScope {
+                if let Some(resource) = resource {
+                    response.headers_mut().insert(
+                        header::WWW_AUTHENTICATE,
+                        insufficient_scope_www_authenticate_header(
+                            resource,
+                            &input.action.required_scopes,
+                        ),
+                    );
+                }
+            }
+            Err(response)
         }
         Err(err) => {
             let _ = emit_auth_decision_audit_event(
@@ -24929,30 +24985,78 @@ fn oauth_authorization_server_metadata(
 }
 
 #[utoipa::path(get, path = "/.well-known/oauth-authorization-server", tag = "OAuth",
-    responses((status = 200, description = "Success")))]
-async fn oauth_discovery(State(state): State<AppState>) -> impl IntoResponse {
-    Json(oauth_authorization_server_metadata(
+    responses(
+        (status = 200, description = "Success"),
+        (status = 404, description = "Not advertised when an external identity provider is authoritative"),
+    ))]
+async fn oauth_discovery(State(state): State<AppState>) -> axum::response::Response {
+    oauth_discovery_response(
         &state.issuer,
         state.oauth_registration,
-    ))
+        state.oauth_external_idp_configured,
+    )
 }
 
 /// OAuth Protected Resource Metadata (RFC 9728).
 /// Required by MCP OAuth clients to discover authorization server.
-fn oauth_protected_resource_metadata(issuer: &str) -> serde_json::Value {
+fn oauth_discovery_response(
+    issuer: &str,
+    registration: oauth_registration::OAuthRegistrationMode,
+    external_idp_configured: bool,
+) -> axum::response::Response {
+    if external_idp_configured {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    Json(oauth_authorization_server_metadata(issuer, registration)).into_response()
+}
+
+fn oauth_protected_resource_metadata(
+    resource: &str,
+    authorization_server: &str,
+) -> serde_json::Value {
     let capabilities = active_oauth_capabilities();
     serde_json::json!({
-        "resource": issuer,
-        "authorization_servers": [issuer],
+        "resource": resource,
+        "authorization_servers": [authorization_server],
         "bearer_methods_supported": ["header"],
         "scopes_supported": capabilities.scopes,
     })
 }
 
+fn oauth_authorization_server_for_state(state: &AppState) -> &str {
+    #[cfg(feature = "hosted-auth")]
+    if state.oauth_external_idp_configured {
+        if let Some(issuer) = state.oidc_issuer.as_deref() {
+            return issuer;
+        }
+    }
+    &state.issuer
+}
+
+fn oauth_protected_resource_for_state(state: &AppState) -> &str {
+    #[cfg(feature = "hosted-auth")]
+    if let Some(config) = state
+        .external_oidc
+        .as_ref()
+        .filter(|_| state.auth_mode.external_oidc())
+    {
+        if config.audiences.contains(&state.issuer) {
+            return &state.issuer;
+        }
+        if let Some(resource) = config.audiences.iter().next() {
+            return resource;
+        }
+    }
+    &state.issuer
+}
+
 #[utoipa::path(get, path = "/.well-known/oauth-protected-resource", tag = "OAuth",
     responses((status = 200, description = "Success")))]
 async fn oauth_protected_resource(State(state): State<AppState>) -> impl IntoResponse {
-    Json(oauth_protected_resource_metadata(&state.issuer))
+    Json(oauth_protected_resource_metadata(
+        oauth_protected_resource_for_state(&state),
+        oauth_authorization_server_for_state(&state),
+    ))
 }
 
 /// OAuth2 Dynamic Client Registration (RFC 7591).
@@ -49615,17 +49719,57 @@ mod tests {
 
     #[test]
     fn oauth_protected_resource_metadata_uses_active_profile_scopes() {
-        let metadata = oauth_protected_resource_metadata("https://resource.example.com");
+        let metadata = oauth_protected_resource_metadata(
+            "https://resource.example.com",
+            "https://idp.example.com/realms/acme",
+        );
 
         assert_eq!(metadata["resource"], "https://resource.example.com");
         assert_eq!(
             metadata["authorization_servers"],
-            serde_json::json!(["https://resource.example.com"])
+            serde_json::json!(["https://idp.example.com/realms/acme"])
         );
         assert_eq!(
             metadata["scopes_supported"],
             serde_json::json!(["read", "write", "admin", "mcp"])
         );
+    }
+
+    #[test]
+    fn oauth_authorization_server_metadata_is_hidden_for_external_idp() {
+        let response = oauth_discovery_response(
+            "https://fortemi.example.com",
+            oauth_registration::OAuthRegistrationMode::Enabled,
+            true,
+        );
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+        let response = oauth_discovery_response(
+            "https://fortemi.example.com",
+            oauth_registration::OAuthRegistrationMode::Enabled,
+            false,
+        );
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn bearer_challenge_points_to_protected_resource_metadata() {
+        let response = auth_problem_response(
+            "https://fortemi.example.com",
+            StatusCode::UNAUTHORIZED,
+            ProblemType::Unauthorized,
+            "Authentication required.".to_string(),
+        );
+
+        let challenge = response
+            .headers()
+            .get(header::WWW_AUTHENTICATE)
+            .and_then(|value| value.to_str().ok())
+            .expect("WWW-Authenticate challenge");
+        assert!(challenge.starts_with("Bearer "));
+        assert!(challenge.contains(
+            "resource_metadata=\"https://fortemi.example.com/.well-known/oauth-protected-resource\""
+        ));
     }
 
     #[test]
@@ -73666,6 +73810,44 @@ not-json
         assert!(problem.get("error").is_none());
         assert!(problem.get("error_description").is_none());
         assert!(!problem.to_string().contains("MissingScope"));
+    }
+
+    #[tokio::test]
+    async fn scope_denial_carries_insufficient_scope_challenge() {
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "read".to_string(),
+            },
+        };
+        let input =
+            route_policy::authorization_input_for_request(&Method::POST, "/api/v1/notes", None)
+                .expect("notes route has policy input");
+
+        let response = authorize_policy_input_with_challenge(
+            &RoleBasedPolicy,
+            &TracingSink,
+            &auth,
+            &input,
+            Some("https://fortemi.example.com"),
+        )
+        .await
+        .expect_err("read-only principal cannot write notes");
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let challenge = response
+            .headers()
+            .get(header::WWW_AUTHENTICATE)
+            .and_then(|value| value.to_str().ok())
+            .expect("WWW-Authenticate challenge");
+        assert!(challenge.contains("error=\"insufficient_scope\""));
+        assert!(challenge.contains("scope=\"write\""));
+        assert!(challenge.contains(
+            "resource_metadata=\"https://fortemi.example.com/.well-known/oauth-protected-resource\""
+        ));
+        let problem = read_response_json(response).await;
+        assert_eq!(problem["detail"], "Authorization denied.");
+        assert!(problem.get("error").is_none());
     }
 
     #[tokio::test]

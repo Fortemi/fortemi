@@ -147,6 +147,50 @@ describe("HTTP transport requires authentication by default", () => {
   });
 });
 
+describe("external IdP discovery", () => {
+  let child;
+  let baseUrl;
+  const log = tempLog();
+
+  before(async () => {
+    const port = await freePort();
+    baseUrl = `http://127.0.0.1:${port}`;
+    child = startServer({
+      MCP_TRANSPORT: "http",
+      MCP_API_LAYOUT: "bundle",
+      MCP_PORT: String(port),
+      MCP_BASE_URL: baseUrl,
+      FORTEMI_AUTH_ISSUER: "https://idp.example.com/realms/acme",
+    }, log);
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      if (child.exitCode !== null) throw new Error(`server exited:\n${child.output}`);
+      try {
+        if ((await fetch(`${baseUrl}/health`)).ok) return;
+      } catch { /* not listening yet */ }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    throw new Error(`timed out:\n${child.output}`);
+  });
+
+  after(async () => {
+    if (child && child.exitCode === null) {
+      child.kill("SIGTERM");
+      await exitOf(child, 2000);
+    }
+  });
+
+  test("PRM names the IdP and AS metadata is not proxied", async () => {
+    const prm = await (await fetch(`${baseUrl}/.well-known/oauth-protected-resource`)).json();
+    assert.deepEqual(prm.authorization_servers, ["https://idp.example.com/realms/acme"]);
+    assert.deepEqual(prm.scopes_supported, ["read", "write", "admin", "mcp"]);
+
+    const asMetadata = await fetch(`${baseUrl}/.well-known/oauth-authorization-server`);
+    assert.equal(asMetadata.status, 404);
+    assert.deepEqual(nonLocal(readLog(log)), []);
+  });
+});
+
 describe("stdio tools in the bundle layout only reach the local API", () => {
   let api;
   let apiPort;

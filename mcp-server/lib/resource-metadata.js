@@ -30,7 +30,15 @@ export function buildProtectedResourceMetadata({
     resource,
     authorization_servers: [authorizationServer],
     bearer_methods_supported: ["header"],
-    scopes_supported: ["mcp", "admin"],
+    scopes_supported: ["read", "write", "admin", "mcp"],
     resource_documentation: resolveResourceDocumentationUrl(resourceDocumentation),
   };
+}
+
+export function resolveAuthorizationServer({ externalIssuer, issuerUrl, apiBase }) {
+  return externalIssuer?.trim() || issuerUrl?.trim() || apiBase;
+}
+
+export function shouldProxyAuthorizationServerMetadata({ externalIssuer }) {
+  return !externalIssuer?.trim();
 }

@@ -19,6 +19,8 @@ paths:
       responses:
         '200':
           description: Success
+        '404':
+          description: Not advertised when an external identity provider is authoritative
         '429':
           content:
             application/problem+json:

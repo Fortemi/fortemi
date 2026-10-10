@@ -26,7 +26,11 @@ import {
   sanitizeMcpOutput,
   sanitizeMcpText,
 } from "./lib/output-sanitizer.js";
-import { buildProtectedResourceMetadata } from "./lib/resource-metadata.js";
+import {
+  buildProtectedResourceMetadata,
+  resolveAuthorizationServer,
+  shouldProxyAuthorizationServerMetadata,
+} from "./lib/resource-metadata.js";
 import { mustReject, validateBearer } from "./lib/bearer-validation.js";
 import {
   apiAuthorizationHeader,
@@ -80,6 +84,14 @@ try {
   process.exit(1);
 }
 const API_BASE = STARTUP_CONFIG.apiBase;
+const AUTHORIZATION_SERVER = resolveAuthorizationServer({
+  externalIssuer: process.env.FORTEMI_AUTH_ISSUER,
+  issuerUrl: process.env.ISSUER_URL,
+  apiBase: API_BASE,
+});
+const PROXY_AUTHORIZATION_SERVER_METADATA = shouldProxyAuthorizationServerMetadata({
+  externalIssuer: process.env.FORTEMI_AUTH_ISSUER,
+});
 // Public-facing URL for links shown to users (upload guidance, download URLs, etc.):
 // ISSUER_URL (external hostname) when set, otherwise the API base. Never a hosted default.
 const PUBLIC_URL = STARTUP_CONFIG.publicUrl;
@@ -6233,6 +6245,10 @@ if (MCP_TRANSPORT === "http") {
 
   // OAuth discovery endpoints - proxy to main API
   app.get("/.well-known/oauth-authorization-server", async (req, res) => {
+    if (!PROXY_AUTHORIZATION_SERVER_METADATA) {
+      res.status(404).end();
+      return;
+    }
     try {
       const response = await fetchWithTrace(`${API_BASE}/.well-known/oauth-authorization-server`);
       const metadata = await response.json();
@@ -6249,7 +6265,7 @@ if (MCP_TRANSPORT === "http") {
   app.get("/.well-known/oauth-protected-resource", (req, res) => {
     res.json(buildProtectedResourceMetadata({
       resource: MCP_RESOURCE_URI,
-      authorizationServer: process.env.ISSUER_URL || API_BASE,
+      authorizationServer: AUTHORIZATION_SERVER,
       resourceDocumentation: process.env.MCP_RESOURCE_DOCUMENTATION_URL,
     }));
   });

@@ -36,6 +36,11 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   claim-policy mapping, exact resource audiences, default-tenant bootstrap,
   scope-enforcing authorization, `key_source_unavailable` as 503, and legacy
   `mm_at_`/`mm_key_` tokens disabled unless explicitly capped (#1190).
+- Make OAuth discovery truthful for external IdP deployments: API and MCP
+  protected-resource metadata now advertise the external issuer, Fortemi hides
+  its own authorization-server metadata in that mode, 401 challenges point to
+  RFC 9728 metadata, and scope denials return RFC 6750
+  `insufficient_scope` challenges (#1194).
 - Harden Fortemi's local OAuth authorization server: redirect URI matching now
   parses URLs before applying the RFC 8252 loopback port exception, dynamic
   client registration rejects unsafe redirect metadata, and deployments with an

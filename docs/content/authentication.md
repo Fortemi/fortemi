@@ -192,6 +192,17 @@ API and set `MCP_RESOURCE_URI` to the API's `FORTEMI_AUTH_AUDIENCE`. RFC 9728 me
 authorization server and the audience clients must request. The server logs a
 startup warning when the two values differ.
 
+External-IdP discovery is intentionally resource-server-only. In this mode,
+`/.well-known/oauth-protected-resource` on both the API and MCP returns the
+Fortemi resource URI and `authorization_servers: [FORTEMI_AUTH_ISSUER]`; the
+Fortemi `/.well-known/oauth-authorization-server` endpoint returns 404, and MCP
+does not proxy it. A client with no configuration should begin from a 401
+challenge, read the `resource_metadata` URL in `WWW-Authenticate`, then use the
+IdP issuer from that metadata. Scope denials return 403 with
+`error="insufficient_scope"` and a `scope` value naming the Fortemi scope to
+request. The `scopes_supported` value is exactly `read`, `write`, `admin`, and
+`mcp`.
+
 #### Tenant bootstrap
 
 Admission requires the claim's tenant to exist as an `active` row in
