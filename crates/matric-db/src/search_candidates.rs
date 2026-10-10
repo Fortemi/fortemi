@@ -14,6 +14,7 @@ use crate::{
     metadata_predicates::MetadataPredicateQueryBuilder,
     strict_filter::{QueryParam, StrictFilterQueryBuilder},
     unified_filter::UnifiedFilterQueryBuilder,
+    vector_ef_search::apply_ef_search,
 };
 
 #[derive(Clone, Default)]
@@ -250,9 +251,10 @@ pub async fn vector_on_connection(
         None => default_contract(&mut *connection, vector.as_slice().len()).await?,
     };
     contract.validate_vector(vector)?;
+    let scoped_set_id = scope.embedding_set_id.unwrap_or(contract.embedding_set_id);
+    apply_ef_search(connection, Some(scoped_set_id)).await?;
     let distance = contract.distance_expr("e.vector", "$1");
     let (cte, candidate, mut params) = scope.build(2);
-    let scoped_set_id = scope.embedding_set_id.unwrap_or(contract.embedding_set_id);
     params.push(QueryParam::Uuid(scoped_set_id));
     let set_clause = format!(
         "AND {}",

@@ -36,6 +36,16 @@ pub const EMBED_MODEL: &str = "nomic-embed-text";
 /// Default embedding vector dimension for nomic-embed-text.
 pub const EMBED_DIMENSION: usize = 768;
 
+/// Default HNSW `ef_search` for semantic queries without a per-set override (#1181 R1).
+/// Must match `HnswTuningConfig`'s Balanced `base_ef` in matric-search.
+pub const SEMANTIC_EF_SEARCH_DEFAULT: i32 = 40;
+
+/// Minimum accepted per-set HNSW `ef_search` (#1181 R1).
+pub const EF_SEARCH_MIN: i32 = 10;
+
+/// Maximum accepted per-set HNSW `ef_search` (#1181 R1).
+pub const EF_SEARCH_MAX: i32 = 1000;
+
 // =============================================================================
 // PAGINATION
 // =============================================================================

@@ -62,6 +62,7 @@ async fn test_embedding_set_crud_lifecycle() {
         auto_embed_rules: AutoEmbedRules::default(),
         vector_source: EmbeddingVectorSource::Internal,
         defer_index_build: false,
+        ef_search: None,
         agent_metadata: EmbeddingSetAgentMetadata::default(),
     };
 
@@ -112,6 +113,7 @@ async fn test_embedding_set_crud_lifecycle() {
         auto_refresh: None,
         vector_source: Some(EmbeddingVectorSource::Internal),
         defer_index_build: None,
+        ef_search: None,
         agent_metadata: None,
     };
 
@@ -210,6 +212,7 @@ async fn test_external_set_member_add_queues_no_embedding_jobs() {
             auto_embed_rules: auto_embed_rules_on_create(),
             vector_source: EmbeddingVectorSource::External,
             defer_index_build: false,
+            ef_search: None,
             agent_metadata: EmbeddingSetAgentMetadata::default(),
         })
         .await
@@ -285,6 +288,7 @@ async fn test_internal_set_member_add_still_queues_embedding_job() {
             auto_embed_rules: auto_embed_rules_on_create(),
             vector_source: EmbeddingVectorSource::Internal,
             defer_index_build: false,
+            ef_search: None,
             agent_metadata: EmbeddingSetAgentMetadata::default(),
         })
         .await
@@ -350,6 +354,7 @@ async fn test_delete_removes_member_associations() {
         auto_embed_rules: AutoEmbedRules::default(),
         vector_source: EmbeddingVectorSource::Internal,
         defer_index_build: false,
+        ef_search: None,
         agent_metadata: EmbeddingSetAgentMetadata::default(),
     };
 

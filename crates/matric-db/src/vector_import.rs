@@ -535,8 +535,7 @@ impl PgEmbeddingImportRepository {
             )));
         }
 
-        // Post-batch maintenance hook (#1181): call schedule_post_batch_maintenance(set_id, changed_rows)
-        // here when it is available on this branch. changed_rows is the sum of material vector changes.
+        schedule_vector_import_maintenance(&self.pool, schema, set.id, &report).await?;
         Ok(report)
     }
 
@@ -647,6 +646,7 @@ impl PgEmbeddingImportRepository {
             )));
         }
 
+        schedule_vector_import_maintenance(&self.pool, schema, set.id, &report).await?;
         Ok(report)
     }
 
@@ -1210,6 +1210,28 @@ fn observe_outcome(
     report.updated += outcome.updated;
     report.unchanged += outcome.unchanged;
     report.deleted += outcome.deleted;
+}
+
+async fn schedule_vector_import_maintenance(
+    pool: &PgPool,
+    schema: &str,
+    set_id: Uuid,
+    report: &EmbeddingImportRunReport,
+) -> Result<()> {
+    let changed_rows = report
+        .inserted
+        .saturating_add(report.updated)
+        .saturating_add(report.deleted);
+    let changed_rows = i64::try_from(changed_rows).unwrap_or(i64::MAX);
+    crate::index_maintenance::schedule_post_batch_maintenance_with_reason(
+        pool,
+        schema,
+        set_id,
+        changed_rows,
+        Some("vector_import"),
+    )
+    .await?;
+    Ok(())
 }
 
 fn is_profile_path(path: &str) -> bool {

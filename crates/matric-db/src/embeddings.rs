@@ -7,6 +7,7 @@ use sqlx::{Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use crate::embedding_storage_contract::{contract_for_set, default_contract};
+use crate::vector_ef_search::apply_ef_search;
 use matric_core::{
     embedding_chunk_hash, embedding_doc_hash, new_v7, Embedding, EmbeddingRepository, Error,
     Result, SearchHit,
@@ -105,9 +106,10 @@ impl EmbeddingRepository for PgEmbeddingRepository {
         limit: i64,
         exclude_archived: bool,
     ) -> Result<Vec<SearchHit>> {
-        let mut connection = self.pool.acquire().await.map_err(Error::Database)?;
-        let contract = default_contract(&mut connection, query_vec.as_slice().len()).await?;
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        let contract = default_contract(&mut tx, query_vec.as_slice().len()).await?;
         contract.validate_vector(query_vec)?;
+        apply_ef_search(&mut tx, Some(contract.embedding_set_id)).await?;
         let distance = contract.distance_expr("e.vector", "$1");
         let set_predicate = contract.set_predicate("e", "$3");
         let archive_clause = if exclude_archived {
@@ -147,9 +149,10 @@ impl EmbeddingRepository for PgEmbeddingRepository {
             .bind(query_vec)
             .bind(limit)
             .bind(contract.embedding_set_id)
-            .fetch_all(&mut *connection)
+            .fetch_all(&mut *tx)
             .await
             .map_err(Error::Database)?;
+        tx.commit().await.map_err(Error::Database)?;
 
         let results = rows
             .into_iter()
@@ -181,9 +184,10 @@ impl EmbeddingRepository for PgEmbeddingRepository {
         limit: i64,
         exclude_archived: bool,
     ) -> Result<Vec<(SearchHit, Vector)>> {
-        let mut connection = self.pool.acquire().await.map_err(Error::Database)?;
-        let contract = default_contract(&mut connection, query_vec.as_slice().len()).await?;
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        let contract = default_contract(&mut tx, query_vec.as_slice().len()).await?;
         contract.validate_vector(query_vec)?;
+        apply_ef_search(&mut tx, Some(contract.embedding_set_id)).await?;
         let distance = contract.distance_expr("e.vector", "$1");
         let set_predicate = contract.set_predicate("e", "$3");
         let archive_clause = if exclude_archived {
@@ -223,9 +227,10 @@ impl EmbeddingRepository for PgEmbeddingRepository {
             .bind(query_vec)
             .bind(limit)
             .bind(contract.embedding_set_id)
-            .fetch_all(&mut *connection)
+            .fetch_all(&mut *tx)
             .await
             .map_err(Error::Database)?;
+        tx.commit().await.map_err(Error::Database)?;
 
         let results = rows
             .into_iter()
@@ -342,9 +347,10 @@ impl PgEmbeddingRepository {
         limit: i64,
         exclude_archived: bool,
     ) -> Result<Vec<SearchHit>> {
-        let mut connection = self.pool.acquire().await.map_err(Error::Database)?;
-        let contract = contract_for_set(&mut connection, embedding_set_id).await?;
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        let contract = contract_for_set(&mut tx, embedding_set_id).await?;
         contract.validate_vector(query_vec)?;
+        apply_ef_search(&mut tx, Some(embedding_set_id)).await?;
         let distance = contract.distance_expr("e.vector", "$1");
         let set_predicate = contract.set_predicate("e", "$3");
         let archive_clause = if exclude_archived {
@@ -384,9 +390,10 @@ impl PgEmbeddingRepository {
             .bind(query_vec)
             .bind(limit)
             .bind(embedding_set_id)
-            .fetch_all(&mut *connection)
+            .fetch_all(&mut *tx)
             .await
             .map_err(Error::Database)?;
+        tx.commit().await.map_err(Error::Database)?;
 
         let results = rows
             .into_iter()
@@ -425,9 +432,10 @@ impl PgEmbeddingRepository {
     ) -> Result<Vec<SearchHit>> {
         use crate::strict_filter::StrictFilterQueryBuilder;
 
-        let mut connection = self.pool.acquire().await.map_err(Error::Database)?;
-        let contract = default_contract(&mut connection, query_vec.as_slice().len()).await?;
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        let contract = default_contract(&mut tx, query_vec.as_slice().len()).await?;
         contract.validate_vector(query_vec)?;
+        apply_ef_search(&mut tx, Some(contract.embedding_set_id)).await?;
         let distance = contract.distance_expr("e.vector", "$1");
         let set_predicate = contract.set_predicate("e", "$3");
 
@@ -507,9 +515,10 @@ impl PgEmbeddingRepository {
         }
 
         let rows = query_builder
-            .fetch_all(&mut *connection)
+            .fetch_all(&mut *tx)
             .await
             .map_err(Error::Database)?;
+        tx.commit().await.map_err(Error::Database)?;
 
         let results = rows
             .into_iter()
@@ -830,6 +839,8 @@ impl PgEmbeddingRepository {
     ) -> Result<Vec<SearchHit>> {
         let contract = default_contract(tx, query_vec.as_slice().len()).await?;
         contract.validate_vector(query_vec)?;
+        let set_id = Some(contract.embedding_set_id);
+        apply_ef_search(tx, set_id).await?;
         let distance = contract.distance_expr("e.vector", "$1");
         let set_predicate = contract.set_predicate("e", "$3");
         let archive_clause = if exclude_archived {
@@ -907,6 +918,8 @@ impl PgEmbeddingRepository {
     ) -> Result<Vec<(SearchHit, Vector)>> {
         let contract = default_contract(tx, query_vec.as_slice().len()).await?;
         contract.validate_vector(query_vec)?;
+        let set_id = Some(contract.embedding_set_id);
+        apply_ef_search(tx, set_id).await?;
         let distance = contract.distance_expr("e.vector", "$1");
         let set_predicate = contract.set_predicate("e", "$3");
         let archive_clause = if exclude_archived {

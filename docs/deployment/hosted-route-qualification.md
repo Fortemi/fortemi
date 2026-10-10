@@ -80,7 +80,7 @@ is qualified.
 | `links_graph` | yes | partial | 1 | 14 | 0 | 0 |
 | `archives_memories` | yes | partial | 1 | 18 | 0 | 0 |
 | `export` | yes | partial | 2 | 9 | 0 | 0 |
-| `jobs_embeddings` | yes | gap | 0 | 31 | 0 | 0 |
+| `jobs_embeddings` | yes | gap | 0 | 32 | 0 | 0 |
 | `realtime_mcp` | yes | partial | 1 | 2 | 0 | 0 |
 | `collections` | yes | partial | 6 | 1 | 0 | 0 |
 | `taxonomy` | no | excluded | 0 | 0 | 38 | 0 |
@@ -93,7 +93,7 @@ is qualified.
 | `knowledge_health` | no | excluded | 0 | 0 | 6 | 0 |
 | `operator` | no | excluded | 0 | 0 | 63 | 2 |
 | `public_protocol` | no | public | 0 | 0 | 0 | 18 |
-| **total** | | | 37 | 89 | 153 | 21 |
+| **total** | | | 37 | 90 | 153 | 21 |
 
 ```json
 {
@@ -187,6 +187,7 @@ is qualified.
     {"method":"GET","path":"/api/v1/embedding-sets/{slug}","class":"jobs_embeddings","status":"gap","enforcement":"hosted_503"},
     {"method":"PATCH","path":"/api/v1/embedding-sets/{slug}","class":"jobs_embeddings","status":"gap","enforcement":"hosted_503"},
     {"method":"POST","path":"/api/v1/embedding-sets/{slug}/build-index","class":"jobs_embeddings","status":"gap","enforcement":"hosted_503"},
+    {"method":"GET","path":"/api/v1/embedding-sets/{slug}/index-health","class":"jobs_embeddings","status":"gap","enforcement":"hosted_503"},
     {"method":"GET","path":"/api/v1/embedding-sets/{slug}/members","class":"jobs_embeddings","status":"gap","enforcement":"hosted_503"},
     {"method":"POST","path":"/api/v1/embedding-sets/{slug}/members","class":"jobs_embeddings","status":"gap","enforcement":"hosted_503"},
     {"method":"DELETE","path":"/api/v1/embedding-sets/{slug}/members/{note_id}","class":"jobs_embeddings","status":"gap","enforcement":"hosted_503"},

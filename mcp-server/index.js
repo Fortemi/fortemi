@@ -1382,6 +1382,7 @@ function createMcpServer() {
             mode: args.mode || "auto",
             vector_source: args.vector_source || "internal",
             criteria: args.criteria || {},
+            ef_search: args.ef_search,
           });
           break;
 
@@ -1415,6 +1416,7 @@ function createMcpServer() {
           if (args.criteria !== undefined) body.criteria = args.criteria;
           if (args.mode !== undefined) body.mode = args.mode;
           if (args.vector_source !== undefined) body.vector_source = args.vector_source;
+          if (args.ef_search !== undefined) body.ef_search = args.ef_search;
           result = await apiRequest("PATCH", `/api/v1/embedding-sets/${args.slug}`, body);
           break;
         }
@@ -1427,6 +1429,14 @@ function createMcpServer() {
         case "refresh_embedding_set":
           result = await apiRequest("POST", `/api/v1/embedding-sets/${args.slug}/refresh`);
           break;
+
+        case "get_embedding_set_index_health": {
+          const params = new URLSearchParams();
+          if (args.probe !== undefined && args.probe !== null) params.set("probe", args.probe);
+          const query = params.toString();
+          result = await apiRequest("GET", `/api/v1/embedding-sets/${args.slug}/index-health${query ? `?${query}` : ""}`);
+          break;
+        }
 
         case "reembed_all":
           // Queue a bulk re-embedding job
@@ -1893,6 +1903,7 @@ function createMcpServer() {
               keywords: args.keywords || [],
               mode: args.mode || "auto",
               criteria: args.criteria || {},
+              ef_search: args.ef_search,
             });
           } else if (meAction === "update") {
             const body = {};
@@ -1903,6 +1914,7 @@ function createMcpServer() {
             if (args.keywords !== undefined) body.keywords = args.keywords;
             if (args.criteria !== undefined) body.criteria = args.criteria;
             if (args.mode !== undefined) body.mode = args.mode;
+            if (args.ef_search !== undefined) body.ef_search = args.ef_search;
             result = await apiRequest("PATCH", `/api/v1/embedding-sets/${args.slug}`, body);
           } else if (meAction === "delete") {
             await apiRequest("DELETE", `/api/v1/embedding-sets/${args.slug}`);
@@ -1922,8 +1934,13 @@ function createMcpServer() {
             result = { success: true };
           } else if (meAction === "refresh") {
             result = await apiRequest("POST", `/api/v1/embedding-sets/${args.slug}/refresh`);
+          } else if (meAction === "index_health") {
+            const hp = new URLSearchParams();
+            if (args.probe !== undefined && args.probe !== null) hp.set("probe", args.probe);
+            const query = hp.toString();
+            result = await apiRequest("GET", `/api/v1/embedding-sets/${args.slug}/index-health${query ? `?${query}` : ""}`);
           } else {
-            throw new Error(`Unknown manage_embeddings action: ${meAction}. Valid: list, get, create, update, delete, list_members, add_members, remove_member, refresh`);
+            throw new Error(`Unknown manage_embeddings action: ${meAction}. Valid: list, get, create, update, delete, list_members, add_members, remove_member, refresh, index_health`);
           }
           break;
         }

@@ -337,6 +337,9 @@ and materialized-view refreshes do not belong in `BEGIN READ ONLY`. A scoped
 SELECT/export is not a complete database backup; backup privileges and restore
 verification are tracked separately in Gitea #1115 and #727.
 
+For embedding HNSW index maintenance, bulk-load ordering, per-set `ef_search`,
+and recall probes, see [Vector Index Operations](#/operations-vector-index-operations).
+
 
 ```bash
 # Vacuum analyze (weekly recommended)

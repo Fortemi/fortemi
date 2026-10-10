@@ -751,6 +751,19 @@ impl std::str::FromStr for EmbeddingIndexStatus {
     }
 }
 
+/// Validate a per-set HNSW `ef_search` query default (#1181 R1).
+pub fn validate_ef_search(value: i32) -> Result<(), String> {
+    if (crate::defaults::EF_SEARCH_MIN..=crate::defaults::EF_SEARCH_MAX).contains(&value) {
+        Ok(())
+    } else {
+        Err(format!(
+            "ef_search must be between {} and {}",
+            crate::defaults::EF_SEARCH_MIN,
+            crate::defaults::EF_SEARCH_MAX
+        ))
+    }
+}
+
 /// Criteria for automatic embedding set membership.
 #[derive(Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct EmbeddingSetCriteria {
@@ -1264,6 +1277,9 @@ pub struct EmbeddingSet {
     pub index_size_bytes: Option<i64>,
     #[serde(default)]
     pub defer_index_build: bool,
+    /// Per-set HNSW query default; `None` falls back to the tuning default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ef_search: Option<i32>,
 
     // Flags
     pub is_system: bool,
@@ -1329,6 +1345,7 @@ impl fmt::Debug for EmbeddingSet {
             .field("index_status", &self.index_status)
             .field("index_size_bytes", &self.index_size_bytes)
             .field("defer_index_build", &self.defer_index_build)
+            .field("ef_search", &self.ef_search)
             .field("is_system", &self.is_system)
             .field("is_active", &self.is_active)
             .field("auto_refresh", &self.auto_refresh)
@@ -1363,6 +1380,9 @@ pub struct EmbeddingSetSummary {
     pub index_status: EmbeddingIndexStatus,
     #[serde(default)]
     pub defer_index_build: bool,
+    /// Per-set HNSW query default; `None` falls back to the tuning default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ef_search: Option<i32>,
     pub is_system: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub keywords: Vec<String>,
@@ -1400,6 +1420,7 @@ impl fmt::Debug for EmbeddingSetSummary {
             .field("embedding_count", &self.embedding_count)
             .field("index_status", &self.index_status)
             .field("defer_index_build", &self.defer_index_build)
+            .field("ef_search", &self.ef_search)
             .field("is_system", &self.is_system)
             .field("keywords_count", &self.keywords.len())
             .field(
@@ -1461,6 +1482,9 @@ pub struct CreateEmbeddingSetRequest {
     /// queuing to the explicit build-index action.
     #[serde(default)]
     pub defer_index_build: bool,
+    /// Per-set HNSW query default (10-1000); `None` falls back to the tuning default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ef_search: Option<i32>,
 }
 
 impl fmt::Debug for CreateEmbeddingSetRequest {
@@ -1504,6 +1528,7 @@ impl fmt::Debug for CreateEmbeddingSetRequest {
             .field("auto_embed_rules", &self.auto_embed_rules)
             .field("vector_source", &self.vector_source)
             .field("defer_index_build", &self.defer_index_build)
+            .field("ef_search", &self.ef_search)
             .finish()
     }
 }
@@ -1535,6 +1560,9 @@ pub struct UpdateEmbeddingSetRequest {
     pub vector_source: Option<EmbeddingVectorSource>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub defer_index_build: Option<bool>,
+    /// Per-set HNSW query default (10-1000); `None` leaves the stored value unchanged.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ef_search: Option<i32>,
 }
 
 impl fmt::Debug for UpdateEmbeddingSetRequest {
@@ -1573,6 +1601,7 @@ impl fmt::Debug for UpdateEmbeddingSetRequest {
             .field("auto_refresh", &self.auto_refresh)
             .field("vector_source", &self.vector_source)
             .field("defer_index_build", &self.defer_index_build)
+            .field("ef_search", &self.ef_search)
             .finish()
     }
 }
@@ -3971,6 +4000,8 @@ pub enum JobType {
     RefreshEmbeddingSet,
     /// Build or rebuild the vector index for an embedding set
     BuildSetIndex,
+    /// Refresh planner statistics for the embedding table after bulk loads (#1181 R1)
+    AnalyzeEmbedding,
     /// Permanently delete a note and all related data
     PurgeNote,
     /// Auto-generate SKOS concept tags using AI analysis
@@ -4031,7 +4062,7 @@ pub enum JobType {
 
 impl JobType {
     /// Every job type understood and executable by this binary.
-    pub const ALL: [Self; 37] = [
+    pub const ALL: [Self; 38] = [
         Self::AiRevision,
         Self::AiRevisionContextual,
         Self::Embedding,
@@ -4041,6 +4072,7 @@ impl JobType {
         Self::CreateEmbeddingSet,
         Self::RefreshEmbeddingSet,
         Self::BuildSetIndex,
+        Self::AnalyzeEmbedding,
         Self::PurgeNote,
         Self::ConceptTagging,
         Self::ReEmbedAll,
@@ -4083,6 +4115,7 @@ impl JobType {
             Self::CreateEmbeddingSet => "create_embedding_set",
             Self::RefreshEmbeddingSet => "refresh_embedding_set",
             Self::BuildSetIndex => "build_set_index",
+            Self::AnalyzeEmbedding => "analyze_embedding",
             Self::PurgeNote => "purge_note",
             Self::ConceptTagging => "concept_tagging",
             Self::ReEmbedAll => "re_embed_all",
@@ -4128,6 +4161,8 @@ impl JobType {
             JobType::CreateEmbeddingSet => 2,
             JobType::RefreshEmbeddingSet => 2,
             JobType::BuildSetIndex => 3,
+            // Post-batch ANALYZE is low priority background maintenance
+            JobType::AnalyzeEmbedding => 2,
             // Purge is high priority to complete cleanup quickly
             JobType::PurgeNote => 9,
             // Concept tagging runs after embedding (needs content analysis)
@@ -7336,6 +7371,7 @@ mod tests {
             index_status: EmbeddingIndexStatus::Ready,
             index_size_bytes: Some(4096),
             defer_index_build: false,
+            ef_search: None,
             is_system: false,
             is_active: true,
             auto_refresh: true,
@@ -7357,6 +7393,7 @@ mod tests {
             embedding_count: 4,
             index_status: EmbeddingIndexStatus::Stale,
             defer_index_build: false,
+            ef_search: None,
             is_system: false,
             keywords: vec!["sümmary-private-keyword".to_string()],
             model: Some("sümmary-private-model".to_string()),
@@ -7384,6 +7421,7 @@ mod tests {
             auto_embed_rules: rules.clone(),
             vector_source: EmbeddingVectorSource::Internal,
             defer_index_build: false,
+            ef_search: None,
         };
         let update = UpdateEmbeddingSetRequest {
             name: Some("Üpdate private set".to_string()),
@@ -7398,6 +7436,7 @@ mod tests {
             auto_refresh: Some(false),
             vector_source: Some(EmbeddingVectorSource::Internal),
             defer_index_build: Some(false),
+            ef_search: None,
         };
         let member = EmbeddingSetMember {
             embedding_set_id: Uuid::new_v4(),
@@ -8968,6 +9007,7 @@ mod tests {
             auto_embed_rules: AutoEmbedRules::default(),
             vector_source: EmbeddingVectorSource::Internal,
             defer_index_build: false,
+            ef_search: None,
         };
 
         let json = serde_json::to_string(&request).unwrap();
@@ -9300,6 +9340,7 @@ mod tests {
             (JobType::CreateEmbeddingSet, "create_embedding_set"),
             (JobType::RefreshEmbeddingSet, "refresh_embedding_set"),
             (JobType::BuildSetIndex, "build_set_index"),
+            (JobType::AnalyzeEmbedding, "analyze_embedding"),
             (JobType::PurgeNote, "purge_note"),
             (JobType::ConceptTagging, "concept_tagging"),
             (JobType::ReEmbedAll, "re_embed_all"),
@@ -9362,6 +9403,16 @@ mod tests {
         for job_type in types {
             assert!(JobType::PurgeNote.default_priority() >= job_type.default_priority());
         }
+    }
+
+    #[test]
+    fn test_validate_ef_search_range() {
+        assert!(validate_ef_search(10).is_ok());
+        assert!(validate_ef_search(40).is_ok());
+        assert!(validate_ef_search(1000).is_ok());
+        assert!(validate_ef_search(9).is_err());
+        assert!(validate_ef_search(1001).is_err());
+        assert!(validate_ef_search(0).is_err());
     }
 
     #[test]

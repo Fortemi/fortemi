@@ -9,9 +9,11 @@ use crate::{
     embedding_storage_contract::{contract_for_set, EmbeddingStorageContract},
     search_candidates::{bind_params, SearchCandidateScope},
     strict_filter::QueryParam,
+    vector_ef_search::apply_ef_search,
 };
 
-pub const DEFAULT_ENTITY_SIMILARITY_EF_SEARCH: i32 = 100;
+pub const DEFAULT_ENTITY_SIMILARITY_EF_SEARCH: i32 =
+    matric_core::defaults::SEMANTIC_EF_SEARCH_DEFAULT;
 
 #[derive(Debug, Clone)]
 pub struct EntityProfileVectorRow {
@@ -354,12 +356,7 @@ async fn configure_hnsw(
     embedding_set_id: Uuid,
     has_filters: bool,
 ) -> Result<()> {
-    let ef_search = hnsw_ef_search(connection, embedding_set_id).await?;
-    sqlx::query("SELECT set_config('hnsw.ef_search', $1, true)")
-        .bind(ef_search.to_string())
-        .execute(&mut *connection)
-        .await
-        .map_err(Error::Database)?;
+    apply_ef_search(connection, Some(embedding_set_id)).await?;
 
     if has_filters && pgvector_supports_iterative_scan(connection).await? {
         sqlx::query("SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true)")
@@ -369,30 +366,6 @@ async fn configure_hnsw(
     }
 
     Ok(())
-}
-
-async fn hnsw_ef_search(connection: &mut PgConnection, embedding_set_id: Uuid) -> Result<i32> {
-    let value: Option<i32> = sqlx::query_scalar(
-        r#"
-        SELECT CASE
-            WHEN es.agent_metadata->>'hnsw_ef_search' ~ '^[0-9]+$'
-                THEN (es.agent_metadata->>'hnsw_ef_search')::int
-            WHEN es.agent_metadata->>'entity_similarity_ef_search' ~ '^[0-9]+$'
-                THEN (es.agent_metadata->>'entity_similarity_ef_search')::int
-            ELSE NULL
-        END
-        FROM embedding_set es
-        WHERE es.id = $1
-        "#,
-    )
-    .bind(embedding_set_id)
-    .fetch_optional(&mut *connection)
-    .await
-    .map_err(Error::Database)?
-    .flatten();
-    Ok(value
-        .unwrap_or(DEFAULT_ENTITY_SIMILARITY_EF_SEARCH)
-        .clamp(1, 1000))
 }
 
 async fn pgvector_supports_iterative_scan(connection: &mut PgConnection) -> Result<bool> {

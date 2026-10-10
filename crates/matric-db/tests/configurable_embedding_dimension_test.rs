@@ -70,6 +70,7 @@ fn set_request(name: &str, config_id: Uuid) -> CreateEmbeddingSetRequest {
         auto_embed_rules: AutoEmbedRules::default(),
         vector_source: EmbeddingVectorSource::Internal,
         defer_index_build: false,
+        ef_search: None,
         agent_metadata: EmbeddingSetAgentMetadata::default(),
     }
 }

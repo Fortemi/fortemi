@@ -700,6 +700,13 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         NoStore,
     ),
     r(
+        "/api/v1/embedding-sets/{slug}/index-health",
+        AdminOperator,
+        "embedding_control",
+        Operator,
+        NoStore,
+    ),
+    r(
         "/api/v1/embedding-sets/{slug}/runs",
         TenantObject,
         "embedding_control",

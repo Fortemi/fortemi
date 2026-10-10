@@ -57,6 +57,11 @@ name = "embedding_vector_import_test"
 path = "tests/embedding_vector_import_test.rs"
 required-features = ["migrations"]
 
+[[test]]
+name = "vector_recall_acceptance_test"
+path = "tests/vector_recall_acceptance_test.rs"
+required-features = ["migrations"]
+
 [dependencies]
 # Internal
 matric-core.workspace = true
@@ -124,6 +129,7 @@ default = ["tree-sitter"]
 migrations = []
 # Reserved for future Parquet profile-run imports once Arrow/Parquet crates are available offline.
 parquet-vector-import = []
+recall-100k = []
 # Exposes process-abort checkpoints only to dependent integration-test binaries.
 test-fault-injection = []
 # Enable tree-sitter for code-aware chunking

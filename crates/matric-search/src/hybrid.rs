@@ -588,9 +588,12 @@ impl HybridSearch for HybridSearchEngine {
         limit: i64,
         config: &HybridSearchConfig,
     ) -> Result<Vec<EnhancedSearchHit>> {
-        let mut connection = self.db.pool.acquire().await?;
-        self.search_on_connection(&mut connection, query, query_embedding, "", limit, config)
-            .await
+        let mut tx = self.db.pool.begin().await?;
+        let results = self
+            .search_on_connection(&mut tx, query, query_embedding, "", limit, config)
+            .await?;
+        tx.commit().await?;
+        Ok(results)
     }
 
     #[instrument(skip(self, query, query_embedding, filters, config), fields(
@@ -608,16 +611,12 @@ impl HybridSearch for HybridSearchEngine {
         limit: i64,
         config: &HybridSearchConfig,
     ) -> Result<Vec<EnhancedSearchHit>> {
-        let mut connection = self.db.pool.acquire().await?;
-        self.search_on_connection(
-            &mut connection,
-            query,
-            query_embedding,
-            filters,
-            limit,
-            config,
-        )
-        .await
+        let mut tx = self.db.pool.begin().await?;
+        let results = self
+            .search_on_connection(&mut tx, query, query_embedding, filters, limit, config)
+            .await?;
+        tx.commit().await?;
+        Ok(results)
     }
 
     async fn find_similar(
@@ -868,8 +867,10 @@ impl SearchRequest {
     }
 
     pub async fn execute(self, engine: &HybridSearchEngine) -> Result<Vec<EnhancedSearchHit>> {
-        let mut connection = engine.db.pool.acquire().await?;
-        self.execute_on_connection(engine, &mut connection).await
+        let mut tx = engine.db.pool.begin().await?;
+        let results = self.execute_on_connection(engine, &mut tx).await?;
+        tx.commit().await?;
+        Ok(results)
     }
 }
 

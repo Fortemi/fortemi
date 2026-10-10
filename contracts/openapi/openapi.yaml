@@ -2962,6 +2962,41 @@ paths:
           description: Global request rate limit exceeded
       security:
       - bearerAuth: []
+  /api/v1/embedding-sets/{slug}/index-health:
+    get:
+      tags:
+      - Embeddings
+      summary: Inspect vector index health for an embedding set.
+      operationId: get_embedding_set_index_health
+      parameters:
+      - name: slug
+        in: path
+        description: Embedding set slug or UUID
+        required: true
+        schema:
+          type: string
+      - name: probe
+        in: query
+        description: Optional recall probe sample size, capped at 200
+        required: false
+        schema:
+          type: integer
+          format: int32
+      responses:
+        '200':
+          description: Vector index health
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IndexHealth'
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
   /api/v1/embedding-sets/{slug}/members:
     get:
       tags:
@@ -9271,6 +9306,12 @@ components:
           type:
           - string
           - 'null'
+        ef_search:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          description: Per-set HNSW query default (10-1000); `None` falls back to the tuning default.
         embedding_config_id:
           type:
           - string
@@ -10764,6 +10805,12 @@ components:
         document_count:
           type: integer
           format: int32
+        ef_search:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          description: Per-set HNSW query default; `None` falls back to the tuning default.
         embedding_config_id:
           type:
           - string
@@ -11003,6 +11050,12 @@ components:
         document_count:
           type: integer
           format: int32
+        ef_search:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          description: Per-set HNSW query default; `None` falls back to the tuning default.
         embedding_count:
           type: integer
           format: int32
@@ -11496,6 +11549,112 @@ components:
         exported:
           $ref: '#/components/schemas/ExportedKeyset'
         name:
+          type: string
+    IndexHealth:
+      type: object
+      description: Vector index health for one embedding set.
+      required:
+      - set_id
+      - set_slug
+      - dimension
+      - vector_type
+      - index_name
+      - set_rows
+      - effective_ef_search
+      properties:
+        build_row_count:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: Per-set row count recorded by the latest shape build, if trackable.
+        dead_tuples:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        dimension:
+          type: integer
+          format: int32
+        ef_search:
+          type:
+          - integer
+          - 'null'
+          format: int32
+        effective_ef_search:
+          type: integer
+          format: int32
+        index_name:
+          type: string
+          description: Shape index name, e.g. `idx_embedding_hnsw_vector_1024`.
+        index_size_bytes:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: On-disk index size in bytes; `None` when the index does not exist.
+        index_valid:
+          type:
+          - boolean
+          - 'null'
+          description: '`pg_index.indisvalid`; `None` when the index does not exist.'
+        last_analyze:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        last_autoanalyze:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        last_autovacuum:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        last_indexed_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        last_vacuum:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        live_tuples:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        recall_at_10:
+          type:
+          - number
+          - 'null'
+          format: float
+          description: Mean overlap of HNSW top-10 with exact top-10 over the probe sample.
+        recall_probe_vectors:
+          type:
+          - integer
+          - 'null'
+          format: int32
+        rows_changed_since_build:
+          type:
+          - integer
+          - 'null'
+          format: int64
+          description: '`set_rows` minus the build-time count (floored at zero), if trackable.'
+        set_id:
+          type: string
+          format: uuid
+        set_rows:
+          type: integer
+          format: int64
+          description: Current rows in the set.
+        set_slug:
+          type: string
+        vector_type:
           type: string
     InstantiateTemplateBody:
       type: object
@@ -15257,6 +15416,12 @@ components:
           type:
           - string
           - 'null'
+        ef_search:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          description: Per-set HNSW query default (10-1000); `None` leaves the stored value unchanged.
         is_active:
           type:
           - boolean

@@ -1108,7 +1108,7 @@ export default [
   },
   {
     name: "manage_embeddings",
-    description: `Manage embedding sets — curated subsets of notes for focused semantic search. Actions: list, get, create, update, delete, list_members, add_members, remove_member, refresh.`,
+    description: `Manage embedding sets — curated subsets of notes for focused semantic search. Actions: list, get, create, update, delete, list_members, add_members, remove_member, refresh, index_health.`,
     inputSchema: {
       "type": "object",
       "properties": {
@@ -1123,9 +1123,10 @@ export default [
             "list_members",
             "add_members",
             "remove_member",
-            "refresh"
+            "refresh",
+            "index_health"
           ],
-          "description": "Action: 'list' (all sets), 'get' (by slug), 'create'/'update'/'delete' (CRUD), 'list_members'/'add_members'/'remove_member' (membership), 'refresh' (re-embed)"
+          "description": "Action: 'list' (all sets), 'get' (by slug), 'create'/'update'/'delete' (CRUD), 'list_members'/'add_members'/'remove_member' (membership), 'refresh' (re-embed), 'index_health' (admin vector index health)"
         },
         "slug": {
           "type": "string",
@@ -1184,6 +1185,18 @@ export default [
             }
           },
           "description": "Auto-membership criteria (for create/update with mode=auto/mixed)"
+        },
+        "ef_search": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 1000,
+          "description": "Per-set HNSW ef_search override for semantic queries; omit for the tuning default"
+        },
+        "probe": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "description": "Recall probe sample size for index_health"
         },
         "note_ids": {
           "type": "array",
@@ -2939,6 +2952,12 @@ export default [
           "description": "internal lets Fortemi generate embeddings; external suppresses automatic embedding writes",
           "default": "internal"
         },
+        "ef_search": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 1000,
+          "description": "Per-set HNSW ef_search override for semantic queries; omit for the tuning default"
+        },
         "criteria": {
           "type": "object",
           "description": "Auto-membership criteria",
@@ -3110,6 +3129,12 @@ export default [
             "external"
           ],
           "description": "Change whether Fortemi or an external process owns vectors"
+        },
+        "ef_search": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 1000,
+          "description": "Per-set HNSW ef_search override for semantic queries"
         }
       },
       "required": [
@@ -3117,6 +3142,29 @@ export default [
       ]
     },
     annotations: {"destructiveHint":false},
+  },
+  {
+    name: "get_embedding_set_index_health",
+    description: `Get admin vector index health for an embedding set, optionally including a recall@10 probe.`,
+    inputSchema: {
+      "type": "object",
+      "properties": {
+        "slug": {
+          "type": "string",
+          "description": "Embedding set slug or UUID"
+        },
+        "probe": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "description": "Optional recall probe sample size"
+        }
+      },
+      "required": [
+        "slug"
+      ]
+    },
+    annotations: {"readOnlyHint":true},
   },
   {
     name: "delete_embedding_set",

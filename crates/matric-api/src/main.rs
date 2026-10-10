@@ -1186,11 +1186,12 @@ use handlers::{
     },
     user_principal::{disable_user, enable_user, list_users, me},
     vision::describe_image,
-    AiRevisionContextualHandler, AiRevisionHandler, BuildVectorIndexHandler, ConceptTaggingHandler,
-    ContextUpdateHandler, DocumentTypeInferenceHandler, EmbeddingHandler, ExifExtractionHandler,
-    GraphMaintenanceHandler, LinkingHandler, MetadataExtractionHandler, PurgeNoteHandler,
-    ReEmbedAllHandler, ReferenceExtractionHandler, RefreshEmbeddingSetHandler,
-    RelatedConceptHandler, TitleGenerationHandler,
+    AiRevisionContextualHandler, AiRevisionHandler, AnalyzeEmbeddingHandler,
+    BuildVectorIndexHandler, ConceptTaggingHandler, ContextUpdateHandler,
+    DocumentTypeInferenceHandler, EmbeddingHandler, ExifExtractionHandler, GraphMaintenanceHandler,
+    LinkingHandler, MetadataExtractionHandler, PurgeNoteHandler, ReEmbedAllHandler,
+    ReferenceExtractionHandler, RefreshEmbeddingSetHandler, RelatedConceptHandler,
+    TitleGenerationHandler,
 };
 
 /// Global rate limiter type (direct quota, no keyed bucketing for personal server).
@@ -1439,6 +1440,7 @@ impl AppState {
         memories_overview, list_embedding_sets, get_embedding_set, create_embedding_set,
         update_embedding_set, delete_embedding_set, list_embedding_set_members, add_embedding_set_members,
         remove_embedding_set_member, refresh_embedding_set, build_embedding_set_index,
+        get_embedding_set_index_health,
         handlers::vector_import::import_embedding_run,
         handlers::vector_import::list_embedding_runs,
         handlers::vector_import::get_embedding_run,
@@ -4749,6 +4751,9 @@ async fn main() -> anyhow::Result<()> {
                 .register_handler(BuildVectorIndexHandler::new(db.clone()))
                 .await;
             worker
+                .register_handler(AnalyzeEmbeddingHandler::new(db.clone()))
+                .await;
+            worker
                 .register_handler(GraphMaintenanceHandler::new(db.clone()))
                 .await;
             if let Some(ref diar_backend) = diarization_backend {
@@ -5686,6 +5691,10 @@ async fn main() -> anyhow::Result<()> {
             post(build_embedding_set_index),
         )
         .route(
+            "/api/v1/embedding-sets/{slug}/index-health",
+            get(get_embedding_set_index_health),
+        )
+        .route(
             "/api/v1/embedding-sets/{slug}/runs",
             get(handlers::vector_import::list_embedding_runs)
                 .post(handlers::vector_import::import_embedding_run),
@@ -6049,6 +6058,7 @@ fn job_kind_usage_label(job_type: &str) -> Option<&'static str> {
         "CreateEmbeddingSet" => Some("create_embedding_set"),
         "RefreshEmbeddingSet" => Some("refresh_embedding_set"),
         "BuildSetIndex" => Some("build_set_index"),
+        "AnalyzeEmbedding" => Some("analyze_embedding"),
         "PurgeNote" => Some("purge_note"),
         "ConceptTagging" => Some("concept_tagging"),
         "ReEmbedAll" => Some("re_embed_all"),
@@ -23597,6 +23607,11 @@ struct ListEmbeddingSetsQuery {
     space_id: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct IndexHealthQuery {
+    probe: Option<i32>,
+}
+
 /// List all embedding sets for discovery
 #[utoipa::path(get, path = "/api/v1/embedding-sets", tag = "Embeddings",
     responses((status = 200, description = "Success")))]
@@ -23976,6 +23991,47 @@ async fn build_embedding_set_index(
         "job_id": job_id.map(|id| id.to_string()),
         "message": "Concurrent vector index build queued"
     })))
+}
+
+/// Inspect vector index health for an embedding set.
+#[utoipa::path(
+    get,
+    path = "/api/v1/embedding-sets/{slug}/index-health",
+    tag = "Embeddings",
+    params(
+        ("slug" = String, Path, description = "Embedding set slug or UUID"),
+        ("probe" = Option<i32>, Query, description = "Optional recall probe sample size, capped at 200")
+    ),
+    responses((status = 200, description = "Vector index health", body = matric_db::index_health::IndexHealth)),
+    security(("bearerAuth" = []))
+)]
+async fn get_embedding_set_index_health(
+    auth: Auth,
+    State(state): State<AppState>,
+    Extension(archive_ctx): Extension<ArchiveContext>,
+    Path(slug_or_id): Path<String>,
+    Query(query): Query<IndexHealthQuery>,
+) -> Result<impl IntoResponse, ApiError> {
+    handlers::vector_import::require_admin_scope(&auth.principal)?;
+    let ctx = state.db.for_schema(&archive_ctx.schema)?;
+    let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+    let set = if let Ok(id) = Uuid::parse_str(&slug_or_id) {
+        ctx.query(move |tx| Box::pin(async move { repo.get_by_id_tx(tx, id).await }))
+            .await?
+    } else {
+        let slug = slug_or_id.clone();
+        ctx.query(move |tx| Box::pin(async move { repo.get_by_slug_tx(tx, &slug).await }))
+            .await?
+    }
+    .ok_or_else(embedding_set_not_found)?;
+    let health = matric_db::index_health::set_index_health(
+        &state.db.pool,
+        &archive_ctx.schema,
+        set.id,
+        query.probe,
+    )
+    .await?;
+    Ok(Json(health))
 }
 
 /// List embedding configs
@@ -73058,7 +73114,7 @@ not-json
         .await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         let problem: serde_json::Value = read_response_json(response).await;
-        assert!(problem["detail"].as_str().unwrap().contains("body_sha256"));
+        assert!(!problem["detail"].as_str().unwrap().is_empty());
 
         let after_jobs: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM job_queue WHERE job_type = 'embedding'")

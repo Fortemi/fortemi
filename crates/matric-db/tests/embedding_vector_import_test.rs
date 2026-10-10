@@ -163,6 +163,8 @@ async fn external_embedding_run_imports_idempotently_orders_and_deletes() {
         .expect("connect migrated test database");
     let slug = format!("external-import-{}", Uuid::new_v4().simple());
     let internal_slug = format!("{slug}-internal");
+    let run1_id = format!("{slug}-run-1");
+    let run2_id = format!("{slug}-run-2");
     let (set_id, space_id) = external_set(&db, &slug).await;
     let (_internal_set_id, _) = set_with_vector_source(&db, &internal_slug, "internal").await;
     let repository = PgEmbeddingImportRepository::new(db.pool.clone());
@@ -195,7 +197,7 @@ async fn external_embedding_run_imports_idempotently_orders_and_deletes() {
 
     let run1 = write_run(
         root.path(),
-        "run-1",
+        &run1_id,
         None,
         &space_id,
         (0..1000)
@@ -230,8 +232,9 @@ async fn external_embedding_run_imports_idempotently_orders_and_deletes() {
     let stored: (Option<Uuid>, Option<String>) = sqlx::query_as(
         "SELECT initiated_by_user_id, initiated_by_kind
          FROM embedding_import_run
-         WHERE run_id = 'run-1' AND set_id = $1",
+         WHERE run_id = $1 AND set_id = $2",
     )
+    .bind(&run1_id)
     .bind(set_id)
     .fetch_one(&db.pool)
     .await
@@ -247,7 +250,7 @@ async fn external_embedding_run_imports_idempotently_orders_and_deletes() {
     let checksum_mismatch = write_run(
         root.path(),
         "run-checksum-mismatch",
-        Some("run-1"),
+        Some(&run1_id),
         &space_id,
         vec![profile(
             "checksum-row",
@@ -283,8 +286,8 @@ async fn external_embedding_run_imports_idempotently_orders_and_deletes() {
 
     let run2 = write_run(
         root.path(),
-        "run-2",
-        Some("run-1"),
+        &run2_id,
+        Some(&run1_id),
         &space_id,
         vec![
             profile(
@@ -353,7 +356,7 @@ async fn external_embedding_run_imports_idempotently_orders_and_deletes() {
         vec![json!({
             "entity_id": "entity-999",
             "source": "fixture-source",
-            "run_id": "run-2"
+            "run_id": run2_id
         })],
     );
     let report2 = repository

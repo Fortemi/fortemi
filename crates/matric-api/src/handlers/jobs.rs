@@ -70,6 +70,8 @@ const REFRESH_EMBEDDING_SET_JOB_FAILURE: &str =
     "Embedding set refresh failed. Check server logs for diagnostics.";
 const BUILD_VECTOR_INDEX_JOB_FAILURE: &str =
     "Vector index build failed. Check server logs for diagnostics.";
+const ANALYZE_EMBEDDING_JOB_FAILURE: &str =
+    "Embedding analyze failed. Check server logs for diagnostics.";
 const JOB_CHUNK_MERGE_PARSE_FAILURE_DETAIL: &str = "job_chunk_merge_parse_failed";
 const JOB_AI_GENERATION_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_ai_generation_diagnostic_failed";
 const JOB_AI_REVISION_DIAGNOSTIC_FAILURE_DETAIL: &str = "job_ai_revision_diagnostic_failed";
@@ -319,12 +321,22 @@ fn build_vector_index_job_result(
     schema: &str,
     dimension: i32,
     vector_type: &str,
+    set_row_counts: serde_json::Map<String, serde_json::Value>,
 ) -> serde_json::Value {
     serde_json::json!({
         "schema_len": diagnostic_len(schema),
         "dimension": dimension,
         "vector_type_len": diagnostic_len(vector_type),
+        "set_row_counts": set_row_counts,
         "maintenance_hint": "raise maintenance_work_mem for large HNSW builds; allow parallel maintenance workers when PostgreSQL and hardware permit"
+    })
+}
+
+fn analyze_embedding_job_result(schema: &str, changed_rows: i64) -> serde_json::Value {
+    serde_json::json!({
+        "schema_len": diagnostic_len(schema),
+        "changed_rows": changed_rows,
+        "operation": "ANALYZE embedding"
     })
 }
 
@@ -7933,10 +7945,64 @@ pub struct BuildVectorIndexHandler {
     db: Database,
 }
 
+pub struct AnalyzeEmbeddingHandler {
+    db: Database,
+}
+
 impl BuildVectorIndexHandler {
     pub fn new(db: Database) -> Self {
         Self { db }
     }
+}
+
+impl AnalyzeEmbeddingHandler {
+    pub fn new(db: Database) -> Self {
+        Self { db }
+    }
+}
+
+async fn vector_index_set_row_counts(
+    db: &Database,
+    payload: &matric_db::vector_index::VectorIndexJobPayload,
+) -> matric_core::Result<serde_json::Map<String, serde_json::Value>> {
+    matric_db::validate_schema_name(&payload.schema)?;
+    let query = format!(
+        "SELECT es.id, count(e.id)::bigint AS rows
+         FROM {schema}.embedding_set es
+         JOIN public.embedding_config ec ON ec.id = es.embedding_config_id
+         LEFT JOIN {schema}.embedding e ON e.embedding_set_id = es.id
+         WHERE ec.dimension = $1
+           AND ec.vector_type = $2
+           AND COALESCE(es.defer_index_build, FALSE) IS FALSE
+         GROUP BY es.id",
+        schema = payload.schema
+    );
+    let rows = sqlx::query(&query)
+        .bind(payload.dimension)
+        .bind(&payload.vector_type)
+        .fetch_all(&db.pool)
+        .await
+        .map_err(matric_core::Error::Database)?;
+    let mut counts = serde_json::Map::new();
+    for row in rows {
+        let set_id: uuid::Uuid = row.get("id");
+        let count: i64 = row.get("rows");
+        counts.insert(set_id.to_string(), serde_json::json!(count));
+    }
+    Ok(counts)
+}
+
+async fn analyze_embedding_table(
+    db: &Database,
+    payload: &matric_db::index_maintenance::AnalyzeEmbeddingJobPayload,
+) -> matric_core::Result<()> {
+    matric_db::validate_schema_name(&payload.schema)?;
+    let sql = format!("ANALYZE {}.embedding", payload.schema);
+    sqlx::query(&sql)
+        .execute(&db.pool)
+        .await
+        .map_err(matric_core::Error::Database)?;
+    Ok(())
 }
 
 #[async_trait]
@@ -7961,11 +8027,23 @@ impl JobHandler for BuildVectorIndexHandler {
         ctx.report_progress(20, Some("Building HNSW indexes concurrently..."));
         match matric_db::vector_index::build_vector_indexes(&self.db.pool, payload).await {
             Ok(()) => {
+                let set_row_counts =
+                    match vector_index_set_row_counts(&self.db, &result_payload).await {
+                        Ok(counts) => counts,
+                        Err(error) => {
+                            warn!(
+                                error_len = diagnostic_len(error),
+                                "Vector index row-count collection failed"
+                            );
+                            serde_json::Map::new()
+                        }
+                    };
                 ctx.report_progress(100, Some("Vector index build complete"));
                 JobResult::Success(Some(build_vector_index_job_result(
                     &result_payload.schema,
                     result_payload.dimension,
                     &result_payload.vector_type,
+                    set_row_counts,
                 )))
             }
             Err(error) => {
@@ -7974,6 +8052,47 @@ impl JobHandler for BuildVectorIndexHandler {
                     "Vector index build job failed"
                 );
                 JobResult::Failed(BUILD_VECTOR_INDEX_JOB_FAILURE.to_string())
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl JobHandler for AnalyzeEmbeddingHandler {
+    fn job_type(&self) -> JobType {
+        JobType::AnalyzeEmbedding
+    }
+
+    #[instrument(
+        skip(self, ctx),
+        fields(subsystem = "jobs", component = "analyze_embedding", op = "execute")
+    )]
+    async fn execute(&self, ctx: JobContext) -> JobResult {
+        ctx.report_progress(10, Some("Preparing embedding table analyze..."));
+        let payload = match ctx.payload().cloned().and_then(|value| {
+            serde_json::from_value::<matric_db::index_maintenance::AnalyzeEmbeddingJobPayload>(
+                value,
+            )
+            .ok()
+        }) {
+            Some(payload) => payload,
+            None => return JobResult::Failed(ANALYZE_EMBEDDING_JOB_FAILURE.to_string()),
+        };
+        ctx.report_progress(50, Some("Running ANALYZE embedding..."));
+        match analyze_embedding_table(&self.db, &payload).await {
+            Ok(()) => {
+                ctx.report_progress(100, Some("Embedding table analyze complete"));
+                JobResult::Success(Some(analyze_embedding_job_result(
+                    &payload.schema,
+                    payload.changed_rows,
+                )))
+            }
+            Err(error) => {
+                warn!(
+                    error_len = diagnostic_len(error),
+                    "Analyze embedding job failed"
+                );
+                JobResult::Failed(ANALYZE_EMBEDDING_JOB_FAILURE.to_string())
             }
         }
     }
@@ -9350,6 +9469,7 @@ mod tests {
                 auto_embed_rules: Default::default(),
                 vector_source: matric_core::EmbeddingVectorSource::External,
                 defer_index_build: false,
+                ef_search: None,
             })
             .await
             .expect("create external set");
@@ -9440,6 +9560,7 @@ mod tests {
                 auto_embed_rules: Default::default(),
                 vector_source: matric_core::EmbeddingVectorSource::External,
                 defer_index_build: false,
+                ef_search: None,
             })
             .await
             .expect("create external set");
@@ -9561,6 +9682,7 @@ mod tests {
                 auto_embed_rules: Default::default(),
                 vector_source,
                 defer_index_build: false,
+                ef_search: None,
             })
             .await
             .expect("create test embedding set")

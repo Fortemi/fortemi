@@ -7,11 +7,11 @@ use uuid::Uuid;
 
 use crate::vector_index;
 use matric_core::{
-    embedding_space_id, new_v7, validate_embedding_dimension, AddMembersRequest,
-    CreateEmbeddingConfigRequest, CreateEmbeddingSetRequest, EmbeddingConfigProfile,
-    EmbeddingIndexStatus, EmbeddingProvider, EmbeddingSet, EmbeddingSetAgentMetadata,
-    EmbeddingSetCriteria, EmbeddingSetHealth, EmbeddingSetMember, EmbeddingSetMode,
-    EmbeddingSetSummary, EmbeddingVectorSource, EmbeddingVectorType, Error,
+    embedding_space_id, new_v7, validate_ef_search, validate_embedding_dimension,
+    AddMembersRequest, CreateEmbeddingConfigRequest, CreateEmbeddingSetRequest,
+    EmbeddingConfigProfile, EmbeddingIndexStatus, EmbeddingProvider, EmbeddingSet,
+    EmbeddingSetAgentMetadata, EmbeddingSetCriteria, EmbeddingSetHealth, EmbeddingSetMember,
+    EmbeddingSetMode, EmbeddingSetSummary, EmbeddingVectorSource, EmbeddingVectorType, Error,
     GarbageCollectionResult, Result, UpdateEmbeddingConfigRequest, UpdateEmbeddingSetRequest,
 };
 
@@ -123,6 +123,7 @@ impl PgEmbeddingSetRepository {
                 es.embedding_count,
                 es.index_status::text as index_status,
                 COALESCE(es.defer_index_build, FALSE) AS defer_index_build,
+                es.ef_search,
                 es.is_system,
                 es.keywords,
                 es.truncate_dim,
@@ -165,6 +166,7 @@ impl PgEmbeddingSetRepository {
                     defer_index_build: row
                         .get::<Option<bool>, _>("defer_index_build")
                         .unwrap_or(false),
+                    ef_search: row.get("ef_search"),
                     is_system: row.get("is_system"),
                     keywords: row.get::<Vec<String>, _>("keywords"),
                     model: row.get("model"),
@@ -191,6 +193,7 @@ impl PgEmbeddingSetRepository {
                 es.truncate_dim, es.auto_embed_rules,
                 es.index_status::text as index_status, es.index_type,
                 COALESCE(es.defer_index_build, FALSE) AS defer_index_build,
+                es.ef_search,
                 es.document_count, es.embedding_count, es.embeddings_current, es.index_size_bytes,
                 es.is_system, es.is_active, es.auto_refresh,
                 es.agent_metadata, es.created_at, es.updated_at, es.created_by
@@ -221,6 +224,7 @@ impl PgEmbeddingSetRepository {
                 es.truncate_dim, es.auto_embed_rules,
                 es.index_status::text as index_status, es.index_type,
                 COALESCE(es.defer_index_build, FALSE) AS defer_index_build,
+                es.ef_search,
                 es.document_count, es.embedding_count, es.embeddings_current, es.index_size_bytes,
                 es.is_system, es.is_active, es.auto_refresh,
                 es.agent_metadata, es.created_at, es.updated_at, es.created_by
@@ -280,19 +284,22 @@ impl PgEmbeddingSetRepository {
             Some(id) => Some(id),
             None => Some(self.get_default_config_id().await?),
         };
+        if let Some(ef_search) = req.ef_search {
+            validate_ef_search(ef_search).map_err(Error::InvalidInput)?;
+        }
 
         sqlx::query(
             r#"
             INSERT INTO embedding_set (
                 id, name, slug, description, purpose, usage_hints, keywords,
                 set_type, mode, criteria, embedding_config_id, truncate_dim,
-                auto_embed_rules, vector_source, defer_index_build, agent_metadata,
+                auto_embed_rules, vector_source, defer_index_build, ef_search, agent_metadata,
                 created_at, updated_at
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7,
                 $8::embedding_set_type, $9::embedding_set_mode, $10, $11, $12,
-                $13, $14, $15, $16,
-                $17, $17
+                $13, $14, $15, $16, $17,
+                $18, $18
             )
             "#,
         )
@@ -311,6 +318,7 @@ impl PgEmbeddingSetRepository {
         .bind(&auto_embed_rules_json)
         .bind(req.vector_source.to_string())
         .bind(req.defer_index_build)
+        .bind(req.ef_search)
         .bind(&agent_metadata_json)
         .bind(now)
         .execute(&self.pool)
@@ -1713,6 +1721,7 @@ impl PgEmbeddingSetRepository {
                 .ok()
                 .flatten()
                 .unwrap_or(false),
+            ef_search: row.try_get("ef_search").ok().flatten(),
             is_system: row.get("is_system"),
             is_active: row.get("is_active"),
             auto_refresh: row.get("auto_refresh"),
@@ -1785,6 +1794,7 @@ impl PgEmbeddingSetRepository {
                 es.embedding_count,
                 es.index_status::text as index_status,
                 COALESCE(es.defer_index_build, FALSE) AS defer_index_build,
+                es.ef_search,
                 es.is_system,
                 es.keywords,
                 es.truncate_dim,
@@ -1829,6 +1839,7 @@ impl PgEmbeddingSetRepository {
                     defer_index_build: row
                         .get::<Option<bool>, _>("defer_index_build")
                         .unwrap_or(false),
+                    ef_search: row.get("ef_search"),
                     is_system: row.get("is_system"),
                     keywords: row.get::<Vec<String>, _>("keywords"),
                     model: row.get("model"),
@@ -1859,6 +1870,7 @@ impl PgEmbeddingSetRepository {
                 es.truncate_dim, es.auto_embed_rules,
                 es.index_status::text as index_status, es.index_type,
                 COALESCE(es.defer_index_build, FALSE) AS defer_index_build,
+                es.ef_search,
                 es.document_count, es.embedding_count, es.embeddings_current, es.index_size_bytes,
                 es.is_system, es.is_active, es.auto_refresh,
                 es.agent_metadata, es.created_at, es.updated_at, es.created_by
@@ -1893,6 +1905,7 @@ impl PgEmbeddingSetRepository {
                 es.truncate_dim, es.auto_embed_rules,
                 es.index_status::text as index_status, es.index_type,
                 COALESCE(es.defer_index_build, FALSE) AS defer_index_build,
+                es.ef_search,
                 es.document_count, es.embedding_count, es.embeddings_current, es.index_size_bytes,
                 es.is_system, es.is_active, es.auto_refresh,
                 es.agent_metadata, es.created_at, es.updated_at, es.created_by
@@ -1959,19 +1972,22 @@ impl PgEmbeddingSetRepository {
             Some(id) => Some(id),
             None => Some(self.get_default_config_id_tx(tx).await?),
         };
+        if let Some(ef_search) = req.ef_search {
+            validate_ef_search(ef_search).map_err(Error::InvalidInput)?;
+        }
 
         sqlx::query(
             r#"
             INSERT INTO embedding_set (
                 id, name, slug, description, purpose, usage_hints, keywords,
                 set_type, mode, criteria, embedding_config_id, truncate_dim,
-                auto_embed_rules, vector_source, defer_index_build, agent_metadata,
+                auto_embed_rules, vector_source, defer_index_build, ef_search, agent_metadata,
                 created_at, updated_at
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7,
                 $8::embedding_set_type, $9::embedding_set_mode, $10, $11, $12,
-                $13, $14, $15, $16,
-                $17, $17
+                $13, $14, $15, $16, $17,
+                $18, $18
             )
             "#,
         )
@@ -1990,6 +2006,7 @@ impl PgEmbeddingSetRepository {
         .bind(&auto_embed_rules_json)
         .bind(req.vector_source.to_string())
         .bind(req.defer_index_build)
+        .bind(req.ef_search)
         .bind(&agent_metadata_json)
         .bind(now)
         .execute(&mut **tx)
@@ -2078,6 +2095,9 @@ impl PgEmbeddingSetRepository {
         let mode_str = req.mode.as_ref().map(|m| m.to_string());
         let vector_source = req.vector_source.as_ref().map(|source| source.to_string());
         let defer_index_build = req.defer_index_build;
+        if let Some(ef_search) = req.ef_search {
+            validate_ef_search(ef_search).map_err(Error::InvalidInput)?;
+        }
 
         // Single UPDATE with COALESCE — NULL params preserve existing values
         let row = sqlx::query(
@@ -2095,6 +2115,7 @@ impl PgEmbeddingSetRepository {
                 agent_metadata = COALESCE($11, agent_metadata),
                 vector_source = COALESCE($12, vector_source),
                 defer_index_build = COALESCE($13, defer_index_build),
+                ef_search = COALESCE($14, ef_search),
                 updated_at = NOW()
             WHERE slug = $1
             RETURNING
@@ -2105,6 +2126,7 @@ impl PgEmbeddingSetRepository {
                 truncate_dim, auto_embed_rules,
                 index_status::text as index_status, index_type,
                 COALESCE(defer_index_build, FALSE) AS defer_index_build,
+                ef_search,
                 document_count, embedding_count, embeddings_current, index_size_bytes,
                 is_system, is_active, auto_refresh,
                 agent_metadata, created_at, updated_at, created_by
@@ -2123,6 +2145,7 @@ impl PgEmbeddingSetRepository {
         .bind(&agent_metadata_json)
         .bind(&vector_source)
         .bind(defer_index_build)
+        .bind(req.ef_search)
         .fetch_one(&mut **tx)
         .await
         .map_err(Error::Database)?;

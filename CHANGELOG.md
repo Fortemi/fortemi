@@ -99,6 +99,12 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   source-addressed entity upsert plus profile-vector storage, and expose REST
   run reports; server-side run folders remain admin-only and confined under
   `FORTEMI_VECTOR_IMPORT_ROOT` (#1177/#1186).
+- Add R1 vector index operations: per-set `ef_search` is applied to semantic,
+  embedding, entity-vector, and hybrid searches; admin index health reports
+  HNSW validity, table statistics, set row drift, and optional recall probes;
+  large profile-vector imports schedule deduplicated `ANALYZE embedding` jobs;
+  and the default database suite now guards HNSW recall for 1024-dimensional
+  clustered vectors (#1181).
 
 ## [2026.10.1] - 2026-10-09
 
