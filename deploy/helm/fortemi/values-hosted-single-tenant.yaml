@@ -100,3 +100,8 @@ mcp:
 
 networkPolicy:
   enabled: true
+
+# Optional: create this Secret (>= 32 bytes) to enable personal access tokens.
+personalAccessTokens:
+  pepper:
+    existingSecret: fortemi-pat-pepper

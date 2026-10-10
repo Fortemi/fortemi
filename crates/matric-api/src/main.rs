@@ -3349,16 +3349,34 @@ async fn audit_sink_for_mode(
 
 #[cfg(feature = "hosted-auth")]
 fn pat_crypto_for_mode(auth_mode: AuthMode) -> anyhow::Result<Option<PersonalAccessTokenCrypto>> {
-    match std::env::var("FORTEMI_PAT_PEPPER") {
-        Ok(value) if !value.trim().is_empty() => {
-            PersonalAccessTokenCrypto::derive_from_env_value(&value)
+    pat_crypto_from_pepper(
+        auth_mode,
+        std::env::var("FORTEMI_PAT_PEPPER").ok().as_deref(),
+    )
+}
+
+/// Without a pepper, personal access tokens stay disabled: minting answers 503
+/// and `mm_pat_` bearers are refused. The rest of the API keeps serving, so an
+/// existing deployment does not stop on upgrade before the secret is wired.
+#[cfg(feature = "hosted-auth")]
+fn pat_crypto_from_pepper(
+    auth_mode: AuthMode,
+    pepper: Option<&str>,
+) -> anyhow::Result<Option<PersonalAccessTokenCrypto>> {
+    match pepper {
+        Some(value) if !value.trim().is_empty() => {
+            PersonalAccessTokenCrypto::derive_from_env_value(value)
                 .map(Some)
                 .map_err(|error| anyhow::anyhow!("{error}"))
         }
-        _ if auth_mode.external_jwt() => {
-            anyhow::bail!("FORTEMI_PAT_PEPPER is required when OIDC/PAT authentication is enabled")
+        _ => {
+            if auth_mode.external_jwt() {
+                tracing::warn!(
+                    "FORTEMI_PAT_PEPPER is not set; personal access tokens are disabled"
+                );
+            }
+            Ok(None)
         }
-        _ => Ok(None),
     }
 }
 
@@ -84396,5 +84414,29 @@ not-json
             snn_response_status(matric_db::SnnStatus::Completed),
             StatusCode::OK
         );
+    }
+}
+
+#[cfg(all(test, feature = "hosted-auth"))]
+mod pat_pepper_startup_tests {
+    use super::*;
+
+    #[test]
+    fn missing_pepper_disables_pats_without_failing_startup() {
+        for mode in [AuthMode::HostedMultiTenant, AuthMode::ExternalOidc] {
+            assert!(pat_crypto_from_pepper(mode, None).unwrap().is_none());
+            assert!(pat_crypto_from_pepper(mode, Some("  ")).unwrap().is_none());
+        }
+    }
+
+    #[test]
+    fn configured_pepper_enables_pats_and_short_pepper_fails() {
+        let pepper = "a".repeat(32);
+        assert!(
+            pat_crypto_from_pepper(AuthMode::ExternalOidc, Some(&pepper))
+                .unwrap()
+                .is_some()
+        );
+        assert!(pat_crypto_from_pepper(AuthMode::ExternalOidc, Some("too-short")).is_err());
     }
 }

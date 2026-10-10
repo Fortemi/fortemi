@@ -17,6 +17,8 @@
 # Secrets this component names (created by the platform, never committed):
 #   fortemi-database-migrate  MIGRATION_DATABASE_URL   migration role
 #   fortemi-quota-redis       FORTEMI_QUOTA_REDIS_URL  shared admission quota
+#   fortemi-pat-pepper        FORTEMI_PAT_PEPPER       optional; >= 32 bytes,
+#                             enables personal access tokens (absent: PATs off)
 # Hosted startup runs an idempotent migration check, so API and worker pods
 # need MIGRATION_DATABASE_URL too (the chart's migration.exposeToRuntime).
 apiVersion: kustomize.config.k8s.io/v1alpha1
@@ -54,6 +56,15 @@ patches:
             secretKeyRef:
               name: fortemi-quota-redis
               key: FORTEMI_QUOTA_REDIS_URL
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: FORTEMI_PAT_PEPPER
+          valueFrom:
+            secretKeyRef:
+              name: fortemi-pat-pepper
+              key: FORTEMI_PAT_PEPPER
+              optional: true
   - target:
       kind: Job
       name: fortemi-migrate

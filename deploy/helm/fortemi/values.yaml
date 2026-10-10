@@ -70,6 +70,14 @@ authCaBundle:
   key: ca.pem
   mountPath: /etc/fortemi/trust/oidc
 
+# Personal access tokens (mm_pat_) are enabled by a server-side pepper of at
+# least 32 bytes, exported as FORTEMI_PAT_PEPPER from a Secret. The reference is
+# optional: while the Secret is absent, PATs stay disabled (minting returns 503).
+personalAccessTokens:
+  pepper:
+    existingSecret: ""
+    key: FORTEMI_PAT_PEPPER
+
 # Attachment file storage (FILE_STORAGE_PATH). API and worker must share it,
 # so multi-replica deployments need a ReadWriteMany claim. emptyDir is only
 # suitable for a single pod or with FORTEMI_ATTACHMENTS_ENABLED=false.

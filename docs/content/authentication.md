@@ -275,9 +275,11 @@ new credentials.
 Fortemi checks the owning user's status on every PAT use and revokes active or
 suspended PATs when the user is disabled. If the user has not signed in with
 OIDC within `FORTEMI_PAT_REVALIDATE_DAYS` (default 30), the PAT is suspended
-until the user signs in again. Configure `FORTEMI_PAT_PEPPER` from the secret
-store or KMS before enabling PAT verification; use `base64:<value>` for binary
-secret material. Token values are never logged.
+until the user signs in again. PATs are enabled by `FORTEMI_PAT_PEPPER`, at least
+32 bytes from the secret store or KMS (use `base64:<value>` for binary secret
+material). Without it, the API starts normally but PATs stay disabled: minting
+returns 503 and `mm_pat_` bearers are refused. A pepper shorter than 32 bytes
+fails startup. Token values are never logged.
 
 Keycloak example using client roles for a Fortemi API client:
 

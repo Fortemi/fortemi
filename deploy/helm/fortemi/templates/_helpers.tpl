@@ -126,6 +126,14 @@ app.kubernetes.io/component: {{ .component }}
       name: {{ $v.redis.quota.existingSecret }}
       key: {{ $v.redis.quota.urlKey }}
 {{- end }}
+{{- if $v.personalAccessTokens.pepper.existingSecret }}
+- name: FORTEMI_PAT_PEPPER
+  valueFrom:
+    secretKeyRef:
+      name: {{ $v.personalAccessTokens.pepper.existingSecret }}
+      key: {{ $v.personalAccessTokens.pepper.key }}
+      optional: true
+{{- end }}
 {{- if $v.authCaBundle.configMap }}
 - name: FORTEMI_AUTH_CA_BUNDLE
   value: {{ printf "%s/%s" $v.authCaBundle.mountPath $v.authCaBundle.key | quote }}
