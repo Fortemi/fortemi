@@ -209,10 +209,14 @@ async fn set_user_status(
 
 #[cfg(feature = "hosted-auth")]
 async fn revoke_user_pats_for_disable(
-    _state: &AppState,
-    _tenant_id: Uuid,
-    _user_id: Uuid,
+    state: &AppState,
+    tenant_id: Uuid,
+    user_id: Uuid,
 ) -> Result<(), ApiError> {
+    let Some(repo) = state.personal_access_tokens.as_ref() else {
+        return Ok(());
+    };
+    repo.revoke_for_disabled_user(tenant_id, user_id).await?;
     Ok(())
 }
 

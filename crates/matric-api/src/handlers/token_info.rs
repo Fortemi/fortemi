@@ -15,7 +15,7 @@ use matric_core::AuthPrincipal;
 #[derive(Debug, Serialize, PartialEq, Eq)]
 pub struct TokenInfo {
     pub active: bool,
-    /// `hosted_oidc`, `oauth_access_token` or `api_key`.
+    /// `hosted_oidc`, `oauth_access_token`, `api_key` or `pat`.
     pub token_class: &'static str,
     pub scope: String,
     pub tenant_bound: bool,
@@ -23,6 +23,10 @@ pub struct TokenInfo {
     pub exp: Option<i64>,
     /// `human` or `service` for hosted OIDC tokens (claim policy, #1152).
     pub principal_kind: Option<&'static str>,
+    pub iss: Option<String>,
+    pub sub: Option<String>,
+    pub app_user_id: Option<String>,
+    pub pat_id: Option<String>,
 }
 
 pub fn token_info_for(
@@ -40,6 +44,13 @@ pub fn token_info_for(
         (false, _) => "oauth_access_token",
     };
     #[cfg(feature = "hosted-auth")]
+    let request_principal = identity.and_then(|identity| identity.request_principal.as_ref());
+    #[cfg(feature = "hosted-auth")]
+    let token_class = request_principal
+        .filter(|principal| principal.credential_class.as_str() == "pat")
+        .map(|_| "pat")
+        .unwrap_or(token_class);
+    #[cfg(feature = "hosted-auth")]
     let exp = hosted.map(|context| context.expires_at.timestamp());
     #[cfg(not(feature = "hosted-auth"))]
     let exp = None;
@@ -55,6 +66,23 @@ pub fn token_info_for(
         tenant_bound: identity.is_some_and(|identity| identity.tenant_id.is_some()),
         exp,
         principal_kind,
+        #[cfg(feature = "hosted-auth")]
+        iss: request_principal.map(|principal| principal.iss.clone()),
+        #[cfg(not(feature = "hosted-auth"))]
+        iss: None,
+        #[cfg(feature = "hosted-auth")]
+        sub: request_principal.map(|principal| principal.sub.clone()),
+        #[cfg(not(feature = "hosted-auth"))]
+        sub: None,
+        #[cfg(feature = "hosted-auth")]
+        app_user_id: request_principal
+            .and_then(|principal| principal.user_id.map(|id| id.to_string())),
+        #[cfg(not(feature = "hosted-auth"))]
+        app_user_id: None,
+        #[cfg(feature = "hosted-auth")]
+        pat_id: request_principal.and_then(|principal| principal.pat_id.map(|id| id.to_string())),
+        #[cfg(not(feature = "hosted-auth"))]
+        pat_id: None,
     }
 }
 

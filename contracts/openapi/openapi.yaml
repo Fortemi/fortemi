@@ -41,6 +41,58 @@ paths:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
       security: []
+  /api/v1/admin/tokens:
+    get:
+      tags:
+      - OAuth
+      operationId: list_admin_tokens
+      responses:
+        '200':
+          description: Tenant personal access tokens
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PersonalAccessTokenResponse'
+        '503':
+          description: Hosted auth required
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
+  /api/v1/admin/tokens/{id}:
+    delete:
+      tags:
+      - OAuth
+      operationId: revoke_admin_token
+      parameters:
+      - name: id
+        in: path
+        description: Personal access token id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '204':
+          description: Revoked
+        '404':
+          description: Not found
+        '503':
+          description: Hosted auth required
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
   /api/v1/admin/users:
     get:
       tags:
@@ -4504,6 +4556,85 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/MeResponse'
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
+  /api/v1/me/tokens:
+    get:
+      tags:
+      - OAuth
+      operationId: list_my_tokens
+      responses:
+        '200':
+          description: Personal access tokens
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PersonalAccessTokenResponse'
+        '503':
+          description: Hosted auth required
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
+    post:
+      tags:
+      - OAuth
+      operationId: create_my_token
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePersonalAccessTokenRequest'
+        required: true
+      responses:
+        '201':
+          description: Created personal access token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatedPersonalAccessTokenResponse'
+        '503':
+          description: Hosted auth required
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
+  /api/v1/me/tokens/{id}:
+    delete:
+      tags:
+      - OAuth
+      operationId: revoke_my_token
+      parameters:
+      - name: id
+        in: path
+        description: Personal access token id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '204':
+          description: Revoked
+        '404':
+          description: Not found
+        '503':
+          description: Hosted auth required
         '429':
           content:
             application/problem+json:
@@ -9635,6 +9766,27 @@ components:
           type:
           - string
           - 'null'
+    CreatePersonalAccessTokenRequest:
+      type: object
+      required:
+      - name
+      properties:
+        expires_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        expires_in_days:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        name:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
     CreateProvDeviceRequest:
       type: object
       description: Request to create a provenance device record.
@@ -9827,6 +9979,39 @@ components:
           - string
           - 'null'
         url:
+          type: string
+    CreatedPersonalAccessTokenResponse:
+      type: object
+      required:
+      - id
+      - token
+      - token_prefix
+      - token_last4
+      - name
+      - scopes
+      - expires_at
+      - created_at
+      properties:
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        token:
+          type: string
+        token_last4:
+          type: string
+        token_prefix:
           type: string
     CrossArchiveSearchRequest:
       type: object
@@ -12309,6 +12494,61 @@ components:
           type:
           - string
           - 'null'
+    PersonalAccessTokenResponse:
+      type: object
+      required:
+      - id
+      - user_id
+      - token_prefix
+      - token_last4
+      - name
+      - scopes
+      - status
+      - expires_at
+      - created_at
+      - use_count
+      properties:
+        created_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+        id:
+          type: string
+          format: uuid
+        last_used_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        last_used_ip:
+          type:
+          - string
+          - 'null'
+        name:
+          type: string
+        revoked_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        scopes:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+        token_last4:
+          type: string
+        token_prefix:
+          type: string
+        use_count:
+          type: integer
+          format: int64
+        user_id:
+          type: string
+          format: uuid
     PkeAddressRequest:
       type: object
       required:

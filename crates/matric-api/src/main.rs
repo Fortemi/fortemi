@@ -112,6 +112,8 @@ use matric_db::{
     SkosCollectionRepository, SkosConceptRepository, SkosConceptSchemeRepository, StagedShardBlob,
     StagedShardBlobPromotion, StorageBackend,
 };
+#[cfg(feature = "hosted-auth")]
+use matric_db::{PersonalAccessTokenCrypto, PgPersonalAccessTokenRepository};
 use middleware::archive_routing::{
     archive_routing_middleware, ArchiveContext, DefaultArchiveCache,
 };
@@ -1170,6 +1172,9 @@ use handlers::{
         update_inference_config,
     },
     models::list_models,
+    personal_access_tokens::{
+        create_my_token, list_admin_tokens, list_my_tokens, revoke_admin_token, revoke_my_token,
+    },
     pke::{
         create_keyset, delete_keyset, export_keyset, get_active_keyset, import_keyset,
         list_keysets, pke_address, pke_decrypt, pke_encrypt, pke_keygen, pke_recipients,
@@ -1286,6 +1291,12 @@ struct AppState {
     audit_sink: Arc<dyn AuditSink>,
     /// OIDC application-principal storage.
     app_users: PgAppUserRepository,
+    /// User-bound personal access tokens.
+    #[cfg(feature = "hosted-auth")]
+    personal_access_tokens: Option<PgPersonalAccessTokenRepository>,
+    /// Maximum days since the owning user last authenticated with OIDC.
+    #[cfg(feature = "hosted-auth")]
+    pat_revalidate_days: i64,
     /// Deployment-wide JIT creation limiter for `app_user`.
     #[cfg(feature = "hosted-auth")]
     user_jit_limiter: Arc<UserJitLimiter>,
@@ -1488,6 +1499,11 @@ impl AppState {
         handlers::user_principal::list_users,
         handlers::user_principal::disable_user,
         handlers::user_principal::enable_user,
+        handlers::personal_access_tokens::create_my_token,
+        handlers::personal_access_tokens::list_my_tokens,
+        handlers::personal_access_tokens::revoke_my_token,
+        handlers::personal_access_tokens::list_admin_tokens,
+        handlers::personal_access_tokens::revoke_admin_token,
         // handlers::event_tokens (#953)
         handlers::event_tokens::mint_event_stream_token,
         handlers::event_tokens::revoke_event_stream_token,
@@ -1566,6 +1582,9 @@ impl AppState {
             EntitySimilarityResponse, EntitySimilarityResult,
             handlers::user_principal::MeResponse,
             handlers::user_principal::AdminUserResponse,
+            handlers::personal_access_tokens::CreatePersonalAccessTokenRequest,
+            handlers::personal_access_tokens::CreatedPersonalAccessTokenResponse,
+            handlers::personal_access_tokens::PersonalAccessTokenResponse,
             ProblemDetails, ProblemTypeCatalogEntry,
         )
     ),
@@ -3326,6 +3345,38 @@ async fn audit_sink_for_mode(
     Ok(Arc::new(sink))
 }
 
+#[cfg(feature = "hosted-auth")]
+fn pat_crypto_for_mode(auth_mode: AuthMode) -> anyhow::Result<Option<PersonalAccessTokenCrypto>> {
+    match std::env::var("FORTEMI_PAT_PEPPER") {
+        Ok(value) if !value.trim().is_empty() => {
+            PersonalAccessTokenCrypto::derive_from_env_value(&value)
+                .map(Some)
+                .map_err(|error| anyhow::anyhow!("{error}"))
+        }
+        _ if auth_mode.external_jwt() => {
+            anyhow::bail!("FORTEMI_PAT_PEPPER is required when OIDC/PAT authentication is enabled")
+        }
+        _ => Ok(None),
+    }
+}
+
+#[cfg(feature = "hosted-auth")]
+fn pat_revalidate_days_from_env() -> anyhow::Result<i64> {
+    match std::env::var("FORTEMI_PAT_REVALIDATE_DAYS") {
+        Ok(value) if !value.trim().is_empty() => {
+            let parsed: i64 = value
+                .trim()
+                .parse()
+                .map_err(|_| anyhow::anyhow!("FORTEMI_PAT_REVALIDATE_DAYS must be an integer"))?;
+            if !(1..=365).contains(&parsed) {
+                anyhow::bail!("FORTEMI_PAT_REVALIDATE_DAYS must be between 1 and 365");
+            }
+            Ok(parsed)
+        }
+        _ => Ok(30),
+    }
+}
+
 async fn key_provider_for_mode(
     multi_tenant: bool,
 ) -> anyhow::Result<Option<kms::HostedKeyCustody>> {
@@ -4968,6 +5019,11 @@ async fn main() -> anyhow::Result<()> {
         .map_err(|error| anyhow::anyhow!("invalid inference destination policy: {error}"))?,
     );
     let app_users = PgAppUserRepository::new(db.pool.clone());
+    #[cfg(feature = "hosted-auth")]
+    let personal_access_tokens = pat_crypto_for_mode(auth_mode)?
+        .map(|crypto| PgPersonalAccessTokenRepository::new(db.pool.clone(), crypto));
+    #[cfg(feature = "hosted-auth")]
+    let pat_revalidate_days = pat_revalidate_days_from_env()?;
     let lifecycle = LifecycleState::default();
     let state = AppState {
         db,
@@ -5015,6 +5071,10 @@ async fn main() -> anyhow::Result<()> {
         usage_meter,
         audit_sink,
         app_users,
+        #[cfg(feature = "hosted-auth")]
+        personal_access_tokens,
+        #[cfg(feature = "hosted-auth")]
+        pat_revalidate_days,
         #[cfg(feature = "hosted-auth")]
         user_jit_limiter: Arc::new(UserJitLimiter::from_env()),
         key_provider,
@@ -5771,9 +5831,16 @@ async fn main() -> anyhow::Result<()> {
             get(handlers::token_info::token_info),
         )
         .route("/api/v1/me", get(me))
+        .route(
+            "/api/v1/me/tokens",
+            get(list_my_tokens).post(create_my_token),
+        )
+        .route("/api/v1/me/tokens/{id}", delete(revoke_my_token))
         .route("/api/v1/admin/users", get(list_users))
         .route("/api/v1/admin/users/{id}/disable", post(disable_user))
         .route("/api/v1/admin/users/{id}/enable", post(enable_user))
+        .route("/api/v1/admin/tokens", get(list_admin_tokens))
+        .route("/api/v1/admin/tokens/{id}", delete(revoke_admin_token))
         // Memory info
         .route("/api/v1/memory/info", get(memory_info))
         // WebSocket events (Issue #39)
@@ -7208,7 +7275,7 @@ async fn sse_events(
                     ApiError::Unauthorized("Invalid or expired stream token".to_string())
                 })?,
             (None, Some(tok)) => (
-                validate_bearer_identity(&state, tok)
+                validate_bearer_identity(&state, tok, None)
                     .await
                     .map(|identity| identity.principal)
                     .map_err(|failure| {
@@ -10600,7 +10667,7 @@ async fn auth_middleware(
     let identity = match &auth_header {
         Some(header) if header.starts_with("Bearer ") => {
             let token = header.trim_start_matches("Bearer ").trim();
-            Some(validate_bearer_identity(&state, token).await)
+            Some(validate_bearer_identity(&state, token, client_ip).await)
         }
         _ => None,
     };
@@ -10722,7 +10789,11 @@ fn auth_problem_response(
 async fn validate_bearer_identity(
     state: &AppState,
     token: &str,
+    client_ip: Option<std::net::IpAddr>,
 ) -> Result<ValidatedBearerIdentity, BearerValidationFailure> {
+    #[cfg(not(feature = "hosted-auth"))]
+    let _ = client_ip;
+
     if token.starts_with("mm_at_") {
         #[cfg(feature = "hosted-auth")]
         if state.auth_mode.external_oidc()
@@ -10788,6 +10859,62 @@ async fn validate_bearer_identity(
                 })
             }
             _ => Err(BearerValidationFailure::unauthorized()),
+        }
+    } else if token.starts_with("mm_pat_") {
+        #[cfg(feature = "hosted-auth")]
+        {
+            let repo = state
+                .personal_access_tokens
+                .as_ref()
+                .ok_or(BearerValidationFailure {
+                    status: StatusCode::SERVICE_UNAVAILABLE,
+                    problem_type: ProblemType::ServiceUnavailable,
+                    detail: "PAT verification is not configured.",
+                })?;
+            let tenant_hint = state
+                .external_oidc
+                .as_ref()
+                .filter(|_| state.auth_mode.external_oidc())
+                .map(|config| config.default_tenant_id);
+            let validation = if let Some(tenant_id) = tenant_hint {
+                repo.validate_for_tenant(tenant_id, token, state.pat_revalidate_days, client_ip)
+                    .await
+            } else {
+                repo.validate(token, state.pat_revalidate_days, client_ip)
+                    .await
+            };
+            match validation {
+                Ok(Some(validated)) => {
+                    let scope = validated.effective_scopes.join(" ");
+                    let principal = AuthPrincipal::OAuthClient {
+                        client_id: "fortemi-pat".to_string(),
+                        scope: scope.clone(),
+                        user_id: Some(validated.user.sub.clone()),
+                    };
+                    let request_principal = RequestPrincipal::pat(
+                        validated.user.tenant_id,
+                        &validated.user,
+                        validated.token.id,
+                        validated.effective_scopes,
+                    );
+                    Ok(ValidatedBearerIdentity {
+                        principal,
+                        tenant_id: Some(validated.user.tenant_id),
+                        request_principal: Some(request_principal),
+                        canonical_context: None,
+                    })
+                }
+                Ok(None) => Err(BearerValidationFailure::unauthorized()),
+                Err(_) => Err(BearerValidationFailure {
+                    status: StatusCode::SERVICE_UNAVAILABLE,
+                    problem_type: ProblemType::ServiceUnavailable,
+                    detail: "PAT verification is unavailable.",
+                }),
+            }
+        }
+        #[cfg(not(feature = "hosted-auth"))]
+        {
+            Err(BearerValidationFailure::unauthorized())
         }
     } else if token.starts_with("mm_key_") {
         #[cfg(feature = "hosted-auth")]
@@ -10892,6 +11019,11 @@ async fn validate_bearer_identity(
                             detail: "User principal storage is unavailable.",
                         },
                     })?;
+                if let (Some(repo), Some(user_id)) =
+                    (state.personal_access_tokens.as_ref(), principal.user_id)
+                {
+                    let _ = repo.unsuspend_for_user(tenant_id, user_id).await;
+                }
                 if !exists {
                     state
                         .audit_sink
@@ -72424,6 +72556,10 @@ not-json
             audit_sink: Arc::new(TracingSink),
             app_users: PgAppUserRepository::new(db.pool.clone()),
             #[cfg(feature = "hosted-auth")]
+            personal_access_tokens: None,
+            #[cfg(feature = "hosted-auth")]
+            pat_revalidate_days: 30,
+            #[cfg(feature = "hosted-auth")]
             user_jit_limiter: Arc::new(UserJitLimiter::from_env()),
             key_provider: None,
             key_health: None,
@@ -78600,6 +78736,10 @@ not-json
             audit_sink: Arc::new(TracingSink),
             app_users: PgAppUserRepository::new(db.pool.clone()),
             #[cfg(feature = "hosted-auth")]
+            personal_access_tokens: None,
+            #[cfg(feature = "hosted-auth")]
+            pat_revalidate_days: 30,
+            #[cfg(feature = "hosted-auth")]
             user_jit_limiter: Arc::new(UserJitLimiter::from_env()),
             key_provider: None,
             key_health: None,
@@ -80410,6 +80550,10 @@ not-json
             audit_sink: Arc::new(TracingSink),
             app_users: PgAppUserRepository::new(db.pool.clone()),
             #[cfg(feature = "hosted-auth")]
+            personal_access_tokens: None,
+            #[cfg(feature = "hosted-auth")]
+            pat_revalidate_days: 30,
+            #[cfg(feature = "hosted-auth")]
             user_jit_limiter: Arc::new(UserJitLimiter::from_env()),
             key_provider: None,
             key_health: None,
@@ -80772,6 +80916,10 @@ not-json
             usage_meter: Arc::new(NoOpMeter),
             audit_sink: Arc::new(TracingSink),
             app_users: PgAppUserRepository::new(db.pool.clone()),
+            #[cfg(feature = "hosted-auth")]
+            personal_access_tokens: None,
+            #[cfg(feature = "hosted-auth")]
+            pat_revalidate_days: 30,
             #[cfg(feature = "hosted-auth")]
             user_jit_limiter: Arc::new(UserJitLimiter::from_env()),
             key_provider: None,

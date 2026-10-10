@@ -55,6 +55,11 @@ The MCP server uses OAuth2 for secure access:
 
 HTTP sessions are bound to the verified principal that opened them. `POST /`, `GET /`, `DELETE /`, and `POST /messages` must all present a token for that same principal; a different user's valid token gets `403 access_denied`. Tool calls forward the bearer from the current request only. The HTTP transport never falls back to `FORTEMI_API_KEY` for user requests; `FORTEMI_API_KEY` is still the local stdio credential.
 
+External-OIDC users can use an `mm_pat_` personal access token as the MCP bearer
+when a client cannot run OAuth. The API validates PATs through the same
+`token-info` path, returns the owning user and PAT id to MCP, and still requires
+the effective `mcp` scope.
+
 The protected-resource `resource` value is exactly `MCP_RESOURCE_URI`, including any path such as `https://example.com/mcp`. When `FORTEMI_AUTH_AUDIENCES` is configured, `MCP_RESOURCE_URI` must be one of those comma-separated audiences. `FORTEMI_AUTH_AUDIENCE` remains a single-value fallback. Outside explicit local development (`FORTEMI_ALLOW_LOCAL_ISSUER=true` for localhost), HTTP deployments must use an HTTPS `MCP_RESOURCE_URI`.
 
 By default MCP and the API share the same accepted resource audiences and MCP forwards the validated user token. In a separate-resource deployment, set `MCP_TOKEN_EXCHANGE=true` and configure `MCP_TOKEN_EXCHANGE_CLIENT_ID`, `MCP_TOKEN_EXCHANGE_CLIENT_SECRET` or `MCP_TOKEN_EXCHANGE_CLIENT_SECRET_FILE`, `MCP_TOKEN_EXCHANGE_TOKEN_ENDPOINT`, and `MCP_TOKEN_EXCHANGE_AUDIENCE`; MCP then uses RFC 8693 token exchange and forwards the API-audience token instead. Startup fails closed if token exchange is enabled but incomplete.

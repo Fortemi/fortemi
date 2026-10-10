@@ -231,6 +231,20 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         PrivateUserData,
     ),
     r(
+        "/api/v1/me/tokens",
+        AuthenticatedRead,
+        "credential_management",
+        Authenticated,
+        NoStore,
+    ),
+    r(
+        "/api/v1/me/tokens/{id}",
+        AuthenticatedWrite,
+        "credential_management",
+        Authenticated,
+        NoStore,
+    ),
+    r(
         "/api/v1/admin/users",
         AdminOperator,
         "principal_admin",
@@ -243,6 +257,20 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         "principal_admin",
         Operator,
         PrivateUserData,
+    ),
+    r(
+        "/api/v1/admin/tokens",
+        AdminOperator,
+        "credential_management",
+        Operator,
+        NoStore,
+    ),
+    r(
+        "/api/v1/admin/tokens/{id}",
+        AdminOperator,
+        "credential_management",
+        Operator,
+        NoStore,
     ),
     r(
         "/api/v1/admin/users/{id}/enable",

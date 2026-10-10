@@ -65,6 +65,7 @@ pub struct RequestPrincipal {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CredentialClass {
     Oidc,
+    Pat,
     Legacy,
 }
 
@@ -72,6 +73,7 @@ impl CredentialClass {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Oidc => "oidc",
+            Self::Pat => "pat",
             Self::Legacy => "legacy",
         }
     }
@@ -124,6 +126,28 @@ impl RequestPrincipal {
             jti: None,
             email: None,
             email_verified: false,
+        }
+    }
+
+    pub fn pat(
+        tenant_id: Uuid,
+        user: &matric_db::AppUser,
+        pat_id: Uuid,
+        scopes: Vec<String>,
+    ) -> Self {
+        Self {
+            user_id: Some(user.id),
+            tenant_id: Some(tenant_id),
+            iss: user.iss.clone(),
+            sub: user.sub.clone(),
+            azp: user.azp.clone(),
+            scopes,
+            credential_class: CredentialClass::Pat,
+            kind: PrincipalKind::Human,
+            pat_id: Some(pat_id),
+            jti: None,
+            email: user.email.clone(),
+            email_verified: user.email_verified,
         }
     }
 

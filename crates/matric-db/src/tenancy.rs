@@ -90,6 +90,7 @@ pub const TENANT_SCOPED_TABLES: &[&str] = &[
     "oauth_authorization_code",
     "oauth_client",
     "oauth_token",
+    "personal_access_token",
     "pke_active_keyset",
     "pke_keysets",
     "pke_public_keys",

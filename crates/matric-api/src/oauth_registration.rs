@@ -133,7 +133,7 @@ pub(crate) async fn admit_registration(state: &AppState, headers: &HeaderMap) ->
             let Some(token) = token else {
                 return Some(unauthorized());
             };
-            match validate_bearer_identity(state, token).await {
+            match validate_bearer_identity(state, token, None).await {
                 Ok(identity) if principal_has_admin_scope(&identity.principal) => None,
                 Ok(_) => Some(
                     problem_response(

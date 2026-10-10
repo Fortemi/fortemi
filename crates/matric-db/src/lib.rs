@@ -56,6 +56,7 @@ pub mod metadata_predicates;
 pub mod notes;
 pub mod oauth;
 pub mod outbox;
+pub mod personal_access_tokens;
 pub mod pke_keys;
 pub mod pke_keysets;
 pub mod pool;
@@ -158,6 +159,10 @@ pub use notes::{
 };
 pub use oauth::PgOAuthRepository;
 pub use outbox::{CreateOutboxEvent, EventOutboxRecord, PgEventOutboxRepository};
+pub use personal_access_tokens::{
+    CreatedPersonalAccessToken, PersonalAccessToken, PersonalAccessTokenCrypto,
+    PgPersonalAccessTokenRepository, ValidatedPersonalAccessToken,
+};
 pub use pke_keys::{PgPkeKeyRepository, PkePublicKey};
 pub use pke_keysets::{
     CreateKeysetRequest, ExportedKeyset, PgPkeKeysetRepository, PkeKeyset, PkeKeysetSummary,

@@ -13,6 +13,11 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   tenant-scoped `app_user` principals from exact `(iss, sub)`, exposes `/me`,
   admin user enable/disable endpoints, MCP `whoami`, note/job attribution, and
   durable user-lifecycle audit records.
+- Add user-bound personal access tokens (#1192): OIDC-authenticated users can
+  mint expiring `mm_pat_` tokens for REST and MCP clients that cannot complete
+  OAuth, with one-time token display, per-use user-status checks, scope
+  intersection, OIDC revalidation suspension, admin revocation, and HMAC storage
+  under an HKDF-derived deployment pepper.
 - Bearer front door for external OIDC deployments (#1197): the Helm chart and
   Kustomize base route `/api/*`, `/mcp` and
   `/.well-known/oauth-protected-resource*` straight to the API and MCP

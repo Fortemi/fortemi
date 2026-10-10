@@ -14,6 +14,7 @@ pub mod ingest_tokens;
 pub mod jobs;
 pub mod memory_export;
 pub mod models;
+pub mod personal_access_tokens;
 pub mod pke;
 pub mod provenance;
 pub mod token_info;

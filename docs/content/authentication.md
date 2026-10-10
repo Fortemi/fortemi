@@ -237,6 +237,37 @@ FORTEMI_AUTH_DEFAULT_TENANT=8e7a9ab6-08e0-4b3a-8dc2-e2be91a8f7ef
 | `FORTEMI_AUTH_ALLOW_LEGACY_TOKENS` | no | Defaults to `false`; permits existing `mm_at_` and `mm_key_` tokens only during migration. |
 | `FORTEMI_AUTH_LEGACY_SCOPE_CEILING` | no | Defaults to `read mcp`; caps legacy-token effective scopes when legacy tokens are enabled. |
 
+#### Personal access tokens
+
+Signed-in OIDC users can mint user-bound personal access tokens for tools that
+cannot complete an OAuth flow:
+
+```bash
+curl -X POST https://fortemi.example.com/api/v1/me/tokens \
+  -H "Authorization: Bearer $OIDC_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"ci import","scopes":["read","mcp"],"expires_in_days":30}'
+```
+
+The response includes an `mm_pat_` token once. Store it in the client secret
+store and use it as a bearer token for REST or MCP. Listing tokens returns only
+the token id, prefix, last four characters, status, expiry, `last_used_at`,
+`last_used_ip`, and use count.
+
+PAT expiry is required; omitting `expires_in_days` or `expires_at` applies the
+30 day default, and Fortemi rejects values beyond 365 days. Requested scopes
+must be a subset of the caller's current OIDC scopes. Every PAT use recomputes
+the effective scope as the stored PAT scopes intersected with the user's current
+scopes, so demoting a user removes authority from existing PATs without issuing
+new credentials.
+
+Fortemi checks the owning user's status on every PAT use and revokes active or
+suspended PATs when the user is disabled. If the user has not signed in with
+OIDC within `FORTEMI_PAT_REVALIDATE_DAYS` (default 30), the PAT is suspended
+until the user signs in again. Configure `FORTEMI_PAT_PEPPER` from the secret
+store or KMS before enabling PAT verification; use `base64:<value>` for binary
+secret material. Token values are never logged.
+
 Keycloak example using client roles for a Fortemi API client:
 
 ```json

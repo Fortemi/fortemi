@@ -64,7 +64,9 @@ pub(crate) async fn from_credential(state: &AppState, credential: &str) -> Optio
     if state.oauth_external_idp_configured && credential.starts_with("mm_key_") {
         return None;
     }
-    let identity = validate_bearer_identity(state, credential).await.ok()?;
+    let identity = validate_bearer_identity(state, credential, None)
+        .await
+        .ok()?;
     owner_for_principal(&identity.principal)
 }
 

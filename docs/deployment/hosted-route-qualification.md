@@ -91,9 +91,9 @@ is qualified.
 | `account` | no | partial | 4 | 0 | 8 | 0 |
 | `voice_calls` | no | excluded | 0 | 0 | 1 | 1 |
 | `knowledge_health` | no | excluded | 0 | 0 | 6 | 0 |
-| `operator` | no | excluded | 0 | 0 | 58 | 2 |
+| `operator` | no | excluded | 0 | 0 | 63 | 2 |
 | `public_protocol` | no | public | 0 | 0 | 0 | 18 |
-| **total** | | | 37 | 89 | 148 | 21 |
+| **total** | | | 37 | 89 | 153 | 21 |
 
 ```json
 {
@@ -316,6 +316,8 @@ is qualified.
     {"method":"GET","path":"/api/v1/health/stale-notes","class":"knowledge_health","status":"excluded","enforcement":"hosted_503"},
     {"method":"GET","path":"/api/v1/health/tag-cooccurrence","class":"knowledge_health","status":"excluded","enforcement":"hosted_503"},
     {"method":"GET","path":"/api/v1/health/unlinked-notes","class":"knowledge_health","status":"excluded","enforcement":"hosted_503"},
+    {"method":"GET","path":"/api/v1/admin/tokens","class":"operator","status":"excluded","enforcement":"hosted_503"},
+    {"method":"DELETE","path":"/api/v1/admin/tokens/{id}","class":"operator","status":"excluded","enforcement":"hosted_503"},
     {"method":"GET","path":"/api/v1/admin/users","class":"operator","status":"excluded","enforcement":"hosted_503"},
     {"method":"POST","path":"/api/v1/admin/users/{id}/disable","class":"operator","status":"excluded","enforcement":"hosted_503"},
     {"method":"POST","path":"/api/v1/admin/users/{id}/enable","class":"operator","status":"excluded","enforcement":"hosted_503"},
@@ -352,6 +354,9 @@ is qualified.
     {"method":"POST","path":"/api/v1/inference/test-connection","class":"operator","status":"excluded","enforcement":"hosted_503"},
     {"method":"POST","path":"/api/v1/ingest/tokens","class":"operator","status":"excluded","enforcement":"hosted_503"},
     {"method":"DELETE","path":"/api/v1/ingest/tokens/{token_id}","class":"operator","status":"excluded","enforcement":"hosted_503"},
+    {"method":"GET","path":"/api/v1/me/tokens","class":"operator","status":"excluded","enforcement":"hosted_503"},
+    {"method":"POST","path":"/api/v1/me/tokens","class":"operator","status":"excluded","enforcement":"hosted_503"},
+    {"method":"DELETE","path":"/api/v1/me/tokens/{id}","class":"operator","status":"excluded","enforcement":"hosted_503"},
     {"method":"GET","path":"/api/v1/operator/asyncapi.yaml","class":"operator","status":"excluded","enforcement":"hosted_503"},
     {"method":"GET","path":"/api/v1/operator/docs","class":"operator","status":"excluded","enforcement":"hosted_503"},
     {"method":"GET","path":"/api/v1/operator/openapi.yaml","class":"operator","status":"excluded","enforcement":"hosted_503"},
