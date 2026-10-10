@@ -7,6 +7,31 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.10.2] - 2026-10-09
+
+Signed correction of 2026.10.1 plus the R1 embeddings release and the ADR-110
+identity work. 2026.10.1 published images and release assets, but image signing
+failed, so its release was not finalized; per the release policy the correction
+ships as a new patch version.
+
+### Security
+
+- Add single-tenant `FORTEMI_AUTH_MODE=external-oidc`: external IdP JWTs can now
+  protect the full API surface outside hosted multi-tenancy, with required
+  claim-policy mapping, exact resource audiences, default-tenant bootstrap,
+  scope-enforcing authorization, `key_source_unavailable` as 503, and legacy
+  `mm_at_`/`mm_key_` tokens disabled unless explicitly capped (#1190).
+- Make OAuth discovery truthful for external IdP deployments: API and MCP
+  protected-resource metadata now advertise the external issuer, Fortemi hides
+  its own authorization-server metadata in that mode, 401 challenges point to
+  RFC 9728 metadata, and scope denials return RFC 6750
+  `insufficient_scope` challenges (#1194).
+- Harden Fortemi's local OAuth authorization server: redirect URI matching now
+  parses URLs before applying the RFC 8252 loopback port exception, dynamic
+  client registration rejects unsafe redirect metadata, and deployments with an
+  external IdP configured fail closed unless `FORTEMI_OAUTH_ALLOW_LOCAL_AS=true`
+  is paired with authenticated owner consent (#1189, #1195).
+
 ### Added
 
 - Add OIDC-backed application users (#1191): Fortemi now JIT-provisions
@@ -28,26 +53,6 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   The API budgets authentication failures per client IP before verification
   (`FORTEMI_AUTH_FAILURE_RATE_LIMIT`, default 20/min, then 429 with
   `Retry-After`) and caps the `Authorization` header at 8 KiB (431).
-
-### Security
-
-- Add single-tenant `FORTEMI_AUTH_MODE=external-oidc`: external IdP JWTs can now
-  protect the full API surface outside hosted multi-tenancy, with required
-  claim-policy mapping, exact resource audiences, default-tenant bootstrap,
-  scope-enforcing authorization, `key_source_unavailable` as 503, and legacy
-  `mm_at_`/`mm_key_` tokens disabled unless explicitly capped (#1190).
-- Make OAuth discovery truthful for external IdP deployments: API and MCP
-  protected-resource metadata now advertise the external issuer, Fortemi hides
-  its own authorization-server metadata in that mode, 401 challenges point to
-  RFC 9728 metadata, and scope denials return RFC 6750
-  `insufficient_scope` challenges (#1194).
-- Harden Fortemi's local OAuth authorization server: redirect URI matching now
-  parses URLs before applying the RFC 8252 loopback port exception, dynamic
-  client registration rejects unsafe redirect metadata, and deployments with an
-  external IdP configured fail closed unless `FORTEMI_OAUTH_ALLOW_LOCAL_AS=true`
-  is paired with authenticated owner consent (#1189, #1195).
-### Added
-
 - Client onboarding for external OIDC (#1196): a reference Keycloak 26.7
   realm (`deploy/identity/keycloak/realm-example.json`, linted in CI) with a
   bearer-only `fortemi` resource client, `fortemi-api`/`fortemi-mcp` audience
@@ -105,6 +110,15 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   large profile-vector imports schedule deduplicated `ANALYZE embedding` jobs;
   and the default database suite now guards HNSW recall for 1024-dimensional
   clustered vectors (#1181).
+
+### Fixed
+
+- Refresh the OpenBao token while signing release images, so a release with
+  many image subjects no longer fails when the AppRole token's five-minute TTL
+  expires mid-run. This is what left the 2026.10.1 images unsigned.
+- Keep the MCP core tool contract at 45 tools (embedding-run and similarity
+  tools stay in full mode) and declare `space_contract` as a JSON object so all
+  tool schemas validate as JSON Schema draft 2020-12.
 
 ## [2026.10.1] - 2026-10-09
 
