@@ -62,6 +62,279 @@ impl PgJobRepository {
         self.notify.clone()
     }
 
+    pub async fn queue_with_initiator(
+        &self,
+        note_id: Option<Uuid>,
+        job_type: JobType,
+        priority: i32,
+        payload: Option<JsonValue>,
+        cost_tier: Option<i16>,
+        initiated_by_user_id: Option<Uuid>,
+    ) -> Result<Uuid> {
+        self.queue_inner(
+            note_id,
+            job_type,
+            priority,
+            payload,
+            cost_tier,
+            initiated_by_user_id,
+        )
+        .await
+    }
+
+    pub async fn queue_deduplicated_with_initiator(
+        &self,
+        note_id: Option<Uuid>,
+        job_type: JobType,
+        priority: i32,
+        payload: Option<JsonValue>,
+        cost_tier: Option<i16>,
+        initiated_by_user_id: Option<Uuid>,
+    ) -> Result<Option<Uuid>> {
+        self.queue_deduplicated_inner(
+            note_id,
+            job_type,
+            priority,
+            payload,
+            cost_tier,
+            initiated_by_user_id,
+        )
+        .await
+    }
+
+    pub async fn queue_attachment_once_with_initiator(
+        &self,
+        attachment_id: Uuid,
+        schema: &str,
+        note_id: Option<Uuid>,
+        job_type: JobType,
+        payload: Option<JsonValue>,
+        initiated_by_user_id: Option<Uuid>,
+    ) -> Result<Option<Uuid>> {
+        self.queue_attachment_once_inner(
+            attachment_id,
+            schema,
+            note_id,
+            job_type,
+            payload,
+            initiated_by_user_id,
+        )
+        .await
+    }
+
+    async fn queue_inner(
+        &self,
+        note_id: Option<Uuid>,
+        job_type: JobType,
+        priority: i32,
+        payload: Option<JsonValue>,
+        cost_tier: Option<i16>,
+        initiated_by_user_id: Option<Uuid>,
+    ) -> Result<Uuid> {
+        let payload = matric_core::telemetry::attach_trace_to_job_payload(payload);
+        let job_id = new_v7();
+        let now = Utc::now();
+        let job_type_str = Self::job_type_to_str(job_type);
+
+        let estimated_duration: Option<i32> =
+            sqlx::query_scalar("SELECT estimate_job_duration($1::job_type, NULL)")
+                .bind(job_type_str)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(Error::Database)?
+                .flatten();
+
+        sqlx::query(
+            "INSERT INTO job_queue (id, note_id, job_type, status, priority, payload, estimated_duration_ms, created_at, cost_tier, initiated_by_user_id)
+             VALUES ($1, $2, $3::job_type, 'pending'::job_status, $4, $5, $6, $7, $8, $9)",
+        )
+        .bind(job_id)
+        .bind(note_id)
+        .bind(job_type_str)
+        .bind(priority)
+        .bind(&payload)
+        .bind(estimated_duration)
+        .bind(now)
+        .bind(cost_tier)
+        .bind(initiated_by_user_id)
+        .execute(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        self.notify.notify_waiters();
+        Ok(job_id)
+    }
+
+    async fn queue_deduplicated_inner(
+        &self,
+        note_id: Option<Uuid>,
+        job_type: JobType,
+        priority: i32,
+        payload: Option<JsonValue>,
+        cost_tier: Option<i16>,
+        initiated_by_user_id: Option<Uuid>,
+    ) -> Result<Option<Uuid>> {
+        let payload = matric_core::telemetry::attach_trace_to_job_payload(payload);
+        let job_type_str = Self::job_type_to_str(job_type);
+
+        if let Some(nid) = note_id {
+            let job_id = new_v7();
+            let now = Utc::now();
+            let estimated_duration: Option<i32> =
+                sqlx::query_scalar("SELECT estimate_job_duration($1::job_type, NULL)")
+                    .bind(job_type_str)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(Error::Database)?
+                    .flatten();
+
+            let result = sqlx::query_scalar::<_, Uuid>(
+                "INSERT INTO job_queue (id, note_id, job_type, status, priority, payload, estimated_duration_ms, created_at, cost_tier, initiated_by_user_id)
+                 SELECT $1, $2, $3::job_type, 'pending'::job_status, $4, $5, $6, $7, $8, $9
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM job_queue
+                     WHERE note_id = $2 AND job_type = $3::job_type
+                       AND status IN ('pending'::job_status, 'running'::job_status)
+                 )
+                 RETURNING id",
+            )
+            .bind(job_id)
+            .bind(nid)
+            .bind(job_type_str)
+            .bind(priority)
+            .bind(&payload)
+            .bind(estimated_duration)
+            .bind(now)
+            .bind(cost_tier)
+            .bind(initiated_by_user_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(Error::Database)?;
+
+            if result.is_some() {
+                self.notify.notify_waiters();
+            }
+            Ok(result)
+        } else {
+            let job_id = new_v7();
+            let now = Utc::now();
+            let estimated_duration: Option<i32> =
+                sqlx::query_scalar("SELECT estimate_job_duration($1::job_type, NULL)")
+                    .bind(job_type_str)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(Error::Database)?
+                    .flatten();
+
+            let result = sqlx::query_scalar::<_, Uuid>(
+                "INSERT INTO job_queue (id, note_id, job_type, status, priority, payload, estimated_duration_ms, created_at, cost_tier, initiated_by_user_id)
+                 SELECT $1, NULL, $2::job_type, 'pending'::job_status, $3, $4, $5, $6, $7, $8
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM job_queue
+                     WHERE note_id IS NULL AND job_type = $2::job_type
+                       AND status IN ('pending'::job_status, 'running'::job_status)
+                 )
+                 RETURNING id",
+            )
+            .bind(job_id)
+            .bind(job_type_str)
+            .bind(priority)
+            .bind(&payload)
+            .bind(estimated_duration)
+            .bind(now)
+            .bind(cost_tier)
+            .bind(initiated_by_user_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(Error::Database)?;
+
+            if result.is_some() {
+                self.notify.notify_waiters();
+            }
+            Ok(result)
+        }
+    }
+
+    async fn queue_attachment_once_inner(
+        &self,
+        attachment_id: Uuid,
+        schema: &str,
+        note_id: Option<Uuid>,
+        job_type: JobType,
+        payload: Option<JsonValue>,
+        initiated_by_user_id: Option<Uuid>,
+    ) -> Result<Option<Uuid>> {
+        let job_type_str = Self::job_type_to_str(job_type);
+        let priority = job_type.default_priority();
+        let cost_tier = job_type.default_cost_tier();
+        let release_key = format!("{schema}:{attachment_id}:{job_type_str}");
+        let mut payload = matric_core::telemetry::attach_trace_to_job_payload(Some(
+            payload.unwrap_or_else(|| JsonValue::Object(Default::default())),
+        ))
+        .unwrap_or_else(|| JsonValue::Object(Default::default()));
+        let payload_object = payload.as_object_mut().ok_or_else(|| {
+            Error::InvalidInput("Attachment downstream job payload must be an object".to_string())
+        })?;
+        payload_object.insert(
+            "scan_release_key".to_string(),
+            JsonValue::String(release_key.clone()),
+        );
+
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+            .bind(&release_key)
+            .execute(&mut *tx)
+            .await
+            .map_err(Error::Database)?;
+
+        let already_queued: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+                SELECT 1
+                FROM job_queue
+                WHERE payload->>'scan_release_key' = $1
+            )",
+        )
+        .bind(&release_key)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+        if already_queued {
+            tx.commit().await.map_err(Error::Database)?;
+            return Ok(None);
+        }
+
+        let job_id = new_v7();
+        let now = Utc::now();
+        let estimated_duration: Option<i32> =
+            sqlx::query_scalar("SELECT estimate_job_duration($1::job_type, NULL)")
+                .bind(job_type_str)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(Error::Database)?
+                .flatten();
+
+        sqlx::query(
+            "INSERT INTO job_queue (id, note_id, job_type, status, priority, payload, estimated_duration_ms, created_at, cost_tier, initiated_by_user_id)
+             VALUES ($1, $2, $3::job_type, 'pending'::job_status, $4, $5, $6, $7, $8, $9)",
+        )
+        .bind(job_id)
+        .bind(note_id)
+        .bind(job_type_str)
+        .bind(priority)
+        .bind(payload)
+        .bind(estimated_duration)
+        .bind(now)
+        .bind(cost_tier)
+        .bind(initiated_by_user_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+        tx.commit().await.map_err(Error::Database)?;
+
+        self.notify.notify_waiters();
+        Ok(Some(job_id))
+    }
+
     /// Claim next job for a tier group, excluding jobs from paused archives (Issue #466).
     ///
     /// Jobs with `payload->>'schema'` matching any of `excluded_schemas` are skipped.
@@ -135,7 +408,7 @@ impl PgJobRepository {
              )
              RETURNING id, note_id, job_type::text, status::text, priority, payload, result,
                        error_message, progress_percent, progress_message, retry_count, max_retries,
-                       created_at, started_at, completed_at, cost_tier
+                       created_at, started_at, completed_at, cost_tier, initiated_by_user_id
              ),
              attempt AS (
                  INSERT INTO job_attempt (
@@ -300,6 +573,7 @@ impl PgJobRepository {
             started_at: row.get("started_at"),
             completed_at: row.get("completed_at"),
             cost_tier: row.get("cost_tier"),
+            initiated_by_user_id: row.get("initiated_by_user_id"),
         })
     }
 }
@@ -314,38 +588,8 @@ impl JobRepository for PgJobRepository {
         payload: Option<JsonValue>,
         cost_tier: Option<i16>,
     ) -> Result<Uuid> {
-        let payload = matric_core::telemetry::attach_trace_to_job_payload(payload);
-        let job_id = new_v7();
-        let now = Utc::now();
-        let job_type_str = Self::job_type_to_str(job_type);
-
-        // Get estimated duration
-        let estimated_duration: Option<i32> =
-            sqlx::query_scalar("SELECT estimate_job_duration($1::job_type, NULL)")
-                .bind(job_type_str)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(Error::Database)?
-                .flatten();
-
-        sqlx::query(
-            "INSERT INTO job_queue (id, note_id, job_type, status, priority, payload, estimated_duration_ms, created_at, cost_tier)
-             VALUES ($1, $2, $3::job_type, 'pending'::job_status, $4, $5, $6, $7, $8)",
-        )
-        .bind(job_id)
-        .bind(note_id)
-        .bind(job_type_str)
-        .bind(priority)
-        .bind(&payload)
-        .bind(estimated_duration)
-        .bind(now)
-        .bind(cost_tier)
-        .execute(&self.pool)
-        .await
-        .map_err(Error::Database)?;
-
-        self.notify.notify_waiters();
-        Ok(job_id)
+        self.queue_inner(note_id, job_type, priority, payload, cost_tier, None)
+            .await
     }
 
     async fn queue_deduplicated(
@@ -356,90 +600,8 @@ impl JobRepository for PgJobRepository {
         payload: Option<JsonValue>,
         cost_tier: Option<i16>,
     ) -> Result<Option<Uuid>> {
-        let payload = matric_core::telemetry::attach_trace_to_job_payload(payload);
-        let job_type_str = Self::job_type_to_str(job_type);
-
-        // Atomic check-and-insert using INSERT ... WHERE NOT EXISTS to prevent
-        // TOCTOU race conditions when concurrent requests try to queue the same job.
-        // Only deduplicates when note_id is present; without note_id, always insert.
-        if let Some(nid) = note_id {
-            let job_id = new_v7();
-            let now = Utc::now();
-
-            let estimated_duration: Option<i32> =
-                sqlx::query_scalar("SELECT estimate_job_duration($1::job_type, NULL)")
-                    .bind(job_type_str)
-                    .fetch_optional(&self.pool)
-                    .await
-                    .map_err(Error::Database)?
-                    .flatten();
-
-            let result = sqlx::query_scalar::<_, Uuid>(
-                "INSERT INTO job_queue (id, note_id, job_type, status, priority, payload, estimated_duration_ms, created_at, cost_tier)
-                 SELECT $1, $2, $3::job_type, 'pending'::job_status, $4, $5, $6, $7, $8
-                 WHERE NOT EXISTS (
-                     SELECT 1 FROM job_queue
-                     WHERE note_id = $2 AND job_type = $3::job_type
-                       AND status IN ('pending'::job_status, 'running'::job_status)
-                 )
-                 RETURNING id",
-            )
-            .bind(job_id)
-            .bind(nid)
-            .bind(job_type_str)
-            .bind(priority)
-            .bind(&payload)
-            .bind(estimated_duration)
-            .bind(now)
-            .bind(cost_tier)
-            .fetch_optional(&self.pool)
+        self.queue_deduplicated_inner(note_id, job_type, priority, payload, cost_tier, None)
             .await
-            .map_err(Error::Database)?;
-
-            if result.is_some() {
-                self.notify.notify_waiters();
-            }
-            Ok(result)
-        } else {
-            // No note_id — deduplicate by job_type alone (at most one pending/running
-            // instance per job_type, e.g. GraphMaintenance).
-            let job_id = new_v7();
-            let now = Utc::now();
-
-            let estimated_duration: Option<i32> =
-                sqlx::query_scalar("SELECT estimate_job_duration($1::job_type, NULL)")
-                    .bind(job_type_str)
-                    .fetch_optional(&self.pool)
-                    .await
-                    .map_err(Error::Database)?
-                    .flatten();
-
-            let result = sqlx::query_scalar::<_, Uuid>(
-                "INSERT INTO job_queue (id, note_id, job_type, status, priority, payload, estimated_duration_ms, created_at, cost_tier)
-                 SELECT $1, NULL, $2::job_type, 'pending'::job_status, $3, $4, $5, $6, $7
-                 WHERE NOT EXISTS (
-                     SELECT 1 FROM job_queue
-                     WHERE note_id IS NULL AND job_type = $2::job_type
-                       AND status IN ('pending'::job_status, 'running'::job_status)
-                 )
-                 RETURNING id",
-            )
-            .bind(job_id)
-            .bind(job_type_str)
-            .bind(priority)
-            .bind(&payload)
-            .bind(estimated_duration)
-            .bind(now)
-            .bind(cost_tier)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(Error::Database)?;
-
-            if result.is_some() {
-                self.notify.notify_waiters();
-            }
-            Ok(result)
-        }
     }
 
     async fn queue_attachment_once(
@@ -450,74 +612,8 @@ impl JobRepository for PgJobRepository {
         job_type: JobType,
         payload: Option<JsonValue>,
     ) -> Result<Option<Uuid>> {
-        let job_type_str = Self::job_type_to_str(job_type);
-        let priority = job_type.default_priority();
-        let cost_tier = job_type.default_cost_tier();
-        let release_key = format!("{schema}:{attachment_id}:{job_type_str}");
-        let mut payload = matric_core::telemetry::attach_trace_to_job_payload(Some(
-            payload.unwrap_or_else(|| JsonValue::Object(Default::default())),
-        ))
-        .unwrap_or_else(|| JsonValue::Object(Default::default()));
-        let payload_object = payload.as_object_mut().ok_or_else(|| {
-            Error::InvalidInput("Attachment downstream job payload must be an object".to_string())
-        })?;
-        payload_object.insert(
-            "scan_release_key".to_string(),
-            JsonValue::String(release_key.clone()),
-        );
-
-        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
-        sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
-            .bind(&release_key)
-            .execute(&mut *tx)
+        self.queue_attachment_once_inner(attachment_id, schema, note_id, job_type, payload, None)
             .await
-            .map_err(Error::Database)?;
-
-        let already_queued: bool = sqlx::query_scalar(
-            "SELECT EXISTS(
-                SELECT 1
-                FROM job_queue
-                WHERE payload->>'scan_release_key' = $1
-            )",
-        )
-        .bind(&release_key)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
-        if already_queued {
-            tx.commit().await.map_err(Error::Database)?;
-            return Ok(None);
-        }
-
-        let job_id = new_v7();
-        let now = Utc::now();
-        let estimated_duration: Option<i32> =
-            sqlx::query_scalar("SELECT estimate_job_duration($1::job_type, NULL)")
-                .bind(job_type_str)
-                .fetch_optional(&mut *tx)
-                .await
-                .map_err(Error::Database)?
-                .flatten();
-
-        sqlx::query(
-            "INSERT INTO job_queue (id, note_id, job_type, status, priority, payload, estimated_duration_ms, created_at, cost_tier)
-             VALUES ($1, $2, $3::job_type, 'pending'::job_status, $4, $5, $6, $7, $8)",
-        )
-        .bind(job_id)
-        .bind(note_id)
-        .bind(job_type_str)
-        .bind(priority)
-        .bind(payload)
-        .bind(estimated_duration)
-        .bind(now)
-        .bind(cost_tier)
-        .execute(&mut *tx)
-        .await
-        .map_err(Error::Database)?;
-        tx.commit().await.map_err(Error::Database)?;
-
-        self.notify.notify_waiters();
-        Ok(Some(job_id))
     }
 
     async fn claim_next(&self) -> Result<Option<Job>> {
@@ -548,7 +644,7 @@ impl JobRepository for PgJobRepository {
              )
              RETURNING id, note_id, job_type::text, status::text, priority, payload, result,
                        error_message, progress_percent, progress_message, retry_count, max_retries,
-                       created_at, started_at, completed_at, cost_tier
+                       created_at, started_at, completed_at, cost_tier, initiated_by_user_id
              ),
              attempt AS (
                  INSERT INTO job_attempt (
@@ -613,7 +709,7 @@ impl JobRepository for PgJobRepository {
              )
              RETURNING id, note_id, job_type::text, status::text, priority, payload, result,
                        error_message, progress_percent, progress_message, retry_count, max_retries,
-                       created_at, started_at, completed_at, cost_tier
+                       created_at, started_at, completed_at, cost_tier, initiated_by_user_id
              ),
              attempt AS (
                  INSERT INTO job_attempt (
@@ -948,7 +1044,7 @@ impl JobRepository for PgJobRepository {
         let row = sqlx::query(
             "SELECT id, note_id, job_type::text, status::text, priority, payload, result,
                     error_message, progress_percent, progress_message, retry_count, max_retries,
-                    created_at, started_at, completed_at, cost_tier
+                    created_at, started_at, completed_at, cost_tier, initiated_by_user_id
              FROM job_queue WHERE id = $1",
         )
         .bind(job_id)
@@ -963,7 +1059,7 @@ impl JobRepository for PgJobRepository {
         let rows = sqlx::query(
             "SELECT id, note_id, job_type::text, status::text, priority, payload, result,
                     error_message, progress_percent, progress_message, retry_count, max_retries,
-                    created_at, started_at, completed_at, cost_tier
+                    created_at, started_at, completed_at, cost_tier, initiated_by_user_id
              FROM job_queue WHERE note_id = $1
              ORDER BY created_at DESC",
         )
@@ -1008,7 +1104,7 @@ impl JobRepository for PgJobRepository {
         let rows = sqlx::query(
             "SELECT id, note_id, job_type::text, status::text, priority, payload, result,
                     error_message, progress_percent, progress_message, retry_count, max_retries,
-                    created_at, started_at, completed_at, cost_tier
+                    created_at, started_at, completed_at, cost_tier, initiated_by_user_id
              FROM job_queue
              ORDER BY created_at DESC
              LIMIT $1",
@@ -1054,7 +1150,7 @@ impl JobRepository for PgJobRepository {
         let query = format!(
             "SELECT id, note_id, job_type::text, status::text, priority, payload, result,
                     error_message, progress_percent, progress_message, retry_count, max_retries,
-                    created_at, started_at, completed_at, cost_tier
+                    created_at, started_at, completed_at, cost_tier, initiated_by_user_id
              FROM job_queue
              {}
              ORDER BY created_at DESC

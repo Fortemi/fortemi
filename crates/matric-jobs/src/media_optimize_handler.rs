@@ -1698,6 +1698,7 @@ mod tests {
             started_at: None,
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
         let ctx = JobContext::new(job);
         assert_eq!(extract_schema(&ctx), "public");
@@ -1722,6 +1723,7 @@ mod tests {
             started_at: None,
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
         let ctx = JobContext::new(job);
         assert_eq!(extract_schema(&ctx), "my_archive");
@@ -1746,6 +1748,7 @@ mod tests {
             started_at: None,
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
         let ctx = JobContext::new(job);
         assert_eq!(extract_schema(&ctx), "public");

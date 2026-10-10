@@ -67,6 +67,23 @@ async fn durable_sink_is_idempotent_sanitized_and_append_only() {
         .execute(&pool)
         .await;
     assert!(update.is_err(), "audit rows must reject mutation");
+    let runtime_role_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'fortemi_runtime')",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    if runtime_role_exists {
+        let (can_update, can_delete): (bool, bool) = sqlx::query_as(
+            "SELECT has_table_privilege('fortemi_runtime', 'public.audit_event', 'UPDATE'),
+                    has_table_privilege('fortemi_runtime', 'public.audit_event', 'DELETE')",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(!can_update, "runtime role must not update audit_event");
+        assert!(!can_delete, "runtime role must not delete audit_event");
+    }
 }
 
 #[tokio::test]

@@ -13,6 +13,8 @@ use matric_core::AuthPrincipal;
 use serde::Deserialize;
 
 use crate::{telemetry_text_len, ApiError, AppState, ArchiveContext, Auth};
+#[cfg(feature = "hosted-auth")]
+use matric_api::external_oidc::RequestPrincipal;
 
 const VECTOR_IMPORT_ROOT_ENV: &str = "FORTEMI_VECTOR_IMPORT_ROOT";
 const VECTOR_IMPORT_MAX_LINE_BYTES_ENV: &str = "FORTEMI_VECTOR_IMPORT_MAX_LINE_BYTES";
@@ -43,11 +45,20 @@ pub async fn import_embedding_run(
     auth: Auth,
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Path(slug_or_id): Path<String>,
     headers: HeaderMap,
     body: Body,
 ) -> Result<impl IntoResponse, ApiError> {
     let repository = matric_db::PgEmbeddingImportRepository::new(state.db.pool.clone());
+    #[cfg(feature = "hosted-auth")]
+    let (initiated_by_user_id, initiated_by_kind) = principal
+        .as_ref()
+        .map(|Extension(principal)| (principal.user_id, Some(principal.kind_label().to_string())))
+        .unwrap_or((None, None));
+    #[cfg(not(feature = "hosted-auth"))]
+    let (initiated_by_user_id, initiated_by_kind): (Option<uuid::Uuid>, Option<String>) =
+        (None, None);
     let report = if is_ndjson_upload(&headers) {
         repository
             .import_run_ndjson(
@@ -55,6 +66,8 @@ pub async fn import_embedding_run(
                 &slug_or_id,
                 body.into_data_stream(),
                 vector_import_max_line_bytes(),
+                initiated_by_user_id,
+                initiated_by_kind.as_deref(),
             )
             .await?
     } else if is_json_request(&headers) {
@@ -70,7 +83,13 @@ pub async fn import_embedding_run(
             })?;
         let run_dir = confined_import_path(&request.path).await?;
         repository
-            .import_run_folder(&archive_ctx.schema, &slug_or_id, run_dir)
+            .import_run_folder(
+                &archive_ctx.schema,
+                &slug_or_id,
+                run_dir,
+                initiated_by_user_id,
+                initiated_by_kind.as_deref(),
+            )
             .await?
     } else {
         return Err(ApiError::BadRequest(

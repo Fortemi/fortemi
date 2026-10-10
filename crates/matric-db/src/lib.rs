@@ -31,6 +31,7 @@
 //!     Ok(())
 //! }
 //! ```
+pub mod app_users;
 pub mod archives;
 pub mod audit;
 pub mod call_sessions;
@@ -121,6 +122,7 @@ pub use incoming_webhooks::{
 };
 
 // Re-export repository implementations
+pub use app_users::{AppUser, AppUserUpsert, PgAppUserRepository};
 pub use archives::PgArchiveRepository;
 pub use audit::{AuditSinkHealth, AuditSinkHealthStatus, PostgresAuditSink};
 pub use call_sessions::PgCallSessionRepository;

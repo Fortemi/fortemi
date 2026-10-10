@@ -280,6 +280,10 @@ function createMcpServer() {
       }
 
       switch (name) {
+        case "whoami":
+          result = await apiRequest("GET", "/api/v1/me");
+          break;
+
         case "list_notes": {
           const params = new URLSearchParams();
           if (args.limit !== undefined && args.limit !== null) params.set("limit", args.limit);

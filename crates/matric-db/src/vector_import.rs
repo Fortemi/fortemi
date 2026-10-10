@@ -92,6 +92,8 @@ pub struct EmbeddingImportRunRecord {
     pub status: String,
     pub started_at: DateTime<Utc>,
     pub finished_at: Option<DateTime<Utc>>,
+    pub initiated_by_user_id: Option<Uuid>,
+    pub initiated_by_kind: Option<String>,
     pub report: EmbeddingImportRunReport,
 }
 
@@ -246,6 +248,8 @@ impl PgEmbeddingImportRepository {
         schema: &str,
         set_ref: &str,
         run_dir: impl AsRef<Path>,
+        initiated_by_user_id: Option<Uuid>,
+        initiated_by_kind: Option<&str>,
     ) -> Result<EmbeddingImportRunReport> {
         let run_dir = run_dir.as_ref();
         let manifest_path = run_dir.join("manifest.json");
@@ -272,7 +276,14 @@ impl PgEmbeddingImportRepository {
         }
         self.ensure_run_order(schema, set.id, manifest.previous_run_id.as_deref())
             .await?;
-        self.start_run(schema, set.id, &manifest).await?;
+        self.start_run(
+            schema,
+            set.id,
+            &manifest,
+            initiated_by_user_id,
+            initiated_by_kind,
+        )
+        .await?;
 
         let result = self.apply_run(run_dir, schema, &set, &manifest).await;
         match result {
@@ -302,6 +313,8 @@ impl PgEmbeddingImportRepository {
         set_ref: &str,
         stream: S,
         max_line_bytes: usize,
+        initiated_by_user_id: Option<Uuid>,
+        initiated_by_kind: Option<&str>,
     ) -> Result<EmbeddingImportRunReport>
     where
         S: Stream<Item = std::result::Result<B, E>> + Unpin,
@@ -344,7 +357,14 @@ impl PgEmbeddingImportRepository {
         }
         self.ensure_run_order(schema, set.id, manifest.previous_run_id.as_deref())
             .await?;
-        self.start_run(schema, set.id, &manifest).await?;
+        self.start_run(
+            schema,
+            set.id,
+            &manifest,
+            initiated_by_user_id,
+            initiated_by_kind,
+        )
+        .await?;
 
         let result = self
             .apply_upload_stream(schema, &set, &manifest, &expected_body_sha, &mut lines)
@@ -379,7 +399,8 @@ impl PgEmbeddingImportRepository {
         let mut tx = begin_schema_tx(&self.pool, schema).await?;
         let rows = sqlx::query(
             r#"
-            SELECT run_id, set_id, previous_run_id, status, started_at, finished_at, report
+            SELECT run_id, set_id, previous_run_id, status, started_at, finished_at,
+                   initiated_by_user_id, initiated_by_kind, report
             FROM embedding_import_run
             WHERE set_id = $1
             ORDER BY started_at DESC, run_id DESC
@@ -403,7 +424,8 @@ impl PgEmbeddingImportRepository {
         let mut tx = begin_schema_tx(&self.pool, schema).await?;
         let row = sqlx::query(
             r#"
-            SELECT run_id, set_id, previous_run_id, status, started_at, finished_at, report
+            SELECT run_id, set_id, previous_run_id, status, started_at, finished_at,
+                   initiated_by_user_id, initiated_by_kind, report
             FROM embedding_import_run
             WHERE set_id = $1 AND run_id = $2
             "#,
@@ -809,7 +831,8 @@ impl PgEmbeddingImportRepository {
         let mut tx = begin_schema_tx(&self.pool, schema).await?;
         let row = sqlx::query(
             r#"
-            SELECT run_id, set_id, previous_run_id, status, started_at, finished_at, report
+            SELECT run_id, set_id, previous_run_id, status, started_at, finished_at,
+                   initiated_by_user_id, initiated_by_kind, report
             FROM embedding_import_run
             WHERE set_id = $1 AND run_id = $2
             "#,
@@ -858,15 +881,18 @@ impl PgEmbeddingImportRepository {
         schema: &str,
         set_id: Uuid,
         manifest: &EmbeddingImportManifest,
+        initiated_by_user_id: Option<Uuid>,
+        initiated_by_kind: Option<&str>,
     ) -> Result<()> {
         let mut tx = begin_schema_tx(&self.pool, schema).await?;
         sqlx::query(
             r#"
             INSERT INTO embedding_import_run (
                 set_id, run_id, previous_run_id, status, manifest,
-                profiles_count, deletions_count
+                profiles_count, deletions_count, initiated_by_user_id,
+                initiated_by_kind
             )
-            VALUES ($1, $2, $3, 'applying', $4, $5, $6)
+            VALUES ($1, $2, $3, 'applying', $4, $5, $6, $7, $8)
             "#,
         )
         .bind(set_id)
@@ -875,6 +901,8 @@ impl PgEmbeddingImportRepository {
         .bind(serde_json::to_value(manifest).unwrap_or(Value::Null))
         .bind(i32::try_from(manifest.counts.profiles).unwrap_or(i32::MAX))
         .bind(i32::try_from(manifest.counts.deletions).unwrap_or(i32::MAX))
+        .bind(initiated_by_user_id)
+        .bind(initiated_by_kind)
         .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
@@ -1218,6 +1246,10 @@ fn run_record_from_row(row: sqlx::postgres::PgRow) -> Result<EmbeddingImportRunR
         status: row.try_get("status").map_err(Error::Database)?,
         started_at: row.try_get("started_at").map_err(Error::Database)?,
         finished_at: row.try_get("finished_at").map_err(Error::Database)?,
+        initiated_by_user_id: row
+            .try_get("initiated_by_user_id")
+            .map_err(Error::Database)?,
+        initiated_by_kind: row.try_get("initiated_by_kind").map_err(Error::Database)?,
         report: serde_json::from_value(report).map_err(|_| {
             Error::Config("embedding import run report could not be decoded".to_string())
         })?,

@@ -44,7 +44,10 @@ fn collection_router(state: AppState, pool: sqlx::PgPool, tenant: Uuid) -> Route
         ))
         .layer(axum::middleware::from_fn(hosted_route_gate))
         .layer(axum::middleware::from_fn(inject_identity))
-        .layer(Extension(Identity(tenant)))
+        .layer(Extension(Identity {
+            tenant_id: tenant,
+            user_id: hosted_test_user_id(tenant),
+        }))
         .layer(Extension(ArchiveContext::default()))
         .with_state(state)
 }
@@ -106,6 +109,19 @@ async fn hosted_collections_and_export_are_tenant_bound_for_bootstrapped_tenant(
         matric_api::admin_bootstrap::bootstrap_tenant(&admin, &request, false, "fortemi:tenant_id")
             .await
             .unwrap();
+        sqlx::query(
+            "INSERT INTO app_user (
+                id, tenant_id, iss, sub, email, email_verified, display_name, groups,
+                current_scopes, kind, azp, status
+             ) VALUES ($1, $2, 'https://issuer.example', 'hosted-create-regression',
+                       'hosted-create@example.com', true, 'Hosted Create', '{}',
+                       ARRAY['read','write','mcp'], 'user', 'fortemi-web', 'active')",
+        )
+        .bind(hosted_test_user_id(request.tenant_id))
+        .bind(request.tenant_id)
+        .execute(&admin)
+        .await
+        .unwrap();
         tenants.push(request.tenant_id);
     }
     let (a, b) = (tenants[0], tenants[1]);

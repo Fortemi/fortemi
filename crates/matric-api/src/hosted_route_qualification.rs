@@ -305,7 +305,7 @@ fn class_by_policy(policy: &RoutePolicy) -> RouteClass {
     }
     if matches!(
         policy.action_family,
-        "user_secret" | "token_verification" | "rate_limit" | "pke"
+        "user_secret" | "token_verification" | "rate_limit" | "pke" | "principal"
     ) {
         return RouteClass::Account;
     }

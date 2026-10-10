@@ -19,6 +19,15 @@
 
 export default [
   {
+    name: "whoami",
+    description: "Return the Fortemi principal and effective scopes for the current bearer token.",
+    inputSchema: {
+      "type": "object",
+      "properties": {}
+    },
+    annotations: {"readOnlyHint":true},
+  },
+  {
     name: "list_notes",
     description: `List notes with optional filters (tags, dates, starred, archived). See \`get_documentation(topic='notes')\` for return format.`,
     inputSchema: {

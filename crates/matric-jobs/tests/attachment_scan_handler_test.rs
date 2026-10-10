@@ -110,6 +110,7 @@ fn scan_context(note_id: Uuid, attachment_id: Uuid, with_downstream: bool) -> Jo
         started_at: None,
         completed_at: None,
         cost_tier: None,
+        initiated_by_user_id: None,
     })
 }
 

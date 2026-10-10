@@ -41,6 +41,84 @@ paths:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
       security: []
+  /api/v1/admin/users:
+    get:
+      tags:
+      - System
+      operationId: list_users
+      responses:
+        '200':
+          description: Application users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminUserResponse'
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
+  /api/v1/admin/users/{id}/disable:
+    post:
+      tags:
+      - System
+      operationId: disable_user
+      parameters:
+      - name: id
+        in: path
+        description: Application user id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Disabled user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserResponse'
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
+  /api/v1/admin/users/{id}/enable:
+    post:
+      tags:
+      - System
+      operationId: enable_user
+      parameters:
+      - name: id
+        in: path
+        description: Application user id
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Enabled user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUserResponse'
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
   /api/v1/api-keys:
     get:
       tags:
@@ -4414,6 +4492,26 @@ paths:
           description: Global request rate limit exceeded
       security:
       - bearerAuth: []
+  /api/v1/me:
+    get:
+      tags:
+      - System
+      operationId: me
+      responses:
+        '200':
+          description: Current principal
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeResponse'
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
   /api/v1/memories/overview:
     get:
       tags:
@@ -7631,6 +7729,58 @@ components:
         target_id:
           type: string
           format: uuid
+    AdminUserResponse:
+      type: object
+      required:
+      - id
+      - tenant_id
+      - iss
+      - sub
+      - email_verified
+      - kind
+      - status
+      - current_scopes
+      - first_seen_at
+      - last_seen_at
+      - last_oidc_at
+      properties:
+        azp:
+          type:
+          - string
+          - 'null'
+        current_scopes:
+          type: array
+          items:
+            type: string
+        email:
+          type:
+          - string
+          - 'null'
+        email_verified:
+          type: boolean
+        first_seen_at:
+          type: string
+          format: date-time
+        id:
+          type: string
+          format: uuid
+        iss:
+          type: string
+        kind:
+          type: string
+        last_oidc_at:
+          type: string
+          format: date-time
+        last_seen_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+        sub:
+          type: string
+        tenant_id:
+          type: string
+          format: uuid
     AgenticConfig:
       type: object
       description: |-
@@ -10312,6 +10462,15 @@ components:
           - string
           - 'null'
           format: date-time
+        initiated_by_kind:
+          type:
+          - string
+          - 'null'
+        initiated_by_user_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
         previous_run_id:
           type:
           - string
@@ -11311,6 +11470,51 @@ components:
           items:
             $ref: '#/components/schemas/ProviderInfo'
           description: Registered inference providers.
+    MeResponse:
+      type: object
+      required:
+      - iss
+      - sub
+      - kind
+      - credential_class
+      - scopes
+      - email_verified
+      - email_unverified
+      properties:
+        azp:
+          type:
+          - string
+          - 'null'
+        credential_class:
+          type: string
+        email:
+          type:
+          - string
+          - 'null'
+        email_unverified:
+          type: boolean
+        email_verified:
+          type: boolean
+        iss:
+          type: string
+        kind:
+          type: string
+        pat_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        scopes:
+          type: array
+          items:
+            type: string
+        sub:
+          type: string
+        user_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
     MemoryContextResponse:
       type: object
       description: Selected memory identity, not an archive inventory or storage-statistics view.

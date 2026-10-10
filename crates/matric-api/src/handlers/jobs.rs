@@ -15,10 +15,10 @@ use matric_core::{
     embedding_chunk_hash, embedding_doc_hash, AttachmentStatus, CreateFileProvenanceRequest,
     CreateProvDeviceRequest, CreateProvLocationRequest, CreateSemanticRelationRequest,
     DocumentTypeRepository, EmbeddingConfigProfile, EmbeddingContract, EmbeddingRepository,
-    GenerationBackend, JobRepository, JobType, LinkRepository, MeteringError, NoteRepository,
-    ProvRelation, RevisionMode, SkosSemanticRelation, UsageAttributes, UsageClass,
-    UsageCorrelation, UsageDimension, UsageEvent, UsageMeasurement, UsageMeter, UsageOutcome,
-    UsageProducer, UsageQuantity, UsageSource, UsageSubject,
+    GenerationBackend, JobType, LinkRepository, MeteringError, NoteRepository, ProvRelation,
+    RevisionMode, SkosSemanticRelation, UsageAttributes, UsageClass, UsageCorrelation,
+    UsageDimension, UsageEvent, UsageMeasurement, UsageMeter, UsageOutcome, UsageProducer,
+    UsageQuantity, UsageSource, UsageSubject,
 };
 use matric_db::{
     Chunker, ChunkerConfig, Database, SchemaContext, SemanticChunker, SkosRelationRepository,
@@ -32,6 +32,8 @@ use sqlx::{self, Row};
 
 #[cfg(test)]
 use matric_core::EmbeddingBackend;
+#[cfg(test)]
+use matric_core::JobRepository;
 
 const AI_GENERATION_JOB_FAILURE: &str = "AI generation failed. Check server logs for diagnostics.";
 const MODEL_RESOLUTION_JOB_FAILURE: &str =
@@ -257,6 +259,22 @@ fn reembed_all_job_result(
             "total": queued
         }
     })
+}
+
+async fn set_note_updated_by_user_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    note_id: uuid::Uuid,
+    user_id: Option<uuid::Uuid>,
+) -> matric_core::Result<()> {
+    if let Some(user_id) = user_id {
+        sqlx::query("UPDATE note SET updated_by_user_id = $2 WHERE id = $1")
+            .bind(note_id)
+            .bind(user_id)
+            .execute(&mut **tx)
+            .await
+            .map_err(matric_core::Error::Database)?;
+    }
+    Ok(())
 }
 
 fn reembed_all_no_notes_job_result() -> serde_json::Value {
@@ -1806,6 +1824,11 @@ impl JobHandler for AiRevisionHandler {
         {
             return ai_revision_job_failure(e, "save_revision");
         }
+        if let Err(e) =
+            set_note_updated_by_user_tx(&mut tx, note_id, ctx.job.initiated_by_user_id).await
+        {
+            return ai_revision_job_failure(e, "save_revision_provenance_user");
+        }
         if let Err(e) = tx.commit().await {
             return ai_revision_job_failure(e, "save_revision_commit");
         }
@@ -1868,12 +1891,13 @@ impl JobHandler for AiRevisionHandler {
             match self
                 .db
                 .jobs
-                .queue_deduplicated(
+                .queue_deduplicated_with_initiator(
                     Some(note_id),
                     JobType::AiRevisionContextual,
                     JobType::AiRevisionContextual.default_priority(),
                     Some(phase2_payload),
                     JobType::AiRevisionContextual.default_cost_tier(),
+                    ctx.job.initiated_by_user_id,
                 )
                 .await
             {
@@ -1915,12 +1939,13 @@ impl JobHandler for AiRevisionHandler {
             match self
                 .db
                 .jobs
-                .queue_deduplicated(
+                .queue_deduplicated_with_initiator(
                     Some(note_id),
                     JobType::ConceptTagging,
                     JobType::ConceptTagging.default_priority(),
                     ct_payload,
                     JobType::ConceptTagging.default_cost_tier(),
+                    ctx.job.initiated_by_user_id,
                 )
                 .await
             {
@@ -2017,12 +2042,13 @@ impl AiRevisionContextualHandler {
         match self
             .db
             .jobs
-            .queue_deduplicated(
+            .queue_deduplicated_with_initiator(
                 Some(note_id),
                 JobType::ConceptTagging,
                 JobType::ConceptTagging.default_priority(),
                 ct_payload,
                 JobType::ConceptTagging.default_cost_tier(),
+                ctx.job.initiated_by_user_id,
             )
             .await
         {
@@ -2557,6 +2583,11 @@ Output the revised note in clean markdown format. Do not add any labels, markers
             .await
         {
             return ai_contextual_revision_job_failure(e, "save_contextual_revision");
+        }
+        if let Err(e) =
+            set_note_updated_by_user_tx(&mut tx, note_id, ctx.job.initiated_by_user_id).await
+        {
+            return ai_contextual_revision_job_failure(e, "save_contextual_provenance_user");
         }
         if let Err(e) = tx.commit().await {
             return ai_contextual_revision_job_failure(e, "save_contextual_commit");
@@ -3474,6 +3505,7 @@ impl TitleGenerationHandler {
         note_id: uuid::Uuid,
         schema: &str,
         next_tier: i16,
+        initiated_by_user_id: Option<uuid::Uuid>,
     ) -> Option<uuid::Uuid> {
         let payload = if schema != "public" {
             Some(serde_json::json!({ "schema": schema }))
@@ -3483,12 +3515,13 @@ impl TitleGenerationHandler {
         match self
             .db
             .jobs
-            .queue_deduplicated(
+            .queue_deduplicated_with_initiator(
                 Some(note_id),
                 JobType::TitleGeneration,
                 JobType::TitleGeneration.default_priority(),
                 payload,
                 Some(next_tier),
+                initiated_by_user_id,
             )
             .await
         {
@@ -3630,6 +3663,7 @@ Content:
                                 note_id,
                                 schema,
                                 matric_core::cost_tier::STANDARD_GPU,
+                                ctx.job.initiated_by_user_id,
                             )
                             .await
                         {
@@ -3656,6 +3690,7 @@ Content:
                             note_id,
                             schema,
                             matric_core::cost_tier::STANDARD_GPU,
+                            ctx.job.initiated_by_user_id,
                         )
                         .await
                     {
@@ -3684,6 +3719,11 @@ Content:
             .await
         {
             return title_generation_job_failure(e, "save_title");
+        }
+        if let Err(e) =
+            set_note_updated_by_user_tx(&mut tx, note_id, ctx.job.initiated_by_user_id).await
+        {
+            return title_generation_job_failure(e, "save_title_provenance_user");
         }
         if let Err(e) = tx.commit().await {
             return title_generation_job_failure(e, "save_title_commit");
@@ -4426,12 +4466,13 @@ impl JobHandler for LinkingHandler {
         match self
             .db
             .jobs
-            .queue_deduplicated(
+            .queue_deduplicated_with_initiator(
                 None,
                 JobType::GraphMaintenance,
                 JobType::GraphMaintenance.default_priority(),
                 Some(maint_payload),
                 None,
+                ctx.job.initiated_by_user_id,
             )
             .await
         {
@@ -4848,7 +4889,12 @@ impl ConceptTaggingHandler {
     /// RelatedConceptInference infers associative (skos:related) relationships
     /// between the concepts just tagged, then queues Embedding + Linking.
     /// Returns the new job ID if queued (None if deduplicated or on error).
-    async fn queue_phase2_jobs(&self, note_id: uuid::Uuid, schema: &str) -> Option<uuid::Uuid> {
+    async fn queue_phase2_jobs(
+        &self,
+        note_id: uuid::Uuid,
+        schema: &str,
+        initiated_by_user_id: Option<uuid::Uuid>,
+    ) -> Option<uuid::Uuid> {
         let payload = if schema != "public" {
             Some(serde_json::json!({ "schema": schema }))
         } else {
@@ -4858,12 +4904,13 @@ impl ConceptTaggingHandler {
         match self
             .db
             .jobs
-            .queue_deduplicated(
+            .queue_deduplicated_with_initiator(
                 Some(note_id),
                 JobType::RelatedConceptInference,
                 JobType::RelatedConceptInference.default_priority(),
                 payload,
                 Some(matric_core::cost_tier::FAST_GPU),
+                initiated_by_user_id,
             )
             .await
         {
@@ -5069,6 +5116,7 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
                     matric_core::cost_tier::FAST_GPU,
                     &concept_labels,
                     matric_core::cost_tier::CPU_NER,
+                    ctx.job.initiated_by_user_id,
                 )
                 .await
             {
@@ -5105,6 +5153,7 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
                             matric_core::cost_tier::STANDARD_GPU,
                             &concept_labels,
                             matric_core::cost_tier::FAST_GPU,
+                            ctx.job.initiated_by_user_id,
                         )
                         .await
                     {
@@ -5186,6 +5235,7 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
                     matric_core::cost_tier::STANDARD_GPU,
                     &concept_labels,
                     matric_core::cost_tier::FAST_GPU,
+                    ctx.job.initiated_by_user_id,
                 )
                 .await
             {
@@ -5291,6 +5341,7 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
         next_tier: i16,
         prior_concepts: &[String],
         prior_tier: i16,
+        initiated_by_user_id: Option<uuid::Uuid>,
     ) -> Option<uuid::Uuid> {
         let mut payload = serde_json::json!({
             "prior_concepts": prior_concepts,
@@ -5303,12 +5354,13 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
         match self
             .db
             .jobs
-            .queue_deduplicated(
+            .queue_deduplicated_with_initiator(
                 Some(note_id),
                 JobType::ConceptTagging,
                 JobType::ConceptTagging.default_priority(),
                 Some(payload),
                 Some(next_tier),
+                initiated_by_user_id,
             )
             .await
         {
@@ -5372,6 +5424,7 @@ impl JobHandler for ConceptTaggingHandler {
                     matric_core::cost_tier::FAST_GPU,
                     &[],
                     matric_core::cost_tier::CPU_NER,
+                    ctx.job.initiated_by_user_id,
                 )
                 .await
             {
@@ -5433,7 +5486,10 @@ impl JobHandler for ConceptTaggingHandler {
         };
 
         if content.trim().is_empty() {
-            if let Some(job_id) = self.queue_phase2_jobs(note_id, schema).await {
+            if let Some(job_id) = self
+                .queue_phase2_jobs(note_id, schema, ctx.job.initiated_by_user_id)
+                .await
+            {
                 ctx.emit_job_queued(job_id, JobType::RelatedConceptInference, Some(note_id));
             }
             return JobResult::Success(Some(
@@ -5529,7 +5585,10 @@ impl JobHandler for ConceptTaggingHandler {
 
         if concept_labels.is_empty() {
             if !escalating {
-                if let Some(job_id) = self.queue_phase2_jobs(note_id, schema).await {
+                if let Some(job_id) = self
+                    .queue_phase2_jobs(note_id, schema, ctx.job.initiated_by_user_id)
+                    .await
+                {
                     ctx.emit_job_queued(job_id, JobType::RelatedConceptInference, Some(note_id));
                 }
             }
@@ -5620,7 +5679,10 @@ impl JobHandler for ConceptTaggingHandler {
         // When escalating, the higher-tier job will queue phase-2 after it completes.
         if !escalating {
             ctx.report_progress(95, Some("Queuing phase-2 related concept inference..."));
-            if let Some(job_id) = self.queue_phase2_jobs(note_id, schema).await {
+            if let Some(job_id) = self
+                .queue_phase2_jobs(note_id, schema, ctx.job.initiated_by_user_id)
+                .await
+            {
                 ctx.emit_job_queued(job_id, JobType::RelatedConceptInference, Some(note_id));
             }
         } else {
@@ -5717,6 +5779,7 @@ impl ReferenceExtractionHandler {
         note_id: uuid::Uuid,
         schema: &str,
         next_tier: i16,
+        initiated_by_user_id: Option<uuid::Uuid>,
     ) -> Option<uuid::Uuid> {
         let payload = if schema != "public" {
             Some(serde_json::json!({ "schema": schema }))
@@ -5726,12 +5789,13 @@ impl ReferenceExtractionHandler {
         match self
             .db
             .jobs
-            .queue_deduplicated(
+            .queue_deduplicated_with_initiator(
                 Some(note_id),
                 JobType::ReferenceExtraction,
                 JobType::ReferenceExtraction.default_priority(),
                 payload,
                 Some(next_tier),
+                initiated_by_user_id,
             )
             .await
         {
@@ -5857,126 +5921,132 @@ impl JobHandler for ReferenceExtractionHandler {
         let is_tiered = ctx.job.cost_tier.is_some();
 
         // Tier 0: GLiNER extraction
-        let (entities, extraction_method) = if ctx.job.cost_tier
-            == Some(matric_core::cost_tier::STANDARD_GPU)
-        {
-            // Tier-2: skip GLiNER, go directly to standard LLM below
-            (Vec::new(), "tier2_standard")
-        } else if ctx.job.cost_tier == Some(matric_core::cost_tier::FAST_GPU) {
-            // Tier-1: skip GLiNER, go directly to fast LLM below
-            (Vec::new(), "tier1_fast")
-        } else if let Some(ner) = &self.ner_backend {
-            match ner.extract(&content_preview, NER_ENTITY_TYPES, None).await {
-                Ok(result) if !result.entities.is_empty() => {
-                    info!(
-                        note_id_present = true,
-                        entities = result.entities.len(),
-                        model_len = diagnostic_len(&result.model),
-                        detail = JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
-                        operation = "gliner_reference_extraction_complete",
-                        "GLiNER extraction succeeded"
-                    );
-                    ctx.report_progress(50, Some("Parsing GLiNER entities..."));
+        let (entities, extraction_method) =
+            if ctx.job.cost_tier == Some(matric_core::cost_tier::STANDARD_GPU) {
+                // Tier-2: skip GLiNER, go directly to standard LLM below
+                (Vec::new(), "tier2_standard")
+            } else if ctx.job.cost_tier == Some(matric_core::cost_tier::FAST_GPU) {
+                // Tier-1: skip GLiNER, go directly to fast LLM below
+                (Vec::new(), "tier1_fast")
+            } else if let Some(ner) = &self.ner_backend {
+                match ner.extract(&content_preview, NER_ENTITY_TYPES, None).await {
+                    Ok(result) if !result.entities.is_empty() => {
+                        info!(
+                            note_id_present = true,
+                            entities = result.entities.len(),
+                            model_len = diagnostic_len(&result.model),
+                            detail = JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
+                            operation = "gliner_reference_extraction_complete",
+                            "GLiNER extraction succeeded"
+                        );
+                        ctx.report_progress(50, Some("Parsing GLiNER entities..."));
 
-                    let mapped: Vec<RefEntity> = result
-                        .entities
-                        .into_iter()
-                        .map(|e| {
-                            let name = e
-                                .text
-                                .to_lowercase()
-                                .replace([' ', '_'], "-")
-                                .chars()
-                                .filter(|c| c.is_alphanumeric() || *c == '-')
-                                .collect::<String>();
-                            RefEntity {
-                                category: e.label.clone(),
-                                name,
-                                label: e.text,
+                        let mapped: Vec<RefEntity> = result
+                            .entities
+                            .into_iter()
+                            .map(|e| {
+                                let name = e
+                                    .text
+                                    .to_lowercase()
+                                    .replace([' ', '_'], "-")
+                                    .chars()
+                                    .filter(|c| c.is_alphanumeric() || *c == '-')
+                                    .collect::<String>();
+                                RefEntity {
+                                    category: e.label.clone(),
+                                    name,
+                                    label: e.text,
+                                }
+                            })
+                            .collect();
+                        (mapped, "gliner")
+                    }
+                    Ok(_) => {
+                        info!(
+                            note_id_present = true,
+                            detail = JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
+                            operation = "gliner_no_reference_entities",
+                            "GLiNER returned no entities, falling back to LLM"
+                        );
+                        if is_tiered {
+                            // Tier-0: chain to tier-1 on empty results
+                            if let Some(job_id) = self
+                                .queue_ref_tier_escalation(
+                                    note_id,
+                                    schema,
+                                    matric_core::cost_tier::FAST_GPU,
+                                    ctx.job.initiated_by_user_id,
+                                )
+                                .await
+                            {
+                                ctx.emit_job_queued(
+                                    job_id,
+                                    JobType::ReferenceExtraction,
+                                    Some(note_id),
+                                );
                             }
-                        })
-                        .collect();
-                    (mapped, "gliner")
-                }
-                Ok(_) => {
-                    info!(
-                        note_id_present = true,
-                        detail = JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
-                        operation = "gliner_no_reference_entities",
-                        "GLiNER returned no entities, falling back to LLM"
-                    );
-                    if is_tiered {
-                        // Tier-0: chain to tier-1 on empty results
-                        if let Some(job_id) = self
-                            .queue_ref_tier_escalation(
-                                note_id,
-                                schema,
-                                matric_core::cost_tier::FAST_GPU,
-                            )
-                            .await
-                        {
-                            ctx.emit_job_queued(
-                                job_id,
-                                JobType::ReferenceExtraction,
-                                Some(note_id),
-                            );
+                            return JobResult::Success(Some(serde_json::json!({
+                                "references": 0,
+                                "escalated": true,
+                                "reason": "gliner_empty"
+                            })));
                         }
-                        return JobResult::Success(Some(serde_json::json!({
-                            "references": 0,
-                            "escalated": true,
-                            "reason": "gliner_empty"
-                        })));
+                        (Vec::new(), "gliner_empty")
                     }
-                    (Vec::new(), "gliner_empty")
-                }
-                Err(e) => {
-                    warn!(
-                        error_len = diagnostic_len(&e),
-                        detail = JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
-                        operation = "gliner_reference_extraction",
-                        "GLiNER extraction failed, falling back to LLM"
-                    );
-                    if is_tiered {
-                        if let Some(job_id) = self
-                            .queue_ref_tier_escalation(
-                                note_id,
-                                schema,
-                                matric_core::cost_tier::FAST_GPU,
-                            )
-                            .await
-                        {
-                            ctx.emit_job_queued(
-                                job_id,
-                                JobType::ReferenceExtraction,
-                                Some(note_id),
-                            );
+                    Err(e) => {
+                        warn!(
+                            error_len = diagnostic_len(&e),
+                            detail = JOB_REFERENCE_EXTRACTION_DIAGNOSTIC_FAILURE_DETAIL,
+                            operation = "gliner_reference_extraction",
+                            "GLiNER extraction failed, falling back to LLM"
+                        );
+                        if is_tiered {
+                            if let Some(job_id) = self
+                                .queue_ref_tier_escalation(
+                                    note_id,
+                                    schema,
+                                    matric_core::cost_tier::FAST_GPU,
+                                    ctx.job.initiated_by_user_id,
+                                )
+                                .await
+                            {
+                                ctx.emit_job_queued(
+                                    job_id,
+                                    JobType::ReferenceExtraction,
+                                    Some(note_id),
+                                );
+                            }
+                            return JobResult::Success(Some(serde_json::json!({
+                                "references": 0,
+                                "escalated": true,
+                                "reason": "gliner_failed"
+                            })));
                         }
-                        return JobResult::Success(Some(serde_json::json!({
-                            "references": 0,
-                            "escalated": true,
-                            "reason": "gliner_failed"
-                        })));
+                        (Vec::new(), "gliner_failed")
                     }
-                    (Vec::new(), "gliner_failed")
                 }
-            }
-        } else {
-            if is_tiered && ctx.job.cost_tier == Some(matric_core::cost_tier::CPU_NER) {
-                // Tier-0 but no GLiNER backend — chain to tier-1
-                if let Some(job_id) = self
-                    .queue_ref_tier_escalation(note_id, schema, matric_core::cost_tier::FAST_GPU)
-                    .await
-                {
-                    ctx.emit_job_queued(job_id, JobType::ReferenceExtraction, Some(note_id));
+            } else {
+                if is_tiered && ctx.job.cost_tier == Some(matric_core::cost_tier::CPU_NER) {
+                    // Tier-0 but no GLiNER backend — chain to tier-1
+                    if let Some(job_id) = self
+                        .queue_ref_tier_escalation(
+                            note_id,
+                            schema,
+                            matric_core::cost_tier::FAST_GPU,
+                            ctx.job.initiated_by_user_id,
+                        )
+                        .await
+                    {
+                        ctx.emit_job_queued(job_id, JobType::ReferenceExtraction, Some(note_id));
+                    }
+                    return JobResult::Success(Some(serde_json::json!({
+                        "references": 0,
+                        "escalated": true,
+                        "reason": "no_gliner"
+                    })));
                 }
-                return JobResult::Success(Some(serde_json::json!({
-                    "references": 0,
-                    "escalated": true,
-                    "reason": "no_gliner"
-                })));
-            }
-            (Vec::new(), "no_gliner")
-        };
+                (Vec::new(), "no_gliner")
+            };
 
         // Resolve model override via provider registry
         let model_override = extract_model_override(&ctx);
@@ -6080,6 +6150,7 @@ impl JobHandler for ReferenceExtractionHandler {
                         note_id,
                         schema,
                         matric_core::cost_tier::STANDARD_GPU,
+                        ctx.job.initiated_by_user_id,
                     )
                     .await
                 {
@@ -6330,6 +6401,7 @@ impl RelatedConceptHandler {
         &self,
         note_id: uuid::Uuid,
         schema: &str,
+        initiated_by_user_id: Option<uuid::Uuid>,
     ) -> (Option<uuid::Uuid>, Option<uuid::Uuid>) {
         let should_queue_embedding = default_embedding_target_is_internal(&self.db, schema).await;
         let payload = if schema != "public" {
@@ -6342,12 +6414,13 @@ impl RelatedConceptHandler {
             match self
                 .db
                 .jobs
-                .queue_deduplicated(
+                .queue_deduplicated_with_initiator(
                     Some(note_id),
                     JobType::Embedding,
                     JobType::Embedding.default_priority(),
                     payload.clone(),
                     None,
+                    initiated_by_user_id,
                 )
                 .await
             {
@@ -6368,12 +6441,13 @@ impl RelatedConceptHandler {
         let link_id = match self
             .db
             .jobs
-            .queue_deduplicated(
+            .queue_deduplicated_with_initiator(
                 Some(note_id),
                 JobType::Linking,
                 JobType::Linking.default_priority(),
                 payload,
                 None,
+                initiated_by_user_id,
             )
             .await
         {
@@ -6397,6 +6471,7 @@ impl RelatedConceptHandler {
         &self,
         note_id: uuid::Uuid,
         schema: &str,
+        initiated_by_user_id: Option<uuid::Uuid>,
     ) -> Option<uuid::Uuid> {
         let payload = if schema != "public" {
             Some(serde_json::json!({ "schema": schema }))
@@ -6406,12 +6481,13 @@ impl RelatedConceptHandler {
         match self
             .db
             .jobs
-            .queue_deduplicated(
+            .queue_deduplicated_with_initiator(
                 Some(note_id),
                 JobType::RelatedConceptInference,
                 JobType::RelatedConceptInference.default_priority(),
                 payload,
                 Some(matric_core::cost_tier::STANDARD_GPU),
+                initiated_by_user_id,
             )
             .await
         {
@@ -6525,7 +6601,9 @@ impl JobHandler for RelatedConceptHandler {
         let mut tx = match schema_ctx.begin_tx().await {
             Ok(t) => t,
             Err(e) => {
-                let (embed_id, link_id) = self.queue_phase3_jobs(note_id, schema).await;
+                let (embed_id, link_id) = self
+                    .queue_phase3_jobs(note_id, schema, ctx.job.initiated_by_user_id)
+                    .await;
                 if let Some(jid) = embed_id {
                     ctx.emit_job_queued(jid, JobType::Embedding, Some(note_id));
                 }
@@ -6585,7 +6663,9 @@ impl JobHandler for RelatedConceptHandler {
 
         // Need at least 3 concepts for meaningful cross-dimensional pairs
         if concepts.len() < 3 {
-            let (embed_id, link_id) = self.queue_phase3_jobs(note_id, schema).await;
+            let (embed_id, link_id) = self
+                .queue_phase3_jobs(note_id, schema, ctx.job.initiated_by_user_id)
+                .await;
             if let Some(jid) = embed_id {
                 ctx.emit_job_queued(jid, JobType::Embedding, Some(note_id));
             }
@@ -6650,7 +6730,13 @@ If no meaningful related pairs exist, output an empty array: []"#
                         operation = "fast_related_concept_generation",
                         "Fast model failed for related concepts, escalating to tier-2"
                     );
-                    if let Some(job_id) = self.queue_related_tier_escalation(note_id, schema).await
+                    if let Some(job_id) = self
+                        .queue_related_tier_escalation(
+                            note_id,
+                            schema,
+                            ctx.job.initiated_by_user_id,
+                        )
+                        .await
                     {
                         ctx.emit_job_queued(
                             job_id,
@@ -6664,7 +6750,9 @@ If no meaningful related pairs exist, output an empty array: []"#
                         "reason": "fast_model_failed"
                     })));
                 }
-                let (embed_id, link_id) = self.queue_phase3_jobs(note_id, schema).await;
+                let (embed_id, link_id) = self
+                    .queue_phase3_jobs(note_id, schema, ctx.job.initiated_by_user_id)
+                    .await;
                 if let Some(jid) = embed_id {
                     ctx.emit_job_queued(jid, JobType::Embedding, Some(note_id));
                 }
@@ -6698,8 +6786,13 @@ If no meaningful related pairs exist, output an empty array: []"#
                                 operation = "fast_related_concept_parse",
                                 "Fast model output unparseable for related concepts, escalating to tier-2"
                             );
-                            if let Some(job_id) =
-                                self.queue_related_tier_escalation(note_id, schema).await
+                            if let Some(job_id) = self
+                                .queue_related_tier_escalation(
+                                    note_id,
+                                    schema,
+                                    ctx.job.initiated_by_user_id,
+                                )
+                                .await
                             {
                                 ctx.emit_job_queued(
                                     job_id,
@@ -6720,7 +6813,9 @@ If no meaningful related pairs exist, output an empty array: []"#
                             parser = "related_concept_pairs",
                             "Failed to parse related concept pairs"
                         );
-                        let (embed_id, link_id) = self.queue_phase3_jobs(note_id, schema).await;
+                        let (embed_id, link_id) = self
+                            .queue_phase3_jobs(note_id, schema, ctx.job.initiated_by_user_id)
+                            .await;
                         if let Some(jid) = embed_id {
                             ctx.emit_job_queued(jid, JobType::Embedding, Some(note_id));
                         }
@@ -6734,7 +6829,9 @@ If no meaningful related pairs exist, output an empty array: []"#
         };
 
         if pairs.is_empty() {
-            let (embed_id, link_id) = self.queue_phase3_jobs(note_id, schema).await;
+            let (embed_id, link_id) = self
+                .queue_phase3_jobs(note_id, schema, ctx.job.initiated_by_user_id)
+                .await;
             if let Some(jid) = embed_id {
                 ctx.emit_job_queued(jid, JobType::Embedding, Some(note_id));
             }
@@ -6848,7 +6945,9 @@ If no meaningful related pairs exist, output an empty array: []"#
         }
 
         ctx.report_progress(98, Some("Queuing embedding and linking..."));
-        let (embed_id, link_id) = self.queue_phase3_jobs(note_id, schema).await;
+        let (embed_id, link_id) = self
+            .queue_phase3_jobs(note_id, schema, ctx.job.initiated_by_user_id)
+            .await;
         if let Some(jid) = embed_id {
             ctx.emit_job_queued(jid, JobType::Embedding, Some(note_id));
         }
@@ -6911,6 +7010,7 @@ impl MetadataExtractionHandler {
         note_id: uuid::Uuid,
         schema: &str,
         next_tier: i16,
+        initiated_by_user_id: Option<uuid::Uuid>,
     ) -> Option<uuid::Uuid> {
         let payload = if schema != "public" {
             Some(serde_json::json!({ "schema": schema }))
@@ -6920,12 +7020,13 @@ impl MetadataExtractionHandler {
         match self
             .db
             .jobs
-            .queue_deduplicated(
+            .queue_deduplicated_with_initiator(
                 Some(note_id),
                 JobType::MetadataExtraction,
                 JobType::MetadataExtraction.default_priority(),
                 payload,
                 Some(next_tier),
+                initiated_by_user_id,
             )
             .await
         {
@@ -7076,6 +7177,7 @@ Example output:
                             note_id,
                             schema,
                             matric_core::cost_tier::STANDARD_GPU,
+                            ctx.job.initiated_by_user_id,
                         )
                         .await
                     {
@@ -7119,6 +7221,7 @@ Example output:
                                     note_id,
                                     schema,
                                     matric_core::cost_tier::STANDARD_GPU,
+                                    ctx.job.initiated_by_user_id,
                                 )
                                 .await
                             {
@@ -7218,6 +7321,11 @@ Example output:
             .await
         {
             return metadata_extraction_job_failure(e, "update_metadata");
+        }
+        if let Err(e) =
+            set_note_updated_by_user_tx(&mut tx, note_id, ctx.job.initiated_by_user_id).await
+        {
+            return metadata_extraction_job_failure(e, "update_metadata_provenance_user");
         }
 
         if let Err(e) = tx.commit().await {
@@ -7411,6 +7519,11 @@ impl JobHandler for DocumentTypeInferenceHandler {
             .await
         {
             return document_type_inference_job_failure(e, "assign_document_type");
+        }
+        if let Err(e) =
+            set_note_updated_by_user_tx(&mut tx, note_id, ctx.job.initiated_by_user_id).await
+        {
+            return document_type_inference_job_failure(e, "assign_provenance_user");
         }
         if let Err(e) = tx.commit().await {
             return document_type_inference_job_failure(e, "assign_commit");
@@ -7606,7 +7719,14 @@ impl JobHandler for ReEmbedAllHandler {
             match self
                 .db
                 .jobs
-                .queue(Some(*note_id), JobType::Embedding, 5, Some(payload), None)
+                .queue_with_initiator(
+                    Some(*note_id),
+                    JobType::Embedding,
+                    5,
+                    Some(payload),
+                    None,
+                    ctx.job.initiated_by_user_id,
+                )
                 .await
             {
                 Ok(job_id) => {
@@ -8080,12 +8200,13 @@ impl JobHandler for RefreshEmbeddingSetHandler {
             match self
                 .db
                 .jobs
-                .queue(
+                .queue_with_initiator(
                     Some(*note_id),
                     JobType::Embedding,
                     JobType::Embedding.default_priority(),
                     Some(payload),
                     None,
+                    ctx.job.initiated_by_user_id,
                 )
                 .await
             {
@@ -9072,6 +9193,7 @@ mod tests {
             started_at: Some(now),
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
         let handler = EmbeddingHandler::new(
             db.clone(),
@@ -9168,6 +9290,7 @@ mod tests {
             started_at: Some(now),
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
         let inputs = Arc::new(std::sync::Mutex::new(Vec::new()));
         let handler = EmbeddingHandler::new(
@@ -9263,6 +9386,7 @@ mod tests {
             started_at: Some(now),
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
         let handler = EmbeddingHandler::new(
             db.clone(),
@@ -9370,6 +9494,7 @@ mod tests {
             started_at: Some(now),
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
         let refresh_result = RefreshEmbeddingSetHandler::new(db.clone())
             .execute(JobContext::new(refresh_job))
@@ -9393,6 +9518,7 @@ mod tests {
             started_at: Some(now),
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
         let reembed_result = ReEmbedAllHandler::new(db.clone())
             .execute(JobContext::new(reembed_job))
@@ -9524,6 +9650,7 @@ mod tests {
             started_at: Some(now),
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         }
     }
 

@@ -36,6 +36,7 @@ fn create_job_with_schema(job_type: JobType, schema: Option<&str>) -> Job {
         started_at: None,
         completed_at: None,
         cost_tier: None,
+        initiated_by_user_id: None,
     }
 }
 
@@ -134,6 +135,7 @@ async fn test_empty_schema_defaults_to_public() {
         started_at: None,
         completed_at: None,
         cost_tier: None,
+        initiated_by_user_id: None,
     };
 
     let ctx = JobContext::new(job);
@@ -199,6 +201,7 @@ async fn test_backward_compatibility_old_payloads() {
         started_at: None,
         completed_at: None,
         cost_tier: None,
+        initiated_by_user_id: None,
     };
 
     let ctx = JobContext::new(job);

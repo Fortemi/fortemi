@@ -4,8 +4,9 @@ use std::collections::BTreeSet;
 use std::time::Duration;
 
 use anyhow::Context;
-use fortemi_auth_core::{AuthContext, PrincipalKind};
+use fortemi_auth_core::{AuthContext, Credential, PrincipalKind};
 use matric_core::AuthPrincipal;
+use matric_db::{AppUserUpsert, PgAppUserRepository};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -47,12 +48,18 @@ pub struct ExternalOidcConfig {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RequestPrincipal {
+    pub user_id: Option<Uuid>,
+    pub tenant_id: Option<Uuid>,
     pub iss: String,
     pub sub: String,
     pub azp: Option<String>,
     pub scopes: Vec<String>,
     pub credential_class: CredentialClass,
     pub kind: PrincipalKind,
+    pub pat_id: Option<Uuid>,
+    pub jti: Option<String>,
+    pub email: Option<String>,
+    pub email_verified: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,12 +80,18 @@ impl CredentialClass {
 impl RequestPrincipal {
     pub fn from_auth_context(issuer: &str, context: &AuthContext) -> Self {
         Self {
+            user_id: None,
+            tenant_id: Some(context.tenant_id),
             iss: issuer.to_string(),
             sub: context.principal_id.clone(),
             azp: None,
             scopes: context.scopes.clone(),
             credential_class: CredentialClass::Oidc,
             kind: context.principal_kind,
+            pat_id: None,
+            jti: jti_from_context(context),
+            email: None,
+            email_verified: false,
         }
     }
 
@@ -99,12 +112,18 @@ impl RequestPrincipal {
             AuthPrincipal::Anonymous => ("anonymous".to_string(), Vec::new()),
         };
         Self {
+            user_id: None,
+            tenant_id: None,
             iss: "fortemi:legacy".to_string(),
             sub,
             azp: None,
             scopes,
             credential_class: CredentialClass::Legacy,
             kind: PrincipalKind::Service,
+            pat_id: None,
+            jti: None,
+            email: None,
+            email_verified: false,
         }
     }
 
@@ -116,10 +135,62 @@ impl RequestPrincipal {
     }
 }
 
-/// Hook for #1191: resolve or provision `app_user` from `(iss, sub)` after full
-/// token validation and claim-policy scope evaluation.
-pub fn resolve_user_principal(issuer: &str, context: &AuthContext) -> RequestPrincipal {
-    RequestPrincipal::from_auth_context(issuer, context)
+pub fn jti_from_context(context: &AuthContext) -> Option<String> {
+    match &context.credential {
+        Credential::Bearer(jwt) => jwt.jti.clone(),
+        Credential::ApiKey(_) => None,
+    }
+}
+
+pub fn principal_can_mint_pats(principal: &RequestPrincipal) -> bool {
+    principal.credential_class == CredentialClass::Oidc && principal.kind == PrincipalKind::Human
+}
+
+pub async fn resolve_user_principal(
+    repository: &PgAppUserRepository,
+    issuer: &str,
+    context: &AuthContext,
+    force_write: bool,
+) -> Result<RequestPrincipal, ResolvePrincipalError> {
+    if context.scopes.is_empty() {
+        return Err(ResolvePrincipalError::NoScopes);
+    }
+    let kind = match context.principal_kind {
+        PrincipalKind::Human => "user",
+        PrincipalKind::Service => "service",
+    };
+    let input = AppUserUpsert {
+        tenant_id: context.tenant_id,
+        iss: issuer.to_string(),
+        sub: context.principal_id.clone(),
+        email: None,
+        email_verified: false,
+        display_name: None,
+        groups: Vec::new(),
+        current_scopes: context.scopes.clone(),
+        kind: kind.to_string(),
+        azp: None,
+    };
+    let user = repository
+        .upsert_oidc(input, force_write)
+        .await
+        .map_err(|_| ResolvePrincipalError::Storage)?;
+    if user.status != "active" {
+        return Err(ResolvePrincipalError::Disabled);
+    }
+    let mut principal = RequestPrincipal::from_auth_context(issuer, context);
+    principal.user_id = Some(user.id);
+    principal.tenant_id = Some(user.tenant_id);
+    principal.email = user.email;
+    principal.email_verified = user.email_verified;
+    Ok(principal)
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ResolvePrincipalError {
+    NoScopes,
+    Disabled,
+    Storage,
 }
 
 pub fn auth_mode_from_env<F>(env: F, multi_tenant: bool) -> anyhow::Result<AuthMode>
@@ -352,6 +423,55 @@ fn parse_i64_bounded(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
+    use fortemi_auth_core::JwtToken;
+    use matric_db::{create_pool, AppUserUpsert, Database};
+
+    async fn app_user_repo() -> Option<(PgAppUserRepository, Uuid)> {
+        let Ok(database_url) = std::env::var("DATABASE_URL") else {
+            return None;
+        };
+        let pool = create_pool(&database_url).await.ok()?;
+        let schema_is_provisioned = sqlx::query_scalar::<_, bool>(
+            "SELECT to_regclass('public.tenant_registry') IS NOT NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .ok()?;
+        if !schema_is_provisioned {
+            Database::new(pool.clone()).migrate().await.ok()?;
+        }
+        let tenant_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO tenant_registry (id, slug, display_name, status)
+             VALUES ($1, $2, $2, 'active')",
+        )
+        .bind(tenant_id)
+        .bind(format!("external-oidc-test-{tenant_id}"))
+        .execute(&pool)
+        .await
+        .ok()?;
+        Some((PgAppUserRepository::new(pool), tenant_id))
+    }
+
+    fn context(tenant_id: Uuid, sub: &str, scopes: &[&str], kind: PrincipalKind) -> AuthContext {
+        AuthContext {
+            tenant_id,
+            principal_id: sub.to_string(),
+            credential: Credential::Bearer(JwtToken {
+                jti: Some(format!("jti-{sub}")),
+                algorithm: "RS256".to_string(),
+                key_id: "test-kid".to_string(),
+            }),
+            issued_at: Utc::now(),
+            expires_at: Utc::now() + chrono::Duration::minutes(5),
+            scopes: scopes.iter().map(|scope| (*scope).to_string()).collect(),
+            session_id: None,
+            principal_kind: kind,
+            scope_grants: Vec::new(),
+            dropped_scope_count: 0,
+        }
+    }
 
     #[test]
     fn external_mode_requires_https_audience_and_default_tenant() {
@@ -415,5 +535,84 @@ mod tests {
             true,
         )
         .is_err());
+    }
+
+    #[tokio::test]
+    async fn principal_with_no_scopes_is_rejected_before_jit_write() {
+        let Some((repo, tenant_id)) = app_user_repo().await else {
+            eprintln!("skipping external OIDC principal test: DATABASE_URL unavailable");
+            return;
+        };
+        let issuer = "https://issuer.example";
+        let ctx = context(tenant_id, "zero-scopes", &[], PrincipalKind::Human);
+
+        let error = resolve_user_principal(&repo, issuer, &ctx, true)
+            .await
+            .unwrap_err();
+
+        assert_eq!(error, ResolvePrincipalError::NoScopes);
+        assert!(repo
+            .find_by_subject(tenant_id, issuer, "zero-scopes")
+            .await
+            .unwrap()
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn disabled_app_user_is_rejected_by_principal_resolution() {
+        let Some((repo, tenant_id)) = app_user_repo().await else {
+            eprintln!("skipping external OIDC principal test: DATABASE_URL unavailable");
+            return;
+        };
+        let issuer = "https://issuer.example";
+        let created = repo
+            .upsert_oidc(
+                AppUserUpsert {
+                    tenant_id,
+                    iss: issuer.to_string(),
+                    sub: "disabled-subject".to_string(),
+                    email: None,
+                    email_verified: false,
+                    display_name: None,
+                    groups: Vec::new(),
+                    current_scopes: vec!["read".to_string()],
+                    kind: "user".to_string(),
+                    azp: Some("fortemi-web".to_string()),
+                },
+                true,
+            )
+            .await
+            .unwrap();
+        repo.set_status(tenant_id, created.id, "disabled")
+            .await
+            .unwrap();
+        let ctx = context(
+            tenant_id,
+            "disabled-subject",
+            &["read"],
+            PrincipalKind::Human,
+        );
+
+        let error = resolve_user_principal(&repo, issuer, &ctx, true)
+            .await
+            .unwrap_err();
+
+        assert_eq!(error, ResolvePrincipalError::Disabled);
+    }
+
+    #[test]
+    fn service_principal_cannot_mint_personal_access_tokens() {
+        let mut principal = RequestPrincipal::from_auth_context(
+            "https://issuer.example",
+            &context(
+                Uuid::new_v4(),
+                "service",
+                &["admin"],
+                PrincipalKind::Service,
+            ),
+        );
+        principal.user_id = Some(Uuid::new_v4());
+
+        assert!(!principal_can_mint_pats(&principal));
     }
 }

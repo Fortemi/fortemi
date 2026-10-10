@@ -2019,6 +2019,7 @@ mod tests {
             started_at: None,
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         }
     }
 

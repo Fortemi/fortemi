@@ -30,6 +30,7 @@ fn test_job_context_extract_schema_from_payload() {
         started_at: None,
         completed_at: None,
         cost_tier: None,
+        initiated_by_user_id: None,
     };
 
     let ctx = JobContext::new(job);
@@ -69,6 +70,7 @@ fn test_job_context_schema_defaults_to_public() {
         started_at: None,
         completed_at: None,
         cost_tier: None,
+        initiated_by_user_id: None,
     };
 
     let ctx = JobContext::new(job);
@@ -103,6 +105,7 @@ fn test_job_context_schema_defaults_when_no_payload() {
         started_at: None,
         completed_at: None,
         cost_tier: None,
+        initiated_by_user_id: None,
     };
 
     let ctx = JobContext::new(job);
@@ -151,6 +154,7 @@ fn test_schema_field_for_all_job_types() {
             started_at: None,
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
 
         let ctx = JobContext::new(job);
@@ -191,6 +195,7 @@ fn test_backward_compatibility_no_schema_field() {
         started_at: None,
         completed_at: None,
         cost_tier: None,
+        initiated_by_user_id: None,
     };
 
     let ctx = JobContext::new(job);
@@ -229,6 +234,7 @@ fn test_invalid_schema_value_fallback() {
         started_at: None,
         completed_at: None,
         cost_tier: None,
+        initiated_by_user_id: None,
     };
 
     let ctx = JobContext::new(job);
@@ -267,6 +273,7 @@ fn test_empty_schema_string() {
         started_at: None,
         completed_at: None,
         cost_tier: None,
+        initiated_by_user_id: None,
     };
 
     let ctx = JobContext::new(job);
@@ -305,6 +312,7 @@ fn test_schema_with_special_characters() {
         started_at: None,
         completed_at: None,
         cost_tier: None,
+        initiated_by_user_id: None,
     };
 
     let ctx = JobContext::new(job);

@@ -17,6 +17,7 @@ pub mod models;
 pub mod pke;
 pub mod provenance;
 pub mod token_info;
+pub mod user_principal;
 #[cfg(feature = "hosted-auth")]
 pub mod user_secrets;
 pub mod vector_import;

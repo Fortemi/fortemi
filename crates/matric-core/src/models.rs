@@ -4295,6 +4295,9 @@ pub struct Job {
     pub completed_at: Option<DateTime<Utc>>,
     /// Cost tier for tiered job scheduling. None = agnostic (legacy/backward compat).
     pub cost_tier: Option<i16>,
+    /// Application user that initiated this job chain, if it originated from a
+    /// request-bound principal.
+    pub initiated_by_user_id: Option<Uuid>,
 }
 
 impl fmt::Debug for Job {
@@ -4333,6 +4336,10 @@ impl fmt::Debug for Job {
             .field("started_at_set", &self.started_at.is_some())
             .field("completed_at_set", &self.completed_at.is_some())
             .field("cost_tier", &self.cost_tier)
+            .field(
+                "initiated_by_user_id_set",
+                &self.initiated_by_user_id.is_some(),
+            )
             .finish()
     }
 }
@@ -8300,6 +8307,7 @@ mod tests {
             started_at: Some(now),
             completed_at: Some(now),
             cost_tier: Some(cost_tier::STANDARD_GPU),
+            initiated_by_user_id: Some(Uuid::new_v4()),
         };
 
         let debug = format!("{job:?}");

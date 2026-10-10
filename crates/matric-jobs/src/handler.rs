@@ -200,6 +200,7 @@ mod tests {
             started_at: None,
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
 
         let ctx = JobContext::new(job.clone());
@@ -230,6 +231,7 @@ mod tests {
             started_at: None,
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
 
         let ctx = JobContext::new(job);
@@ -258,6 +260,7 @@ mod tests {
             started_at: None,
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
 
         let ctx = JobContext::new(job.clone());
@@ -285,6 +288,7 @@ mod tests {
             started_at: None,
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
 
         let ctx = JobContext::new(job);
@@ -311,6 +315,7 @@ mod tests {
             started_at: None,
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
 
         let ctx = JobContext::new(job);
@@ -336,6 +341,7 @@ mod tests {
             started_at: None,
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
 
         let ctx = JobContext::new(job);
@@ -364,6 +370,7 @@ mod tests {
             started_at: None,
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
 
         let ctx = JobContext::new(job);
@@ -391,6 +398,7 @@ mod tests {
             started_at: None,
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
 
         let ctx = JobContext::new(job);
@@ -420,6 +428,7 @@ mod tests {
             started_at: None,
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
 
         let progress_log = Arc::new(Mutex::new(Vec::new()));
@@ -487,6 +496,7 @@ mod tests {
             started_at: None,
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
 
         let progress_log = Arc::new(Mutex::new(Vec::new()));
@@ -539,6 +549,7 @@ mod tests {
                 started_at: None,
                 completed_at: None,
                 cost_tier: None,
+                initiated_by_user_id: None,
             };
 
             let ctx = JobContext::new(job);
@@ -633,6 +644,7 @@ mod tests {
             started_at: Some(started_at),
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
 
         let ctx = JobContext::new(job.clone());
@@ -672,6 +684,7 @@ mod tests {
             started_at: None,
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
 
         let ctx = JobContext::new(job);
@@ -700,6 +713,7 @@ mod tests {
             started_at: None,
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
 
         let downstream_job_id = Uuid::new_v4();

@@ -4,8 +4,8 @@ use std::{fs, path::Path};
 
 use matric_core::embedding_space_id;
 use matric_db::{
-    find_similar_profiles_for_note_tx, note_id_for_source_identity_tx, Database,
-    EntitySimilarityFilter, PgEmbeddingImportRepository,
+    find_similar_profiles_for_note_tx, note_id_for_source_identity_tx, AppUserUpsert, Database,
+    EntitySimilarityFilter, PgAppUserRepository, PgEmbeddingImportRepository, LOCAL_TENANT_ID,
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -166,6 +166,25 @@ async fn external_embedding_run_imports_idempotently_orders_and_deletes() {
     let (set_id, space_id) = external_set(&db, &slug).await;
     let (_internal_set_id, _) = set_with_vector_source(&db, &internal_slug, "internal").await;
     let repository = PgEmbeddingImportRepository::new(db.pool.clone());
+    let tenant_id = Uuid::parse_str(LOCAL_TENANT_ID).expect("local tenant id");
+    let user = PgAppUserRepository::new(db.pool.clone())
+        .upsert_oidc(
+            AppUserUpsert {
+                tenant_id,
+                iss: "https://issuer.example".to_string(),
+                sub: format!("vector-import-{}", Uuid::new_v4()),
+                email: None,
+                email_verified: false,
+                display_name: None,
+                groups: Vec::new(),
+                current_scopes: vec!["admin".to_string()],
+                kind: "user".to_string(),
+                azp: Some("fortemi-web".to_string()),
+            },
+            true,
+        )
+        .await
+        .expect("create import initiator");
     let root = tempfile::tempdir().expect("root tempdir");
 
     let before_jobs: i64 =
@@ -198,19 +217,29 @@ async fn external_embedding_run_imports_idempotently_orders_and_deletes() {
         Vec::new(),
     );
     assert!(repository
-        .import_run_folder("public", &internal_slug, run1.path())
+        .import_run_folder("public", &internal_slug, run1.path(), None, None)
         .await
         .is_err());
 
     let report = repository
-        .import_run_folder("public", &slug, run1.path())
+        .import_run_folder("public", &slug, run1.path(), Some(user.id), Some("user"))
         .await
         .expect("import run 1");
     assert_eq!(report.inserted, 1000);
     assert_eq!(report.rejected.total, 0);
+    let stored: (Option<Uuid>, Option<String>) = sqlx::query_as(
+        "SELECT initiated_by_user_id, initiated_by_kind
+         FROM embedding_import_run
+         WHERE run_id = 'run-1' AND set_id = $1",
+    )
+    .bind(set_id)
+    .fetch_one(&db.pool)
+    .await
+    .expect("import run initiator");
+    assert_eq!(stored, (Some(user.id), Some("user".to_string())));
 
     let replay = repository
-        .import_run_folder("public", &slug, run1.path())
+        .import_run_folder("public", &slug, run1.path(), None, None)
         .await
         .expect("replay run 1");
     assert_eq!(replay.status, "already_applied");
@@ -235,7 +264,7 @@ async fn external_embedding_run_imports_idempotently_orders_and_deletes() {
     )
     .expect("tamper profile file");
     assert!(repository
-        .import_run_folder("public", &slug, checksum_mismatch.path())
+        .import_run_folder("public", &slug, checksum_mismatch.path(), None, None)
         .await
         .is_err());
 
@@ -248,7 +277,7 @@ async fn external_embedding_run_imports_idempotently_orders_and_deletes() {
         Vec::new(),
     );
     assert!(repository
-        .import_run_folder("public", &slug, out_of_order.path())
+        .import_run_folder("public", &slug, out_of_order.path(), None, None)
         .await
         .is_err());
 
@@ -328,7 +357,7 @@ async fn external_embedding_run_imports_idempotently_orders_and_deletes() {
         })],
     );
     let report2 = repository
-        .import_run_folder("public", &slug, run2.path())
+        .import_run_folder("public", &slug, run2.path(), None, None)
         .await
         .expect("import run 2");
     assert_eq!(report2.inserted, 1);

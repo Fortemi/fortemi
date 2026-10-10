@@ -30,6 +30,7 @@ pub const EXEMPT_PUBLIC_TABLES: &[&str] = &[
 /// ADR-090 inventory, including subsequent tenant-scoped schema additions.
 pub const TENANT_SCOPED_TABLES: &[&str] = &[
     "activity_log",
+    "app_user",
     "api_key",
     "archive_inference_override",
     "archive_registry",

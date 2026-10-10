@@ -9,6 +9,10 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Added
 
+- Add OIDC-backed application users (#1191): Fortemi now JIT-provisions
+  tenant-scoped `app_user` principals from exact `(iss, sub)`, exposes `/me`,
+  admin user enable/disable endpoints, MCP `whoami`, note/job attribution, and
+  durable user-lifecycle audit records.
 - Bearer front door for external OIDC deployments (#1197): the Helm chart and
   Kustomize base route `/api/*`, `/mcp` and
   `/.well-known/oauth-protected-resource*` straight to the API and MCP

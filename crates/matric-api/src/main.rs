@@ -35,6 +35,7 @@ mod trusted_proxy;
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
+use std::io::{self, Write};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -68,7 +69,9 @@ use tower_http::{
     trace::TraceLayer,
 };
 use tracing::{error, info, warn};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, Layer as _};
+use tracing_subscriber::{
+    fmt::MakeWriter, layer::SubscriberExt, util::SubscriberInitExt, Layer as _,
+};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::{Config, SwaggerUi};
 use uuid::Uuid;
@@ -76,7 +79,7 @@ use uuid::Uuid;
 #[cfg(feature = "hosted-auth")]
 use matric_api::external_oidc::{
     self, auth_mode_from_env, ceil_legacy_scope, config_from_env, legacy_token_extension_lifetime,
-    resolve_user_principal, AuthMode, ExternalOidcConfig, RequestPrincipal,
+    resolve_user_principal, AuthMode, ExternalOidcConfig, RequestPrincipal, ResolvePrincipalError,
 };
 #[cfg(feature = "hosted-auth")]
 use matric_api::hosted_auth::{
@@ -104,10 +107,10 @@ use matric_core::{
 use matric_core::{EmbeddingBackend, GenerationBackend};
 use matric_crypto::KeyProvider;
 use matric_db::{
-    assert_hosted_runtime_role, Database, FileSource, FilesystemBackend, PoolConfig,
-    PostgresAuditSink, ShardImportJournal, ShardImportJournalLease, SkosCollectionRepository,
-    SkosConceptRepository, SkosConceptSchemeRepository, StagedShardBlob, StagedShardBlobPromotion,
-    StorageBackend,
+    assert_hosted_runtime_role, Database, FileSource, FilesystemBackend, PgAppUserRepository,
+    PoolConfig, PostgresAuditSink, ShardImportJournal, ShardImportJournalLease,
+    SkosCollectionRepository, SkosConceptRepository, SkosConceptSchemeRepository, StagedShardBlob,
+    StagedShardBlobPromotion, StorageBackend,
 };
 use middleware::archive_routing::{
     archive_routing_middleware, ArchiveContext, DefaultArchiveCache,
@@ -265,6 +268,7 @@ async fn queue_extraction_job(
     event_bus: &EventBus,
     schema: Option<&str>,
     vision_mode: Option<&str>,
+    initiated_by_user_id: Option<Uuid>,
 ) {
     let payload = extraction_job_payload(
         attachment_id,
@@ -283,6 +287,7 @@ async fn queue_extraction_job(
         filename,
         payload,
         event_bus,
+        initiated_by_user_id,
     )
     .await;
 }
@@ -317,6 +322,7 @@ fn extraction_job_payload(
     payload
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn queue_extraction_job_payload(
     db: &Database,
     note_id: Uuid,
@@ -325,6 +331,7 @@ async fn queue_extraction_job_payload(
     filename: &str,
     payload: serde_json::Value,
     event_bus: &EventBus,
+    initiated_by_user_id: Option<Uuid>,
 ) {
     // Determine cost tier based on extraction strategy.
     // 3D model extraction uses Open3D renderer (GPU EGL), separated from
@@ -342,12 +349,13 @@ async fn queue_extraction_job_payload(
     // same note in quick succession.
     match db
         .jobs
-        .queue(
+        .queue_with_initiator(
             Some(note_id),
             JobType::Extraction,
             JobType::Extraction.default_priority(),
             Some(payload),
             cost_tier,
+            initiated_by_user_id,
         )
         .await
     {
@@ -397,6 +405,7 @@ async fn queue_exif_extraction_job(
     content_type: &str,
     event_bus: &EventBus,
     schema: Option<&str>,
+    initiated_by_user_id: Option<Uuid>,
 ) {
     // Only queue for image content types
     if !content_type.starts_with("image/") {
@@ -415,12 +424,13 @@ async fn queue_exif_extraction_job(
     // when multiple images are attached to the same note.
     match db
         .jobs
-        .queue(
+        .queue_with_initiator(
             Some(note_id),
             JobType::ExifExtraction,
             JobType::ExifExtraction.default_priority(),
             Some(payload),
             None,
+            initiated_by_user_id,
         )
         .await
     {
@@ -454,6 +464,7 @@ async fn queue_media_optimize_job(
     content_type: &str,
     event_bus: &EventBus,
     schema: Option<&str>,
+    initiated_by_user_id: Option<Uuid>,
 ) {
     // Only queue for audio/video content types
     if !content_type.starts_with("audio/") && !content_type.starts_with("video/") {
@@ -467,12 +478,13 @@ async fn queue_media_optimize_job(
 
     match db
         .jobs
-        .queue(
+        .queue_with_initiator(
             Some(note_id),
             JobType::MediaOptimize,
             JobType::MediaOptimize.default_priority(),
             Some(payload),
             None,
+            initiated_by_user_id,
         )
         .await
     {
@@ -562,6 +574,7 @@ async fn queue_attachment_scan_job(
     attachment_id: Uuid,
     schema: Option<&str>,
     downstream_jobs: Vec<serde_json::Value>,
+    initiated_by_user_id: Option<Uuid>,
 ) -> Result<Uuid, ApiError> {
     let mut payload = serde_json::json!({
         "attachment_id": attachment_id.to_string(),
@@ -573,12 +586,13 @@ async fn queue_attachment_scan_job(
     let job_id = state
         .db
         .jobs
-        .queue(
+        .queue_with_initiator(
             Some(note_id),
             JobType::AttachmentVirusScan,
             JobType::AttachmentVirusScan.default_priority(),
             Some(payload),
             JobType::AttachmentVirusScan.default_cost_tier(),
+            initiated_by_user_id,
         )
         .await?;
     state.event_bus.emit(ServerEvent::JobQueued {
@@ -897,6 +911,7 @@ async fn queue_nlp_pipeline(
     event_bus: &EventBus,
     schema: Option<&str>,
     model: Option<&str>,
+    initiated_by_user_id: Option<Uuid>,
 ) {
     queue_nlp_pipeline_inner(
         db,
@@ -909,6 +924,7 @@ async fn queue_nlp_pipeline(
         None,
         None,
         None,
+        initiated_by_user_id,
     )
     .await;
 }
@@ -931,6 +947,7 @@ async fn queue_nlp_pipeline_inner(
     chunk_max_chars: Option<usize>,
     chunk_overlap: Option<usize>,
     pipeline: Option<&[String]>,
+    initiated_by_user_id: Option<Uuid>,
 ) {
     // If pipeline is explicitly set to empty, skip all AI processing (store only).
     // Callers opt-in to specific pipeline features via the `pipeline` field (#628).
@@ -967,12 +984,13 @@ async fn queue_nlp_pipeline_inner(
         }
         match db
             .jobs
-            .queue_deduplicated(
+            .queue_deduplicated_with_initiator(
                 Some(note_id),
                 JobType::AiRevision,
                 JobType::AiRevision.default_priority(),
                 Some(payload),
                 JobType::AiRevision.default_cost_tier(),
+                initiated_by_user_id,
             )
             .await
         {
@@ -1034,12 +1052,13 @@ async fn queue_nlp_pipeline_inner(
 
         match db
             .jobs
-            .queue_deduplicated(
+            .queue_deduplicated_with_initiator(
                 Some(note_id),
                 job_type,
                 job_type.default_priority(),
                 payload,
                 job_type.default_cost_tier(),
+                initiated_by_user_id,
             )
             .await
         {
@@ -1083,12 +1102,13 @@ async fn queue_nlp_pipeline_inner(
         };
         match db
             .jobs
-            .queue_deduplicated(
+            .queue_deduplicated_with_initiator(
                 Some(note_id),
                 JobType::ConceptTagging,
                 JobType::ConceptTagging.default_priority(),
                 payload,
                 JobType::ConceptTagging.default_cost_tier(),
+                initiated_by_user_id,
             )
             .await
         {
@@ -1159,6 +1179,7 @@ use handlers::{
         create_file_provenance, create_named_location, create_note_provenance, create_prov_device,
         create_prov_location,
     },
+    user_principal::{disable_user, enable_user, list_users, me},
     vision::describe_image,
     AiRevisionContextualHandler, AiRevisionHandler, BuildVectorIndexHandler, ConceptTaggingHandler,
     ContextUpdateHandler, DocumentTypeInferenceHandler, EmbeddingHandler, ExifExtractionHandler,
@@ -1263,6 +1284,11 @@ struct AppState {
     usage_meter: Arc<dyn UsageMeter>,
     /// Runtime-selected audit sink. Hosted mode requires durable PostgreSQL storage.
     audit_sink: Arc<dyn AuditSink>,
+    /// OIDC application-principal storage.
+    app_users: PgAppUserRepository,
+    /// Deployment-wide JIT creation limiter for `app_user`.
+    #[cfg(feature = "hosted-auth")]
+    user_jit_limiter: Arc<UserJitLimiter>,
     /// Hosted envelope-key boundary. Community mode does not initialize a KMS client.
     key_provider: Option<Arc<dyn KeyProvider>>,
     /// Cached key-provider health for `/readyz` (#1170); set with `key_provider`.
@@ -1457,6 +1483,11 @@ impl AppState {
         // handlers::ingest_tokens (#829)
         handlers::ingest_tokens::mint_ingest_token,
         handlers::ingest_tokens::revoke_ingest_token,
+        // handlers::user_principal
+        handlers::user_principal::me,
+        handlers::user_principal::list_users,
+        handlers::user_principal::disable_user,
+        handlers::user_principal::enable_user,
         // handlers::event_tokens (#953)
         handlers::event_tokens::mint_event_stream_token,
         handlers::event_tokens::revoke_event_stream_token,
@@ -1533,6 +1564,8 @@ impl AppState {
             CallDetailResponse, PaginationMeta, ReprocessNoteBody, SetTagsBody,
             UpdateNoteBody, UpdateStatusBody, UpdateWebhookBody,
             EntitySimilarityResponse, EntitySimilarityResult,
+            handlers::user_principal::MeResponse,
+            handlers::user_principal::AdminUserResponse,
             ProblemDetails, ProblemTypeCatalogEntry,
         )
     ),
@@ -2332,6 +2365,219 @@ struct LoggingConfig {
     diagnostic_profile: Option<&'static str>,
 }
 
+#[derive(Clone)]
+struct RedactingMakeWriter<M> {
+    inner: M,
+}
+
+impl<M> RedactingMakeWriter<M> {
+    fn new(inner: M) -> Self {
+        Self { inner }
+    }
+}
+
+impl<'a, M> MakeWriter<'a> for RedactingMakeWriter<M>
+where
+    M: MakeWriter<'a> + Clone,
+{
+    type Writer = RedactingWriter<M::Writer>;
+
+    fn make_writer(&'a self) -> Self::Writer {
+        RedactingWriter::new(self.inner.make_writer())
+    }
+}
+
+struct RedactingWriter<W: Write> {
+    inner: W,
+    pending: Vec<u8>,
+}
+
+impl<W: Write> RedactingWriter<W> {
+    fn new(inner: W) -> Self {
+        Self {
+            inner,
+            pending: Vec::new(),
+        }
+    }
+}
+
+impl<W> RedactingWriter<W>
+where
+    W: Write,
+{
+    fn flush_pending(&mut self) -> io::Result<()> {
+        if self.pending.is_empty() {
+            return Ok(());
+        }
+        let line = String::from_utf8_lossy(&self.pending);
+        let redacted = redact_log_output(&line);
+        self.inner.write_all(redacted.as_bytes())?;
+        self.pending.clear();
+        Ok(())
+    }
+}
+
+impl<W> Write for RedactingWriter<W>
+where
+    W: Write,
+{
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.pending.extend_from_slice(buf);
+        while let Some(newline) = self.pending.iter().position(|byte| *byte == b'\n') {
+            let line: Vec<u8> = self.pending.drain(..=newline).collect();
+            let text = String::from_utf8_lossy(&line);
+            let redacted = redact_log_output(&text);
+            self.inner.write_all(redacted.as_bytes())?;
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.flush_pending()?;
+        self.inner.flush()
+    }
+}
+
+impl<W> Drop for RedactingWriter<W>
+where
+    W: Write,
+{
+    fn drop(&mut self) {
+        let _ = self.flush_pending();
+    }
+}
+
+fn redact_log_output(input: &str) -> String {
+    redact_email_like_tokens(&redact_jwt_like_tokens(&redact_mm_tokens(input)))
+}
+
+fn redact_mm_tokens(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let chars: Vec<(usize, char)> = input.char_indices().collect();
+    let mut index = 0;
+    while index < chars.len() {
+        let (byte_index, ch) = chars[index];
+        if ch == 'm'
+            && input[byte_index..].starts_with("mm_")
+            && input[byte_index + 3..]
+                .chars()
+                .next()
+                .is_some_and(is_log_secret_char)
+        {
+            output.push_str("[REDACTED]");
+            index += 3;
+            while index < chars.len() && is_log_secret_char(chars[index].1) {
+                index += 1;
+            }
+        } else {
+            output.push(ch);
+            index += 1;
+        }
+    }
+    output
+}
+
+fn redact_jwt_like_tokens(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let chars: Vec<char> = input.chars().collect();
+    let mut index = 0;
+    while index < chars.len() {
+        if is_jwt_candidate_char(chars[index]) {
+            let start = index;
+            let mut dots = 0;
+            while index < chars.len() && is_jwt_candidate_char(chars[index]) {
+                if chars[index] == '.' {
+                    dots += 1;
+                }
+                index += 1;
+            }
+            let token: String = chars[start..index].iter().collect();
+            if dots >= 2 && is_jwt_like(&token) {
+                output.push_str("[REDACTED]");
+            } else {
+                output.push_str(&token);
+            }
+        } else {
+            output.push(chars[index]);
+            index += 1;
+        }
+    }
+    output
+}
+
+fn is_log_secret_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.')
+}
+
+fn is_jwt_candidate_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.')
+}
+
+fn is_jwt_like(token: &str) -> bool {
+    let mut parts = token.split('.');
+    let Some(header) = parts.next() else {
+        return false;
+    };
+    let Some(payload) = parts.next() else {
+        return false;
+    };
+    let Some(signature) = parts.next() else {
+        return false;
+    };
+    parts.next().is_none()
+        && header.starts_with("eyJ")
+        && payload.len() >= 8
+        && signature.len() >= 8
+        && [header, payload, signature]
+            .iter()
+            .all(|part| part.chars().all(is_base64url_char))
+}
+
+fn is_base64url_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_')
+}
+
+fn redact_email_like_tokens(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let chars: Vec<char> = input.chars().collect();
+    let mut index = 0;
+    while index < chars.len() {
+        if is_email_candidate_char(chars[index]) {
+            let start = index;
+            while index < chars.len() && is_email_candidate_char(chars[index]) {
+                index += 1;
+            }
+            let token: String = chars[start..index].iter().collect();
+            if is_email_like(&token) {
+                output.push_str("[REDACTED]");
+            } else {
+                output.push_str(&token);
+            }
+        } else {
+            output.push(chars[index]);
+            index += 1;
+        }
+    }
+    output
+}
+
+fn is_email_candidate_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || matches!(ch, '@' | '.' | '_' | '%' | '+' | '-')
+}
+
+fn is_email_like(token: &str) -> bool {
+    let Some((local, domain)) = token.split_once('@') else {
+        return false;
+    };
+    !local.is_empty()
+        && domain.contains('.')
+        && !domain.starts_with('.')
+        && !domain.ends_with('.')
+        && domain
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '.' | '-'))
+}
+
 const MAX_RATE_LIMIT_REQUESTS: u32 = 1_000_000;
 const MAX_RATE_LIMIT_PERIOD_SECS: u64 = 86_400;
 const DEFAULT_SHUTDOWN_GRACE_SECS: u64 = 30;
@@ -3067,15 +3313,16 @@ fn authorization_policy_for_auth(
 async fn audit_sink_for_mode(
     db: &Database,
     multi_tenant: bool,
+    external_oidc: bool,
 ) -> anyhow::Result<Arc<dyn AuditSink>> {
-    if !multi_tenant {
+    if !multi_tenant && !external_oidc {
         return Ok(Arc::new(TracingSink));
     }
 
     let sink = PostgresAuditSink::new(db.pool.clone());
     sink.check_health()
         .await
-        .map_err(|_| anyhow::anyhow!("durable hosted audit sink is unavailable during startup"))?;
+        .map_err(|_| anyhow::anyhow!("durable audit sink is unavailable during startup"))?;
     Ok(Arc::new(sink))
 }
 
@@ -3456,18 +3703,19 @@ async fn main() -> anyhow::Result<()> {
             .unwrap_or("matric-api.log");
         let file_appender = tracing_appender::rolling::daily(file_dir, file_name);
         let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
+        let redacting_writer = RedactingMakeWriter::new(non_blocking);
 
         if logging.format == LogFormat::Json {
             registry
                 .with(
                     tracing_subscriber::fmt::layer()
                         .json()
-                        .with_writer(non_blocking)
+                        .with_writer(redacting_writer)
                         .with_filter(env_filter),
                 )
                 .init();
         } else {
-            let mut layer = tracing_subscriber::fmt::layer().with_writer(non_blocking);
+            let mut layer = tracing_subscriber::fmt::layer().with_writer(redacting_writer);
             if let Some(ansi) = logging.ansi {
                 layer = layer.with_ansi(ansi);
             } else {
@@ -3483,11 +3731,13 @@ async fn main() -> anyhow::Result<()> {
                 .with(
                     tracing_subscriber::fmt::layer()
                         .json()
+                        .with_writer(RedactingMakeWriter::new(std::io::stdout))
                         .with_filter(env_filter),
                 )
                 .init();
         } else {
-            let mut layer = tracing_subscriber::fmt::layer();
+            let mut layer = tracing_subscriber::fmt::layer()
+                .with_writer(RedactingMakeWriter::new(std::io::stdout));
             if let Some(ansi) = logging.ansi {
                 layer = layer.with_ansi(ansi);
             }
@@ -3798,7 +4048,17 @@ async fn main() -> anyhow::Result<()> {
     if let Some(config) = &external_oidc {
         external_oidc::ensure_default_tenant(&db.pool, config.default_tenant_id).await?;
     }
-    let audit_sink = audit_sink_for_mode(&db, security_config.multi_tenant).await?;
+    let audit_sink = audit_sink_for_mode(&db, security_config.multi_tenant, {
+        #[cfg(feature = "hosted-auth")]
+        {
+            auth_mode.external_oidc()
+        }
+        #[cfg(not(feature = "hosted-auth"))]
+        {
+            false
+        }
+    })
+    .await?;
     let key_custody = key_provider_for_mode(security_config.multi_tenant).await?;
     if let Some(custody) = &key_custody {
         custody.spawn_canary()?;
@@ -4707,6 +4967,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .map_err(|error| anyhow::anyhow!("invalid inference destination policy: {error}"))?,
     );
+    let app_users = PgAppUserRepository::new(db.pool.clone());
     let lifecycle = LifecycleState::default();
     let state = AppState {
         db,
@@ -4753,6 +5014,9 @@ async fn main() -> anyhow::Result<()> {
         }),
         usage_meter,
         audit_sink,
+        app_users,
+        #[cfg(feature = "hosted-auth")]
+        user_jit_limiter: Arc::new(UserJitLimiter::from_env()),
         key_provider,
         key_health,
         oauth_registration,
@@ -5506,6 +5770,10 @@ async fn main() -> anyhow::Result<()> {
             "/api/v1/auth/token-info",
             get(handlers::token_info::token_info),
         )
+        .route("/api/v1/me", get(me))
+        .route("/api/v1/admin/users", get(list_users))
+        .route("/api/v1/admin/users/{id}/disable", post(disable_user))
+        .route("/api/v1/admin/users/{id}/enable", post(enable_user))
         // Memory info
         .route("/api/v1/memory/info", get(memory_info))
         // WebSocket events (Issue #39)
@@ -8986,6 +9254,7 @@ async fn queue_twilio_recording_transcription(
                 attachment.id,
                 None,
                 vec![scan_downstream_job(JobType::AudioTranscription, payload)],
+                None,
             )
             .await?,
         )
@@ -8993,12 +9262,13 @@ async fn queue_twilio_recording_transcription(
         state
             .db
             .jobs
-            .queue_deduplicated(
+            .queue_deduplicated_with_initiator(
                 Some(note_id),
                 JobType::AudioTranscription,
                 JobType::AudioTranscription.default_priority(),
                 Some(payload),
                 JobType::AudioTranscription.default_cost_tier(),
+                None,
             )
             .await?
     };
@@ -9504,6 +9774,49 @@ impl AuthFailureLimiter {
             return;
         }
         failures.entry(ip).or_default().push_back(now);
+    }
+}
+
+#[cfg(feature = "hosted-auth")]
+#[derive(Debug)]
+struct UserJitLimiter {
+    max_creations: usize,
+    window: std::time::Duration,
+    creations: Mutex<VecDeque<std::time::Instant>>,
+}
+
+#[cfg(feature = "hosted-auth")]
+impl UserJitLimiter {
+    fn from_env() -> Self {
+        let max_creations = std::env::var("FORTEMI_USER_JIT_RATE_LIMIT")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|value| *value > 0)
+            .unwrap_or(60);
+        Self {
+            max_creations,
+            window: std::time::Duration::from_secs(60),
+            creations: Mutex::new(VecDeque::new()),
+        }
+    }
+
+    fn check(&self) -> bool {
+        let mut creations = self.creations.lock().expect("user jit limiter lock");
+        let now = std::time::Instant::now();
+        while creations
+            .front()
+            .is_some_and(|seen| now.duration_since(*seen) >= self.window)
+        {
+            creations.pop_front();
+        }
+        creations.len() < self.max_creations
+    }
+
+    fn record(&self) {
+        self.creations
+            .lock()
+            .expect("user jit limiter lock")
+            .push_back(std::time::Instant::now());
     }
 }
 
@@ -10189,6 +10502,14 @@ impl BearerValidationFailure {
         }
     }
 
+    fn too_many_requests() -> Self {
+        Self {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            problem_type: ProblemType::RateLimit,
+            detail: "User provisioning is temporarily rate limited.",
+        }
+    }
+
     #[cfg(feature = "hosted-auth")]
     fn from_contract(error: fortemi_auth_core::AuthError) -> Self {
         match error.http_status() {
@@ -10534,10 +10855,59 @@ async fn validate_bearer_identity(
             let tenant_id = context.tenant_id;
             let principal_id = context.principal_id.clone();
             let scope = context.scopes.join(" ");
-            let request_principal = state
-                .oidc_issuer
-                .as_deref()
-                .map(|issuer| resolve_user_principal(issuer, &context));
+            if context.scopes.is_empty() {
+                return Err(BearerValidationFailure {
+                    status: StatusCode::FORBIDDEN,
+                    problem_type: ProblemType::Forbidden,
+                    detail: "The authenticated identity has no Fortemi scopes.",
+                });
+            }
+            let request_principal = if let Some(issuer) = state.oidc_issuer.as_deref() {
+                let exists = state
+                    .app_users
+                    .find_by_subject(tenant_id, issuer, &principal_id)
+                    .await
+                    .map_err(|_| BearerValidationFailure {
+                        status: StatusCode::SERVICE_UNAVAILABLE,
+                        problem_type: ProblemType::ServiceUnavailable,
+                        detail: "User principal storage is unavailable.",
+                    })?
+                    .is_some();
+                if !exists && !state.user_jit_limiter.check() {
+                    return Err(BearerValidationFailure::too_many_requests());
+                }
+                let principal = resolve_user_principal(&state.app_users, issuer, &context, !exists)
+                    .await
+                    .map_err(|error| match error {
+                        ResolvePrincipalError::NoScopes | ResolvePrincipalError::Disabled => {
+                            BearerValidationFailure {
+                                status: StatusCode::FORBIDDEN,
+                                problem_type: ProblemType::Forbidden,
+                                detail: "The authenticated identity is not active.",
+                            }
+                        }
+                        ResolvePrincipalError::Storage => BearerValidationFailure {
+                            status: StatusCode::SERVICE_UNAVAILABLE,
+                            problem_type: ProblemType::ServiceUnavailable,
+                            detail: "User principal storage is unavailable.",
+                        },
+                    })?;
+                if !exists {
+                    state
+                        .audit_sink
+                        .emit(app_user_jit_audit_event(&principal, tenant_id))
+                        .await
+                        .map_err(|_| BearerValidationFailure {
+                            status: StatusCode::SERVICE_UNAVAILABLE,
+                            problem_type: ProblemType::ServiceUnavailable,
+                            detail: "User lifecycle audit is unavailable.",
+                        })?;
+                    state.user_jit_limiter.record();
+                }
+                Some(principal)
+            } else {
+                None
+            };
             Ok(ValidatedBearerIdentity {
                 principal: AuthPrincipal::OAuthClient {
                     client_id: if state.auth_mode.external_oidc() {
@@ -10557,6 +10927,33 @@ async fn validate_bearer_identity(
         #[cfg(not(feature = "hosted-auth"))]
         Err(BearerValidationFailure::unauthorized())
     }
+}
+
+#[cfg(feature = "hosted-auth")]
+fn app_user_jit_audit_event(principal: &RequestPrincipal, tenant_id: Uuid) -> AuditEvent {
+    let user_id = principal
+        .user_id
+        .map(|id| id.to_string())
+        .unwrap_or_default();
+    AuditEvent::new("identity", "user.jit_provisioned", AuditOutcome::Success)
+        .with_tenant(tenant_id.to_string())
+        .with_principal(user_id.clone())
+        .with_resource("app_user", user_id)
+        .with_failure_policy(AuditFailurePolicy::FailClosed)
+        .with_attr("iss", principal.iss.clone())
+        .with_attr("sub", principal.sub.clone())
+        .with_attr(
+            "app_user_id",
+            serde_json::json!(principal.user_id.map(|id| id.to_string())),
+        )
+        .with_attr("kind", principal.kind_label())
+        .with_attr("credential_class", principal.credential_class.as_str())
+        .with_attr("azp", serde_json::json!(principal.azp.clone()))
+        .with_attr(
+            "pat_id",
+            serde_json::json!(principal.pat_id.map(|id| id.to_string())),
+        )
+        .with_attr("jti", serde_json::json!(principal.jti.clone()))
 }
 
 async fn validate_event_stream_query_principal(
@@ -12596,6 +12993,18 @@ fn apply_claim_policy_audit_context(
         input.context.environment.insert(
             "azp_present".to_string(),
             serde_json::json!(principal.azp.is_some()),
+        );
+        input.context.environment.insert(
+            "app_user_id_present".to_string(),
+            serde_json::json!(principal.user_id.is_some()),
+        );
+        input.context.environment.insert(
+            "pat_id_present".to_string(),
+            serde_json::json!(principal.pat_id.is_some()),
+        );
+        input.context.environment.insert(
+            "jti_present".to_string(),
+            serde_json::json!(principal.jti.is_some()),
         );
     }
     input
@@ -14770,7 +15179,7 @@ async fn source_upsert_notes(
     let repository = matric_db::PgSourceUpsertRepository::new(state.db.pool.clone());
     let response = with_request_schema(
         &state,
-        scope.map(|Extension(scope)| scope),
+        scope.clone().map(|Extension(scope)| scope),
         archive_ctx.schema.clone(),
         move |connection| Box::pin(async move { repository.upsert_tx(connection, request).await }),
     )
@@ -14961,6 +15370,7 @@ async fn create_note(
     _auth: Auth,
     State(state): State<AppState>,
     scope: Option<Extension<TenantRequestScope>>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<CreateNoteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -14968,7 +15378,15 @@ async fn create_note(
         let scope = scope.ok_or_else(|| {
             ApiError::ServiceUnavailable("Hosted request transaction is unavailable".to_string())
         })?;
-        return create_note_hosted(&state, scope.0, archive_ctx, body).await;
+        return create_note_hosted(
+            &state,
+            scope.0,
+            archive_ctx,
+            body,
+            #[cfg(feature = "hosted-auth")]
+            principal.map(|Extension(principal)| principal),
+        )
+        .await;
     }
 
     // Validate revision_mode (returns 400 for invalid values)
@@ -15046,6 +15464,20 @@ async fn create_note(
         move |connection| Box::pin(async move { notes.insert_tx(connection, req_clone).await }),
     )
     .await?;
+    #[cfg(feature = "hosted-auth")]
+    if let Some(user_id) = principal
+        .as_ref()
+        .and_then(|Extension(principal)| principal.user_id)
+    {
+        sqlx::query(
+            "UPDATE note SET created_by_user_id = $2, updated_by_user_id = $2 WHERE id = $1",
+        )
+        .bind(note_id)
+        .bind(user_id)
+        .execute(&state.db.pool)
+        .await
+        .map_err(matric_core::Error::Database)?;
+    }
 
     // Determine schema for background jobs (Issue #109)
     let schema_for_jobs = if archive_ctx.schema != "public" {
@@ -15106,6 +15538,12 @@ async fn create_note(
         body.chunk_max_chars,
         body.chunk_overlap,
         body.pipeline.as_deref(),
+        #[cfg(feature = "hosted-auth")]
+        principal
+            .as_ref()
+            .and_then(|Extension(principal)| principal.user_id),
+        #[cfg(not(feature = "hosted-auth"))]
+        None,
     )
     .await;
 
@@ -15141,6 +15579,7 @@ async fn create_note_hosted(
     scope: TenantRequestScope,
     archive_ctx: ArchiveContext,
     body: CreateNoteBody,
+    #[cfg(feature = "hosted-auth")] principal: Option<RequestPrincipal>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let mut revision_mode = parse_revision_mode(body.revision_mode.as_deref())?;
     validate_chunking_params(body.chunk_max_chars, body.chunk_overlap)
@@ -15153,6 +15592,8 @@ async fn create_note_hosted(
     let tags = matric_db::PgTagRepository::new(state.db.pool.clone());
     let schema = archive_ctx.schema.clone();
     let tenant_id = scope.tenant().tenant_id();
+    #[cfg(feature = "hosted-auth")]
+    let initiated_by_user_id = principal.as_ref().and_then(|principal| principal.user_id);
     let (note_id, tags_for_event, queued) = scope
         .with_schema_connection(schema.clone(), move |connection| {
             Box::pin(async move {
@@ -15207,6 +15648,16 @@ async fn create_note_hosted(
                     document_type_id: resolved_doc_type_id,
                     title: body.title,
                 }).await?;
+                #[cfg(feature = "hosted-auth")]
+                if let Some(user_id) = initiated_by_user_id {
+                    sqlx::query(
+                        "UPDATE note SET created_by_user_id = $2, updated_by_user_id = $2 WHERE id = $1",
+                    )
+                    .bind(note_id)
+                    .bind(user_id)
+                    .execute(&mut *connection)
+                    .await?;
+                }
                 // SKOS repositories accept Transaction; this is a savepoint
                 // within the already tenant-bound request transaction.
                 let mut tag_tx = sqlx::Connection::begin(&mut *connection).await?;
@@ -15227,13 +15678,23 @@ async fn create_note_hosted(
                     // A new note has no existing jobs. Persist queue rows atomically
                     // with it, carrying trusted tenant/archive routing for workers.
                     sqlx::query(
-                        "INSERT INTO job_queue (id, note_id, job_type, status, priority, payload, cost_tier)
-                         VALUES ($1, $2, $3::job_type, 'pending'::job_status, $4, $5, $6)",
+                        "INSERT INTO job_queue (id, note_id, job_type, status, priority, payload, cost_tier, initiated_by_user_id)
+                         VALUES ($1, $2, $3::job_type, 'pending'::job_status, $4, $5, $6, $7)",
                     )
                     .bind(job_id).bind(note_id).bind(job_type.as_str())
                     .bind(job_type.default_priority())
                     .bind(matric_core::telemetry::attach_trace_to_job_payload(Some(payload)))
                     .bind(job_type.default_cost_tier())
+                    .bind({
+                        #[cfg(feature = "hosted-auth")]
+                        {
+                            initiated_by_user_id
+                        }
+                        #[cfg(not(feature = "hosted-auth"))]
+                        {
+                            Option::<Uuid>::None
+                        }
+                    })
                     .execute(&mut *connection).await?;
                     queued.push((job_id, job_type));
                 }
@@ -15593,6 +16054,7 @@ async fn bulk_create_notes(
             body.notes[i].chunk_max_chars,
             body.notes[i].chunk_overlap,
             None,
+            None,
         )
         .await;
     }
@@ -15709,10 +16171,17 @@ async fn update_note(
     _auth: Auth,
     State(state): State<AppState>,
     scope: Option<Extension<TenantRequestScope>>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateNoteBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    #[cfg(feature = "hosted-auth")]
+    let updated_by_user_id = principal
+        .as_ref()
+        .and_then(|Extension(principal)| principal.user_id);
+    #[cfg(not(feature = "hosted-auth"))]
+    let updated_by_user_id: Option<Uuid> = None;
     // Validate chunking parameters (#572)
     validate_chunking_params(body.chunk_max_chars, body.chunk_overlap)
         .map_err(ApiError::BadRequest)?;
@@ -15824,8 +16293,29 @@ async fn update_note(
             body.chunk_max_chars,
             body.chunk_overlap,
             None,
+            updated_by_user_id,
         )
         .await;
+    }
+
+    if let Some(user_id) = updated_by_user_id {
+        with_request_schema(
+            &state,
+            request_scope.clone(),
+            archive_ctx.schema.clone(),
+            move |connection| {
+                Box::pin(async move {
+                    sqlx::query("UPDATE note SET updated_by_user_id = $2 WHERE id = $1")
+                        .bind(id)
+                        .bind(user_id)
+                        .execute(connection)
+                        .await
+                        .map(|_| ())
+                        .map_err(matric_core::Error::Database)
+                })
+            },
+        )
+        .await?;
     }
 
     // Fetch and return the updated note
@@ -15872,15 +16362,34 @@ async fn delete_note(
     _auth: Auth,
     State(state): State<AppState>,
     scope: Option<Extension<TenantRequestScope>>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    #[cfg(feature = "hosted-auth")]
+    let updated_by_user_id = principal
+        .as_ref()
+        .and_then(|Extension(principal)| principal.user_id);
+    #[cfg(not(feature = "hosted-auth"))]
+    let updated_by_user_id: Option<Uuid> = None;
     let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
     with_request_schema(
         &state,
         scope.as_ref().map(|Extension(scope)| scope.clone()),
         archive_ctx.schema.clone(),
-        move |connection| Box::pin(async move { notes.soft_delete_tx(connection, id).await }),
+        move |connection| {
+            Box::pin(async move {
+                if let Some(user_id) = updated_by_user_id {
+                    sqlx::query("UPDATE note SET updated_by_user_id = $2 WHERE id = $1")
+                        .bind(id)
+                        .bind(user_id)
+                        .execute(&mut *connection)
+                        .await
+                        .map_err(matric_core::Error::Database)?;
+                }
+                notes.soft_delete_tx(connection, id).await
+            })
+        },
     )
     .await?;
 
@@ -16136,6 +16645,7 @@ async fn purge_note(
     _auth: Auth,
     State(state): State<AppState>,
     scope: Option<Extension<TenantRequestScope>>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -16161,11 +16671,17 @@ async fn purge_note(
     let job_id = state
         .db
         .jobs
-        .queue(
+        .queue_with_initiator(
             Some(id),
             JobType::PurgeNote,
             JobType::PurgeNote.default_priority(),
             None,
+            None,
+            #[cfg(feature = "hosted-auth")]
+            principal
+                .as_ref()
+                .and_then(|Extension(principal)| principal.user_id),
+            #[cfg(not(feature = "hosted-auth"))]
             None,
         )
         .await?;
@@ -16203,10 +16719,17 @@ struct UpdateStatusBody {
 async fn update_note_status(
     State(state): State<AppState>,
     scope: Option<Extension<TenantRequestScope>>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateStatusBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    #[cfg(feature = "hosted-auth")]
+    let updated_by_user_id = principal
+        .as_ref()
+        .and_then(|Extension(principal)| principal.user_id);
+    #[cfg(not(feature = "hosted-auth"))]
+    let updated_by_user_id: Option<Uuid> = None;
     let archived_value = body.archived;
     let req = UpdateNoteStatusRequest {
         starred: body.starred,
@@ -16216,13 +16739,32 @@ async fn update_note_status(
     let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
     with_request_schema(
         &state,
-        scope.map(|Extension(scope)| scope),
+        scope.clone().map(|Extension(scope)| scope),
         archive_ctx.schema.clone(),
         move |connection| {
             Box::pin(async move { notes.update_status_tx(connection, id, req).await })
         },
     )
     .await?;
+    if let Some(user_id) = updated_by_user_id {
+        with_request_schema(
+            &state,
+            scope.map(|Extension(scope)| scope),
+            archive_ctx.schema.clone(),
+            move |connection| {
+                Box::pin(async move {
+                    sqlx::query("UPDATE note SET updated_by_user_id = $2 WHERE id = $1")
+                        .bind(id)
+                        .bind(user_id)
+                        .execute(connection)
+                        .await
+                        .map(|_| ())
+                        .map_err(matric_core::Error::Database)
+                })
+            },
+        )
+        .await?;
+    }
 
     // Emit archive/restore events (Issue #453, scoped via #452)
     let evt_ctx = event_context_for(&archive_ctx);
@@ -16269,10 +16811,17 @@ impl fmt::Debug for RestoreNoteQuery {
 async fn restore_note(
     State(state): State<AppState>,
     scope: Option<Extension<TenantRequestScope>>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Query(query): Query<RestoreNoteQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
+    #[cfg(feature = "hosted-auth")]
+    let initiated_by_user_id = principal
+        .as_ref()
+        .and_then(|Extension(principal)| principal.user_id);
+    #[cfg(not(feature = "hosted-auth"))]
+    let initiated_by_user_id = None;
     let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
     with_request_schema(
         &state,
@@ -16312,6 +16861,7 @@ async fn restore_note(
         &state.event_bus,
         schema_for_jobs,
         None,
+        initiated_by_user_id,
     )
     .await;
 
@@ -16376,10 +16926,17 @@ impl fmt::Debug for ReprocessNoteBody {
 async fn reprocess_note(
     State(state): State<AppState>,
     scope: Option<Extension<TenantRequestScope>>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     body: Option<Json<ReprocessNoteBody>>,
 ) -> Result<impl IntoResponse, ApiError> {
+    #[cfg(feature = "hosted-auth")]
+    let initiated_by_user_id = principal
+        .as_ref()
+        .and_then(|Extension(principal)| principal.user_id);
+    #[cfg(not(feature = "hosted-auth"))]
+    let initiated_by_user_id = None;
     // Verify note exists
     let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
     let _ = with_request_schema(
@@ -16436,12 +16993,13 @@ async fn reprocess_note(
         if let Ok(Some(job_id)) = state
             .db
             .jobs
-            .queue_deduplicated(
+            .queue_deduplicated_with_initiator(
                 Some(id),
                 JobType::AiRevision,
                 JobType::AiRevision.default_priority(),
                 Some(payload),
                 None,
+                initiated_by_user_id,
             )
             .await
         {
@@ -16484,12 +17042,13 @@ async fn reprocess_note(
             if let Ok(Some(job_id)) = state
                 .db
                 .jobs
-                .queue_deduplicated(
+                .queue_deduplicated_with_initiator(
                     Some(id),
                     *job_type,
                     job_type.default_priority(),
                     payload,
                     job_type.default_cost_tier(),
+                    initiated_by_user_id,
                 )
                 .await
             {
@@ -16572,9 +17131,16 @@ impl fmt::Debug for BulkReprocessBody {
 async fn bulk_reprocess_notes(
     State(state): State<AppState>,
     scope: Option<Extension<TenantRequestScope>>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     body: Option<Json<BulkReprocessBody>>,
 ) -> Result<impl IntoResponse, ApiError> {
+    #[cfg(feature = "hosted-auth")]
+    let initiated_by_user_id = principal
+        .as_ref()
+        .and_then(|Extension(principal)| principal.user_id);
+    #[cfg(not(feature = "hosted-auth"))]
+    let initiated_by_user_id = None;
     let body = body.map(|b| b.0);
     let limit = body
         .as_ref()
@@ -16752,12 +17318,13 @@ async fn bulk_reprocess_notes(
     // Queue all pipeline jobs in parallel
     let results = futures::future::join_all(job_specs.iter().map(
         |(note_id, job_type, priority, payload, cost_tier)| {
-            state.db.jobs.queue_deduplicated(
+            state.db.jobs.queue_deduplicated_with_initiator(
                 Some(*note_id),
                 *job_type,
                 *priority,
                 payload.clone(),
                 *cost_tier,
+                initiated_by_user_id,
             )
         },
     ))
@@ -16797,6 +17364,7 @@ async fn bulk_reprocess_notes(
                             &state.event_bus,
                             Some(&archive_ctx.schema),
                             None,
+                            initiated_by_user_id,
                         )
                         .await;
                         jobs_queued += 1;
@@ -16815,12 +17383,13 @@ async fn bulk_reprocess_notes(
         if let Ok(Some(job_id)) = state
             .db
             .jobs
-            .queue_deduplicated(
+            .queue_deduplicated_with_initiator(
                 None,
                 JobType::GraphMaintenance,
                 JobType::GraphMaintenance.default_priority(),
                 Some(maint_payload),
                 None,
+                initiated_by_user_id,
             )
             .await
         {
@@ -19377,9 +19946,16 @@ struct CoarseCommunityBody {
 )]
 async fn trigger_graph_maintenance(
     State(state): State<AppState>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     body: Option<Json<GraphMaintenanceBody>>,
 ) -> Result<impl IntoResponse, ApiError> {
+    #[cfg(feature = "hosted-auth")]
+    let initiated_by_user_id = principal
+        .as_ref()
+        .and_then(|Extension(principal)| principal.user_id);
+    #[cfg(not(feature = "hosted-auth"))]
+    let initiated_by_user_id = None;
     let body = body.map(|b| b.0);
     let mut payload = serde_json::json!({});
     if let Some(ref b) = body {
@@ -19396,12 +19972,13 @@ async fn trigger_graph_maintenance(
     let maybe_id = state
         .db
         .jobs
-        .queue_deduplicated(
+        .queue_deduplicated_with_initiator(
             None,
             JobType::GraphMaintenance,
             priority,
             Some(payload),
             None,
+            initiated_by_user_id,
         )
         .await?;
 
@@ -20089,6 +20666,7 @@ async fn instantiate_template(
         revision_mode,
         &state.event_bus,
         schema_for_jobs,
+        None,
         None,
     )
     .await;
@@ -23006,10 +23584,17 @@ async fn list_embedding_set_members(
     responses((status = 201, description = "Success")))]
 async fn add_embedding_set_members(
     State(state): State<AppState>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(slug_or_id): Path<String>,
     Json(body): Json<AddMembersRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    #[cfg(feature = "hosted-auth")]
+    let initiated_by_user_id = principal
+        .as_ref()
+        .and_then(|Extension(principal)| principal.user_id);
+    #[cfg(not(feature = "hosted-auth"))]
+    let initiated_by_user_id = None;
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
     // Resolve to actual slug first
@@ -23037,12 +23622,13 @@ async fn add_embedding_set_members(
                 let _ = state
                     .db
                     .jobs
-                    .queue(
+                    .queue_with_initiator(
                         Some(*note_id),
                         matric_core::JobType::Embedding,
                         matric_core::JobType::Embedding.default_priority(),
                         Some(payload),
                         None,
+                        initiated_by_user_id,
                     )
                     .await;
             }
@@ -23094,9 +23680,16 @@ async fn remove_embedding_set_member(
     responses((status = 200, description = "Success")))]
 async fn refresh_embedding_set(
     State(state): State<AppState>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(slug_or_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
+    #[cfg(feature = "hosted-auth")]
+    let initiated_by_user_id = principal
+        .as_ref()
+        .and_then(|Extension(principal)| principal.user_id);
+    #[cfg(not(feature = "hosted-auth"))]
+    let initiated_by_user_id = None;
     // First check the mode within the archive schema
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
@@ -23124,12 +23717,13 @@ async fn refresh_embedding_set(
         let job_id = state
             .db
             .jobs
-            .queue(
+            .queue_with_initiator(
                 None,
                 matric_core::JobType::RefreshEmbeddingSet,
                 matric_core::JobType::RefreshEmbeddingSet.default_priority(),
                 Some(serde_json::json!({ "set_id": set.id.to_string() })),
                 None,
+                initiated_by_user_id,
             )
             .await?;
         return Ok(Json(serde_json::json!({
@@ -23153,9 +23747,16 @@ async fn refresh_embedding_set(
     responses((status = 200, description = "Success")))]
 async fn build_embedding_set_index(
     State(state): State<AppState>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(slug_or_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
+    #[cfg(feature = "hosted-auth")]
+    let initiated_by_user_id = principal
+        .as_ref()
+        .and_then(|Extension(principal)| principal.user_id);
+    #[cfg(not(feature = "hosted-auth"))]
+    let initiated_by_user_id = None;
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
     let set = if let Ok(id) = Uuid::parse_str(&slug_or_id) {
@@ -23172,8 +23773,13 @@ async fn build_embedding_set_index(
     let job_id = ctx
         .execute(move |tx| {
             Box::pin(async move {
-                matric_db::vector_index::clear_defer_and_enqueue_for_set_tx(tx, &schema, set_id)
-                    .await
+                matric_db::vector_index::clear_defer_and_enqueue_for_set_tx_with_initiator(
+                    tx,
+                    &schema,
+                    set_id,
+                    initiated_by_user_id,
+                )
+                .await
             })
         })
         .await?;
@@ -23243,9 +23849,16 @@ async fn create_embedding_config(
     responses((status = 204, description = "Success")))]
 async fn update_embedding_config(
     State(state): State<AppState>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Path(id): Path<Uuid>,
     Json(body): Json<matric_core::UpdateEmbeddingConfigRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    #[cfg(feature = "hosted-auth")]
+    let initiated_by_user_id = principal
+        .as_ref()
+        .and_then(|Extension(principal)| principal.user_id);
+    #[cfg(not(feature = "hosted-auth"))]
+    let initiated_by_user_id = None;
     let composition_changed = body.document_composition.is_some();
     let config = state.db.embedding_sets.update_config(id, body).await?;
 
@@ -23266,12 +23879,13 @@ async fn update_embedding_config(
                 let _ = state
                     .db
                     .jobs
-                    .queue(
+                    .queue_with_initiator(
                         None,
                         matric_core::JobType::RefreshEmbeddingSet,
                         matric_core::JobType::RefreshEmbeddingSet.default_priority(),
                         Some(serde_json::json!({ "set_id": set_id.to_string(), "reason": "composition_changed" })),
                         None,
+                        initiated_by_user_id,
                     )
                     .await;
             }
@@ -23546,8 +24160,15 @@ fn looks_sensitive_job_string(value: &str) -> bool {
     responses((status = 201, description = "Success")))]
 async fn create_job(
     State(state): State<AppState>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Json(body): Json<CreateJobBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    #[cfg(feature = "hosted-auth")]
+    let initiated_by_user_id = principal
+        .as_ref()
+        .and_then(|Extension(principal)| principal.user_id);
+    #[cfg(not(feature = "hosted-auth"))]
+    let initiated_by_user_id = None;
     let job_type = match body.job_type.as_str() {
         "ai_revision" => JobType::AiRevision,
         "embedding" => JobType::Embedding,
@@ -23595,7 +24216,14 @@ async fn create_job(
         let maybe_id = state
             .db
             .jobs
-            .queue_deduplicated(body.note_id, job_type, priority, body.payload, None)
+            .queue_deduplicated_with_initiator(
+                body.note_id,
+                job_type,
+                priority,
+                body.payload,
+                None,
+                initiated_by_user_id,
+            )
             .await?;
 
         match maybe_id {
@@ -23625,7 +24253,14 @@ async fn create_job(
         let job_id = state
             .db
             .jobs
-            .queue(body.note_id, job_type, priority, body.payload, None)
+            .queue_with_initiator(
+                body.note_id,
+                job_type,
+                priority,
+                body.payload,
+                None,
+                initiated_by_user_id,
+            )
             .await?;
 
         state.event_bus.emit(ServerEvent::JobQueued {
@@ -25953,6 +26588,7 @@ async fn backup_import(
                             RevisionMode::None,
                             &state.event_bus,
                             schema_for_jobs.as_deref(),
+                            None,
                             None,
                         )
                         .await;
@@ -32940,8 +33576,15 @@ struct ShardImportCounts {
 async fn knowledge_shard_import(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Json(body): Json<ShardImportBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    #[cfg(feature = "hosted-auth")]
+    let initiated_by_user_id = principal
+        .as_ref()
+        .and_then(|Extension(principal)| principal.user_id);
+    #[cfg(not(feature = "hosted-auth"))]
+    let initiated_by_user_id = None;
     let max_compressed_bytes = state.max_upload_size.min(SHARD_MAX_COMPRESSED_BYTES);
     if body.shard_base64.len() > shard_base64_size_limit(max_compressed_bytes) {
         return Err(shard_validation_failed(
@@ -32987,6 +33630,7 @@ async fn knowledge_shard_import(
         signature_policy,
         &archive_ctx.schema,
         false,
+        initiated_by_user_id,
     )
     .await?;
     Ok(Json(result))
@@ -33039,11 +33683,18 @@ impl fmt::Debug for ShardUploadQuery {
 async fn knowledge_shard_import_upload(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Query(query): Query<ShardUploadQuery>,
     mut multipart: axum::extract::Multipart,
 ) -> Result<impl IntoResponse, ApiError> {
     use tokio::io::AsyncWriteExt;
 
+    #[cfg(feature = "hosted-auth")]
+    let initiated_by_user_id = principal
+        .as_ref()
+        .and_then(|Extension(principal)| principal.user_id);
+    #[cfg(not(feature = "hosted-auth"))]
+    let initiated_by_user_id = None;
     let mut shard_upload: Option<(tempfile::NamedTempFile, usize)> = None;
     let max_compressed_bytes = state.max_upload_size.min(SHARD_MAX_COMPRESSED_BYTES);
 
@@ -33112,6 +33763,7 @@ async fn knowledge_shard_import_upload(
         signature_policy,
         &archive_ctx.schema,
         false,
+        initiated_by_user_id,
     )
     .await?;
     Ok(Json(result))
@@ -33377,15 +34029,23 @@ async fn list_all_attachments(
 #[utoipa::path(post, path = "/api/v1/notes/{id}/attachments", tag = "Attachments",
     params(("id" = Uuid, Path, description = "Note ID")),
     responses((status = 201, description = "Created")))]
+#[allow(clippy::too_many_arguments)]
 async fn upload_attachment(
     State(state): State<AppState>,
     auth: Auth,
     headers: HeaderMap,
     Extension(archive_ctx): Extension<ArchiveContext>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Path(id): Path<Uuid>,
     Query(att_query): Query<UploadAttachmentQuery>,
     Json(body): Json<UploadAttachmentBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    #[cfg(feature = "hosted-auth")]
+    let initiated_by_user_id = principal
+        .as_ref()
+        .and_then(|Extension(principal)| principal.user_id);
+    #[cfg(not(feature = "hosted-auth"))]
+    let initiated_by_user_id = None;
     let file_storage = state
         .db
         .file_storage
@@ -33532,6 +34192,7 @@ async fn upload_attachment(
                 vision_mode,
                 media_optimize,
             ),
+            initiated_by_user_id,
         )
         .await?;
     } else {
@@ -33545,6 +34206,7 @@ async fn upload_attachment(
             &state.event_bus,
             Some(&archive_ctx.schema),
             vision_mode,
+            initiated_by_user_id,
         )
         .await;
         queue_exif_extraction_job(
@@ -33554,6 +34216,7 @@ async fn upload_attachment(
             &content_type,
             &state.event_bus,
             Some(&archive_ctx.schema),
+            initiated_by_user_id,
         )
         .await;
         if media_optimize {
@@ -33564,6 +34227,7 @@ async fn upload_attachment(
                 &content_type,
                 &state.event_bus,
                 Some(&archive_ctx.schema),
+                initiated_by_user_id,
             )
             .await;
         }
@@ -33580,15 +34244,23 @@ async fn upload_attachment(
 #[utoipa::path(post, path = "/api/v1/notes/{id}/attachments/upload", tag = "Attachments",
     params(("id" = Uuid, Path, description = "Note ID")),
     responses((status = 201, description = "Created")))]
+#[allow(clippy::too_many_arguments)]
 async fn upload_attachment_multipart(
     State(state): State<AppState>,
     auth: Auth,
     headers: HeaderMap,
     Extension(archive_ctx): Extension<ArchiveContext>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Path(id): Path<Uuid>,
     Query(att_query): Query<UploadAttachmentQuery>,
     mut multipart: axum::extract::Multipart,
 ) -> Result<impl IntoResponse, ApiError> {
+    #[cfg(feature = "hosted-auth")]
+    let initiated_by_user_id = principal
+        .as_ref()
+        .and_then(|Extension(principal)| principal.user_id);
+    #[cfg(not(feature = "hosted-auth"))]
+    let initiated_by_user_id = None;
     let file_storage = state
         .db
         .file_storage
@@ -33764,6 +34436,7 @@ async fn upload_attachment_multipart(
                 att_query.vision_mode.as_deref(),
                 do_media_optimize,
             ),
+            initiated_by_user_id,
         )
         .await?;
     } else {
@@ -33777,6 +34450,7 @@ async fn upload_attachment_multipart(
             &state.event_bus,
             Some(&archive_ctx.schema),
             att_query.vision_mode.as_deref(),
+            initiated_by_user_id,
         )
         .await;
         queue_exif_extraction_job(
@@ -33786,6 +34460,7 @@ async fn upload_attachment_multipart(
             &content_type,
             &state.event_bus,
             Some(&archive_ctx.schema),
+            initiated_by_user_id,
         )
         .await;
         if do_media_optimize {
@@ -33796,6 +34471,7 @@ async fn upload_attachment_multipart(
                 &content_type,
                 &state.event_bus,
                 Some(&archive_ctx.schema),
+                initiated_by_user_id,
             )
             .await;
         }
@@ -35233,10 +35909,17 @@ async fn tus_head_upload(
 async fn tus_patch_upload(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Path((note_id, upload_id)): Path<(Uuid, Uuid)>,
     headers: axum::http::HeaderMap,
     body: Body,
 ) -> Result<impl IntoResponse, ApiError> {
+    #[cfg(feature = "hosted-auth")]
+    let initiated_by_user_id = principal
+        .as_ref()
+        .and_then(|Extension(principal)| principal.user_id);
+    #[cfg(not(feature = "hosted-auth"))]
+    let initiated_by_user_id = None;
     // Validate Tus-Resumable
     let tus_version = headers
         .get("Tus-Resumable")
@@ -35495,6 +36178,7 @@ async fn tus_patch_upload(
                     tus_vision_mode.as_deref(),
                     media_optimize,
                 ),
+                initiated_by_user_id,
             )
             .await?;
         } else {
@@ -35508,6 +36192,7 @@ async fn tus_patch_upload(
                 &state.event_bus,
                 Some(&archive_ctx.schema),
                 tus_vision_mode.as_deref(),
+                initiated_by_user_id,
             )
             .await;
             queue_exif_extraction_job(
@@ -35517,6 +36202,7 @@ async fn tus_patch_upload(
                 &content_type,
                 &state.event_bus,
                 Some(&archive_ctx.schema),
+                initiated_by_user_id,
             )
             .await;
             if media_optimize {
@@ -35527,6 +36213,7 @@ async fn tus_patch_upload(
                     &content_type,
                     &state.event_bus,
                     Some(&archive_ctx.schema),
+                    initiated_by_user_id,
                 )
                 .await;
             }
@@ -36682,10 +37369,17 @@ fn swap_wipes_existing_data(strategy: Option<&str>) -> Result<bool, ApiError> {
 async fn swap_backup(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Json(req): Json<SwapBackupRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
     use std::fs::File;
 
+    #[cfg(feature = "hosted-auth")]
+    let initiated_by_user_id = principal
+        .as_ref()
+        .and_then(|Extension(principal)| principal.user_id);
+    #[cfg(not(feature = "hosted-auth"))]
+    let initiated_by_user_id = None;
     let dry_run = req.dry_run.unwrap_or(false);
     let wipe_before_apply = swap_wipes_existing_data(req.strategy.as_deref())?;
 
@@ -36743,6 +37437,7 @@ async fn swap_backup(
         None,
         &archive_ctx.schema,
         wipe_before_apply,
+        initiated_by_user_id,
     )
     .await?;
 
@@ -41918,10 +42613,12 @@ async fn knowledge_shard_import_internal_with_wipe(
         None,
         schema,
         wipe_before_apply,
+        None,
     )
     .await
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn knowledge_shard_import_internal_from_reader_with_wipe<R>(
     state: &AppState,
     shard_reader: R,
@@ -41930,6 +42627,7 @@ async fn knowledge_shard_import_internal_from_reader_with_wipe<R>(
     signature_policy: Option<shard_signature::ShardSignaturePolicy>,
     schema: &str,
     wipe_before_apply: bool,
+    initiated_by_user_id: Option<Uuid>,
 ) -> Result<ShardImportResponse, ApiError>
 where
     R: std::io::Read + Send,
@@ -42157,6 +42855,7 @@ where
             attachment_id,
             schema_for_jobs.as_deref(),
             Vec::new(),
+            initiated_by_user_id,
         )
         .await?;
     }
@@ -42172,6 +42871,7 @@ where
             &state.event_bus,
             schema_for_jobs.as_deref(),
             None,
+            initiated_by_user_id,
         )
         .await;
     }
@@ -48887,6 +49587,7 @@ mod tests {
             started_at: Some(Utc::now()),
             completed_at: Some(Utc::now()),
             cost_tier: Some(1),
+            initiated_by_user_id: None,
         };
 
         let response = JobResponse::from(job);
@@ -55638,6 +56339,7 @@ not-json
                 None,
                 &destination.schema_name,
                 false,
+                None,
             )
             .await
             .expect("verified sidecar import must be repeatable");
@@ -57210,6 +57912,7 @@ not-json
             Some(shard_signature::ShardSignaturePolicy::Require),
             &destination.schema_name,
             false,
+            None,
         )
         .await
         .expect("signed full-v1 export must pass explicit required-signature dry-run");
@@ -57248,6 +57951,7 @@ not-json
                 Some(shard_signature::ShardSignaturePolicy::Require),
                 &destination.schema_name,
                 false,
+                None,
             )
             .await;
             assert!(
@@ -65964,6 +66668,7 @@ not-json
             None,
             &target.schema_name,
             true,
+            None,
         )
         .await
         .expect("on-disk swap with production regeneration option must succeed");
@@ -71717,6 +72422,9 @@ not-json
             authorization_policy: Arc::new(AllowAllPolicy),
             usage_meter: Arc::new(NoOpMeter),
             audit_sink: Arc::new(TracingSink),
+            app_users: PgAppUserRepository::new(db.pool.clone()),
+            #[cfg(feature = "hosted-auth")]
+            user_jit_limiter: Arc::new(UserJitLimiter::from_env()),
             key_provider: None,
             key_health: None,
             oauth_registration: oauth_registration::OAuthRegistrationMode::Enabled,
@@ -71931,6 +72639,11 @@ not-json
         let router = vector_import_router(state);
         let slug = format!("api-vector-import-{}", Uuid::new_v4().simple());
         let internal_slug = format!("{slug}-internal");
+        let run_prefix = Uuid::new_v4().simple().to_string();
+        let run1_id = format!("run-{run_prefix}-1");
+        let run2_id = format!("run-{run_prefix}-2");
+        let out_of_order_id = format!("run-{run_prefix}-out-of-order");
+        let checksum_mismatch_id = format!("run-{run_prefix}-checksum-mismatch");
         let (_set_id, space_id) = vector_import_set_with_source(&db, &slug, "external").await;
         vector_import_set_with_source(&db, &internal_slug, "internal").await;
 
@@ -71941,7 +72654,7 @@ not-json
                 .expect("job count before vector import");
 
         let run1_body = vector_import_upload_body(
-            "run-1",
+            &run1_id,
             None,
             &space_id,
             (0..1000)
@@ -71992,7 +72705,7 @@ not-json
         assert_eq!(replay["status"], "already_applied");
 
         let out_of_order = vector_import_upload_body(
-            "run-out-of-order",
+            &out_of_order_id,
             Some("missing"),
             &space_id,
             Vec::new(),
@@ -72004,8 +72717,8 @@ not-json
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
         let rejected = vector_import_upload_body(
-            "run-2",
-            Some("run-1"),
+            &run2_id,
+            Some(&run1_id),
             &space_id,
             vec![
                 vector_import_profile(
@@ -72043,8 +72756,8 @@ not-json
             .contains("dims"));
 
         let checksum_mismatch = vector_import_upload_body(
-            "run-checksum-mismatch",
-            Some("run-2"),
+            &checksum_mismatch_id,
+            Some(&run2_id),
             &space_id,
             vec![vector_import_profile(
                 "checksum-row",
@@ -73080,6 +73793,20 @@ not-json
         assert!(err.to_string().contains("RUST_LOG"));
         assert!(!err.to_string().contains(invalid_filter));
         assert!(!err.to_string().contains("secret-shaped"));
+    }
+
+    #[test]
+    fn log_redaction_masks_tokens_jwts_and_email_addresses() {
+        let jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ1c2VyLW9uZSJ9.ZmFrZS1zaWduYXR1cmU";
+        let line =
+            format!("authorization=Bearer mm_secret-token principal={jwt} email=user@example.com");
+
+        let redacted = redact_log_output(&line);
+
+        assert!(!redacted.contains("mm_secret-token"));
+        assert!(!redacted.contains(jwt));
+        assert!(!redacted.contains("user@example.com"));
+        assert!(redacted.contains("[REDACTED]"));
     }
 
     #[test]
@@ -76807,6 +77534,7 @@ not-json
             started_at: None,
             completed_at: None,
             cost_tier: Some(1),
+            initiated_by_user_id: None,
         }
     }
 
@@ -77632,6 +78360,22 @@ not-json
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
+    #[cfg(feature = "hosted-auth")]
+    #[test]
+    fn user_jit_limiter_blocks_creation_burst_over_limit() {
+        let limiter = UserJitLimiter {
+            max_creations: 2,
+            window: std::time::Duration::from_secs(60),
+            creations: std::sync::Mutex::new(std::collections::VecDeque::new()),
+        };
+
+        assert!(limiter.check());
+        limiter.record();
+        assert!(limiter.check());
+        limiter.record();
+        assert!(!limiter.check());
+    }
+
     #[tokio::test]
     async fn role_policy_denies_non_admin_backup_restore() {
         let auth = Auth {
@@ -77823,7 +78567,7 @@ not-json
         let ws_connections = Arc::new(AtomicUsize::new(0));
 
         let state = AppState {
-            db,
+            db: db.clone(),
             search: Arc::new(matric_search::HybridSearchEngine::new(
                 Database::connect(&database_url).await.unwrap(),
             )),
@@ -77854,6 +78598,9 @@ not-json
             authorization_policy: Arc::new(AllowAllPolicy),
             usage_meter: Arc::new(NoOpMeter),
             audit_sink: Arc::new(TracingSink),
+            app_users: PgAppUserRepository::new(db.pool.clone()),
+            #[cfg(feature = "hosted-auth")]
+            user_jit_limiter: Arc::new(UserJitLimiter::from_env()),
             key_provider: None,
             key_health: None,
             oauth_registration: oauth_registration::OAuthRegistrationMode::Enabled,
@@ -79661,6 +80408,9 @@ not-json
             authorization_policy: Arc::new(AllowAllPolicy),
             usage_meter: Arc::new(NoOpMeter),
             audit_sink: Arc::new(TracingSink),
+            app_users: PgAppUserRepository::new(db.pool.clone()),
+            #[cfg(feature = "hosted-auth")]
+            user_jit_limiter: Arc::new(UserJitLimiter::from_env()),
             key_provider: None,
             key_health: None,
             oauth_registration: oauth_registration::OAuthRegistrationMode::Enabled,
@@ -79990,7 +80740,7 @@ not-json
         let ws_connections = Arc::new(AtomicUsize::new(0));
 
         let state = AppState {
-            db,
+            db: db.clone(),
             search: Arc::new(matric_search::HybridSearchEngine::new(Database::new(
                 pool.clone(),
             ))),
@@ -80021,6 +80771,9 @@ not-json
             authorization_policy: Arc::new(AllowAllPolicy),
             usage_meter: Arc::new(NoOpMeter),
             audit_sink: Arc::new(TracingSink),
+            app_users: PgAppUserRepository::new(db.pool.clone()),
+            #[cfg(feature = "hosted-auth")]
+            user_jit_limiter: Arc::new(UserJitLimiter::from_env()),
             key_provider: None,
             key_health: None,
             oauth_registration: oauth_registration::OAuthRegistrationMode::Enabled,

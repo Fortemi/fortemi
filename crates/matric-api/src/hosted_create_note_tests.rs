@@ -63,14 +63,17 @@ fn hosted_creation_no_revision_and_explicit_title_preserve_pipeline_selection() 
 }
 
 #[derive(Clone)]
-struct Identity(Uuid);
+struct Identity {
+    tenant_id: Uuid,
+    user_id: Uuid,
+}
 
 async fn inject_identity(
     Extension(identity): Extension<Identity>,
     mut request: axum::http::Request<Body>,
     next: axum::middleware::Next,
 ) -> Response {
-    let tenant = identity.0.to_string();
+    let tenant = identity.tenant_id.to_string();
     let scopes = if request.headers().contains_key("x-test-mcp-only") {
         "mcp"
     } else {
@@ -78,7 +81,7 @@ async fn inject_identity(
     };
     request
         .extensions_mut()
-        .insert(VerifiedRequestTenant::from_verified(identity.0).unwrap());
+        .insert(VerifiedRequestTenant::from_verified(identity.tenant_id).unwrap());
     request.extensions_mut().insert(TenantScopeRequired);
     let input = route_policy::authorization_input_for_request(
         request.method(),
@@ -96,6 +99,20 @@ async fn inject_identity(
     });
     #[cfg(feature = "hosted-auth")]
     {
+        request.extensions_mut().insert(RequestPrincipal {
+            user_id: Some(identity.user_id),
+            tenant_id: Some(identity.tenant_id),
+            iss: "https://issuer.example".to_string(),
+            sub: "hosted-create-regression".to_string(),
+            azp: Some("fortemi-web".to_string()),
+            scopes: scopes.split_whitespace().map(str::to_string).collect(),
+            credential_class: matric_api::external_oidc::CredentialClass::Oidc,
+            kind: fortemi_auth_core::PrincipalKind::Human,
+            pat_id: None,
+            jti: Some("hosted-create-regression-jti".to_string()),
+            email: Some("hosted-create@example.com".to_string()),
+            email_verified: true,
+        });
         let principal = request
             .extensions()
             .get::<Auth>()
@@ -104,10 +121,10 @@ async fn inject_identity(
             .clone();
         request.extensions_mut().insert(ValidatedBearerIdentity {
             principal,
-            tenant_id: Some(identity.0),
+            tenant_id: Some(identity.tenant_id),
             request_principal: None,
             canonical_context: Some(fortemi_auth_core::AuthContext {
-                tenant_id: identity.0,
+                tenant_id: identity.tenant_id,
                 principal_id: "hosted-create-regression".into(),
                 credential: fortemi_auth_core::Credential::Bearer(fortemi_auth_core::JwtToken {
                     jti: None,
@@ -160,9 +177,16 @@ fn hosted_router(state: AppState, pool: sqlx::PgPool, tenant: Uuid) -> Router {
             tenant_scope_middleware,
         ))
         .layer(axum::middleware::from_fn(inject_identity))
-        .layer(Extension(Identity(tenant)))
+        .layer(Extension(Identity {
+            tenant_id: tenant,
+            user_id: hosted_test_user_id(tenant),
+        }))
         .layer(Extension(ArchiveContext::default()))
         .with_state(state)
+}
+
+fn hosted_test_user_id(tenant: Uuid) -> Uuid {
+    Uuid::new_v5(&Uuid::NAMESPACE_OID, tenant.as_bytes())
 }
 
 fn http_request(
@@ -250,6 +274,19 @@ async fn hosted_creation_postgres_atomicity_and_tenant_isolation() {
         .execute(&admin)
         .await
         .unwrap();
+        sqlx::query(
+            "INSERT INTO app_user (
+                id, tenant_id, iss, sub, email, email_verified, display_name, groups,
+                current_scopes, kind, azp, status
+             ) VALUES ($1, $2, 'https://issuer.example', 'hosted-create-regression',
+                       'hosted-create@example.com', true, 'Hosted Create', '{}',
+                       ARRAY['read','write','mcp'], 'user', 'fortemi-web', 'active')",
+        )
+        .bind(hosted_test_user_id(tenant))
+        .bind(tenant)
+        .execute(&admin)
+        .await
+        .unwrap();
     }
     // A and B share the default notation; C deliberately has no scheme.
     for tenant in [a, b] {
@@ -287,6 +324,13 @@ async fn hosted_creation_postgres_atomicity_and_tenant_isolation() {
     let body = json_body(success).await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
     let note_id = Uuid::parse_str(body["id"].as_str().unwrap()).unwrap();
+    let created_by: Option<Uuid> =
+        sqlx::query_scalar("SELECT created_by_user_id FROM note WHERE id=$1")
+            .bind(note_id)
+            .fetch_one(&admin)
+            .await
+            .unwrap();
+    assert_eq!(created_by, Some(hosted_test_user_id(a)));
     let event = events.try_recv().expect("creation event after commit");
     assert_eq!(event.event_type, "note.created");
     assert_eq!(event.tenant_id.as_deref(), Some(a.to_string().as_str()));
@@ -479,15 +523,17 @@ async fn hosted_creation_postgres_atomicity_and_tenant_isolation() {
     let body = json_body(jobs_created).await;
     assert_eq!(status, StatusCode::CREATED, "{body}");
     let job_note = Uuid::parse_str(body["id"].as_str().unwrap()).unwrap();
-    let jobs: Vec<(Uuid, serde_json::Value)> =
-        sqlx::query_as("SELECT tenant_id,payload FROM job_queue WHERE note_id=$1")
-            .bind(job_note)
-            .fetch_all(&admin)
-            .await
-            .unwrap();
+    let jobs: Vec<(Uuid, Option<Uuid>, serde_json::Value)> = sqlx::query_as(
+        "SELECT tenant_id, initiated_by_user_id, payload FROM job_queue WHERE note_id=$1",
+    )
+    .bind(job_note)
+    .fetch_all(&admin)
+    .await
+    .unwrap();
     assert_eq!(jobs.len(), 5);
-    for (tenant, payload) in jobs {
+    for (tenant, initiated_by, payload) in jobs {
         assert_eq!(tenant, a);
+        assert_eq!(initiated_by, Some(hosted_test_user_id(a)));
         assert_eq!(payload["tenant_id"], a.to_string());
         assert_eq!(payload["schema"], "public");
     }

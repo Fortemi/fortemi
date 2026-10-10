@@ -1705,6 +1705,7 @@ mod tests {
             started_at: None,
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
 
         // Should not panic
@@ -1731,6 +1732,7 @@ mod tests {
             started_at: Some(Utc::now()),
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
 
         notifier.on_job_started(&job).await;
@@ -1756,6 +1758,7 @@ mod tests {
             started_at: Some(Utc::now()),
             completed_at: None,
             cost_tier: None,
+            initiated_by_user_id: None,
         };
 
         notifier.on_job_progress(&job).await;
@@ -1781,6 +1784,7 @@ mod tests {
             started_at: Some(Utc::now()),
             completed_at: Some(Utc::now()),
             cost_tier: None,
+            initiated_by_user_id: None,
         };
 
         notifier.on_job_completed(&job).await;
@@ -1806,6 +1810,7 @@ mod tests {
             started_at: Some(Utc::now()),
             completed_at: Some(Utc::now()),
             cost_tier: None,
+            initiated_by_user_id: None,
         };
 
         notifier.on_job_failed(&job).await;

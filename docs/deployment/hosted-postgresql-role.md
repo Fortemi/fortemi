@@ -47,10 +47,19 @@ tables that the runtime only reads:
 ```sql
 REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER
   ON TABLE public.tenant_registry FROM fortemi_runtime;
+REVOKE UPDATE, DELETE, TRUNCATE
+  ON TABLE public.audit_event FROM fortemi_runtime;
 ```
 
 Keep backup, restore, archive provisioning, and emergency maintenance on named
 administrative roles. Do not grant those capabilities to `fortemi_runtime`.
+
+## Encryption at rest
+
+Hosted and external-OIDC deployments store OIDC-derived `app_user` records and
+credential hashes in PostgreSQL. The database volume, WAL/archive storage, and
+all logical or physical backups that contain those tables must use encryption
+at rest managed by the deployment platform or a dedicated KMS.
 
 ## Application configuration
 

@@ -156,6 +156,15 @@ pub async fn clear_defer_and_enqueue_for_set_tx(
     schema: &str,
     set_id: Uuid,
 ) -> Result<Option<Uuid>> {
+    clear_defer_and_enqueue_for_set_tx_with_initiator(tx, schema, set_id, None).await
+}
+
+pub async fn clear_defer_and_enqueue_for_set_tx_with_initiator(
+    tx: &mut Transaction<'_, Postgres>,
+    schema: &str,
+    set_id: Uuid,
+    initiated_by_user_id: Option<Uuid>,
+) -> Result<Option<Uuid>> {
     validate_schema_name(schema)?;
     let update = format!(
         "UPDATE {schema}.embedding_set
@@ -172,7 +181,38 @@ pub async fn clear_defer_and_enqueue_for_set_tx(
     let Some(config_id) = config_id else {
         return Ok(None);
     };
-    enqueue_build_for_config_tx(tx, schema, config_id, true, "manual_build_index").await
+    enqueue_build_for_config_tx_with_initiator(
+        tx,
+        schema,
+        config_id,
+        true,
+        "manual_build_index",
+        initiated_by_user_id,
+    )
+    .await
+}
+
+pub async fn enqueue_build_for_config_tx_with_initiator(
+    tx: &mut Transaction<'_, Postgres>,
+    schema: &str,
+    config_id: Uuid,
+    force: bool,
+    reason: &str,
+    initiated_by_user_id: Option<Uuid>,
+) -> Result<Option<Uuid>> {
+    validate_schema_name(schema)?;
+    let Some(shape) = shape_for_config_tx(tx, schema, config_id).await? else {
+        return Ok(None);
+    };
+    enqueue_shape_tx_with_initiator(
+        tx,
+        &shape,
+        Some(config_id),
+        force,
+        reason,
+        initiated_by_user_id,
+    )
+    .await
 }
 
 async fn shape_for_config(
@@ -273,6 +313,17 @@ async fn enqueue_shape_tx(
     force: bool,
     reason: &str,
 ) -> Result<Option<Uuid>> {
+    enqueue_shape_tx_with_initiator(tx, shape, config_id, force, reason, None).await
+}
+
+async fn enqueue_shape_tx_with_initiator(
+    tx: &mut Transaction<'_, Postgres>,
+    shape: &VectorIndexShape,
+    config_id: Option<Uuid>,
+    force: bool,
+    reason: &str,
+    initiated_by_user_id: Option<Uuid>,
+) -> Result<Option<Uuid>> {
     if !force && valid_index_exists_tx(tx, shape, &shape.embedding_index_name()).await? {
         mark_sets_ready_tx(tx, shape, config_id).await?;
         return Ok(None);
@@ -282,7 +333,7 @@ async fn enqueue_shape_tx(
         return Ok(None);
     }
     mark_sets_pending_tx(tx, shape, config_id).await?;
-    insert_job_tx(tx, shape, force, reason).await
+    insert_job_tx_with_initiator(tx, shape, force, reason, initiated_by_user_id).await
 }
 
 async fn valid_index_exists(
@@ -398,17 +449,28 @@ async fn insert_job_tx(
     force: bool,
     reason: &str,
 ) -> Result<Option<Uuid>> {
+    insert_job_tx_with_initiator(tx, shape, force, reason, None).await
+}
+
+async fn insert_job_tx_with_initiator(
+    tx: &mut Transaction<'_, Postgres>,
+    shape: &VectorIndexShape,
+    force: bool,
+    reason: &str,
+    initiated_by_user_id: Option<Uuid>,
+) -> Result<Option<Uuid>> {
     let payload = shape.payload(force, reason)?;
     let id = matric_core::new_v7();
     sqlx::query_scalar(
-        "INSERT INTO public.job_queue (id, job_type, status, priority, payload, created_at)
-         VALUES ($1, $2::job_type, 'pending'::job_status, $3, $4, NOW())
+        "INSERT INTO public.job_queue (id, job_type, status, priority, payload, created_at, initiated_by_user_id)
+         VALUES ($1, $2::job_type, 'pending'::job_status, $3, $4, NOW(), $5)
          RETURNING id",
     )
     .bind(id)
     .bind(JobType::BuildSetIndex.as_str())
     .bind(JobType::BuildSetIndex.default_priority())
     .bind(payload)
+    .bind(initiated_by_user_id)
     .fetch_optional(&mut **tx)
     .await
     .map_err(Error::Database)

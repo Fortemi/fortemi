@@ -143,7 +143,11 @@ mod tests {
             "clients": {"allowed": ["fortemi-web"], "service": ["fortemi-etl"]}
         }))
         .unwrap();
-        let claims = json!({"azp": "fortemi-etl", "realm_access": {"roles": ["fortemi-agent", "uma_authorization"]}});
+        let claims = json!({
+            "azp": "fortemi-etl",
+            "client_id": "fortemi-etl",
+            "realm_access": {"roles": ["fortemi-agent", "uma_authorization"]}
+        });
         let decision = policy.evaluate(&claims, &["openid".to_string()]).unwrap();
         assert_eq!(decision.scopes, vec!["mcp", "read"]);
         assert_eq!(decision.scope_grants, vec!["kc-agent"]);
@@ -152,6 +156,58 @@ mod tests {
             policy.evaluate(&json!({"azp": "other"}), &[]),
             Err(AuthError::ClientNotAllowed)
         );
+    }
+
+    #[test]
+    fn unmapped_valid_claims_get_no_scopes() {
+        let policy = policy(json!({
+            "scope_mapping": {"claim": "realm_access.roles", "rules": [
+                {"id": "reader", "value": "fortemi-read", "scopes": ["read"]}
+            ]},
+            "clients": {"allowed": ["fortemi-web"]}
+        }))
+        .unwrap();
+
+        let decision = policy
+            .evaluate(
+                &json!({"azp": "fortemi-web", "realm_access": {"roles": ["unmapped"]}}),
+                &[],
+            )
+            .unwrap();
+
+        assert!(decision.scopes.is_empty());
+        assert!(decision.scope_grants.is_empty());
+        assert_eq!(decision.principal_kind, PrincipalKind::Human);
+    }
+
+    #[test]
+    fn service_client_requires_client_credentials_marker() {
+        let policy = policy(json!({
+            "scope_mapping": {"claim": "realm_access.roles", "rules": [
+                {"id": "agent", "value": "fortemi-agent", "scopes": ["mcp"]}
+            ]},
+            "clients": {"allowed": ["fortemi-web"], "service": ["fortemi-etl"]}
+        }))
+        .unwrap();
+
+        assert_eq!(
+            policy.evaluate(
+                &json!({"azp": "fortemi-etl", "realm_access": {"roles": ["fortemi-agent"]}}),
+                &[],
+            ),
+            Err(AuthError::InvalidAuthorizationClaim)
+        );
+        let accepted = policy
+            .evaluate(
+                &json!({
+                    "azp": "fortemi-etl",
+                    "preferred_username": "service-account-fortemi-etl",
+                    "realm_access": {"roles": ["fortemi-agent"]}
+                }),
+                &[],
+            )
+            .unwrap();
+        assert_eq!(accepted.principal_kind, PrincipalKind::Service);
     }
 
     #[test]
