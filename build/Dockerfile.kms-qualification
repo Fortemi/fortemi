@@ -1,0 +1,81 @@
+# Dockerfile.kms-qualification - AWS KMS workload-identity qualification image
+# (Fortemi-Enterprise/kms#4).
+#
+# Packages crates/matric-crypto/tests/aws_kms_workload_identity.rs, built with
+# the kms-aws feature, as the image entrypoint. A one-shot Job runs it under the
+# pod's web-identity credentials; it prints a receipt and exits non-zero on any
+# failed check. Internal qualification packaging, not a server image.
+#
+#   docker buildx build -f build/Dockerfile.kms-qualification \
+#     --platform linux/amd64,linux/arm64 \
+#     --build-arg VERSION=<version> --build-arg GIT_SHA=<commit> \
+#     -t <registry>/fortemi-kms-qualification:<version> --push .
+#
+# Like the server image, the builder cross-compiles for the image platform
+# (docker/rust-cross-build.sh), so arm64 never compiles Rust under emulation.
+FROM --platform=$BUILDPLATFORM rust:1.92.0-slim-bookworm@sha256:f1f73538ebe623fd3673a35aff3df358ae1084c64c55646516e5b17b321b6c9b AS builder
+
+ARG VERSION=dev
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+ARG RUST_MIN_STACK=268435456
+ARG TARGETARCH
+
+WORKDIR /app
+
+COPY docker/rust-cross-build.sh /usr/local/bin/rust-cross-build
+RUN rust-cross-build install-deps
+
+COPY Cargo.toml Cargo.lock ./
+COPY crates ./crates
+COPY contracts ./contracts
+COPY migrations ./migrations
+
+ENV MATRIC_VERSION=${VERSION}
+ENV MATRIC_GIT_SHA=${GIT_SHA}
+ENV MATRIC_BUILD_DATE=${BUILD_DATE}
+
+RUN RUST_MIN_STACK="${RUST_MIN_STACK}" \
+    rust-cross-build cargo test --locked --release --package matric-crypto \
+      --features kms-aws --test aws_kms_workload_identity --no-run && \
+    bin="$(find "target/$(rust-cross-build triple)/release/deps" -maxdepth 1 -type f \
+      -executable -name 'aws_kms_workload_identity-*' | head -n 1)" && \
+    test -n "${bin}" && cp "${bin}" /app/kms-qualification
+
+FROM debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
+
+ARG VERSION=dev
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+
+LABEL org.opencontainers.image.title="fortemi-kms-qualification"
+LABEL org.opencontainers.image.description="AWS KMS workload-identity qualification for Fortemi (kms#4)"
+LABEL org.opencontainers.image.version="${VERSION}"
+LABEL org.opencontainers.image.revision="${GIT_SHA}"
+LABEL org.opencontainers.image.created="${BUILD_DATE}"
+LABEL org.opencontainers.image.source="https://github.com/fortemi/fortemi"
+LABEL org.opencontainers.image.vendor="fortemi"
+LABEL net.fortemi.distribution.profile="internal-qualification"
+
+RUN set -eux; \
+    attempt=1; \
+    while true; do \
+        if apt-get -o Acquire::Retries=3 update && \
+            apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
+                ca-certificates libssl3; then \
+            break; \
+        fi; \
+        if [ "${attempt}" -ge 3 ]; then \
+            echo "APT runtime dependency installation failed after ${attempt} attempts" >&2; \
+            exit 1; \
+        fi; \
+        rm -rf /var/lib/apt/lists/*; \
+        sleep $((attempt * 5)); \
+        attempt=$((attempt + 1)); \
+    done; \
+    rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder --chown=65532:65532 /app/kms-qualification /app/kms-qualification
+
+USER 65532:65532
+ENTRYPOINT ["/app/kms-qualification", "--ignored", "--exact", "live_aws_kms_workload_identity", "--nocapture", "--test-threads=1"]
