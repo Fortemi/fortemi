@@ -3,8 +3,8 @@ name: fortemi
 description: Fortémi knowledge base split into API, worker and MCP Deployments on external PostgreSQL 18 and Redis
 type: application
 # Chart and app versions follow the workspace CalVer (Cargo.toml [workspace.package] version).
-version: 2026.10.2
-appVersion: "2026.10.2"
+version: 2026.10.3
+appVersion: "2026.10.3"
 kubeVersion: ">=1.27.0-0"
 home: https://github.com/fortemi/fortemi
 sources:

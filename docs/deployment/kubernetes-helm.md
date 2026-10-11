@@ -51,9 +51,9 @@ platform:
 
 ```bash
 docker buildx build --platform linux/amd64,linux/arm64 \
-  -t registry.example.com/fortemi/fortemi:2026.10.2 --push .
+  -t registry.example.com/fortemi/fortemi:2026.10.3 --push .
 docker buildx build --platform linux/amd64,linux/arm64 -f Dockerfile.mcp \
-  -t registry.example.com/fortemi/fortemi-mcp:2026.10.2 --push .
+  -t registry.example.com/fortemi/fortemi-mcp:2026.10.3 --push .
 ```
 
 Hosted mode also needs a KMS backend compiled in: startup fails closed when
@@ -110,7 +110,7 @@ returned credentials in a Secret, and set `mcp.oauthClient.existingSecret`.
 ```bash
 helm upgrade --install fortemi deploy/helm/fortemi \
   --namespace fortemi \
-  --set image.tag=2026.10.2 \
+  --set image.tag=2026.10.3 \
   --set env.ISSUER_URL=https://memory.example.com \
   --set mcp.baseUrl=https://memory.example.com/mcp \
   --set ingress.enabled=true \

@@ -7,6 +7,27 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.10.3] - 2026-10-10
+
+Publishes the native binaries for the 2026.10.2 server. The 2026.10.2 tag's
+comprehensive test run failed on a test fixture, which blocked native asset
+publication; its images and release entries are valid. Per the release policy
+the correction ships as a new patch version. Server behavior is unchanged from
+2026.10.2.
+
+### Added
+
+- AWS KMS workload-identity qualification for Fortemi-Enterprise/kms#4:
+  `crates/matric-crypto/tests/aws_kms_workload_identity.rs` runs in-cluster
+  with only the pod's web-identity credentials, and
+  `build/Dockerfile.kms-qualification` packages it as a non-root Job image.
+
+### Fixed
+
+- Seed the principal's `app_user` in the hosted bootstrap-request test. The
+  #1191 note-to-user foreign key made it fail, and only the release suite sets
+  the variable that enables it.
+
 ## [2026.10.2] - 2026-10-09
 
 Signed correction of 2026.10.1 plus the R1 embeddings release and the ADR-110
