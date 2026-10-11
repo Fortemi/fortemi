@@ -1,8 +1,11 @@
 //! Live AWS KMS qualification under workload identity (Fortemi-Enterprise/kms#4).
 //! Runs in-cluster as the qualification Job: the only credential is the pod's
-//! web-identity token (IRSA or EKS Pod Identity). The full scenario profile in
-//! aws_kms_live.rs drives key-admin actions through an operator runner; this one
-//! proves the production provider and key policy under workload credentials.
+//! IRSA web-identity token. (EKS Pod Identity injects container-credential
+//! variables instead and is not what this profile asserts.) The full scenario
+//! profile in aws_kms_live.rs drives key-admin actions through an operator
+//! runner; this one proves the production provider and key policy under
+//! workload credentials. Every call here is read-only or a data-key operation:
+//! nothing can change the key's state, even if the role is over-privileged.
 #![cfg(feature = "kms-aws")]
 
 use std::collections::BTreeMap;
@@ -88,15 +91,42 @@ async fn live_aws_kms_workload_identity() {
         std::path::Path::new(&token_file).is_file(),
         "web identity token is mounted"
     );
+    // Nothing else may supply credentials or redirect a client. The SDK reads
+    // shared profiles before web identity, so both profile files must be empty,
+    // and an endpoint override could send the identity token somewhere else.
     for forbidden in [
         "AWS_ACCESS_KEY_ID",
         "AWS_SECRET_ACCESS_KEY",
         "AWS_SESSION_TOKEN",
         "AWS_PROFILE",
+        "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+        "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+        "AWS_CONTAINER_AUTHORIZATION_TOKEN",
+        "AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE",
+        "AWS_ENDPOINT_URL",
+        "AWS_ENDPOINT_URL_STS",
+        "AWS_ENDPOINT_URL_KMS",
+        "AWS_IGNORE_CONFIGURED_ENDPOINT_URLS",
+        // A proxy with a supplied CA could impersonate STS and KMS.
+        "HTTP_PROXY",
+        "http_proxy",
+        "HTTPS_PROXY",
+        "https_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+        "SSL_CERT_FILE",
+        "SSL_CERT_DIR",
     ] {
         assert!(
             std::env::var_os(forbidden).is_none(),
             "{forbidden} must not be set"
+        );
+    }
+    for empty_file in ["AWS_CONFIG_FILE", "AWS_SHARED_CREDENTIALS_FILE"] {
+        assert_eq!(
+            std::env::var(empty_file).as_deref(),
+            Ok("/dev/null"),
+            "{empty_file} must be /dev/null"
         );
     }
     assert_eq!(
@@ -136,7 +166,10 @@ async fn live_aws_kms_workload_identity() {
     assert_eq!(counting.decrypts.load(Ordering::SeqCst), 3, "no DEK cache");
     passed.push("no_dek_cache");
 
-    // Wrong canonical context or tenant is refused.
+    // Wrong tenant, user, resource or schema is refused by KMS itself. These
+    // probes keep the permitted key set and change only values the key policy
+    // does not constrain, so each request reaches Decrypt and fails on the
+    // bound context: this proves cryptographic context binding, not only policy.
     for wrong in [
         context("tenant-b", "user-a", "secret-a", "user_secrets"),
         context("tenant-a", "user-b", "secret-a", "user_secrets"),
@@ -146,21 +179,47 @@ async fn live_aws_kms_workload_identity() {
         let result = provider.unwrap_dek(generated.wrapped_key(), &wrong).await;
         assert_eq!(class_of(&result), Some(KeyFailureClass::ContextMismatch));
     }
-    passed.push("wrong_context_denied");
+    passed.push("wrong_context_refused_by_kms");
 
-    // The key policy denies a non-canonical encryption context to the workload role.
+    // The key policy refuses contexts outside the canonical shape. Each probe
+    // changes exactly one thing in an otherwise canonical context.
     let raw = AwsSdkKmsClient::new(sdk().await);
-    let partial = BTreeMap::from([
-        ("fortemi_context_version".to_owned(), "1".to_owned()),
+    let canonical = BTreeMap::from([
+        (
+            "fortemi_context_version".to_owned(),
+            ctx.version().to_string(),
+        ),
+        ("purpose".to_owned(), ctx.purpose().name().to_owned()),
         ("provider_kind".to_owned(), "aws-kms".to_owned()),
+        ("kek_ref".to_owned(), key_arn.clone()),
+        ("schema".to_owned(), "user_secrets".to_owned()),
         ("tenant_id".to_owned(), "tenant-a".to_owned()),
+        ("user_id".to_owned(), "user-a".to_owned()),
+        ("resource_id".to_owned(), "secret-a".to_owned()),
     ]);
-    let denied = raw.generate_data_key(&key_arn, &partial).await;
-    assert_eq!(
-        denied.err().map(|e| e.class()),
-        Some(KeyFailureClass::AccessDenied)
+    assert!(
+        raw.generate_data_key(&key_arn, &canonical).await.is_ok(),
+        "the canonical context itself is allowed"
     );
-    passed.push("policy_denies_noncanonical_context");
+    let mut missing_kek_ref = canonical.clone();
+    missing_kek_ref.remove("kek_ref");
+    let mut wrong_provider_kind = canonical.clone();
+    wrong_provider_kind.insert("provider_kind".to_owned(), "other".to_owned());
+    let mut unknown_key = canonical.clone();
+    unknown_key.insert("unexpected".to_owned(), "x".to_owned());
+    for (probe, context) in [
+        ("missing kek_ref", missing_kek_ref),
+        ("wrong provider_kind", wrong_provider_kind),
+        ("unknown context key", unknown_key),
+    ] {
+        let denied = raw.generate_data_key(&key_arn, &context).await;
+        assert_eq!(
+            denied.err().map(|e| e.class()),
+            Some(KeyFailureClass::AccessDenied),
+            "{probe}"
+        );
+    }
+    passed.push("policy_refuses_noncanonical_context");
 
     // Seal, unseal and same-key rewrap round trip.
     let blob = encrypt_blob(provider.as_ref(), SECRET, &ctx).await.unwrap();
@@ -191,18 +250,26 @@ async fn live_aws_kms_workload_identity() {
     );
     passed.push("seal_unseal_rewrap");
 
-    // The workload role cannot administer the key.
-    let admin = sdk().await.disable_key().key_id(&key_arn).send().await;
+    // The workload role is refused GetKeyPolicy, a read-only probe that cannot
+    // change the key. This shows one admin action is denied; the role's full
+    // permission set is established by reviewing its two policies.
+    let admin = sdk()
+        .await
+        .get_key_policy()
+        .key_id(&key_arn)
+        .policy_name("default")
+        .send()
+        .await;
     let code = admin
         .err()
         .and_then(|e| e.into_service_error().meta().code().map(str::to_owned));
     assert_eq!(code.as_deref(), Some("AccessDeniedException"));
-    passed.push("key_admin_denied");
+    passed.push("get_key_policy_denied");
 
     // Receipt: identifiers only, never credentials or key material.
     let role_name = role_arn.rsplit('/').next().unwrap_or_default();
     println!(
-        "{{\"receipt\":\"fortemi-kms4-workload-identity\",\"status\":\"PASS\",\"key_arn\":\"{key_arn}\",\"role\":\"{role_name}\",\"credential_source\":\"web_identity\",\"crate_version\":\"{}\",\"scenarios\":[{}]}}",
+        "{{\"receipt\":\"fortemi-kms4-workload-identity\",\"status\":\"PASS\",\"key_arn\":\"{key_arn}\",\"role\":\"{role_name}\",\"credential_source\":\"irsa_web_identity\",\"crate_version\":\"{}\",\"scenarios\":[{}]}}",
         env!("CARGO_PKG_VERSION"),
         passed
             .iter()

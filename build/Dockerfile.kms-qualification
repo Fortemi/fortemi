@@ -2,9 +2,10 @@
 # (Fortemi-Enterprise/kms#4).
 #
 # Packages crates/matric-crypto/tests/aws_kms_workload_identity.rs, built with
-# the kms-aws feature, as the image entrypoint. A one-shot Job runs it under the
-# pod's web-identity credentials; it prints a receipt and exits non-zero on any
-# failed check. Internal qualification packaging, not a server image.
+# the kms-aws feature, behind build/kms-qualification-entrypoint.sh. A one-shot
+# Job runs it under the pod's IRSA web-identity credentials; it prints a receipt
+# and exits non-zero unless exactly that one test passed. Internal qualification
+# packaging, not a server image.
 #
 #   docker buildx build -f build/Dockerfile.kms-qualification \
 #     --platform linux/amd64,linux/arm64 \
@@ -38,9 +39,10 @@ ENV MATRIC_BUILD_DATE=${BUILD_DATE}
 RUN RUST_MIN_STACK="${RUST_MIN_STACK}" \
     rust-cross-build cargo test --locked --release --package matric-crypto \
       --features kms-aws --test aws_kms_workload_identity --no-run && \
-    bin="$(find "target/$(rust-cross-build triple)/release/deps" -maxdepth 1 -type f \
-      -executable -name 'aws_kms_workload_identity-*' | head -n 1)" && \
-    test -n "${bin}" && cp "${bin}" /app/kms-qualification
+    find "target/$(rust-cross-build triple)/release/deps" -maxdepth 1 -type f \
+      -executable -name 'aws_kms_workload_identity-*' > /tmp/qualification-bins && \
+    test "$(wc -l < /tmp/qualification-bins)" -eq 1 && \
+    cp "$(cat /tmp/qualification-bins)" /app/kms-qualification
 
 FROM debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818
 
@@ -62,7 +64,7 @@ RUN set -eux; \
     while true; do \
         if apt-get -o Acquire::Retries=3 update && \
             apt-get -o Acquire::Retries=3 install -y --no-install-recommends \
-                ca-certificates libssl3; then \
+                ca-certificates; then \
             break; \
         fi; \
         if [ "${attempt}" -ge 3 ]; then \
@@ -76,6 +78,7 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder --chown=65532:65532 /app/kms-qualification /app/kms-qualification
+COPY --chown=65532:65532 build/kms-qualification-entrypoint.sh /app/kms-qualification-entrypoint.sh
 
 USER 65532:65532
-ENTRYPOINT ["/app/kms-qualification", "--ignored", "--exact", "live_aws_kms_workload_identity", "--nocapture", "--test-threads=1"]
+ENTRYPOINT ["/app/kms-qualification-entrypoint.sh"]
