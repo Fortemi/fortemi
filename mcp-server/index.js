@@ -5972,10 +5972,12 @@ if (MCP_TRANSPORT === "http") {
 
   /**
    * Send 403 for a verified token that lacks the MCP transport scope (RFC 6750 §3.1).
+   * The challenge names only `mcp`: RFC 6750 `scope` lists what the token needs,
+   * and `mcp` alone suffices, so "mcp admin" would read as requiring both.
    */
   function send403(res) {
     res.status(403)
-      .set('WWW-Authenticate', `Bearer realm="mcp", error="insufficient_scope", scope="mcp admin", resource_metadata="${MCP_BASE_URL}/.well-known/oauth-protected-resource"`)
+      .set('WWW-Authenticate', `Bearer realm="mcp", error="insufficient_scope", scope="mcp", resource_metadata="${MCP_BASE_URL}/.well-known/oauth-protected-resource"`)
       .json({ error: "insufficient_scope", error_description: "The token lacks the mcp or admin scope" });
   }
 
