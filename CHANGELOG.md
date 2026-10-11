@@ -7,6 +7,20 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.10.4] - 2026-10-10
+
+Publishes native binaries for the 2026.10.2 server line. The 2026.10.3 tag's
+comprehensive test run failed on the MCP external-issuer end-to-end check
+below, which again blocked native asset publication. Its images and release
+entries are valid and signed. Per the release policy the correction ships as a
+new patch version.
+
+### Fixed
+
+- The MCP `insufficient_scope` challenge names only `scope="mcp"` again. #1193
+  had widened it to `"mcp admin"`, which RFC 6750 clients read as requiring both
+  scopes. The `mcp` scope alone admits an MCP session.
+
 ## [2026.10.3] - 2026-10-10
 
 Publishes the native binaries for the 2026.10.2 server. The 2026.10.2 tag's
