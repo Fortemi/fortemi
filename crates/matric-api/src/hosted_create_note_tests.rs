@@ -189,6 +189,25 @@ fn hosted_test_user_id(tenant: Uuid) -> Uuid {
     Uuid::new_v5(&Uuid::NAMESPACE_OID, tenant.as_bytes())
 }
 
+/// The `app_user` behind `hosted_router`'s injected principal. In production the
+/// principal's user is provisioned just-in-time at sign-in; note and job rows
+/// reference it through foreign keys.
+async fn seed_hosted_test_user(admin: &sqlx::PgPool, tenant: Uuid) {
+    sqlx::query(
+        "INSERT INTO app_user (
+            id, tenant_id, iss, sub, email, email_verified, display_name, groups,
+            current_scopes, kind, azp, status
+         ) VALUES ($1, $2, 'https://issuer.example', 'hosted-create-regression',
+                   'hosted-create@example.com', true, 'Hosted Create', '{}',
+                   ARRAY['read','write','mcp'], 'user', 'fortemi-web', 'active')",
+    )
+    .bind(hosted_test_user_id(tenant))
+    .bind(tenant)
+    .execute(admin)
+    .await
+    .unwrap();
+}
+
 fn http_request(
     method: Method,
     path: &str,
@@ -274,19 +293,7 @@ async fn hosted_creation_postgres_atomicity_and_tenant_isolation() {
         .execute(&admin)
         .await
         .unwrap();
-        sqlx::query(
-            "INSERT INTO app_user (
-                id, tenant_id, iss, sub, email, email_verified, display_name, groups,
-                current_scopes, kind, azp, status
-             ) VALUES ($1, $2, 'https://issuer.example', 'hosted-create-regression',
-                       'hosted-create@example.com', true, 'Hosted Create', '{}',
-                       ARRAY['read','write','mcp'], 'user', 'fortemi-web', 'active')",
-        )
-        .bind(hosted_test_user_id(tenant))
-        .bind(tenant)
-        .execute(&admin)
-        .await
-        .unwrap();
+        seed_hosted_test_user(&admin, tenant).await;
     }
     // A and B share the default notation; C deliberately has no scheme.
     for tenant in [a, b] {

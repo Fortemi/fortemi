@@ -42,6 +42,7 @@ async fn hosted_creation_succeeds_for_bootstrapped_tenant_without_manual_sql() {
         .await
         .unwrap();
     let tenant = request.tenant_id;
+    super::seed_hosted_test_user(&admin, tenant).await;
 
     let mut state = super::super::tests::build_call_api_test_state(
         Database::new(runtime.clone()),
