@@ -117,7 +117,7 @@ receipts report these controls as `deferred`.
 Verification commands, the trust model, promotion by digest into ECR or
 another private registry, admission-policy examples, and the operator
 provisioning steps are in
-[Image Signatures, SBOMs and Registry Promotion](../deployment/image-promotion.md).
+[Image Signatures, SBOMs and Registry Promotion](https://git.integrolabs.net/Fortemi/fortemi/src/branch/main/docs/deployment/image-promotion.md).
 
 ## Verify a Receipt
 

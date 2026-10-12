@@ -216,7 +216,7 @@ MIGRATION_DATABASE_URL=<MIGRATION_DATABASE_URL> \
 
 The command prints the tenant id to emit in the configured tenant claim and
 seeds the tenant's default memory. See
-[Hosted tenant bootstrap](../deployment/hosted-bootstrap.md).
+[Hosted tenant bootstrap](https://git.integrolabs.net/Fortemi/fortemi/src/branch/main/docs/deployment/hosted-bootstrap.md).
 
 ### External OIDC (single-tenant)
 
@@ -445,7 +445,7 @@ stream tokens remain a personal-profile feature and cannot replace hosted
 canonical identity. Existing TLS, JWT, RLS and durable authorization-audit checks
 remain enforced. These route gates do not enable `hosted_multi_tenant_ready` or
 qualify unrelated routes or worker execution. The suite audit remains NO-GO.
-The generated [hosted route qualification matrix](../deployment/hosted-route-qualification.md)
+The generated [hosted route qualification matrix](https://git.integrolabs.net/Fortemi/fortemi/src/branch/main/docs/deployment/hosted-route-qualification.md)
 lists every operation as qualified, gap, excluded or public for a single-tenant
 dedicated deployment; `/api/v1/system/compatibility` reports the same profile as
 `deployment.hosted_profile`.
