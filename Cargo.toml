@@ -86,7 +86,10 @@ flate2 = "1"
 schemars = { version = "0.8", features = ["chrono", "uuid1"] }
 
 # YAML serialization
-serde_yaml = "0.9"
+# serde_yaml 0.9 is deprecated upstream and its libyaml binding is unmaintained
+# (RUSTSEC-2024-0449). serde_norway is the maintained, API-compatible fork; the
+# rename keeps every `serde_yaml::` path unchanged.
+serde_yaml = { package = "serde_norway", version = "0.9.42" }
 
 # Error handling
 thiserror = "1"
