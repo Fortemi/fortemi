@@ -23,6 +23,11 @@ Fortémi uses **CalVer** (Calendar Versioning):
 - [ ] Format check: `cargo fmt --all -- --check`
 - [ ] Dependency policy: `cargo deny check advisories bans licenses sources`
 - [ ] Documentation contract: `DOCS_CONTRACT_MODE=blocking npm run docs:contract -- --profile=hosted_strict`
+- [ ] External issuer tests: `scripts/test-mcp-external-issuer.sh` and
+      `scripts/test-keycloak-reference-realm.sh` pass with disposable Docker
+      stacks. The Keycloak test imports the shipped realm and claim policy,
+      checks PKCE/client credentials, audiences, role ceilings, MCP and metadata,
+      and rejects secret leakage in logs.
 - [ ] CI pipeline green on main branch
 - [ ] Documentation updated for new features
 - [ ] No critical open issues blocking release

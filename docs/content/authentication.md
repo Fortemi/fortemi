@@ -189,8 +189,17 @@ metadata, and that no presented token appears in either log.
 Configure the MCP container with the same Fortemi API URL/issuer metadata as the
 API and set `MCP_RESOURCE_URI` to the API's `FORTEMI_AUTH_AUDIENCE`. RFC 9728 metadata at
 `/.well-known/oauth-protected-resource` then advertises the external
-authorization server and the audience clients must request. The server logs a
+authorization server and the resource audience. The server logs a
 startup warning when the two values differ.
+
+The metadata advertises `read`, `write`, `admin`, and `mcp` as
+`scopes_supported`; MCP clients may request all four. The IdP must accept those
+names on the interactive client. The reference realm defines them as optional
+no-op scopes, including `admin`: authority comes only from Fortemi client roles
+and the claim-policy ceiling, with `allow_token_scopes=false`. Audiences come
+from the separate `fortemi-api`/`fortemi-mcp` audience scopes, which are defaults
+on the pre-registered clients (`fortemi-cli` has both; MCP clients have only
+`fortemi-mcp`) and need not be explicitly requested.
 
 External-IdP discovery is intentionally resource-server-only. In this mode,
 `/.well-known/oauth-protected-resource` on both the API and MCP returns the

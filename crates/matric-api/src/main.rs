@@ -1449,7 +1449,7 @@ impl AppState {
         create_job, get_job, pending_jobs_count, list_jobs,
         queue_stats, get_job_pause_status, pause_jobs_global, resume_jobs_global,
         pause_jobs_archive, resume_jobs_archive, extraction_stats,
-        oauth_discovery, oauth_protected_resource,
+        oauth_discovery, oauth_protected_resource, oauth_protected_resource_path,
         oauth_register, oauth_token, oauth_introspect, oauth_revoke,
         oauth_authorize_get, oauth_authorize_post, list_api_keys, create_api_key,
         revoke_api_key, backup_export, backup_download, backup_import,
@@ -2089,7 +2089,8 @@ fn validate_generated_openapi(yaml: &str) -> Result<(), String> {
     let documented_paths: std::collections::BTreeSet<&str> =
         paths.keys().filter_map(serde_yaml::Value::as_str).collect();
     for policy in route_policy::ROUTE_POLICY_INVENTORY {
-        let documented = documented_paths.contains(policy.path);
+        let documented =
+            documented_paths.contains(route_policy::openapi_path(policy.path).as_str());
         if policy.docs == route_policy::DocsExposureClass::Hidden {
             if documented {
                 return Err(format!(
@@ -2111,7 +2112,7 @@ fn validate_generated_openapi(yaml: &str) -> Result<(), String> {
             .ok_or_else(|| "OpenAPI path key must be a string.".to_string())?;
         let policy = route_policy::ROUTE_POLICY_INVENTORY
             .iter()
-            .find(|policy| policy.path == path)
+            .find(|policy| route_policy::openapi_path(policy.path) == path)
             .ok_or_else(|| format!("OpenAPI path has no route policy: {path}."))?;
         if policy.docs == route_policy::DocsExposureClass::Hidden {
             return Err(format!("OpenAPI path is classified hidden: {path}."));
@@ -5782,6 +5783,10 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/.well-known/oauth-protected-resource",
             get(oauth_protected_resource),
+        )
+        .route(
+            "/.well-known/oauth-protected-resource/{*resource_path}",
+            get(oauth_protected_resource_path),
         )
         .route(
             "/oauth/authorize",
@@ -25131,6 +25136,72 @@ async fn oauth_protected_resource(State(state): State<AppState>) -> impl IntoRes
         oauth_protected_resource_for_state(&state),
         oauth_authorization_server_for_state(&state),
     ))
+}
+
+/// RFC 9728 section 3.1 inserts the well-known component before the resource path.
+#[utoipa::path(get, path = "/.well-known/oauth-protected-resource/{resource_path}", tag = "OAuth",
+    params(("resource_path" = String, Path, description = "Path of a configured resource, sent as raw segments (`team/mcp`, not `team%2Fmcp`). The match is byte-exact against the request path; generated clients that percent-encode `/` in path parameters receive 404.")),
+    responses(
+        (status = 200, description = "Protected resource metadata for the configured audience"),
+        (status = 404, description = "Unknown resource or external OIDC mode is disabled"),
+    ))]
+async fn oauth_protected_resource_path(
+    State(state): State<AppState>,
+    OriginalUri(uri): OriginalUri,
+) -> axum::response::Response {
+    #[cfg(feature = "hosted-auth")]
+    let audiences = state
+        .external_oidc
+        .as_ref()
+        .filter(|_| state.auth_mode.external_oidc())
+        .map(|config| &config.audiences);
+    #[cfg(not(feature = "hosted-auth"))]
+    let audiences = None;
+    oauth_protected_resource_path_response(
+        &state.issuer,
+        oauth_authorization_server_for_state(&state),
+        uri.path()
+            .strip_prefix("/.well-known/oauth-protected-resource")
+            .unwrap_or(""),
+        audiences,
+    )
+}
+
+fn oauth_protected_resource_path_response(
+    issuer: &str,
+    authorization_server: &str,
+    resource_path: &str,
+    audiences: Option<&std::collections::BTreeSet<String>>,
+) -> axum::response::Response {
+    let Some(audiences) = audiences else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let Ok(issuer) = reqwest::Url::parse(issuer) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    // Compare raw URI paths: URL parsing or a Path extractor would normalize
+    // or percent-decode them. Return the configured identifier byte-for-byte.
+    // Only serve audiences on the canonical resource origin, never request Host.
+    // An audience with a query has no path-only metadata URL, and two audiences
+    // sharing a path (for example differing only in host case) are ambiguous:
+    // both answer 404 rather than describe a resource the caller did not name.
+    let mut matches = audiences.iter().filter(|audience| {
+        let Ok(uri) = audience.parse::<axum::http::Uri>() else {
+            return false;
+        };
+        let Ok(url) = reqwest::Url::parse(audience) else {
+            return false;
+        };
+        url.origin() == issuer.origin() && uri.query().is_none() && uri.path() == resource_path
+    });
+    let (Some(resource), None) = (matches.next(), matches.next()) else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    Json(oauth_protected_resource_metadata(
+        resource,
+        authorization_server,
+    ))
+    .into_response()
 }
 
 /// OAuth2 Dynamic Client Registration (RFC 7591).
@@ -49806,6 +49877,209 @@ mod tests {
         assert_eq!(
             metadata["scopes_supported"],
             serde_json::json!(["read", "write", "admin", "mcp"])
+        );
+    }
+
+    #[tokio::test]
+    async fn oauth_protected_resource_path_matches_configured_audience() {
+        let audiences = std::collections::BTreeSet::from([
+            "https://fortemi.example.com".to_string(),
+            "https://fortemi.example.com/mcp".to_string(),
+            "https://fortemi.example.com/trailing/".to_string(),
+            "https://fortemi.example.com/team%20one/mcp".to_string(),
+            "https://fortemi.example.com/team/mcp".to_string(),
+        ]);
+        for path in ["/mcp", "/team/mcp", "/trailing/", "/team%20one/mcp"] {
+            let response = oauth_protected_resource_path_response(
+                "https://fortemi.example.com/issuer-path",
+                "https://keycloak.example.com/realms/example",
+                path,
+                Some(&audiences),
+            );
+            assert_eq!(response.status(), StatusCode::OK);
+            let metadata = read_response_json(response).await;
+            assert_eq!(
+                metadata["resource"],
+                format!("https://fortemi.example.com{path}")
+            );
+            assert_eq!(
+                metadata["authorization_servers"],
+                serde_json::json!(["https://keycloak.example.com/realms/example"])
+            );
+            assert_eq!(
+                metadata["scopes_supported"],
+                serde_json::json!(["read", "write", "admin", "mcp"])
+            );
+        }
+        for path in [
+            "/unknown",
+            "/MCP",
+            "/mcp/child",
+            "/../mcp",
+            "/mcp%2F",
+            "/mcp/",
+            "//mcp",
+            "/mcp%3Fx",
+            "/trailing",
+            "/team%20one/./mcp",
+            "/team%20one/../mcp",
+            "/team%2520one/mcp",
+        ] {
+            assert_eq!(
+                oauth_protected_resource_path_response(
+                    "https://fortemi.example.com",
+                    "https://keycloak.example.com",
+                    path,
+                    Some(&audiences),
+                )
+                .status(),
+                StatusCode::NOT_FOUND
+            );
+        }
+        // A query-bearing audience has no path-only metadata URL, and two audiences
+        // that share a path are ambiguous: neither may be described by guesswork.
+        let unservable = std::collections::BTreeSet::from([
+            "https://fortemi.example.com/q?tenant=a".to_string(),
+            "https://fortemi.example.com/q?tenant=b".to_string(),
+            "https://FORTEMI.example.com/dup".to_string(),
+            "https://fortemi.example.com/dup".to_string(),
+            "https://fortemi.example.com/only?x=1".to_string(),
+        ]);
+        for path in ["/q", "/dup", "/only"] {
+            assert_eq!(
+                oauth_protected_resource_path_response(
+                    "https://fortemi.example.com",
+                    "https://keycloak.example.com",
+                    path,
+                    Some(&unservable),
+                )
+                .status(),
+                StatusCode::NOT_FOUND,
+                "{path}"
+            );
+        }
+        assert_eq!(
+            oauth_protected_resource_path_response(
+                "https://other.example.com",
+                "https://keycloak.example.com",
+                "/mcp",
+                Some(&audiences),
+            )
+            .status(),
+            StatusCode::NOT_FOUND
+        );
+    }
+
+    #[cfg(feature = "hosted-auth")]
+    #[tokio::test]
+    async fn oauth_protected_resource_path_router_is_public_in_all_modes() {
+        use tower::ServiceExt;
+
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://unused:unused@127.0.0.1/unused")
+            .expect("lazy pool needs no database");
+        let mut state = build_call_api_test_state(Database::new(pool), "unused").await;
+        state.issuer = "https://fortemi.example.com".to_string();
+        state.require_auth = true;
+        state.oidc_issuer = Some("https://keycloak.example.com/realms/example".to_string());
+        state.oauth_external_idp_configured = true;
+        state.external_oidc = Some(ExternalOidcConfig {
+            audiences: std::collections::BTreeSet::from([
+                "https://fortemi.example.com/mcp".to_string(),
+                "https://fortemi.example.com/team/mcp".to_string(),
+                "https://fortemi.example.com/team%20one/mcp".to_string(),
+                "https://fortemi.example.com/trailing/".to_string(),
+            ]),
+            default_tenant_id: Uuid::new_v4(),
+            allow_multi_audience: true,
+            allow_token_scopes: false,
+            allow_legacy_tokens: false,
+            legacy_scope_ceiling: Default::default(),
+            max_token_lifetime_seconds: 3600,
+        });
+        for mode in [
+            AuthMode::ExternalOidc,
+            AuthMode::Local,
+            AuthMode::HostedMultiTenant,
+        ] {
+            state.auth_mode = mode;
+            let app = Router::new()
+                .route(
+                    "/.well-known/oauth-protected-resource/{*resource_path}",
+                    get(oauth_protected_resource_path),
+                )
+                .layer(axum::middleware::from_fn_with_state(
+                    state.clone(),
+                    auth_middleware,
+                ))
+                .with_state(state.clone());
+            for path in [
+                "",
+                "mcp",
+                "team/mcp",
+                "team%20one/mcp",
+                "trailing/",
+                "mcp?x",
+                "mcp%2F",
+                "mcp/",
+                "/mcp",
+                "MCP",
+                "mcp%3Fx",
+                "team%2520one/mcp",
+                "team%20one/./mcp",
+                "team%20one/../mcp",
+                "unknown",
+                "unknown/nested",
+            ] {
+                let response = app
+                    .clone()
+                    .oneshot(
+                        axum::http::Request::builder()
+                            .uri(format!("/.well-known/oauth-protected-resource/{path}"))
+                            .body(axum::body::Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap();
+                let expected = if mode == AuthMode::ExternalOidc
+                    && matches!(
+                        path,
+                        "mcp" | "team/mcp" | "team%20one/mcp" | "trailing/" | "mcp?x"
+                    ) {
+                    StatusCode::OK
+                } else {
+                    StatusCode::NOT_FOUND
+                };
+                assert_eq!(response.status(), expected, "{mode:?} {path}");
+                if expected == StatusCode::OK {
+                    let document = read_response_json(response).await;
+                    assert_eq!(
+                        document["resource"],
+                        format!(
+                            "https://fortemi.example.com/{}",
+                            path.split('?').next().unwrap()
+                        )
+                    );
+                    assert_eq!(
+                        document["authorization_servers"],
+                        serde_json::json!(["https://keycloak.example.com/realms/example"])
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn oauth_protected_resource_path_is_hidden_without_external_oidc() {
+        assert_eq!(
+            oauth_protected_resource_path_response(
+                "https://fortemi.example.com",
+                "https://fortemi.example.com",
+                "mcp",
+                None,
+            )
+            .status(),
+            StatusCode::NOT_FOUND
         );
     }
 
@@ -82247,6 +82521,33 @@ not-json
             schema_bearing_response_count >= operation_count,
             "every operation must expose at least one schema-bearing response"
         );
+    }
+
+    #[test]
+    fn openapi_path_templates_match_parameter_names() {
+        let doc: serde_json::Value =
+            serde_yaml::from_str(&openapi_yaml_with_problem_contract()).unwrap();
+        for (path, item) in doc["paths"].as_object().unwrap() {
+            for method in OPENAPI_HTTP_METHODS {
+                let Some(operation) = item.get(method) else {
+                    continue;
+                };
+                for segment in path.split('/') {
+                    if let Some(name) = segment.strip_prefix('{').and_then(|s| s.strip_suffix('}'))
+                    {
+                        assert!(!name.starts_with('*'), "OpenAPI wildcard syntax: {path}");
+                        assert!(
+                            operation["parameters"]
+                                .as_array()
+                                .is_some_and(|params| params
+                                    .iter()
+                                    .any(|p| p["in"] == "path" && p["name"] == name)),
+                            "missing {name} parameter: {method} {path}"
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]

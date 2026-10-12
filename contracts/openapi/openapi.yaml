@@ -43,6 +43,31 @@ paths:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
       security: []
+  /.well-known/oauth-protected-resource/{resource_path}:
+    get:
+      tags:
+      - OAuth
+      summary: RFC 9728 section 3.1 inserts the well-known component before the resource path.
+      operationId: oauth_protected_resource_path
+      parameters:
+      - name: resource_path
+        in: path
+        description: Path of a configured resource, sent as raw segments (`team/mcp`, not `team%2Fmcp`). The match is byte-exact against the request path; generated clients that percent-encode `/` in path parameters receive 404.
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Protected resource metadata for the configured audience
+        '404':
+          description: Unknown resource or external OIDC mode is disabled
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security: []
   /api/v1/admin/tokens:
     get:
       tags:

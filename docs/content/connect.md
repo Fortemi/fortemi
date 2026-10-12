@@ -121,12 +121,20 @@ Single-tenant deployments ignore the claim and use
 ## Audiences
 
 The API resource is `https://fortemi.example.org`; the MCP resource is
-`https://fortemi.example.org/mcp`. The server accepts both audiences, so one
-user token works on both. Request the `fortemi-api` and `fortemi-mcp` scopes
-so the provider embeds both audiences. Keycloak honors RFC 8707 `resource`
-indicators only behind the experimental `--features=resource-indicators`
-flag; without it, the audience scopes above are the mechanism, and clients
-must request them (they appear in `scopes_supported` and in challenges).
+`https://fortemi.example.org/mcp`. Fortemi's protected-resource metadata
+advertises `read`, `write`, `admin`, and `mcp` in `scopes_supported`. MCP clients
+may request all four names, so the IdP must accept each on the interactive
+client. The reference realm links them as optional no-op scopes: requesting
+`admin` grants no authority, and the public-client claim-policy ceiling still
+excludes it. Authority comes only from `resource_access.fortemi.roles`, mapped
+and capped by the claim policy (`allow_token_scopes=false`).
+
+Audiences come from the separate `fortemi-api` and `fortemi-mcp` scopes. They
+are default scopes of the pre-registered clients: `fortemi-cli` gets both;
+the MCP clients get `fortemi-mcp`. They need not be explicitly requested and
+are not advertised in Fortemi's `scopes_supported`. The API accepts either
+configured audience, including the MCP resource. For a custom client, link the
+appropriate audience scopes as defaults, alongside the four optional names.
 
 ## Network reachability
 
@@ -150,4 +158,4 @@ must not see each other's content.
 | `403` with `error="insufficient_scope"` | Authenticated, but the token lacks a scope the operation needs. The challenge lists the required scopes. | Request the missing scope, or ask for the provider role that maps to it. An `admin` failure through `fortemi-cli` is by design: use the admin client. |
 | `403` with `client_not_allowed` | The token's client is not in the claim policy allowlist. | Use a registered client (`fortemi-cli`, a pre-registered MCP client, or an approved service client). |
 | `401` from a script after weeks of working | The personal access token expired or was revoked, or its owner was disabled. | Mint a fresh token after signing in. |
-| MCP client loops on consent | The audience scope was never requested, so the token names no Fortemi audience. | Request the `fortemi-api`/`fortemi-mcp` scopes the challenge names. |
+| MCP client loops on consent | The IdP rejects an advertised scope name, or the token lacks a configured Fortemi audience. | Accept `read write admin mcp` as optional no-op scopes on the client, and link `fortemi-api`/`fortemi-mcp` as the appropriate default audience scopes. Authority comes only from client roles and the claim-policy ceiling. |

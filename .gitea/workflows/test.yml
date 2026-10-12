@@ -186,6 +186,14 @@ jobs:
           # hosted API and MCP over HTTP; ephemeral keys only (#1151).
           TESTDB_IMAGE=matric-testdb:local scripts/test-mcp-external-issuer.sh
 
+      - name: Keycloak reference realm end-to-end
+        # About 50 s with a warm build and a cached image; the margin covers a
+        # cold Keycloak pull and an incremental matric-api build on a busy runner.
+        timeout-minutes: 15
+        run: |
+          # Real digest-pinned Keycloak, shipped realm/claim policy and tree-built API.
+          TESTDB_IMAGE=matric-testdb:local scripts/test-keycloak-reference-realm.sh
+
       - name: Teardown PostgreSQL
         if: always()
         run: |

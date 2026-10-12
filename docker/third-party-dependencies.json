@@ -189,6 +189,27 @@
       "update_cadence_days": 30,
       "rollback": "Restore the prior digest while preserving the operator model directory.",
       "mirror_policy": "Set FORTEMI_LLAMACPP_IMAGE to a complete approved mirror tag@sha256 reference."
+    },
+    {
+      "id": "keycloak-reference-realm",
+      "tag": "quay.io/keycloak/keycloak:26.7.3",
+      "digest": "sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54",
+      "immutable_reference": "quay.io/keycloak/keycloak:26.7.3@sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54",
+      "role": "ci-only",
+      "privilege_boundary": [
+        "private-test-network",
+        "ephemeral-TLS-and-credentials",
+        "loopback-published-port"
+      ],
+      "source_class": "upstream-project-image",
+      "upstream": "https://www.keycloak.org/",
+      "surfaces": [
+        "scripts/test-keycloak-reference-realm.sh"
+      ],
+      "reviewed_at": "2026-10-12",
+      "update_cadence_days": 30,
+      "rollback": "Restore the prior reviewed digest and rerun the reference-realm case matrix.",
+      "mirror_policy": "Mirror the exact tag and digest; the test must retain @sha256 verification."
     }
   ],
   "package_feeds": [

@@ -7,6 +7,30 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+### Fixed
+
+- Remove the unsupported `$schema` field from the shipped claim-policy example
+  and reject unknown policy fields in reference-realm verification (#1200).
+- Accept advertised `read`, `write`, `admin`, and `mcp` scope names in the
+  reference Keycloak realm as optional no-op scopes on interactive clients;
+  authority still comes only from client roles and claim-policy ceilings.
+- Serve public path-form protected-resource metadata for configured external
+  OIDC audiences with exact raw path matching (including percent-encoded paths),
+  and valid OpenAPI path templates. Audiences are matched as stored:
+  `FORTEMI_AUTH_AUDIENCES` entries lose trailing slashes when loaded, and an
+  audience with a query string, or one that shares its path with another
+  audience, has no path-form metadata document (404).
+- Update `quinn-proto` to 0.11.19 for RUSTSEC-2026-0338 through
+  RUSTSEC-2026-0342 (transitive through `reqwest`; lockfiles only).
+
+### Added
+
+- Add optional `MCP_HOST` to select the HTTP bind address; the default remains
+  all interfaces. The Keycloak test harness binds MCP to loopback.
+- Add a digest-pinned Keycloak reference-realm end-to-end test in CI covering
+  PKCE, client credentials, audiences, scope ceilings, MCP, JWKS and metadata,
+  using the shipped realm and claim policy with ephemeral credentials.
+
 ## [2026.10.4] - 2026-10-10
 
 Publishes native binaries for the 2026.10.2 server line. The 2026.10.3 tag's

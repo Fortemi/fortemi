@@ -1,5 +1,4 @@
 {
-  "$schema": "fortemi-auth-claim-policy",
   "scope_source": "mapping",
   "allow_token_scopes": false,
   "scope_vocabulary": ["read", "write", "admin", "mcp"],

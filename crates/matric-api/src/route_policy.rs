@@ -112,6 +112,13 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         PublicProbe,
     ),
     r(
+        "/.well-known/oauth-protected-resource/{*resource_path}",
+        OAuth,
+        "oauth_discovery",
+        DocsPublic,
+        PublicProbe,
+    ),
+    r(
         "/api/v1/api-keys",
         AdminOperator,
         "credential_management",
@@ -2065,6 +2072,11 @@ fn requires_backing_resource_normalization(
     ) || matches!(param_name, "id" | "attachment_id" | "name" | "name_or_id")
 }
 
+/// OpenAPI path parameters omit Axum's catch-all marker.
+pub fn openapi_path(router_path: &str) -> String {
+    router_path.replace("{*", "{")
+}
+
 fn route_template_matches(template: &str, path: &str) -> bool {
     let mut template_segments = template.split('/');
     let mut path_segments = path.split('/');
@@ -2072,6 +2084,11 @@ fn route_template_matches(template: &str, path: &str) -> bool {
     loop {
         match (template_segments.next(), path_segments.next()) {
             (None, None) => return true,
+            (Some(t), Some(_)) if t.starts_with("{*") && t.ends_with('}') => {
+                // Keep even the empty well-known subtree public; Axum's
+                // fallback then answers 404 instead of authentication's 401.
+                return template_segments.next().is_none();
+            }
             (Some(t), Some(p)) if is_template_param(t) && !p.is_empty() => {}
             (Some(t), Some(p)) if t == p => {}
             _ => return false,
@@ -2188,6 +2205,17 @@ mod tests {
     fn public_callback_routes_have_explicit_public_bypass_rules() {
         assert!(!is_public_without_bearer(
             "/api/v1/webhooks/incoming/example"
+        ));
+        for path in [
+            "/.well-known/oauth-protected-resource/",
+            "/.well-known/oauth-protected-resource/mcp",
+            "/.well-known/oauth-protected-resource/team/mcp",
+            "/.well-known/oauth-protected-resource/unknown/",
+        ] {
+            assert!(is_public_without_bearer(path));
+        }
+        assert!(!is_public_without_bearer(
+            "/.well-known/oauth-protected-resource-typo/mcp"
         ));
         assert!(is_public_without_bearer("/livez"));
         assert!(is_public_without_bearer("/readyz"));

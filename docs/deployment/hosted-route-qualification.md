@@ -92,8 +92,8 @@ is qualified.
 | `voice_calls` | no | excluded | 0 | 0 | 1 | 1 |
 | `knowledge_health` | no | excluded | 0 | 0 | 6 | 0 |
 | `operator` | no | excluded | 0 | 0 | 63 | 2 |
-| `public_protocol` | no | public | 0 | 0 | 0 | 18 |
-| **total** | | | 37 | 90 | 153 | 21 |
+| `public_protocol` | no | public | 0 | 0 | 0 | 19 |
+| **total** | | | 37 | 90 | 153 | 22 |
 
 ```json
 {
@@ -384,6 +384,7 @@ is qualified.
     {"method":"POST","path":"/api/v1/webhooks/{id}/test","class":"operator","status":"excluded","enforcement":"hosted_503"},
     {"method":"GET","path":"/.well-known/oauth-authorization-server","class":"public_protocol","status":"public","enforcement":"auth_exempt"},
     {"method":"GET","path":"/.well-known/oauth-protected-resource","class":"public_protocol","status":"public","enforcement":"auth_exempt"},
+    {"method":"GET","path":"/.well-known/oauth-protected-resource/{*resource_path}","class":"public_protocol","status":"public","enforcement":"auth_exempt"},
     {"method":"GET","path":"/api/v1/health/streaming","class":"public_protocol","status":"public","enforcement":"auth_exempt"},
     {"method":"GET","path":"/api/v1/problem-contract-status/{status}","class":"public_protocol","status":"public","enforcement":"auth_exempt"},
     {"method":"GET","path":"/api/v1/problem-contract-test","class":"public_protocol","status":"public","enforcement":"auth_exempt"},

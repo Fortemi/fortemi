@@ -6293,7 +6293,7 @@ if (MCP_TRANSPORT === "http") {
     console.log(`MCP token exchange configured (client_id: ${STARTUP_CONFIG.tokenExchange.clientId})`);
   }
 
-  app.listen(MCP_PORT, () => {
+  app.listen(MCP_PORT, STARTUP_CONFIG.host, () => {
     console.log(`MCP HTTP server listening on port ${MCP_PORT}`);
     console.log(`API base: ${API_BASE} (from ${STARTUP_CONFIG.apiBaseSource}); auth required: ${requireAuth}`);
     console.log(`Endpoints:`);

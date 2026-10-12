@@ -423,8 +423,8 @@ dependencies = [
 
 [[package]]
 name = "fortemi-auth-axum"
-version = "2026.10.1"
-source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.1#40276e0cae4cb8ac942ad495a346db051e6a2dd9"
+version = "2026.10.2"
+source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.2#9da20296ec7d63dfb7ee3ac38a47a658596d9652"
 dependencies = [
  "axum",
  "fortemi-auth-core",
@@ -435,8 +435,8 @@ dependencies = [
 
 [[package]]
 name = "fortemi-auth-clerk"
-version = "2026.10.1"
-source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.1#40276e0cae4cb8ac942ad495a346db051e6a2dd9"
+version = "2026.10.2"
+source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.2#9da20296ec7d63dfb7ee3ac38a47a658596d9652"
 dependencies = [
  "async-trait",
  "base64",
@@ -474,8 +474,8 @@ dependencies = [
 
 [[package]]
 name = "fortemi-auth-core"
-version = "2026.10.1"
-source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.1#40276e0cae4cb8ac942ad495a346db051e6a2dd9"
+version = "2026.10.2"
+source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.2#9da20296ec7d63dfb7ee3ac38a47a658596d9652"
 dependencies = [
  "chrono",
  "serde",
@@ -485,8 +485,8 @@ dependencies = [
 
 [[package]]
 name = "fortemi-auth-mock"
-version = "2026.10.1"
-source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.1#40276e0cae4cb8ac942ad495a346db051e6a2dd9"
+version = "2026.10.2"
+source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.2#9da20296ec7d63dfb7ee3ac38a47a658596d9652"
 dependencies = [
  "chrono",
  "fortemi-auth-core",
@@ -1207,9 +1207,9 @@ dependencies = [
 
 [[package]]
 name = "quinn-proto"
-version = "0.11.16"
+version = "0.11.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f4bfc015262b9df63c8845072ce59068853ff5872180c2ce2f13038b970e560"
+checksum = "0e750cca55fe4f0439a15d0bb529da9651e79993e8e72c61a899a36d462befbe"
 dependencies = [
  "bytes",
  "getrandom 0.4.3",

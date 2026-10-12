@@ -193,5 +193,6 @@ export function loadStartupConfig(env) {
   const auth = transport === "http" ? resolveAuthPolicy(env) : { requireAuth: false, anonymous: false };
   const resource = resolveResourcePolicy(env, transport);
   const tokenExchange = resolveTokenExchange(env, transport, resource);
-  return { transport, apiBase, apiBaseSource: source, publicUrl, auth, resource, tokenExchange };
+  const host = env.MCP_HOST || undefined; // Unset preserves Node's all-interface binding.
+  return { transport, host, apiBase, apiBaseSource: source, publicUrl, auth, resource, tokenExchange };
 }

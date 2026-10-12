@@ -32,6 +32,7 @@ EXPECTED_ROLE_SCOPES = {
     "fortemi-mcp": {"mcp"},
 }
 PUBLIC_CLIENTS = ("fortemi-cli", "claude-code", "claude-desktop", "cursor", "vscode")
+ADVERTISED_SCOPES = {"read", "write", "admin", "mcp"}
 SERVICE_CLIENT = "fortemi-service-example"
 RESOURCE_CLIENT = "fortemi"
 # IdP user attributes a member can edit themselves; the tenant attribute must
@@ -156,6 +157,49 @@ def check_audience_scopes(realm: dict) -> list[str]:
             errors.append(
                 f"SR-41/MCP: scope '{scope_name}' lacks an Audience mapper for {audience}"
             )
+    return errors
+
+
+def check_advertised_scopes(realm: dict) -> list[str]:
+    errors = []
+    scopes = {s.get("name"): s for s in realm.get("clientScopes", [])}
+    mapped = {
+        entry.get("clientScope")
+        for entries in realm.get("clientScopeMappings", {}).values()
+        for entry in entries
+    }
+    # Realm role scope mappings must not give these names authority either.
+    mapped.update(entry.get("clientScope") for entry in realm.get("scopeMappings", []))
+    for name in sorted(ADVERTISED_SCOPES):
+        scope = scopes.get(name)
+        if scope is None:
+            errors.append(f"MCP: advertised scope '{name}' is missing")
+            continue
+        if scope.get("protocol") != "openid-connect" or scope.get("attributes", {}).get(
+            "include.in.token.scope"
+        ) != "true" or scope.get("attributes", {}).get("display.on.consent.screen") != "false":
+            errors.append(f"MCP: advertised scope '{name}' must be a hidden OIDC token scope")
+        if scope.get("protocolMappers"):
+            errors.append(f"MCP: advertised scope '{name}' must have no protocol mappers")
+        if name in mapped:
+            errors.append(f"MCP: advertised scope '{name}' must have no role scope mappings")
+    for client_id in PUBLIC_CLIENTS:
+        client = find_client(realm, client_id)
+        optional = set(client.get("optionalClientScopes", [])) if client else set()
+        if not ADVERTISED_SCOPES <= optional:
+            errors.append(f"MCP: client '{client_id}' must link all advertised scopes as optional")
+    for client in realm.get("clients", []):
+        linked = set(client.get("defaultClientScopes", []))
+        if client.get("clientId") not in PUBLIC_CLIENTS:
+            linked.update(client.get("optionalClientScopes", []))
+        if linked & ADVERTISED_SCOPES:
+            errors.append(f"MCP: client '{client.get('clientId')}' has forbidden advertised scopes")
+    for field in ("defaultDefaultClientScopes", "defaultOptionalClientScopes"):
+        if ADVERTISED_SCOPES & set(realm.get(field, [])):
+            errors.append(f"MCP: advertised scopes must not be realm scopes in {field}")
+    for policy in anonymous_policies(realm):
+        if ADVERTISED_SCOPES & set(policy.get("config", {}).get("allowed-client-scopes", [])):
+            errors.append("MCP: advertised scopes must not be allowed for anonymous registration")
     return errors
 
 
@@ -414,8 +458,23 @@ def claim_path_segments(claim: object) -> list[str] | None:
     return claim.split(".")
 
 
+# Fields of every fortemi-auth-core claim-policy config struct with
+# deny_unknown_fields. Clients' ceilings is a map, not a config struct.
+POLICY_FIELDS = {"scope_source", "allow_token_scopes", "scope_vocabulary", "scope_mapping", "clients"}
+POLICY_MAPPING_FIELDS = {"claim", "rules"}
+POLICY_RULE_FIELDS = {"id", "value", "scopes"}
+POLICY_CLIENT_FIELDS = {"claim", "allowed", "service", "service_marker_claim", "ceilings"}
+
+
 def check_claim_policy(policy: dict, realm: dict) -> list[str]:
     errors = []
+    unknown = sorted(set(policy) - POLICY_FIELDS)
+    if unknown:
+        errors.append(f"claim-policy: unknown fields {unknown} are rejected by the parser")
+    client_fields = policy.get("clients", {})
+    unknown = sorted(set(client_fields) - POLICY_CLIENT_FIELDS) if isinstance(client_fields, dict) else []
+    if unknown:
+        errors.append(f"claim-policy: unknown clients fields {unknown} are rejected by the parser")
     if policy.get("scope_source") != "mapping":
         errors.append("claim-policy: scope_source must be 'mapping'")
     if policy.get("allow_token_scopes") is not False:
@@ -423,6 +482,13 @@ def check_claim_policy(policy: dict, realm: dict) -> list[str]:
     if set(policy.get("scope_vocabulary", [])) != {"read", "write", "admin", "mcp"}:
         errors.append("claim-policy: scope_vocabulary must be exactly read/write/admin/mcp")
     mapping = policy.get("scope_mapping", {})
+    unknown = sorted(set(mapping) - POLICY_MAPPING_FIELDS)
+    if unknown:
+        errors.append(f"claim-policy: unknown scope_mapping fields {unknown} are rejected by the parser")
+    for index, rule in enumerate(mapping.get("rules", [])):
+        unknown = sorted(set(rule) - POLICY_RULE_FIELDS)
+        if unknown:
+            errors.append(f"claim-policy: unknown scope_mapping.rules[{index}] fields {unknown} are rejected by the parser")
     segments = claim_path_segments(mapping.get("claim"))
     if segments != ["resource_access", RESOURCE_CLIENT, "roles"]:
         errors.append(
@@ -477,6 +543,7 @@ def verify(realm_path: Path, policy_path: Path) -> list[str]:
     errors.extend(check_lifetimes(realm))
     errors.extend(check_resource_client(realm))
     errors.extend(check_audience_scopes(realm))
+    errors.extend(check_advertised_scopes(realm))
     errors.extend(check_groups(realm))
     errors.extend(check_tenant_mapper(realm))
     errors.extend(check_cli_client(realm))
@@ -501,7 +568,24 @@ SELF_TESTS: list[tuple[str, str]] = [
     ("hour access-token lifespan", "accessTokenLifespan"),
     ("refresh rotation off", "revokeRefreshToken"),
     ("token scope source", "scope_source"),
+    ("unknown policy field", "unknown fields"),
+    ("unknown clients field", "unknown clients fields"),
+    ("unknown mapping field", "unknown scope_mapping fields"),
+    ("unknown rule field", "unknown scope_mapping.rules[0] fields"),
+    ("unknown later rule field", "unknown scope_mapping.rules[1] fields"),
     ("cursor marker removed", "CONFIRM"),
+    ("advertised scope missing", "advertised scope 'read' is missing"),
+    ("advertised scope mapper", "no protocol mappers"),
+    ("advertised scope role mapping", "no role scope mappings"),
+    ("advertised scope realm role mapping", "no role scope mappings"),
+    ("advertised scope attributes", "hidden OIDC token scope"),
+    ("advertised scope interactive link", "all advertised scopes as optional"),
+    ("advertised scope realm default", "realm scopes"),
+    ("advertised scope realm optional", "realm scopes"),
+    ("advertised scope anonymous", "anonymous registration"),
+    ("advertised scope service link", "forbidden advertised scopes"),
+    ("advertised scope resource link", "forbidden advertised scopes"),
+
 ]
 
 
@@ -541,6 +625,42 @@ def mutate(case: str, realm: dict, policy: dict) -> None:
         realm["revokeRefreshToken"] = False
     elif case.startswith("token scope"):
         policy["scope_source"] = "token"
+    elif case.startswith("unknown policy field"):
+        policy["$schema"] = "fortemi-auth-claim-policy"
+    elif case.startswith("unknown clients field"):
+        policy["clients"]["deny"] = []
+    elif case == "unknown mapping field":
+        policy["scope_mapping"]["unexpected"] = True
+    elif case == "unknown rule field":
+        policy["scope_mapping"]["rules"][0]["unexpected"] = True
+    elif case == "unknown later rule field":
+        policy["scope_mapping"]["rules"][1]["unexpected"] = True
+    elif case.startswith("advertised scope"):
+        scope = next(s for s in realm["clientScopes"] if s["name"] == "read")
+        if case.endswith("missing"):
+            realm["clientScopes"].remove(scope)
+        elif case.endswith("realm role mapping"):
+            realm.setdefault("scopeMappings", []).append({"clientScope": "read", "roles": ["role"]})
+        elif case.endswith("role mapping"):
+            realm["clientScopeMappings"][RESOURCE_CLIENT].append({"clientScope": "read", "roles": []})
+        elif case.endswith("mapper"):
+            scope["protocolMappers"] = [{"protocolMapper": "oidc-hardcoded-claim-mapper"}]
+        elif case.endswith("attributes"):
+            scope["attributes"]["display.on.consent.screen"] = "true"
+        elif case.endswith("interactive link"):
+            find_client(realm, "claude-code")["optionalClientScopes"].remove("admin")
+        elif case.endswith("realm default"):
+            realm["defaultDefaultClientScopes"].append("write")
+        elif case.endswith("realm optional"):
+            realm["defaultOptionalClientScopes"].append("mcp")
+        elif case.endswith("anonymous"):
+            for component in anonymous_policies(realm):
+                if component.get("providerId") == "allowed-client-templates":
+                    component["config"]["allowed-client-scopes"].append("read")
+        elif case.endswith("service link"):
+            find_client(realm, SERVICE_CLIENT)["optionalClientScopes"].append("read")
+        elif case.endswith("resource link"):
+            find_client(realm, RESOURCE_CLIENT)["optionalClientScopes"].append("read")
     elif case.startswith("cursor marker"):
         find_client(realm, "cursor")["description"] = "Cursor client."
 
@@ -592,7 +712,7 @@ def main() -> int:
             for failure in failures:
                 print(f"- {failure}", file=sys.stderr)
             return 1
-        print("Reference-realm self-tests passed (13 known-bad fixtures rejected)")
+        print(f"Reference-realm self-tests passed ({len(SELF_TESTS)} known-bad fixtures rejected)")
         return 0
 
     root = Path(args.root).resolve()

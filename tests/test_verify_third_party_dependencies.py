@@ -158,6 +158,17 @@ class ThirdPartyDependencyTests(unittest.TestCase):
             self.assertIn("digest is absent", "\n".join(errors))
             self.assertIn("ggerganov", "\n".join(errors))
 
+    def test_shell_harness_digest_drift_is_rejected(self) -> None:
+        with self.fixture_root() as root:
+            script = root / "scripts/test-keycloak-reference-realm.sh"
+            script.write_text(script.read_text().replace(
+                "sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54",
+                "sha256:" + "a" * 64,
+            ))
+            errors = MODULE.verify(root, today=TODAY)
+            self.assertIn("digest is absent", "\n".join(errors))
+            self.assertIn("surfaces mismatch", "\n".join(errors))
+
     def fixture_root(self):
         temporary = tempfile.TemporaryDirectory()
         root = Path(temporary.name)

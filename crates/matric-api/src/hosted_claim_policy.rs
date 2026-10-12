@@ -122,6 +122,40 @@ mod tests {
     use fortemi_auth_core::{AuthError, PrincipalKind};
     use serde_json::json;
 
+    #[test]
+    fn loader_rejects_unknown_fields_at_every_config_level() {
+        let valid: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../deploy/identity/claim-policy.example.json"
+        ))
+        .unwrap();
+        assert!(policy(valid.clone()).is_ok());
+        // All four deny_unknown_fields structs; check every rule, not just the first.
+        let mut pointers = vec![
+            "".to_string(),
+            "/scope_mapping".to_string(),
+            "/clients".to_string(),
+        ];
+        pointers.extend(
+            (0..valid["scope_mapping"]["rules"].as_array().unwrap().len())
+                .map(|index| format!("/scope_mapping/rules/{index}")),
+        );
+        for pointer in pointers {
+            let mut invalid = valid.clone();
+            invalid
+                .pointer_mut(&pointer)
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .insert("unexpected".into(), json!("secret-group-sentinel"));
+            let error = policy(invalid).unwrap_err().to_string();
+            assert!(
+                error.contains("not a valid claim policy"),
+                "{pointer}: {error}"
+            );
+            assert!(!error.contains("secret-group-sentinel"), "{error}");
+        }
+    }
+
     fn policy(value: serde_json::Value) -> anyhow::Result<ClaimPolicy> {
         claim_policy_from_json(value.to_string().as_bytes())
     }
@@ -266,6 +300,25 @@ mod tests {
                 .to_string()
                 .as_bytes(),
             &allowed,
+        )
+        .unwrap();
+    }
+
+    /// The shipped reference policy must load as shipped (#1200).
+    #[test]
+    fn shipped_reference_policy_loads_in_external_oidc_mode() {
+        let audiences = BTreeSet::from([
+            "https://fortemi.example.org".to_string(),
+            "https://fortemi.example.org/mcp".to_string(),
+        ]);
+        let options = ClaimPolicyLoadOptions {
+            required: true,
+            allow_token_scopes: false,
+            forbidden_audiences: &audiences,
+        };
+        claim_policy_from_json_with_options(
+            include_bytes!("../../../deploy/identity/claim-policy.example.json"),
+            &options,
         )
         .unwrap();
     }

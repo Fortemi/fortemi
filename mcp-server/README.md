@@ -632,6 +632,7 @@ curl https://your-domain.com/mcp/.well-known/oauth-protected-resource
 | `REQUIRE_AUTH` | `true` | HTTP mode requires a bearer token; `false` needs `I_UNDERSTAND_NO_AUTH=true` and is refused with `FORTEMI_MULTI_TENANT=true` |
 | `FORTEMI_API_KEY` | - | API key for stdio mode |
 | `MCP_TRANSPORT` | `stdio` | Transport mode: `stdio` or `http` |
+| `MCP_HOST` | all interfaces | Optional HTTP bind address; set `127.0.0.1` for host-local runs |
 | `MCP_PORT` | `3001` | HTTP server port (http mode only) |
 | `MCP_TOOL_MODE` | `core` | Tool surface: `core` (45 tools) or `full` (207 tools) |
 | `ISSUER_URL` | `https://localhost:3000` | External URL for OAuth (set in .env) |

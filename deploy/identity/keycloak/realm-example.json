@@ -90,7 +90,12 @@
         "roles",
         "web-origins"
       ],
-      "optionalClientScopes": []
+      "optionalClientScopes": [
+        "read",
+        "write",
+        "admin",
+        "mcp"
+      ]
     },
     {
       "clientId": "claude-code",
@@ -122,7 +127,12 @@
         "roles",
         "web-origins"
       ],
-      "optionalClientScopes": []
+      "optionalClientScopes": [
+        "read",
+        "write",
+        "admin",
+        "mcp"
+      ]
     },
     {
       "clientId": "vscode",
@@ -154,7 +164,12 @@
         "roles",
         "web-origins"
       ],
-      "optionalClientScopes": []
+      "optionalClientScopes": [
+        "read",
+        "write",
+        "admin",
+        "mcp"
+      ]
     },
     {
       "clientId": "claude-desktop",
@@ -186,7 +201,12 @@
         "roles",
         "web-origins"
       ],
-      "optionalClientScopes": []
+      "optionalClientScopes": [
+        "read",
+        "write",
+        "admin",
+        "mcp"
+      ]
     },
     {
       "clientId": "cursor",
@@ -218,7 +238,12 @@
         "roles",
         "web-origins"
       ],
-      "optionalClientScopes": []
+      "optionalClientScopes": [
+        "read",
+        "write",
+        "admin",
+        "mcp"
+      ]
     },
     {
       "clientId": "fortemi-service-example",
@@ -940,7 +965,7 @@
     },
     {
       "name": "fortemi-mcp",
-      "description": "Audience scope for the Fortemi MCP resource. Requesting it adds aud https://fortemi.example.org/mcp. Without RFC 8707 resource indicators (experimental in 26.7), this scope is what carries the audience; clients must request it.",
+      "description": "Audience scope for the Fortemi MCP resource. Adds aud https://fortemi.example.org/mcp as a default scope of pre-registered interactive clients; it need not be explicitly requested.",
       "protocol": "openid-connect",
       "attributes": {
         "include.in.token.scope": "true",
@@ -1009,6 +1034,46 @@
           }
         }
       ]
+    },
+    {
+      "name": "read",
+      "description": "Compatibility name for the advertised Fortemi read scope. This name grants nothing by itself: authority comes only from Fortemi client roles and the claim-policy client ceiling.",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
+    },
+    {
+      "name": "write",
+      "description": "Compatibility name for the advertised Fortemi write scope. This name grants nothing by itself: authority comes only from Fortemi client roles and the claim-policy client ceiling.",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
+    },
+    {
+      "name": "admin",
+      "description": "Compatibility name for the advertised Fortemi admin scope. This name grants nothing by itself: authority comes only from Fortemi client roles and the claim-policy client ceiling.",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
+    },
+    {
+      "name": "mcp",
+      "description": "Compatibility name for the advertised Fortemi mcp scope. This name grants nothing by itself: authority comes only from Fortemi client roles and the claim-policy client ceiling.",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": []
     }
   ],
   "groups": [

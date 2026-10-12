@@ -24,6 +24,7 @@ container  quay.io/openbao/openbao  sha256:41dc3e47da01575e1ffea70aa635180b57ff9
 tool       kind              aee6151561422756b764a4ae28e7f44cda5af5a9eead3cc9985112b1de8d8e0d    v0.33.0           2026-10-08   #1173 Pod Security restricted bundle test; kind-linux-amd64 sha256 from the release's kind-linux-amd64.sha256sum; scripts/ci/test-pod-security-restricted.sh
 tool       kubectl           6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f    v1.37.0           2026-10-08   #1173 same test; dl.k8s.io/release/v1.37.0/bin/linux/amd64/kubectl.sha256
 container  kindest/node      sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5  v1.37.0  2026-10-08   #1173 kind node image listed in the kind v0.33.0 release notes; scripts/ci/test-pod-security-restricted.sh
+container  quay.io/keycloak/keycloak  sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54  26.7.3  2026-10-12   reference-realm PKCE/client credentials qualification (scripts/test-keycloak-reference-realm.sh; test.yml)
 #
 # Residual hardening:
 #   collect live Gitea CI evidence for guarded pull-request and release/tag runs

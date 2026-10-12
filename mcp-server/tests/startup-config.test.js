@@ -97,6 +97,13 @@ describe("resolveAuthPolicy", () => {
 });
 
 describe("loadStartupConfig", () => {
+  test("HTTP bind host is optional and honors a loopback override", () => {
+    const env = { MCP_TRANSPORT: "http", MCP_API_LAYOUT: "bundle" };
+    assert.equal(loadStartupConfig(env).host, undefined);
+    assert.equal(loadStartupConfig({ ...env, MCP_HOST: "" }).host, undefined);
+    assert.equal(loadStartupConfig({ ...env, MCP_HOST: "127.0.0.1" }).host, "127.0.0.1");
+  });
+
   test("stdio does not apply the HTTP auth policy", () => {
     const config = loadStartupConfig({ FORTEMI_URL: "http://localhost:3000", REQUIRE_AUTH: "false" });
     assert.equal(config.transport, "stdio");

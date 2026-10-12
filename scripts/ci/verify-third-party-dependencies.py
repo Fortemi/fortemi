@@ -245,6 +245,19 @@ def verify(root: Path, *, today: dt.date | None = None) -> list[str]:
         for raw in COMPOSE_IMAGE.findall(text):
             classify(resolve_defaults(raw), relative)
 
+    # CI-only images can be pinned in shell harnesses rather than Dockerfiles.
+    # Verify every explicitly declared shell surface against the same manifest.
+    shell_surfaces = {surface for surfaces in declared_surfaces.values()
+                      for surface in surfaces if surface.endswith(".sh")}
+    for surface in sorted(shell_surfaces):
+        path = root / surface
+        if not path.is_file():
+            errors.append(f"declared shell surface does not exist: {surface}")
+            continue
+        for reference in re.findall(r"[A-Za-z0-9._:/-]+@sha256:[0-9a-f]{64}",
+                                    path.read_text(encoding="utf-8")):
+            classify(reference, surface)
+
     for immutable, expected in declared_surfaces.items():
         found = found_surfaces.get(immutable, set())
         if found != expected:
