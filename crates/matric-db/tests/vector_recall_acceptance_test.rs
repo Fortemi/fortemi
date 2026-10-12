@@ -20,9 +20,15 @@ const QUERY_COUNT: usize = 200;
 const TOP_K: usize = 10;
 const MIN_RECALL: f32 = 0.95;
 
-#[cfg(feature = "recall-100k")]
+// The coverage lane builds with --all-features, which turns recall-100k on.
+// Instrumented, unoptimised code needs 23 minutes or more for 100,000 vectors
+// (66 seconds for 10,000 uninstrumented) and overran the coverage step's
+// 45-minute budget on a loaded runner. cargo-llvm-cov sets cfg(coverage), so
+// coverage keeps the 10,000-vector gate; run the 100,000-vector gate without
+// instrumentation as docs/content/vector-index-operations.md describes.
+#[cfg(all(feature = "recall-100k", not(coverage)))]
 const VECTOR_COUNT: usize = 100_000;
-#[cfg(not(feature = "recall-100k"))]
+#[cfg(any(not(feature = "recall-100k"), coverage))]
 const VECTOR_COUNT: usize = 10_000;
 
 async fn setup_test_db() -> Database {
