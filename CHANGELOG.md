@@ -7,6 +7,11 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.10.5] - 2026-10-12
+
+Makes the shipped Keycloak reference realm and claim policy work as shipped,
+qualified end to end against Keycloak 26.7.3. Consumes fortemi-auth 2026.10.2.
+
 ### Fixed
 
 - Remove the unsupported `$schema` field from the shipped claim-policy example
