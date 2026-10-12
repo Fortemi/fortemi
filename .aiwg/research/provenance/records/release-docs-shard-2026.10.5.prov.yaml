@@ -1,0 +1,70 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-10-12T22:03:00Z"
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard",
+    "type": "document",
+    "created_at": "2026-10-12T22:03:00.120547841Z",
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "docker/seed-data/fortemi-docs.shard",
+          "sha256": "491cde5896ed98092c5b7c4b4b87832aa02ef01cacb9afa89e0cd33740282ed9"
+        },
+        {
+          "path": "docker/seed-data/fortemi-docs.shard.receipt.json",
+          "sha256": "781b9efd173a1ef5c2dce87851bb5c57dec9c188c923a0829da9b81a4446a0c5"
+        }
+      ],
+      "source_commit": "63af7156ad48fe3b9d16879bbc323e50aad5e50d",
+      "server_image": "lane-b-docs-api:2026.10.5",
+      "server_image_id": "sha256:bad6a60e11feb758cf587e41e9697310e891c814feb73262d347457cc56757f8",
+      "testdb_image": "matric-testdb:shard-rebuild",
+      "testdb_image_id": "sha256:4a9d305210266c98d2a4b1353c1d1957557dbd9240dd615973483ec8b479eb2d",
+      "boundaries": [
+        "466/466 tracked documentation sources imported with zero failures through the source-bound API generator (scripts/ci/rebuild-shard-in-ci.sh)",
+        "Manifest 1.2.0 core-v1 documentation seed; this artifact does not establish full-v1 or record-v1 compatibility",
+        "API and database fixtures were network-isolated and removed after generation",
+        "The server image was built locally from the source commit; it is not a published image"
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:generation:release-docs-shard-2026.10.5:001",
+    "type": "generation",
+    "started_at": "2026-10-12T22:03:00Z",
+    "ended_at": "2026-10-12T22:03:00.120547841Z",
+    "description": "Regenerate the 2026.10.5 documentation seed through the exact source-bound API for the release commit."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:claude-code",
+    "name": "Claude Code",
+    "type": "ai_assistant"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard",
+      "activity": "urn:aiwg:activity:generation:release-docs-shard-2026.10.5:001",
+      "time": "2026-10-12T22:03:00.120547841Z"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard",
+      "agent": "urn:aiwg:agent:claude-code"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:generation:release-docs-shard-2026.10.5:001",
+      "agent": "urn:aiwg:agent:claude-code",
+      "role": "primary_implementer"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard",
+        "source": "urn:git:commit:63af7156ad48fe3b9d16879bbc323e50aad5e50d",
+        "derivation_type": "generated_from",
+        "activity": "urn:aiwg:activity:generation:release-docs-shard-2026.10.5:001"
+      }
+    ]
+  }
+}
