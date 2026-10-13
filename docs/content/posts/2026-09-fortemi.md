@@ -36,43 +36,29 @@ The month also brought manual note links, bounded dataset runs, and fixes for up
 
 ### Retry an import without adding copies
 
-What changed: `v2026.9.1` added a way to create or update notes by a stable source ID.
+A document import may stop before your app gets the reply. With the source imports added in `v2026.9.1`, your app can send the same batch again and get the prior note IDs without adding rows. Each note has a source name and an ID from that source, so the server can match each item to its stored note.
 
-How it works: each note has a source name and an ID from that source. An exact batch replay returns the prior note IDs without adding rows.
-
-Why it matters: say a document import stops before your app gets the reply. You can send the same batch again. The source name and document ID let the server match each item to its stored note. For example, use a stable source name for a set of documents. Keep each document’s ID the same on the next run. If the text has changed, choose the change policy before you send the batch.
+To create or update a set of documents this way, use a stable source name and keep each document’s ID the same on the next run. If the text has changed, choose the change policy before you send the batch.
 
 ### Check what a purge will remove
 
-What changed: `v2026.9.10` added a purge process with a preview.
+Before you remove a body of work, use the purge preview added in `v2026.9.10` to inspect the planned scope. Check that it selects only the data you mean to remove, and keep the preview with the task you plan to run.
 
-How it works: the server removes the chosen rows in one step. File and search cleanup can resume. The final receipt records the result without keeping the erased content.
-
-Why it matters: before you remove a body of work, you can inspect the planned scope. You also get a record of the cleanup result. Keep the preview with the task you plan to run. Check that the preview selects only the data you mean to remove. After the purge, check the final receipt for the file and search cleanup result. Removing the rows alone does not finish file and search cleanup.
+The server removes the chosen rows in one step, but file and search cleanup still need to finish. That cleanup can resume. After the purge, check the final receipt for the file and search cleanup result. The receipt records the result without keeping the erased content.
 
 ### Restore chosen notes and keep the rest
 
-What changed: `v2026.9.10` fixed scoped Knowledge Shard restores. Knowledge Shards are files used to move Fortemi data.
+When you restore one set of notes while keeping another, check that the scope includes only the notes you mean to restore. Keep a backup as well, so you have a known point to return to. Knowledge Shards are files used to move Fortemi data; `v2026.9.10` fixed their scoped restores to keep records outside the chosen set and preserve the IDs of retained records.
 
-How it works: a scoped restore keeps the IDs of retained records. It also keeps records outside the chosen set. A clash with a record outside that set causes the change to fail and roll back.
-
-Why it matters: say you restore one set of notes while keeping another. The chosen set defines what can change. A link to another record alone does not let a restore delete it. Before starting, check that the restore scope includes only the notes you mean to restore. The fix keeps a shared link from turning a small restore into a wider removal. Keep a backup as well, so you have a known point to return to.
+The chosen set defines what can change. A shared link to another record alone does not let the restore delete it. If the restore clashes with a record outside that set, the change fails and rolls back.
 
 ### Give agent data runs a clear lifecycle
 
-What changed: `v2026.9.3` shipped a versioned dataset tool through MCP, the Model Context Protocol used by agent tools.
-
-How it works: `manage_dataset_execution` supports preview, run, status, checkpoint, cancel, and resume. It checks the chosen contract and limits before making an API call.
-
-Why it matters: an agent can check what a run will do before it starts. If work stops, the agent can check its status and resume from a checkpoint.
+Before starting a dataset run, an agent can preview what it will do. The versioned tool shipped in `v2026.9.3` through MCP, the Model Context Protocol used by agent tools. Its `manage_dataset_execution` supports preview, run, status, checkpoint, cancel, and resume, and checks the chosen contract and limits before making an API call. If work stops, the agent can check its status and resume from a checkpoint.
 
 ### Link notes with stable retry behavior
 
-What changed: `v2026.9.0` added the manual note-link route.
-
-How it works: you choose a source note and a target note. Exact retries return the same stored link ID. A conflicting score or metadata returns a conflict.
-
-Why it matters: a lost reply should not leave you guessing whether a link exists. Your app can retry the request and use the stored result.
+If your app loses the reply after linking two notes, it can retry the exact request and use the stored result. The manual note-link route added in `v2026.9.0` takes your chosen source and target notes and returns the same stored link ID on an exact retry. A conflicting score or metadata returns a conflict.
 
 ## Features shipped
 
@@ -140,11 +126,9 @@ The release includes the hosted verifier in standard API and bundle builds. Host
 
 ## Docs & DX
 
-Source imports ship with rules for requests and replies, plus tests you can run.
+When you test an app against source imports, the shipped files supply test inputs, expected results, and rules for requests and replies. They also include tests you can run. For dataset runs, the files set strict rules for requests and receipts, with a separate tool to check results.
 
-Dataset runs ship strict rules for requests and receipts. A separate tool checks the results.
-
-For an app author, these files give you test inputs and the results to check. Start with the [server release notes](https://github.com/Fortemi/fortemi/releases) and [configuration guide](https://github.com/Fortemi/fortemi/blob/main/docs/content/configuration.md).
+Start with the [server release notes](https://github.com/Fortemi/fortemi/releases) and [configuration guide](https://github.com/Fortemi/fortemi/blob/main/docs/content/configuration.md).
 
 ## Tests & CI
 
@@ -168,7 +152,7 @@ Source identities are outside the Knowledge Shard export profiles. An export rep
 
 You choose which data a purge may remove and which data it must keep. The restore fixes do not prove full backup or loss-free transfer across the suite.
 
-## What's next
+## Release checks
 
 Test the exact server and app releases you use: an exact import replay should return the same note IDs without duplicates. A scoped restore should keep unselected records and retained IDs, and roll back on a clash outside its scope. For a purge, check that the preview matches your chosen scope and the final receipt records finished file and search cleanup.
 
