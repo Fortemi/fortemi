@@ -77,6 +77,7 @@ async fn hosted_collections_and_export_are_tenant_bound_for_bootstrapped_tenant(
     let admin = matric_db::create_pool(&url)
         .await
         .expect("explicit test database");
+    let configs_before = super::embedding_fixture_catalog(&admin).await;
     let role = format!("hx_{}", Uuid::new_v4().simple());
     let password = Uuid::new_v4().simple().to_string();
     sqlx::query(&format!("CREATE ROLE {role} LOGIN PASSWORD '{password}' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT"))
@@ -314,6 +315,13 @@ async fn hosted_collections_and_export_are_tenant_bound_for_bootstrapped_tenant(
     drop(app_b);
     drop(state);
     runtime.close().await;
+    for tenant in tenants {
+        super::cleanup_bootstrap_embedding_fixture(&admin, tenant).await;
+    }
+    assert_eq!(
+        super::embedding_fixture_catalog(&admin).await,
+        configs_before
+    );
     sqlx::query(&format!("DROP OWNED BY {role}"))
         .execute(&admin)
         .await

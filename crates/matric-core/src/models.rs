@@ -5448,7 +5448,7 @@ impl std::fmt::Debug for CreateApiKeyResponse {
 }
 
 /// Authenticated principal (either OAuth client or API key).
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum AuthPrincipal {
     OAuthClient {
         client_id: String,

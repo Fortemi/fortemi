@@ -16,6 +16,22 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   all four modes; publish a typed OpenAPI response and exact auth fixtures.
   This additive, revision-compatible extension keeps consumers that do not
   support `external_oidc` failing closed for that mode.
+- Admit human `read` credentials to archive-filtered SSE streams while retaining
+  `mcp` admission for service credentials. Preserve the verified tenant in
+  single-tenant external-OIDC authorization audits and keep audit failures
+  fail-closed with 503 (#1204).
+- Apply the same archive selection and tenant isolation to live SSE and bounded
+  replay. Add `archive_name` and `archive_schema` attribution while preserving
+  the legacy `memory` field and multi-tenant envelope compatibility (#1204).
+- End SSE delivery at every credential's validated expiry, retain verified
+  tenant/principal metadata in query tokens for durable authorization auditing,
+  and describe bearer/query authentication in OpenAPI. Attribute worker job,
+  progress, index and note events to their execution archive; filter by canonical
+  schema while preserving hosted `memory` compatibility (#1204).
+- Revalidate query stream users, parent credentials and current scopes on
+  connect, reconnect and delivery; preserve archive names in single-tenant
+  webhook envelopes. Provision disposable Redis for CI token tests and clean
+  up tenant bootstrap embedding fixtures shared with shard tests (#1204).
 
 ## [2026.10.5] - 2026-10-12
 

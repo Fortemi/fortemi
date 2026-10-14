@@ -32,7 +32,11 @@ mod search_contract;
 mod shard_embedding_contract;
 mod shard_signature;
 mod system_compatibility;
+mod sse;
+#[cfg(test)]
+mod sse_tests;
 mod trusted_proxy;
+mod worker_events;
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
@@ -380,11 +384,17 @@ async fn queue_extraction_job_payload(
                 filename_len = telemetry_text_len(filename),
                 "Extraction job queued for attachment"
             );
-            event_bus.emit(ServerEvent::JobQueued {
+            worker_events::emit_job_event(
+                event_bus,
+                db,
                 job_id,
-                job_type: format!("{:?}", JobType::Extraction),
-                note_id: Some(note_id),
-            });
+                ServerEvent::JobQueued {
+                    job_id,
+                    job_type: format!("{:?}", JobType::Extraction),
+                    note_id: Some(note_id),
+                },
+            )
+            .await;
         }
         Err(e) => {
             error!(
@@ -441,11 +451,17 @@ async fn queue_exif_extraction_job(
         .await
     {
         Ok(job_id) => {
-            event_bus.emit(ServerEvent::JobQueued {
+            worker_events::emit_job_event(
+                event_bus,
+                db,
                 job_id,
-                job_type: format!("{:?}", JobType::ExifExtraction),
-                note_id: Some(note_id),
-            });
+                ServerEvent::JobQueued {
+                    job_id,
+                    job_type: format!("{:?}", JobType::ExifExtraction),
+                    note_id: Some(note_id),
+                },
+            )
+            .await;
         }
         Err(e) => {
             error!(
@@ -495,11 +511,17 @@ async fn queue_media_optimize_job(
         .await
     {
         Ok(job_id) => {
-            event_bus.emit(ServerEvent::JobQueued {
+            worker_events::emit_job_event(
+                event_bus,
+                db,
                 job_id,
-                job_type: format!("{:?}", JobType::MediaOptimize),
-                note_id: Some(note_id),
-            });
+                ServerEvent::JobQueued {
+                    job_id,
+                    job_type: format!("{:?}", JobType::MediaOptimize),
+                    note_id: Some(note_id),
+                },
+            )
+            .await;
         }
         Err(e) => {
             error!(
@@ -601,11 +623,17 @@ async fn queue_attachment_scan_job(
             initiated_by_user_id,
         )
         .await?;
-    state.event_bus.emit(ServerEvent::JobQueued {
+    worker_events::emit_job_event(
+        &state.event_bus,
+        &state.db,
         job_id,
-        job_type: format!("{:?}", JobType::AttachmentVirusScan),
-        note_id: Some(note_id),
-    });
+        ServerEvent::JobQueued {
+            job_id,
+            job_type: format!("{:?}", JobType::AttachmentVirusScan),
+            note_id: Some(note_id),
+        },
+    )
+    .await;
     Ok(job_id)
 }
 
@@ -1001,11 +1029,17 @@ async fn queue_nlp_pipeline_inner(
             .await
         {
             Ok(Some(job_id)) => {
-                event_bus.emit(ServerEvent::JobQueued {
+                worker_events::emit_job_event(
+                    event_bus,
+                    db,
                     job_id,
-                    job_type: format!("{:?}", JobType::AiRevision),
-                    note_id: Some(note_id),
-                });
+                    ServerEvent::JobQueued {
+                        job_id,
+                        job_type: format!("{:?}", JobType::AiRevision),
+                        note_id: Some(note_id),
+                    },
+                )
+                .await;
             }
             Ok(None) => {} // Deduplicated
             Err(e) => {
@@ -1069,11 +1103,17 @@ async fn queue_nlp_pipeline_inner(
             .await
         {
             Ok(Some(job_id)) => {
-                event_bus.emit(ServerEvent::JobQueued {
+                worker_events::emit_job_event(
+                    event_bus,
+                    db,
                     job_id,
-                    job_type: format!("{:?}", job_type),
-                    note_id: Some(note_id),
-                });
+                    ServerEvent::JobQueued {
+                        job_id,
+                        job_type: format!("{:?}", job_type),
+                        note_id: Some(note_id),
+                    },
+                )
+                .await;
             }
             Ok(None) => {} // Deduplicated
             Err(e) => {
@@ -1119,11 +1159,17 @@ async fn queue_nlp_pipeline_inner(
             .await
         {
             Ok(Some(job_id)) => {
-                event_bus.emit(ServerEvent::JobQueued {
+                worker_events::emit_job_event(
+                    event_bus,
+                    db,
                     job_id,
-                    job_type: format!("{:?}", JobType::ConceptTagging),
-                    note_id: Some(note_id),
-                });
+                    ServerEvent::JobQueued {
+                        job_id,
+                        job_type: format!("{:?}", JobType::ConceptTagging),
+                        note_id: Some(note_id),
+                    },
+                )
+                .await;
             }
             Ok(None) => {} // Deduplicated
             Err(e) => {
@@ -1511,6 +1557,7 @@ impl AppState {
         handlers::personal_access_tokens::list_admin_tokens,
         handlers::personal_access_tokens::revoke_admin_token,
         // handlers::event_tokens (#953)
+        sse_events,
         handlers::event_tokens::mint_event_stream_token,
         handlers::event_tokens::revoke_event_stream_token,
         // handlers::pke
@@ -1925,6 +1972,11 @@ fn apply_openapi_route_security(value: &mut serde_yaml::Value) {
         .expect("Bearer security scheme must serialize"),
     );
 
+    security_schemes.insert(yaml_key("eventStreamToken"), serde_yaml::to_value(canonicalize_json_value(serde_json::json!({
+        "type": "apiKey", "in": "query", "name": "token",
+        "description": "Short-lived archive-bound SSE token minted by POST /api/v1/events/tokens. Supported in personal deployments."
+    }))).expect("Query security scheme must serialize"));
+
     let paths = root
         .get_mut(yaml_key("paths"))
         .and_then(serde_yaml::Value::as_mapping_mut)
@@ -1944,7 +1996,16 @@ fn apply_openapi_route_security(value: &mut serde_yaml::Value) {
             else {
                 continue;
             };
-            let requirement = if public {
+            let requirement = if path == "/api/v1/events" && *method == "get" {
+                operation.insert(yaml_key("x-fortemi-anonymous-access"), serde_yaml::to_value(canonicalize_json_value(serde_json::json!({
+                    "mode": "anonymous-local", "require_auth": false, "i_understand_no_auth": true,
+                    "multi_tenant": false
+                }))).expect("Anonymous access condition must serialize"));
+                serde_yaml::to_value(
+                    serde_json::json!([{"bearerAuth": []}, {"eventStreamToken": []}]),
+                )
+                .expect("SSE security alternatives must serialize")
+            } else if public {
                 serde_yaml::Value::Sequence(Vec::new())
             } else {
                 serde_yaml::to_value(vec![canonicalize_json_value(
@@ -2193,7 +2254,20 @@ fn validate_generated_openapi(yaml: &str) -> Result<(), String> {
                     format!("OpenAPI security requirement is missing: {method} {path}.")
                 })?;
             let public = route_policy::is_public_without_bearer(path);
-            if public != security.is_empty() {
+            let valid_security = if path == "/api/v1/events" && *method == "get" {
+                *security
+                    == serde_yaml::to_value(
+                        serde_json::json!([{"bearerAuth": []}, {"eventStreamToken": []}]),
+                    )
+                    .expect("SSE security alternatives must serialize")
+                    .as_sequence()
+                    .unwrap()
+                    .clone()
+                    && operation.contains_key(yaml_key("x-fortemi-anonymous-access"))
+            } else {
+                public == security.is_empty()
+            };
+            if !valid_security {
                 return Err(format!(
                     "OpenAPI security requirement disagrees with route policy: {method} {path}."
                 ));
@@ -4899,7 +4973,7 @@ async fn main() -> anyhow::Result<()> {
         let bridge_bus = event_bus.clone();
         let bridge_db = db.clone();
         tokio::spawn(async move {
-            bridge_worker_events(bridge_rx, bridge_bus, bridge_db).await;
+            worker_events::bridge_worker_events(bridge_rx, bridge_bus, bridge_db).await;
         });
 
         // Periodic QueueStatus emission (Issue #40)
@@ -6117,164 +6191,6 @@ fn job_kind_usage_label(job_type: &str) -> Option<&'static str> {
     }
 }
 
-/// Bridge WorkerEvent from the job worker to ServerEvent on the unified EventBus.
-async fn bridge_worker_events(
-    mut worker_rx: tokio::sync::broadcast::Receiver<WorkerEvent>,
-    event_bus: Arc<EventBus>,
-    db: Database,
-) {
-    use matric_core::{JobRepository, NoteRepository};
-    loop {
-        match worker_rx.recv().await {
-            Ok(event) => {
-                let server_event = match event {
-                    WorkerEvent::Hosted(event) => {
-                        matric_api::hosted_jobs::emit_worker_event(&event_bus, &event);
-                        continue;
-                    }
-                    WorkerEvent::JobStarted { job_id, job_type } => {
-                        let note_id = db
-                            .jobs
-                            .get(job_id)
-                            .await
-                            .ok()
-                            .flatten()
-                            .and_then(|j| j.note_id);
-                        ServerEvent::JobStarted {
-                            job_id,
-                            job_type: format!("{:?}", job_type),
-                            note_id,
-                        }
-                    }
-                    WorkerEvent::JobProgress {
-                        job_id,
-                        percent,
-                        message,
-                    } => {
-                        // Persist progress to database so API queries reflect it
-                        if let Err(e) = db
-                            .jobs
-                            .update_progress(job_id, percent, message.as_deref())
-                            .await
-                        {
-                            tracing::debug!(
-                                error_len = telemetry_text_len(&e.to_string()),
-                                detail = API_EVENT_DISPATCH_DIAGNOSTIC_FAILURE_DETAIL,
-                                percent,
-                                operation = "persist_job_progress",
-                                "Failed to persist job progress"
-                            );
-                        }
-                        let note_id = db
-                            .jobs
-                            .get(job_id)
-                            .await
-                            .ok()
-                            .flatten()
-                            .and_then(|j| j.note_id);
-                        ServerEvent::JobProgress {
-                            job_id,
-                            note_id,
-                            progress: percent,
-                            message,
-                        }
-                    }
-                    WorkerEvent::JobCompleted { job_id, job_type } => {
-                        let job = db.jobs.get(job_id).await.ok().flatten();
-                        let note_id = job.as_ref().and_then(|j| j.note_id);
-                        let duration_ms = job.as_ref().and_then(|j| {
-                            j.completed_at
-                                .and_then(|c| j.started_at.map(|s| (c - s).num_milliseconds()))
-                        });
-
-                        let evt = ServerEvent::JobCompleted {
-                            job_id,
-                            job_type: format!("{:?}", job_type),
-                            note_id,
-                            duration_ms,
-                        };
-                        event_bus.emit(evt.clone());
-
-                        // Emit index materialization events (Issue #464)
-                        match job_type {
-                            JobType::Embedding => {
-                                if let Some(nid) = note_id {
-                                    event_bus.emit(ServerEvent::IndexEmbeddingUpdated {
-                                        note_id: nid,
-                                        job_id: Some(job_id),
-                                    });
-                                }
-                            }
-                            JobType::Linking => {
-                                if let Some(nid) = note_id {
-                                    event_bus.emit(ServerEvent::IndexLinkingUpdated {
-                                        note_id: nid,
-                                        job_id: Some(job_id),
-                                    });
-                                }
-                            }
-                            _ => {}
-                        }
-
-                        // Also emit NoteUpdated if this was a note-related job (Issue #41)
-                        if let Some(nid) = note_id {
-                            if let Ok(note) = db.notes.fetch(nid).await {
-                                event_bus.emit(ServerEvent::NoteUpdated {
-                                    note_id: nid,
-                                    title: note.note.title.clone(),
-                                    tags: note.tags.clone(),
-                                    has_ai_content: note.revised.ai_generated_at.is_some(),
-                                    has_links: !note.links.is_empty(),
-                                });
-                            }
-                        }
-                        continue; // Already emitted above
-                    }
-                    WorkerEvent::JobFailed {
-                        job_id,
-                        job_type,
-                        failure_code,
-                        ..
-                    } => {
-                        let note_id = db
-                            .jobs
-                            .get(job_id)
-                            .await
-                            .ok()
-                            .flatten()
-                            .and_then(|j| j.note_id);
-                        ServerEvent::JobFailed {
-                            job_id,
-                            job_type: format!("{:?}", job_type),
-                            note_id,
-                            error: failure_code,
-                        }
-                    }
-                    WorkerEvent::JobRetryScheduled { .. } => continue,
-                    WorkerEvent::JobQueued {
-                        job_id,
-                        job_type,
-                        note_id,
-                    } => ServerEvent::JobQueued {
-                        job_id,
-                        job_type: format!("{:?}", job_type),
-                        note_id,
-                    },
-                    WorkerEvent::WorkerStarted | WorkerEvent::WorkerStopped => continue,
-                };
-                event_bus.emit(server_event);
-            }
-            Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                tracing::warn!(missed = n, "Event bridge lagged, missed events");
-            }
-            Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                tracing::info!("Worker event channel closed, bridge stopping");
-                break;
-            }
-        }
-    }
-}
-
 /// Periodically emit QueueStatus events.
 async fn emit_periodic_queue_status(event_bus: Arc<EventBus>, db: Database) {
     use matric_core::JobRepository;
@@ -7112,6 +7028,8 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState) {
 fn event_context_for(archive_ctx: &ArchiveContext) -> EventContext {
     EventContext {
         memory: archive_ctx.name.clone(),
+        archive_name: Some(archive_ctx.name.clone().unwrap_or_else(|| "public".into())),
+        archive_schema: Some(archive_ctx.schema.clone()),
         ..Default::default()
     }
 }
@@ -7241,8 +7159,9 @@ impl fmt::Debug for SseQuery {
 /// ## Memory Scoping (Issue #452)
 /// - Query param: `?memory=my-archive`
 /// - Header: `X-Fortemi-Memory: my-archive`
-/// - Without explicit memory: all events are delivered (admin/monitoring view).
-/// - With explicit memory: only events for that memory + system events are delivered.
+/// - Without explicit memory: personal admin or anonymous-local monitoring.
+/// - Anonymous access requires acknowledged anonymous-local mode.
+/// - With explicit memory: only attributed events for that archive are delivered.
 ///
 /// ## Type Filtering (Issue #457)
 /// - Query param: `?types=note.created,note.updated` — comma-separated list.
@@ -7259,6 +7178,28 @@ impl fmt::Debug for SseQuery {
 /// - Events since that ID are replayed from the in-memory ring buffer.
 /// - If the ID is expired (outside replay window), a `resync_required` event is sent.
 /// - Delivery semantics: at-least-once. Clients should deduplicate by `event_id`.
+#[utoipa::path(
+    get,
+    path = "/api/v1/events",
+    tag = "Events",
+    params(
+        ("memory" = Option<String>, Query, description = "Archive request name; required for non-admin authenticated streams. Overrides X-Fortemi-Memory."),
+        ("types" = Option<String>, Query, description = "Comma-separated event type prefixes."),
+        ("entity_id" = Option<String>, Query, description = "Exact entity identifier."),
+        ("token" = Option<String>, Query, description = "Short-lived archive-bound event-stream token; reusable credentials must use Authorization."),
+        ("X-Fortemi-Memory" = Option<String>, Header, description = "Archive request name."),
+        ("Last-Event-ID" = Option<Uuid>, Header, description = "Replay cursor for the bounded in-memory buffer; expired cursors emit resync_required.")
+    ),
+    responses(
+        (status = 200, description = "SSE EventEnvelope frames. Human read (including write) or mcp admission; service credentials require mcp. Live and replay share tenant/archive/type/entity filters. memory retains the single-tenant request name or multi-tenant schema; archive_name and archive_schema identify the archive. tenant_id is verified in external-OIDC single-tenant and multi-tenant streams, absent for unbound local streams. Streams end at validated credential expiry. Anonymous access requires acknowledged anonymous-local mode; hosted streams require bearer authentication. See /api/v1/asyncapi.yaml.", body = String, content_type = "text/event-stream"),
+        (status = 400, description = "Invalid filter"),
+        (status = 401, description = "Authentication required, invalid stream token, or minting user/parent credential no longer active with the required scopes. Query-token access is revalidated before admission and replay."),
+        (status = 403, description = "Insufficient scope or archive selection denied"),
+        (status = 404, description = "Archive not found"),
+        (status = 503, description = "Authorization audit or tenant scope unavailable")
+    ),
+    security(("bearerAuth" = []), ("eventStreamToken" = []))
+)]
 async fn sse_events(
     State(state): State<AppState>,
     Query(params): Query<SseQuery>,
@@ -7279,16 +7220,44 @@ async fn sse_events(
         .map(|s| s.trim());
 
     let scope = scope.map(|Extension(scope)| scope);
-    let identity = identity.map(|Extension(identity)| identity);
+    let mut identity = identity.map(|Extension(identity)| identity);
+    if !state.multi_tenant {
+        if params.token.is_some() {
+            identity = None;
+        } else if identity.is_none() {
+            if let Some(token) = header_token {
+                identity = Some(
+                    validate_bearer_identity(&state, token, None)
+                        .await
+                        .map_err(|failure| {
+                            if failure.status == StatusCode::SERVICE_UNAVAILABLE {
+                                ApiError::ServiceUnavailable(failure.detail.to_string())
+                            } else {
+                                ApiError::Unauthorized(failure.detail.to_string())
+                            }
+                        })?,
+                );
+            }
+        }
+    }
+    let query_token_schema = if !state.multi_tenant {
+        if let Some(token) = params.token.as_deref() {
+            let (verified, schema) = validate_event_stream_query_principal(&state, token.trim())
+                .await
+                .ok_or_else(|| ApiError::Unauthorized("Invalid or expired stream token".into()))?;
+            identity = Some(verified);
+            Some(schema)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
     let tenant_id = identity.as_ref().and_then(|identity| identity.tenant_id);
-    #[cfg(feature = "hosted-auth")]
-    let expires_at = identity
-        .as_ref()
-        .and_then(|identity| identity.canonical_context.as_ref())
-        .map(|context| context.expires_at);
-    #[cfg(not(feature = "hosted-auth"))]
-    let expires_at: Option<chrono::DateTime<chrono::Utc>> = None;
-    let (principal, query_token_schema) = if state.multi_tenant {
+    let tenant_text = tenant_id.map(|tenant| tenant.to_string());
+    let human = identity.as_ref().is_some_and(sse::identity_is_human);
+    let expires_at = identity.as_ref().and_then(|identity| identity.expires_at);
+    let principal = if state.multi_tenant {
         if params.token.is_some() {
             return Err(ApiError::Unauthorized(
                 "Hosted streams require a bearer token.".into(),
@@ -7303,33 +7272,16 @@ async fn sse_events(
                 "Tenant stream scope is unavailable.".into(),
             ));
         }
-        (identity.principal.clone(), None)
+        identity.principal.clone()
     } else {
-        match (params.token.as_deref().map(str::trim), header_token) {
-            (Some(tok), _) => validate_event_stream_query_principal(&state, tok)
-                .await
-                .ok_or_else(|| {
-                    ApiError::Unauthorized("Invalid or expired stream token".to_string())
-                })?,
-            (None, Some(tok)) => (
-                validate_bearer_identity(&state, tok, None)
-                    .await
-                    .map(|identity| identity.principal)
-                    .map_err(|failure| {
-                        if failure.status == StatusCode::SERVICE_UNAVAILABLE {
-                            ApiError::ServiceUnavailable(failure.detail.to_string())
-                        } else {
-                            ApiError::Unauthorized(failure.detail.to_string())
-                        }
-                    })?,
-                None,
-            ),
-            (None, None) if state.require_auth => {
-                return Err(ApiError::Unauthorized(
-                    "Authentication required for the SSE stream.".to_string(),
-                ));
-            }
-            (None, None) => (AuthPrincipal::Anonymous, None),
+        if let Some(identity) = identity.as_ref() {
+            identity.principal.clone()
+        } else if state.require_auth {
+            return Err(ApiError::Unauthorized(
+                "Authentication required for the SSE stream.".into(),
+            ));
+        } else {
+            AuthPrincipal::Anonymous
         }
     };
 
@@ -7346,10 +7298,12 @@ async fn sse_events(
         };
         let memory_name = context.name.clone().unwrap_or_else(|| "public".into());
         let path = format!("/api/v1/archives/{memory_name}");
-        let mut input = route_policy::authorization_input_for_request(&Method::GET, &path, None)
-            .ok_or_else(|| {
-                ApiError::Forbidden("Stream memory authorization is unavailable.".into())
-            })?;
+        let mut input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            &path,
+            tenant_text.as_deref(),
+        )
+        .ok_or_else(|| ApiError::Forbidden("Stream memory authorization is unavailable.".into()))?;
         // The request-scoped resolver above established the archive under
         // RLS, or the built-in public-table fallback. Never normalize from
         // an unchecked query parameter or from the personal archive cache.
@@ -7358,6 +7312,7 @@ async fn sse_events(
             .resource
             .attrs
             .insert("archive_schema".into(), serde_json::json!(context.schema));
+        input.action = sse::authorization_input(&principal, human, tenant_id).action;
         input = apply_verified_tenant_to_policy_input(input, Some(scope.tenant()));
         authorize_policy_input(
             state.authorization_policy.as_ref(),
@@ -7408,20 +7363,28 @@ async fn sse_events(
         let auth = Auth {
             principal: principal.clone(),
         };
-        if let Some(input) =
-            route_policy::authorization_input_for_request(&Method::GET, "/api/v1/events", None)
-        {
-            authorize_policy_input(
-                state.authorization_policy.as_ref(),
-                state.audit_sink.as_ref(),
-                &auth,
-                &input,
-            )
-            .await
-            .map_err(|_| ApiError::Forbidden("SSE stream authorization denied".to_string()))?;
-        }
+        let input = sse::authorization_input(&principal, human, tenant_id);
+        #[cfg(feature = "hosted-auth")]
+        let input = apply_claim_policy_audit_context(
+            input,
+            identity
+                .as_ref()
+                .and_then(|identity| identity.canonical_context.as_ref()),
+            identity
+                .as_ref()
+                .and_then(|identity| identity.request_principal.as_ref()),
+        );
+        authorize_policy_input(
+            state.authorization_policy.as_ref(),
+            state.audit_sink.as_ref(),
+            &auth,
+            &input,
+        )
+        .await
+        .map_err(sse::authorization_error)?;
         if let Some(memory_name) = memory_filter.as_deref() {
-            authorize_sse_memory_subscription(&state, &auth, memory_name).await?;
+            sse::authorize_memory_subscription(&state, &auth, human, tenant_id, memory_name)
+                .await?;
         }
     }
 
@@ -7453,13 +7416,23 @@ async fn sse_events(
         }
     }
 
-    // Hosted event envelopes use the admitted schema, not the archive's display
-    // name. Keep names for request authorization, schemas for live/replay scope.
-    let memory_filter = if state.multi_tenant {
-        memory_schema
-    } else {
-        memory_filter
+    let subscription = sse::Subscription {
+        principal: principal.clone(),
+        tenant_id,
+        multi_tenant: state.multi_tenant,
+        archive: memory_filter.clone().zip(memory_schema.clone()),
     };
+    if let Some((name, schema)) = subscription.archive.as_ref() {
+        if !sse::may_select_archive(
+            &principal,
+            tenant_id,
+            tenant_id,
+            Some((name, schema)),
+            state.multi_tenant,
+        ) {
+            return Err(ApiError::Forbidden("SSE archive selection denied".into()));
+        }
+    }
 
     // --- Entity ID filter parsing (Issue #457) ---
     let entity_id_filter: Option<String> = if let Some(ref eid) = params.entity_id {
@@ -7483,6 +7456,12 @@ async fn sse_events(
         .and_then(|v| v.to_str().ok())
         .and_then(|s| Uuid::parse_str(s).ok());
 
+    if !sse::query_access_unchanged(&state, params.token.as_deref(), &principal, human).await {
+        return Err(ApiError::Unauthorized(
+            "Stream credential access changed".into(),
+        ));
+    }
+
     let (replay_frames, dedup_watermark): (Vec<Event>, Option<Uuid>) = if let Some(last_id) =
         last_event_id
     {
@@ -7490,26 +7469,21 @@ async fn sse_events(
             Some(events) => {
                 let watermark = events.last().map(|e| e.event_id).unwrap_or(last_id);
                 // Apply memory + type + entity filters and convert to SSE frames
-                let frames: Vec<Event> = events
-                    .into_iter()
-                    .filter(|envelope| {
-                        sse_scope_matches(envelope, tenant_id, memory_filter.as_deref())
-                            && envelope_matches_filters(
-                                envelope,
-                                &memory_filter,
-                                &type_filters,
-                                &entity_id_filter,
-                            )
-                    })
-                    .filter_map(|envelope| {
-                        serde_json::to_string(&envelope).ok().map(|json| {
-                            Event::default()
-                                .event(envelope.event_type.clone())
-                                .id(envelope.event_id.to_string())
-                                .data(json)
-                        })
-                    })
-                    .collect();
+                let mut frames = Vec::new();
+                for envelope in events {
+                    if let Some(envelope) = subscription.prepare(&state.db, envelope).await {
+                        if envelope_matches_filters(
+                            &envelope,
+                            &None,
+                            &type_filters,
+                            &entity_id_filter,
+                        ) {
+                            if let Some(frame) = sse::frame(&envelope) {
+                                frames.push(frame);
+                            }
+                        }
+                    }
+                }
                 tracing::info!(
                     replayed = frames.len(),
                     last_event_id_len = telemetry_text_len(&last_id.to_string()),
@@ -7593,79 +7567,105 @@ async fn sse_events(
         "SSE client connected"
     );
 
-    let live_stream = tokio_stream::wrappers::BroadcastStream::new(rx).filter_map(
+    let stream_db = state.db.clone();
+    let live_stream = futures::StreamExt::filter_map(
+        tokio_stream::wrappers::BroadcastStream::new(rx),
         move |result| {
-            match result {
-                Ok(envelope) => {
-                    // Dedup: skip events already delivered via replay (Issue #456)
-                    if let Some(watermark) = dedup_watermark {
-                        if envelope.event_id <= watermark {
+            let subscription = subscription.clone();
+            let db = stream_db.clone();
+            let type_filters = type_filters.clone();
+            let entity_id_filter = entity_id_filter.clone();
+            let coalesce_state_clone = coalesce_state_clone.clone();
+            let metrics_ref = metrics_ref.clone();
+            async move {
+                match result {
+                    Ok(envelope) => {
+                        // Dedup: skip events already delivered via replay (Issue #456)
+                        if let Some(watermark) = dedup_watermark {
+                            if envelope.event_id <= watermark {
+                                return None;
+                            }
+                        }
+
+                        let envelope = subscription.prepare(&db, envelope).await?;
+                        if !envelope_matches_filters(
+                            &envelope,
+                            &None,
+                            &type_filters,
+                            &entity_id_filter,
+                        ) {
                             return None;
                         }
-                    }
 
-                    // Apply all filters: memory + type + entity (Issues #452, #457)
-                    if !sse_scope_matches(&envelope, tenant_id, memory_filter.as_deref()) || !envelope_matches_filters(
-                        &envelope,
-                        &memory_filter,
-                        &type_filters,
-                        &entity_id_filter,
-                    ) {
-                        return None;
-                    }
-
-                    // Coalescing: debounce low-priority events (Issue #458)
-                    if !coalesce_window.is_zero() {
-                        if let Some(key) = envelope.payload.coalesce_key() {
-                            let mut state = coalesce_state_clone.lock().unwrap();
-                            let now = std::time::Instant::now();
-                            if let Some(last) = state.get(&key) {
-                                if now.duration_since(*last) < coalesce_window {
-                                    // Within coalescing window — skip this event
-                                    metrics_ref.metrics.events_coalesced.fetch_add(1, Ordering::Relaxed);
-                                    return None;
+                        // Coalescing: debounce low-priority events (Issue #458)
+                        if !coalesce_window.is_zero() {
+                            if let Some(key) = envelope.payload.coalesce_key() {
+                                let mut state = coalesce_state_clone.lock().unwrap();
+                                let now = std::time::Instant::now();
+                                if let Some(last) = state.get(&key) {
+                                    if now.duration_since(*last) < coalesce_window {
+                                        // Within coalescing window — skip this event
+                                        metrics_ref
+                                            .metrics
+                                            .events_coalesced
+                                            .fetch_add(1, Ordering::Relaxed);
+                                        return None;
+                                    }
                                 }
+                                state.insert(key, now);
                             }
-                            state.insert(key, now);
+                        }
+
+                        metrics_ref
+                            .metrics
+                            .events_delivered
+                            .fetch_add(1, Ordering::Relaxed);
+                        match serde_json::to_string(&envelope) {
+                            Ok(json) => Some(Ok(Event::default()
+                                .event(envelope.event_type.clone())
+                                .id(envelope.event_id.to_string())
+                                .data(json))),
+                            Err(_) => None,
                         }
                     }
-
-                    metrics_ref.metrics.events_delivered.fetch_add(1, Ordering::Relaxed);
-                    match serde_json::to_string(&envelope) {
-                        Ok(json) => Some(Ok(Event::default()
-                            .event(envelope.event_type.clone())
-                            .id(envelope.event_id.to_string())
-                            .data(json))),
-                        Err(_) => None,
+                    Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(n)) => {
+                        // Backpressure: receiver fell behind (Issue #458)
+                        metrics_ref
+                            .metrics
+                            .events_lagged
+                            .fetch_add(n, Ordering::Relaxed);
+                        tracing::warn!(
+                            lagged_count = n,
+                            "SSE stream lagged — {} events dropped for slow consumer",
+                            n
+                        );
+                        let data = serde_json::json!({
+                            "dropped_count": n,
+                            "reason": "Consumer too slow. Events were dropped. Consider using type filters to reduce stream volume.",
+                        });
+                        Some(Ok(Event::default()
+                            .event("events.lagged")
+                            .data(data.to_string())))
                     }
-                }
-                Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(n)) => {
-                    // Backpressure: receiver fell behind (Issue #458)
-                    metrics_ref.metrics.events_lagged.fetch_add(n, Ordering::Relaxed);
-                    tracing::warn!(
-                        lagged_count = n,
-                        "SSE stream lagged — {} events dropped for slow consumer",
-                        n
-                    );
-                    let data = serde_json::json!({
-                        "dropped_count": n,
-                        "reason": "Consumer too slow. Events were dropped. Consider using type filters to reduce stream volume.",
-                    });
-                    Some(Ok(Event::default()
-                        .event("events.lagged")
-                        .data(data.to_string())))
                 }
             }
         },
     );
 
     // Replay first, then seamlessly transition to live stream
-    let combined = futures::StreamExt::take_until(replay_stream.chain(live_stream), async move {
+    let delivery_state = state.clone();
+    let delivery_token = params.token.clone();
+    let authorized = futures::StreamExt::take_while(replay_stream.chain(live_stream), move |_| {
+        let state = delivery_state.clone();
+        let token = delivery_token.clone();
+        let principal = principal.clone();
+        async move { sse::query_access_unchanged(&state, token.as_deref(), &principal, human).await }
+    });
+    let combined = futures::StreamExt::take_until(authorized, async move {
         if let Some(expires_at) = expires_at {
-            let remaining = (expires_at - chrono::Utc::now())
-                .to_std()
-                .unwrap_or_default();
-            tokio::time::sleep(remaining).await;
+            if let Ok(remaining) = (expires_at - chrono::Utc::now()).to_std() {
+                tokio::time::sleep(remaining).await;
+            }
         } else {
             futures::future::pending::<()>().await;
         }
@@ -7701,7 +7701,13 @@ fn sse_scope_matches(
 ) -> bool {
     sse_tenant_matches(envelope, tenant_id)
         && (tenant_id.is_none()
-            || memory_schema.is_some_and(|schema| envelope.memory.as_deref() == Some(schema)))
+            || memory_schema.is_some_and(|schema| {
+                envelope
+                    .archive_schema
+                    .as_deref()
+                    .or(envelope.memory.as_deref())
+                    == Some(schema)
+            }))
 }
 
 fn sse_tenant_matches(envelope: &EventEnvelope, tenant_id: Option<Uuid>) -> bool {
@@ -7747,31 +7753,6 @@ fn hosted_sse_filters_foreign_and_unattributed_live_and_replay_events() {
         Some("public")
     ));
     assert!(sse_scope_matches(&no_memory, None, Some("public")));
-}
-
-async fn authorize_sse_memory_subscription(
-    state: &AppState,
-    auth: &Auth,
-    memory_name: &str,
-) -> Result<(), ApiError> {
-    let memory_path = format!("/api/v1/archives/{memory_name}");
-    if let Some(input) =
-        route_policy::authorization_input_for_request(&Method::GET, &memory_path, None)
-    {
-        let input = normalize_archive_route_policy_input(input, |archive_name| async move {
-            state.db.archives.get_archive_by_name(&archive_name).await
-        })
-        .await;
-        authorize_policy_input(
-            state.authorization_policy.as_ref(),
-            state.audit_sink.as_ref(),
-            auth,
-            &input,
-        )
-        .await
-        .map_err(|_| ApiError::Forbidden("SSE memory authorization denied".to_string()))?;
-    }
-    Ok(())
 }
 
 fn sse_broad_subscription_allowed(
@@ -9406,11 +9387,17 @@ async fn queue_twilio_recording_transcription(
         .await?;
 
     if let Some(job_id) = job_id {
-        state.event_bus.emit(ServerEvent::JobQueued {
+        worker_events::emit_job_event(
+            &state.event_bus,
+            &state.db,
             job_id,
-            job_type: format!("{:?}", JobType::AudioTranscription),
-            note_id: Some(note_id),
-        });
+            ServerEvent::JobQueued {
+                job_id,
+                job_type: format!("{:?}", JobType::AudioTranscription),
+                note_id: Some(note_id),
+            },
+        )
+        .await;
     }
 
     Ok(job_id)
@@ -10584,6 +10571,9 @@ fn is_download_or_media_response(path: &str, response: &axum::response::Response
 struct ValidatedBearerIdentity {
     principal: AuthPrincipal,
     tenant_id: Option<Uuid>,
+    expires_at: Option<DateTime<Utc>>,
+    parent_credential: Option<matric_api::services::ingest_token_store::EventStreamParent>,
+    stream_identity: Option<matric_api::services::ingest_token_store::EventStreamIdentity>,
     #[cfg(feature = "hosted-auth")]
     request_principal: Option<RequestPrincipal>,
     #[cfg(feature = "hosted-auth")]
@@ -10669,7 +10659,9 @@ async fn auth_middleware(
     // Public routes and CORS preflights bypass all auth.
     if is_auth_exempt(&method, &path)
         && !hosted_bearer
-        && !(state.multi_tenant && method == Method::GET && path == "/api/v1/events")
+        && !(method == Method::GET
+            && path == "/api/v1/events"
+            && (state.multi_tenant || request.headers().contains_key(header::AUTHORIZATION)))
     {
         return next.run(request).await;
     }
@@ -10894,12 +10886,16 @@ async fn validate_bearer_identity(
                         (scope, lifetime)
                     }
                 };
+                let mut expires_at = oauth_token.access_token_expires_at;
                 if let Some(lifetime) = lifetime {
-                    let _ = state
+                    if let Ok(Some(extended)) = state
                         .db
                         .oauth
                         .validate_and_extend_token(token, lifetime)
-                        .await;
+                        .await
+                    {
+                        expires_at = extended.access_token_expires_at;
+                    }
                 }
                 let principal = AuthPrincipal::OAuthClient {
                     client_id: oauth_token.client_id,
@@ -10914,6 +10910,13 @@ async fn validate_bearer_identity(
                 Ok(ValidatedBearerIdentity {
                     principal,
                     tenant_id: None,
+                    expires_at: Some(expires_at),
+                    parent_credential: Some(
+                        matric_api::services::ingest_token_store::EventStreamParent::OAuthToken(
+                            oauth_token.id,
+                        ),
+                    ),
+                    stream_identity: None,
                     #[cfg(feature = "hosted-auth")]
                     request_principal,
                     #[cfg(feature = "hosted-auth")]
@@ -10962,6 +10965,9 @@ async fn validate_bearer_identity(
                     Ok(ValidatedBearerIdentity {
                         principal,
                         tenant_id: Some(validated.user.tenant_id),
+                        expires_at: Some(validated.token.expires_at),
+                        parent_credential: Some(matric_api::services::ingest_token_store::EventStreamParent::PersonalAccessToken(validated.token.id)),
+                        stream_identity: None,
                         request_principal: Some(request_principal),
                         canonical_context: None,
                     })
@@ -11022,6 +11028,13 @@ async fn validate_bearer_identity(
                 Ok(ValidatedBearerIdentity {
                     principal,
                     tenant_id: None,
+                    expires_at: api_key.expires_at,
+                    parent_credential: Some(
+                        matric_api::services::ingest_token_store::EventStreamParent::ApiKey(
+                            api_key.id,
+                        ),
+                    ),
+                    stream_identity: None,
                     #[cfg(feature = "hosted-auth")]
                     request_principal,
                     #[cfg(feature = "hosted-auth")]
@@ -11113,6 +11126,14 @@ async fn validate_bearer_identity(
                     user_id: Some(principal_id),
                 },
                 tenant_id: Some(tenant_id),
+                expires_at: Some(context.expires_at),
+                parent_credential: Some(
+                    matric_api::services::ingest_token_store::EventStreamParent::Oidc({
+                        use sha2::{Digest, Sha256};
+                        hex::encode(Sha256::digest(token.as_bytes()))
+                    }),
+                ),
+                stream_identity: None,
                 request_principal,
                 canonical_context: Some(context),
             })
@@ -11153,18 +11174,25 @@ fn app_user_jit_audit_event(principal: &RequestPrincipal, tenant_id: Uuid) -> Au
 async fn validate_event_stream_query_principal(
     state: &AppState,
     token: &str,
-) -> Option<(AuthPrincipal, Option<String>)> {
+) -> Option<(ValidatedBearerIdentity, String)> {
     let data = state
         .ingest_token_store
         .validate_event_stream(token)
         .await?;
-    let key_id = Uuid::parse_str(&data.token_id).ok()?;
+    let verified = sse::revalidate_query_identity(state, data.event_identity?).await?;
     Some((
-        AuthPrincipal::ApiKey {
-            key_id,
-            scope: data.scope,
+        ValidatedBearerIdentity {
+            principal: verified.principal.clone(),
+            tenant_id: verified.tenant_id,
+            expires_at: data.expires_at,
+            parent_credential: Some(verified.parent_credential.clone()),
+            stream_identity: Some(verified),
+            #[cfg(feature = "hosted-auth")]
+            request_principal: None,
+            #[cfg(feature = "hosted-auth")]
+            canonical_context: None,
         },
-        Some(data.schema),
+        data.schema,
     ))
 }
 
@@ -11193,6 +11221,14 @@ async fn authorize_middleware(
         input,
         request.extensions().get::<fortemi_auth_core::AuthContext>(),
         request.extensions().get::<RequestPrincipal>(),
+    );
+    let input = route_policy::apply_event_stream_admission(
+        input,
+        &auth.principal,
+        request
+            .extensions()
+            .get::<ValidatedBearerIdentity>()
+            .is_some_and(sse::identity_is_human),
     );
     let input =
         normalize_route_policy_input_for_authorization(&state, input, archive_ctx.as_ref(), scope)
@@ -16600,11 +16636,17 @@ async fn purge_note(
         )
         .await?;
 
-    state.event_bus.emit(ServerEvent::JobQueued {
+    worker_events::emit_job_event(
+        &state.event_bus,
+        &state.db,
         job_id,
-        job_type: format!("{:?}", JobType::PurgeNote),
-        note_id: Some(id),
-    });
+        ServerEvent::JobQueued {
+            job_id,
+            job_type: format!("{:?}", JobType::PurgeNote),
+            note_id: Some(id),
+        },
+    )
+    .await;
 
     // Invalidate search cache (#247)
     state.search_cache.invalidate_all().await;
@@ -16917,11 +16959,17 @@ async fn reprocess_note(
             )
             .await
         {
-            state.event_bus.emit(ServerEvent::JobQueued {
+            worker_events::emit_job_event(
+                &state.event_bus,
+                &state.db,
                 job_id,
-                job_type: format!("{:?}", JobType::AiRevision),
-                note_id: Some(id),
-            });
+                ServerEvent::JobQueued {
+                    job_id,
+                    job_type: format!("{:?}", JobType::AiRevision),
+                    note_id: Some(id),
+                },
+            )
+            .await;
             jobs_queued.push("ai_revision");
         }
     }
@@ -16966,11 +17014,17 @@ async fn reprocess_note(
                 )
                 .await
             {
-                state.event_bus.emit(ServerEvent::JobQueued {
+                worker_events::emit_job_event(
+                    &state.event_bus,
+                    &state.db,
                     job_id,
-                    job_type: format!("{:?}", job_type),
-                    note_id: Some(id),
-                });
+                    ServerEvent::JobQueued {
+                        job_id,
+                        job_type: format!("{:?}", job_type),
+                        note_id: Some(id),
+                    },
+                )
+                .await;
                 jobs_queued.push(step_name);
             }
         }
@@ -17248,11 +17302,17 @@ async fn bulk_reprocess_notes(
     let mut jobs_queued: usize = 0;
     for (spec, result) in job_specs.iter().zip(results.iter()) {
         if let Ok(Some(job_id)) = result {
-            state.event_bus.emit(ServerEvent::JobQueued {
-                job_id: *job_id,
-                job_type: format!("{:?}", spec.1),
-                note_id: Some(spec.0),
-            });
+            worker_events::emit_job_event(
+                &state.event_bus,
+                &state.db,
+                *job_id,
+                ServerEvent::JobQueued {
+                    job_id: *job_id,
+                    job_type: format!("{:?}", spec.1),
+                    note_id: Some(spec.0),
+                },
+            )
+            .await;
             jobs_queued += 1;
         }
     }
@@ -17307,11 +17367,17 @@ async fn bulk_reprocess_notes(
             )
             .await
         {
-            state.event_bus.emit(ServerEvent::JobQueued {
+            worker_events::emit_job_event(
+                &state.event_bus,
+                &state.db,
                 job_id,
-                job_type: "GraphMaintenance".to_string(),
-                note_id: None,
-            });
+                ServerEvent::JobQueued {
+                    job_id,
+                    job_type: "GraphMaintenance".to_string(),
+                    note_id: None,
+                },
+            )
+            .await;
             jobs_queued += 1;
         }
     }
@@ -19898,11 +19964,17 @@ async fn trigger_graph_maintenance(
 
     match maybe_id {
         Some(job_id) => {
-            state.event_bus.emit(ServerEvent::JobQueued {
+            worker_events::emit_job_event(
+                &state.event_bus,
+                &state.db,
                 job_id,
-                job_type: "GraphMaintenance".to_string(),
-                note_id: None,
-            });
+                ServerEvent::JobQueued {
+                    job_id,
+                    job_type: "GraphMaintenance".to_string(),
+                    note_id: None,
+                },
+            )
+            .await;
             Ok((
                 StatusCode::CREATED,
                 Json(serde_json::json!({
@@ -24188,11 +24260,17 @@ async fn create_job(
 
         match maybe_id {
             Some(job_id) => {
-                state.event_bus.emit(ServerEvent::JobQueued {
+                worker_events::emit_job_event(
+                    &state.event_bus,
+                    &state.db,
                     job_id,
-                    job_type: format!("{:?}", job_type),
-                    note_id: body.note_id,
-                });
+                    ServerEvent::JobQueued {
+                        job_id,
+                        job_type: format!("{:?}", job_type),
+                        note_id: body.note_id,
+                    },
+                )
+                .await;
                 Ok((
                     StatusCode::CREATED,
                     Json(serde_json::json!({
@@ -24223,11 +24301,17 @@ async fn create_job(
             )
             .await?;
 
-        state.event_bus.emit(ServerEvent::JobQueued {
+        worker_events::emit_job_event(
+            &state.event_bus,
+            &state.db,
             job_id,
-            job_type: format!("{:?}", job_type),
-            note_id: body.note_id,
-        });
+            ServerEvent::JobQueued {
+                job_id,
+                job_type: format!("{:?}", job_type),
+                note_id: body.note_id,
+            },
+        )
+        .await;
 
         Ok((
             StatusCode::CREATED,
@@ -79417,12 +79501,20 @@ not-json
         let bus_clone = bus.clone();
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            bus_clone.emit(ServerEvent::JobFailed {
-                job_id: Uuid::nil(),
-                job_type: "Embedding".to_string(),
-                note_id: None,
-                error: "test error".to_string(),
-            });
+            bus_clone.emit_with_context(
+                ServerEvent::JobFailed {
+                    job_id: Uuid::nil(),
+                    job_type: "Embedding".to_string(),
+                    note_id: None,
+                    error: "test error".to_string(),
+                },
+                EventContext {
+                    memory: Some("public".into()),
+                    archive_name: Some("public".into()),
+                    archive_schema: Some("public".into()),
+                    ..Default::default()
+                },
+            );
         });
 
         // Read SSE chunks until we find our event
@@ -79498,6 +79590,8 @@ not-json
             event_type: event_type.to_string(),
             occurred_at: chrono::Utc::now(),
             memory: memory.map(|s| s.to_string()),
+            archive_name: None,
+            archive_schema: None,
             tenant_id: None,
             actor: matric_core::EventActor::system(),
             entity_type: None,
@@ -79703,11 +79797,19 @@ not-json
         let bus_clone = bus.clone();
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-            bus_clone.emit(ServerEvent::NoteCreated {
-                note_id: Uuid::nil(),
-                title: Some("Contract Test".to_string()),
-                tags: vec!["test".to_string()],
-            });
+            bus_clone.emit_with_context(
+                ServerEvent::NoteCreated {
+                    note_id: Uuid::nil(),
+                    title: Some("Contract Test".to_string()),
+                    tags: vec!["test".to_string()],
+                },
+                EventContext {
+                    memory: Some("public".into()),
+                    archive_name: Some("public".into()),
+                    archive_schema: Some("public".into()),
+                    ..Default::default()
+                },
+            );
         });
 
         let mut collected = String::new();
@@ -79780,19 +79882,35 @@ not-json
         tokio::spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
             // Emit a note event (should be filtered out)
-            bus_clone.emit(ServerEvent::NoteCreated {
-                note_id: Uuid::nil(),
-                title: Some("Filtered Out".to_string()),
-                tags: vec![],
-            });
+            bus_clone.emit_with_context(
+                ServerEvent::NoteCreated {
+                    note_id: Uuid::nil(),
+                    title: Some("Filtered Out".to_string()),
+                    tags: vec![],
+                },
+                EventContext {
+                    memory: Some("public".into()),
+                    archive_name: Some("public".into()),
+                    archive_schema: Some("public".into()),
+                    ..Default::default()
+                },
+            );
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             // Emit a job event (should be delivered)
-            bus_clone.emit(ServerEvent::JobFailed {
-                job_id: Uuid::nil(),
-                job_type: "Embedding".to_string(),
-                note_id: None,
-                error: "type_filter_test".to_string(),
-            });
+            bus_clone.emit_with_context(
+                ServerEvent::JobFailed {
+                    job_id: Uuid::nil(),
+                    job_type: "Embedding".to_string(),
+                    note_id: None,
+                    error: "type_filter_test".to_string(),
+                },
+                EventContext {
+                    memory: Some("public".into()),
+                    archive_name: Some("public".into()),
+                    archive_schema: Some("public".into()),
+                    ..Default::default()
+                },
+            );
         });
 
         let mut collected = String::new();
@@ -79888,12 +80006,20 @@ not-json
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
         let unique_marker = Uuid::new_v4().to_string();
-        bus.emit(ServerEvent::JobFailed {
-            job_id: Uuid::nil(),
-            job_type: "Convergence".to_string(),
-            note_id: None,
-            error: unique_marker.clone(),
-        });
+        bus.emit_with_context(
+            ServerEvent::JobFailed {
+                job_id: Uuid::nil(),
+                job_type: "Convergence".to_string(),
+                note_id: None,
+                error: unique_marker.clone(),
+            },
+            EventContext {
+                memory: Some("public".into()),
+                archive_name: Some("public".into()),
+                archive_schema: Some("public".into()),
+                ..Default::default()
+            },
+        );
 
         // Both clients should receive the same unique event
         for (label, resp) in [("A", &mut resp_a), ("B", &mut resp_b)] {
@@ -80531,6 +80657,7 @@ not-json
         tokio::sync::broadcast::Sender<WorkerEvent>,
         tokio::sync::broadcast::Receiver<EventEnvelope>,
         Arc<EventBus>,
+        Uuid,
     ) {
         let database_url = std::env::var("DATABASE_URL")
             .expect("DATABASE_URL must explicitly select a disposable integration database");
@@ -80538,28 +80665,34 @@ not-json
             .await
             .expect("Failed to connect to test DB");
 
+        let job_id = db
+            .jobs
+            .queue(None, JobType::Embedding, 0, None, None)
+            .await
+            .unwrap();
+
         let (worker_tx, worker_rx) = tokio::sync::broadcast::channel::<WorkerEvent>(32);
         let event_bus = Arc::new(EventBus::new(matric_core::defaults::EVENT_BUS_CAPACITY));
         let server_rx = event_bus.subscribe();
 
         let bus_clone = event_bus.clone();
         tokio::spawn(async move {
-            bridge_worker_events(worker_rx, bus_clone, db).await;
+            worker_events::bridge_worker_events(worker_rx, bus_clone, db).await;
         });
 
         // Small delay to ensure the bridge task is running
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-        (worker_tx, server_rx, event_bus)
+        (worker_tx, server_rx, event_bus, job_id)
     }
 
     #[tokio::test]
     async fn test_bridge_maps_job_started() {
-        let (worker_tx, mut server_rx, _bus) = spawn_bridge().await;
+        let (worker_tx, mut server_rx, _bus, fixture_job) = spawn_bridge().await;
 
         worker_tx
             .send(WorkerEvent::JobStarted {
-                job_id: Uuid::nil(),
+                job_id: fixture_job,
                 job_type: matric_core::JobType::Embedding,
             })
             .unwrap();
@@ -80573,7 +80706,7 @@ not-json
             ServerEvent::JobStarted {
                 job_id, job_type, ..
             } => {
-                assert_eq!(job_id, Uuid::nil());
+                assert_eq!(job_id, fixture_job);
                 assert_eq!(job_type, "Embedding");
             }
             other => panic!("Expected JobStarted, got {:?}", other),
@@ -80582,11 +80715,11 @@ not-json
 
     #[tokio::test]
     async fn test_bridge_maps_job_progress() {
-        let (worker_tx, mut server_rx, _bus) = spawn_bridge().await;
+        let (worker_tx, mut server_rx, _bus, fixture_job) = spawn_bridge().await;
 
         worker_tx
             .send(WorkerEvent::JobProgress {
-                job_id: Uuid::nil(),
+                job_id: fixture_job,
                 percent: 42,
                 message: Some("processing chunk 5/12".to_string()),
             })
@@ -80610,11 +80743,11 @@ not-json
 
     #[tokio::test]
     async fn test_bridge_maps_job_completed() {
-        let (worker_tx, mut server_rx, _bus) = spawn_bridge().await;
+        let (worker_tx, mut server_rx, _bus, fixture_job) = spawn_bridge().await;
 
         worker_tx
             .send(WorkerEvent::JobCompleted {
-                job_id: Uuid::nil(),
+                job_id: fixture_job,
                 job_type: matric_core::JobType::Linking,
             })
             .unwrap();
@@ -80628,7 +80761,7 @@ not-json
             ServerEvent::JobCompleted {
                 job_id, job_type, ..
             } => {
-                assert_eq!(job_id, Uuid::nil());
+                assert_eq!(job_id, fixture_job);
                 assert_eq!(job_type, "Linking");
             }
             other => panic!("Expected JobCompleted, got {:?}", other),
@@ -80637,11 +80770,11 @@ not-json
 
     #[tokio::test]
     async fn test_bridge_maps_job_failed() {
-        let (worker_tx, mut server_rx, _bus) = spawn_bridge().await;
+        let (worker_tx, mut server_rx, _bus, fixture_job) = spawn_bridge().await;
 
         worker_tx
             .send(WorkerEvent::JobFailed {
-                job_id: Uuid::nil(),
+                job_id: fixture_job,
                 job_type: matric_core::JobType::AiRevision,
                 error: "inference timeout".to_string(),
                 failure_class: matric_core::JobFailureClass::Timeout,
@@ -80661,7 +80794,7 @@ not-json
                 error,
                 ..
             } => {
-                assert_eq!(job_id, Uuid::nil());
+                assert_eq!(job_id, fixture_job);
                 assert_eq!(job_type, "AiRevision");
                 assert_eq!(error, "timed_out");
             }
@@ -80671,7 +80804,7 @@ not-json
 
     #[tokio::test]
     async fn test_bridge_skips_worker_started_stopped() {
-        let (worker_tx, mut server_rx, _bus) = spawn_bridge().await;
+        let (worker_tx, mut server_rx, _bus, fixture_job) = spawn_bridge().await;
 
         // Send WorkerStarted and WorkerStopped — should be silently ignored
         worker_tx.send(WorkerEvent::WorkerStarted).unwrap();
@@ -80680,7 +80813,7 @@ not-json
         // Now send a real event so we can verify the bridge is still alive
         worker_tx
             .send(WorkerEvent::JobStarted {
-                job_id: Uuid::nil(),
+                job_id: fixture_job,
                 job_type: matric_core::JobType::Embedding,
             })
             .unwrap();
@@ -80696,7 +80829,7 @@ not-json
 
     #[tokio::test]
     async fn test_bridge_stops_on_channel_close() {
-        let (worker_tx, _server_rx, _bus) = spawn_bridge().await;
+        let (worker_tx, _server_rx, _bus, _fixture_job) = spawn_bridge().await;
 
         // Drop the sender — bridge should detect Closed and stop gracefully
         drop(worker_tx);
@@ -80733,7 +80866,7 @@ not-json
         let bridge_bus = event_bus.clone();
         let bridge_db = Database::connect(&database_url).await.unwrap();
         tokio::spawn(async move {
-            bridge_worker_events(worker_rx, bridge_bus, bridge_db).await;
+            worker_events::bridge_worker_events(worker_rx, bridge_bus, bridge_db).await;
         });
 
         // Start periodic queue status emitter

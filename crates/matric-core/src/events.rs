@@ -91,6 +91,10 @@ impl EventActor {
 pub struct EventContext {
     /// Memory/archive scope (schema name). None for system-wide events.
     pub memory: Option<String>,
+    /// Archive request name when known by the producer.
+    pub archive_name: Option<String>,
+    /// Canonical archive schema when known by the producer.
+    pub archive_schema: Option<String>,
     /// Tenant identifier (if multi-tenant).
     pub tenant_id: Option<String>,
     /// Who or what caused this event. Defaults to system actor.
@@ -144,10 +148,18 @@ pub struct EventEnvelope {
     pub event_type: String,
     /// When the event occurred (UTC).
     pub occurred_at: DateTime<Utc>,
-    /// Memory/archive scope. None for system-wide events.
+    /// Legacy archive scope: request name in single-tenant mode, schema in multi-tenant mode.
+    /// None for system-wide events. Prefer archive_schema for canonical archive matching.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory: Option<String>,
-    /// Tenant identifier (if multi-tenant).
+    /// Archive request name, resolved by the SSE server. Omitted for system-wide events.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archive_name: Option<String>,
+    /// Canonical archive schema, resolved by the SSE server. Omitted for system-wide events.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub archive_schema: Option<String>,
+    /// Verified tenant identifier in multi-tenant and external-OIDC single-tenant streams.
+    /// Omitted in local mode when there is no verified tenant identity.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tenant_id: Option<String>,
     /// Who/what caused this event.
@@ -219,6 +231,8 @@ impl EventEnvelope {
             event_type,
             occurred_at: Utc::now(),
             memory: ctx.memory,
+            archive_name: ctx.archive_name,
+            archive_schema: ctx.archive_schema,
             tenant_id: ctx.tenant_id,
             actor: ctx.actor.unwrap_or_else(EventActor::system),
             entity_type,
@@ -1799,6 +1813,8 @@ mod tests {
             failed,
             EventContext {
                 memory: Some("archivé-secret-name".to_string()),
+                archive_name: None,
+                archive_schema: None,
                 tenant_id: Some("tenánt-secret-id".to_string()),
                 actor: Some(actor),
                 correlation_id: Some(Uuid::new_v4()),
@@ -2073,6 +2089,8 @@ mod tests {
     fn test_envelope_with_context() {
         let ctx = EventContext {
             memory: Some("archive_001".to_string()),
+            archive_name: Some("synthetic-archive".to_string()),
+            archive_schema: Some("archive_001".to_string()),
             tenant_id: Some("tenant_a".to_string()),
             actor: Some(EventActor::user("user-123", Some("Alice".to_string()))),
             correlation_id: Some(Uuid::nil()),
@@ -2087,6 +2105,8 @@ mod tests {
 
         assert_eq!(envelope.event_type, "job.started");
         assert_eq!(envelope.memory.as_deref(), Some("archive_001"));
+        assert_eq!(envelope.archive_name.as_deref(), Some("synthetic-archive"));
+        assert_eq!(envelope.archive_schema.as_deref(), Some("archive_001"));
         assert_eq!(envelope.tenant_id.as_deref(), Some("tenant_a"));
         assert_eq!(envelope.actor.kind, "user");
         assert_eq!(envelope.actor.id.as_deref(), Some("user-123"));

@@ -714,6 +714,9 @@ jobs:
           export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
           cargo test -p matric-db --features migrations migration_repair_tests -- --nocapture
 
+      - name: Setup Redis for SSE token tests
+        run: bash scripts/ci/test-redis.sh start "matric-build-redis-${GITHUB_RUN_ID}"
+
       - name: Run migrations
         run: |
           set -euo pipefail
@@ -759,6 +762,12 @@ jobs:
           # archive/job tables. Serialize them to prevent transient deadlocks
           # during schema cleanup; matric-jobs already ran separately above.
           cargo test --workspace --exclude matric-jobs -- --test-threads=1
+
+      - name: Run hosted SSE credential and reconnect tests
+        run: |
+          set -euo pipefail
+          export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
+          cargo test --locked -p matric-api --features hosted-auth --bin matric-api sse_tests -- --test-threads=1
 
       - name: Capture AL-SYS04/05 asset lifecycle receipt
         run: |
@@ -837,6 +846,10 @@ jobs:
           echo "Cleaning up PostgreSQL container ${DB_CONTAINER}..."
           docker stop ${DB_CONTAINER} 2>/dev/null || true
           docker rm ${DB_CONTAINER} 2>/dev/null || true
+
+      - name: Teardown Redis
+        if: always()
+        run: bash scripts/ci/test-redis.sh stop "matric-build-redis-${GITHUB_RUN_ID}"
 
   build-image:
     name: Build Docker Image

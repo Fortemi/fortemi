@@ -95,6 +95,7 @@ pub fn emit_worker_event(
         EventContext {
             tenant_id: Some(event.tenant_id().to_string()),
             memory: Some(event.archive_schema().into()),
+            archive_schema: Some(event.archive_schema().into()),
             correlation_id: Some(event.job_id()),
             ..EventContext::default()
         },

@@ -13,6 +13,7 @@ async fn hosted_creation_succeeds_for_bootstrapped_tenant_without_manual_sql() {
     let admin = matric_db::create_pool(&url)
         .await
         .expect("explicit test database");
+    let configs_before = super::embedding_fixture_catalog(&admin).await;
     let role = format!("hb_{}", Uuid::new_v4().simple());
     let password = Uuid::new_v4().simple().to_string();
     sqlx::query(&format!("CREATE ROLE {role} LOGIN PASSWORD '{password}' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT"))
@@ -72,6 +73,11 @@ async fn hosted_creation_succeeds_for_bootstrapped_tenant_without_manual_sql() {
 
     drop(state);
     runtime.close().await;
+    super::cleanup_bootstrap_embedding_fixture(&admin, tenant).await;
+    assert_eq!(
+        super::embedding_fixture_catalog(&admin).await,
+        configs_before
+    );
     sqlx::query(&format!("DROP OWNED BY {role}"))
         .execute(&admin)
         .await

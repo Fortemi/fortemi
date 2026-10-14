@@ -17,7 +17,16 @@ use std::fmt;
 
 use crate::middleware::{archive_routing::ArchiveContext, tenant_scope::TenantRequestScope};
 use crate::{telemetry_text_len, ApiError, AppState, ProblemDetails};
-use matric_core::{ArchiveInfo, ArchiveRepository, ServerEvent};
+use matric_core::{ArchiveInfo, ArchiveRepository, EventContext, ServerEvent};
+
+fn archive_event_context(archive: &ArchiveInfo) -> EventContext {
+    EventContext {
+        memory: Some(archive.schema_name.clone()),
+        archive_name: Some(archive.name.clone()),
+        archive_schema: Some(archive.schema_name.clone()),
+        ..Default::default()
+    }
+}
 
 const ARCHIVE_ALREADY_EXISTS_MESSAGE: &str = "Archive already exists.";
 const ARCHIVE_NOT_FOUND_MESSAGE: &str = "Archive not found.";
@@ -305,10 +314,13 @@ pub async fn create_archive(
         .await?;
 
     // Emit ArchiveCreated event (Issue #455)
-    state.event_bus.emit(ServerEvent::ArchiveCreated {
-        name: archive.name.clone(),
-        archive_id: Some(archive.id),
-    });
+    state.event_bus.emit_with_context(
+        ServerEvent::ArchiveCreated {
+            name: archive.name.clone(),
+            archive_id: Some(archive.id),
+        },
+        archive_event_context(&archive),
+    );
 
     Ok((
         StatusCode::CREATED,
@@ -346,6 +358,12 @@ pub async fn update_archive(
     Path(name): Path<String>,
     Json(req): Json<UpdateArchiveRequest>,
 ) -> Result<StatusCode, ApiError> {
+    let archive = state
+        .db
+        .archives
+        .get_archive_by_name(&name)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(ARCHIVE_NOT_FOUND_MESSAGE.to_string()))?;
     state
         .db
         .archives
@@ -353,9 +371,10 @@ pub async fn update_archive(
         .await?;
 
     // Emit ArchiveUpdated event (Issue #455)
-    state
-        .event_bus
-        .emit(ServerEvent::ArchiveUpdated { name: name.clone() });
+    state.event_bus.emit_with_context(
+        ServerEvent::ArchiveUpdated { name: name.clone() },
+        archive_event_context(&archive),
+    );
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -396,9 +415,10 @@ pub async fn delete_archive(
     state.db.archives.drop_archive_schema(&name).await?;
 
     // Emit ArchiveDeleted event (Issue #455)
-    state
-        .event_bus
-        .emit(ServerEvent::ArchiveDeleted { name: name.clone() });
+    state.event_bus.emit_with_context(
+        ServerEvent::ArchiveDeleted { name: name.clone() },
+        archive_event_context(&archive),
+    );
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -423,15 +443,22 @@ pub async fn set_default_archive(
     State(state): State<AppState>,
     Path(name): Path<String>,
 ) -> Result<StatusCode, ApiError> {
+    let archive = state
+        .db
+        .archives
+        .get_archive_by_name(&name)
+        .await?
+        .ok_or_else(|| ApiError::NotFound(ARCHIVE_NOT_FOUND_MESSAGE.to_string()))?;
     state.db.archives.set_default_archive(&name).await?;
 
     // Invalidate default archive cache to force refresh on next request (Issue #107)
     state.default_archive_cache.write().await.invalidate();
 
     // Emit ArchiveDefaultChanged event (Issue #455)
-    state
-        .event_bus
-        .emit(ServerEvent::ArchiveDefaultChanged { name: name.clone() });
+    state.event_bus.emit_with_context(
+        ServerEvent::ArchiveDefaultChanged { name: name.clone() },
+        archive_event_context(&archive),
+    );
 
     Ok(StatusCode::NO_CONTENT)
 }

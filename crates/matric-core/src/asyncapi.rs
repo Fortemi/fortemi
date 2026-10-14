@@ -36,13 +36,13 @@ pub fn build_asyncapi_spec(version: &str, server_url: &str) -> Value {
         "channels": {
             "events": {
                 "address": "/api/v1/events",
-                "description": "Server-Sent Events stream delivering real-time domain events. Supports reconnection via `Last-Event-ID` header.",
+                "description": "Server-Sent Events stream delivering real-time domain events. Human credentials may use read (including write) or mcp; service credentials require mcp. Non-admin authenticated streams require an archive filter. Live and bounded Last-Event-ID replay use identical tenant/archive/type/entity filters. Expired cursors emit resync_required. Global queue, job pause/resume and inference configuration/availability events are restricted to unfiltered acknowledged anonymous-local or single-tenant admin monitoring; hosted tenants never receive them. Unattributed archive events are dropped. All delivery uses the shared selection check. Streams end at the validated credential expiry; query tokens retain the verified minting principal and tenant and cannot outlive the minting credential. Transport controls may omit attribution.",
                 "parameters": {
                     "token": {
-                        "description": "Bearer token for authentication (alternative to Authorization header)"
+                        "description": "Short-lived archive-bound event-stream token in single-tenant mode. Reusable credentials must use Authorization. Multi-tenant streams require a verified bearer."
                     },
                     "memory": {
-                        "description": "Memory archive to scope events to (default: all archives)"
+                        "description": "Archive request name, overriding X-Fortemi-Memory; required for non-admin authenticated streams. Every archive in the verified tenant is currently selectable."
                     },
                     "types": {
                         "description": "Comma-separated list of event types to subscribe to (e.g., `note.created,note.updated`)"
@@ -59,7 +59,7 @@ pub fn build_asyncapi_spec(version: &str, server_url: &str) -> Value {
                 "action": "receive",
                 "channel": { "$ref": "#/channels/events" },
                 "summary": "Receive real-time domain events via SSE",
-                "description": "Subscribe to the event stream. Events are delivered as SSE `data:` frames with JSON payloads wrapped in an EventEnvelope."
+                "description": "Subscribe to the event stream. Events are delivered as SSE data frames with JSON EventEnvelope payloads. For archive events, archive_name is the request name and archive_schema is the canonical schema in both modes. memory retains the single-tenant archive name or multi-tenant schema. tenant_id is the verified tenant UUID in external-OIDC single-tenant and multi-tenant streams; unbound local streams omit it. Live and replay envelopes have identical attribution. These optional fields are additive and payload_version remains 1."
             }
         },
         "components": {

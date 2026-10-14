@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 use axum::http::Method;
-use matric_core::{Action, AuthzContext, Resource, ResourceKind, ScopeFamily};
+use matric_core::{Action, AuthPrincipal, AuthzContext, Resource, ResourceKind, ScopeFamily};
 use serde_json::json;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -745,7 +745,7 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
         "/api/v1/events",
         RealtimeTransport,
         "event_stream",
-        Hidden,
+        Authenticated,
         NoStore,
     ),
     r(
@@ -1906,6 +1906,27 @@ pub fn mark_resource_id_normalized(input: &mut RoutePolicyInput) {
         .insert("resource_id_normalized".to_string(), json!(true));
 }
 
+/// Human readers may subscribe to domain events without MCP transport rights.
+/// The caller must establish the credential class from verified identity metadata;
+/// service credentials retain the inventory's MCP requirement.
+pub fn apply_event_stream_admission(
+    mut input: RoutePolicyInput,
+    principal: &AuthPrincipal,
+    human: bool,
+) -> RoutePolicyInput {
+    if input.policy.path == "/api/v1/events"
+        && input.action.name == "event_stream:get"
+        && human
+        && matches!(principal, AuthPrincipal::OAuthClient { .. })
+        && principal.has_scope("read")
+        && !principal.has_scope("mcp")
+    {
+        input.action.scope_family = ScopeFamily::Rest;
+        input.action.required_scopes = vec!["read".to_string()];
+    }
+    input
+}
+
 fn action_family_for_request(policy: &RoutePolicy, method: &Method) -> &'static str {
     if is_incoming_webhook_receiver_slug_route(policy) && method != Method::POST {
         "webhook_control"
@@ -2552,7 +2573,7 @@ mod tests {
     }
 
     #[test]
-    fn realtime_transport_requires_mcp_transport_scope() {
+    fn realtime_transport_defaults_to_mcp_transport_scope() {
         let input = authorization_input_for_request(&Method::GET, "/api/v1/events", None)
             .expect("event stream route should be inventoried");
 
@@ -2560,6 +2581,31 @@ mod tests {
         assert_eq!(input.action.scope_family, ScopeFamily::McpTransport);
         assert_eq!(input.action.required_scopes, vec!["mcp"]);
         assert_eq!(input.resource.kind, ResourceKind::McpTool);
+    }
+
+    #[test]
+    fn event_stream_accepts_human_read_without_changing_other_transports() {
+        let reader = AuthPrincipal::OAuthClient {
+            client_id: "synthetic-web".into(),
+            user_id: Some("synthetic-reader".into()),
+            scope: "read".into(),
+        };
+        let input =
+            authorization_input_for_request(&Method::GET, "/api/v1/events", Some("tenant-a"))
+                .unwrap();
+        let human = apply_event_stream_admission(input.clone(), &reader, true);
+        assert_eq!(human.action.scope_family, ScopeFamily::Rest);
+        assert_eq!(human.action.required_scopes, vec!["read"]);
+        assert_eq!(human.resource.tenant_id.as_deref(), Some("tenant-a"));
+        let service = apply_event_stream_admission(input, &reader, false);
+        assert_eq!(service.action.required_scopes, vec!["mcp"]);
+        let ws = authorization_input_for_request(&Method::GET, "/api/v1/ws", None).unwrap();
+        assert_eq!(
+            apply_event_stream_admission(ws, &reader, true)
+                .action
+                .required_scopes,
+            vec!["mcp"]
+        );
     }
 
     #[test]

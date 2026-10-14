@@ -74,7 +74,9 @@ async fn inject_identity(
     next: axum::middleware::Next,
 ) -> Response {
     let tenant = identity.tenant_id.to_string();
-    let scopes = if request.headers().contains_key("x-test-mcp-only") {
+    let scopes = if request.headers().contains_key("x-test-read-only") {
+        "read"
+    } else if request.headers().contains_key("x-test-mcp-only") {
         "mcp"
     } else {
         "read write mcp"
@@ -99,6 +101,11 @@ async fn inject_identity(
     });
     #[cfg(feature = "hosted-auth")]
     {
+        let kind = if request.headers().contains_key("x-test-machine") {
+            fortemi_auth_core::PrincipalKind::Service
+        } else {
+            fortemi_auth_core::PrincipalKind::Human
+        };
         request.extensions_mut().insert(RequestPrincipal {
             user_id: Some(identity.user_id),
             tenant_id: Some(identity.tenant_id),
@@ -107,7 +114,7 @@ async fn inject_identity(
             azp: Some("fortemi-web".to_string()),
             scopes: scopes.split_whitespace().map(str::to_string).collect(),
             credential_class: matric_api::external_oidc::CredentialClass::Oidc,
-            kind: fortemi_auth_core::PrincipalKind::Human,
+            kind,
             pat_id: None,
             jti: Some("hosted-create-regression-jti".to_string()),
             email: Some("hosted-create@example.com".to_string()),
@@ -121,7 +128,10 @@ async fn inject_identity(
             .clone();
         request.extensions_mut().insert(ValidatedBearerIdentity {
             principal,
+            parent_credential: None,
             tenant_id: Some(identity.tenant_id),
+            expires_at: Some(Utc::now() + chrono::Duration::seconds(2)),
+            stream_identity: None,
             request_principal: None,
             canonical_context: Some(fortemi_auth_core::AuthContext {
                 tenant_id: identity.tenant_id,
@@ -135,7 +145,7 @@ async fn inject_identity(
                 expires_at: Utc::now() + chrono::Duration::seconds(2),
                 scopes: scopes.split_whitespace().map(str::to_string).collect(),
                 session_id: None,
-                principal_kind: fortemi_auth_core::PrincipalKind::Human,
+                principal_kind: kind,
                 scope_grants: Vec::new(),
                 dropped_scope_count: 0,
             }),
@@ -187,6 +197,37 @@ fn hosted_router(state: AppState, pool: sqlx::PgPool, tenant: Uuid) -> Router {
 
 fn hosted_test_user_id(tenant: Uuid) -> Uuid {
     Uuid::new_v5(&Uuid::NAMESPACE_OID, tenant.as_bytes())
+}
+
+/// Bootstrap commits tenant defaults. Remove these shared configuration rows
+/// before personal-mode tests inspect the same catalog as a superuser.
+async fn embedding_fixture_catalog(admin: &sqlx::PgPool) -> Vec<(Uuid, Uuid, bool)> {
+    sqlx::query_as("SELECT id, tenant_id, is_default FROM public.embedding_config ORDER BY id")
+        .fetch_all(admin)
+        .await
+        .unwrap()
+}
+
+async fn cleanup_bootstrap_embedding_fixture(admin: &sqlx::PgPool, tenant: Uuid) {
+    let mut tx = admin.begin().await.unwrap();
+    for table in ["embedding_set", "embedding_config"] {
+        sqlx::query(&format!("DELETE FROM public.{table} WHERE tenant_id=$1"))
+            .bind(tenant)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM public.embedding_config WHERE tenant_id=$1")
+            .bind(tenant)
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    assert_eq!(
+        remaining, 0,
+        "bootstrap configurations must not leak to later tests"
+    );
+    tx.commit().await.unwrap();
 }
 
 /// The `app_user` behind `hosted_router`'s injected principal. In production the
@@ -575,8 +616,9 @@ async fn hosted_creation_postgres_atomicity_and_tenant_isolation() {
         mcp_only
             .headers_mut()
             .insert("x-test-mcp-only", "true".parse().unwrap());
-        let denied = stream_app.clone().oneshot(mcp_only).await.unwrap();
-        assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+        let admitted = stream_app.clone().oneshot(mcp_only).await.unwrap();
+        assert_eq!(admitted.status(), StatusCode::OK);
+        drop(admitted);
         let emit = |tenant: Uuid, title: &str| {
             state.event_bus.emit_with_context(
                 ServerEvent::NoteCreated {
@@ -630,6 +672,172 @@ async fn hosted_creation_postgres_atomicity_and_tenant_isolation() {
         assert!(stream.contains("own-live-marker"), "{stream}");
         assert!(!stream.contains("foreign-replay-marker"), "{stream}");
         assert!(!stream.contains("foreign-live-marker"), "{stream}");
+    }
+    #[cfg(feature = "hosted-auth")]
+    {
+        // Exercise actual hosted producers in a non-default archive: its request
+        // name differs from the schema consumed by current hosted clients.
+        let archives = matric_db::PgArchiveRepository::new(admin.clone());
+        let selected = archives
+            .create_archive_schema(&format!("ssehosted_{}", Uuid::new_v4().simple()), None)
+            .await
+            .unwrap();
+        assert_ne!(selected.name, selected.schema_name);
+        sqlx::query("UPDATE archive_registry SET tenant_id=$1 WHERE id=$2")
+            .bind(a)
+            .bind(selected.id)
+            .execute(&admin)
+            .await
+            .unwrap();
+        for grant in [
+            format!("GRANT USAGE ON SCHEMA {} TO {role}", selected.schema_name),
+            format!(
+                "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA {} TO {role}",
+                selected.schema_name
+            ),
+            format!(
+                "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA {} TO {role}",
+                selected.schema_name
+            ),
+        ] {
+            sqlx::query(&grant).execute(&admin).await.unwrap();
+        }
+        sqlx::query(&format!("INSERT INTO {}.skos_concept_scheme(id,notation,title,is_system,tenant_id) VALUES($1,'default','Test',true,$2)", selected.schema_name))
+            .bind(Uuid::new_v4()).bind(a).execute(&admin).await.unwrap();
+        // The archive factory currently clones app_user; seed the fixture's
+        // existing principal there so the archive's attribution FKs are valid.
+        sqlx::query(&format!(
+            "INSERT INTO {}.app_user SELECT * FROM public.app_user WHERE tenant_id=$1",
+            selected.schema_name
+        ))
+        .bind(a)
+        .execute(&admin)
+        .await
+        .unwrap();
+        let app = hosted_router(state.clone(), runtime.clone(), a);
+        let stream_request = |cursor: Option<String>, machine: bool| {
+            let mut request = http_request(
+                Method::GET,
+                &format!("/api/v1/events?memory={}&types=note", selected.name),
+                serde_json::Value::Null,
+                false,
+            );
+            request
+                .headers_mut()
+                .insert("x-test-read-only", "true".parse().unwrap());
+            if machine {
+                request
+                    .headers_mut()
+                    .insert("x-test-machine", "true".parse().unwrap());
+            }
+            if let Some(cursor) = cursor {
+                request
+                    .headers_mut()
+                    .insert("last-event-id", cursor.parse().unwrap());
+            }
+            request
+        };
+        assert_eq!(
+            app.clone()
+                .oneshot(stream_request(None, true))
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        let response = app
+            .clone()
+            .oneshot(stream_request(None, false))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut live = response.into_body().into_data_stream();
+        let create_request = || {
+            let mut request = http_request(
+                Method::POST,
+                "/api/v1/notes",
+                serde_json::json!({
+                    "content": "Synthetic hosted archive event", "title": "Hosted fixture", "pipeline": []
+                }),
+                false,
+            );
+            request
+                .headers_mut()
+                .insert("x-fortemi-memory", selected.name.parse().unwrap());
+            request
+        };
+        let created = app.clone().oneshot(create_request()).await.unwrap();
+        let status = created.status();
+        let body = json_body(created).await;
+        assert_eq!(status, StatusCode::CREATED, "{body}");
+        let first = super::sse_tests::next_frame(&mut live).await;
+        assert_eq!(first["event_type"], "note.created");
+        assert_eq!(first["memory"], selected.schema_name);
+        assert_eq!(first["archive_name"], selected.name);
+        assert_eq!(first["archive_schema"], selected.schema_name);
+        assert_eq!(first["tenant_id"], a.to_string());
+        drop(live);
+        let mut delete_request = http_request(
+            Method::DELETE,
+            &format!("/api/v1/notes/{}", body["id"].as_str().unwrap()),
+            serde_json::Value::Null,
+            false,
+        );
+        delete_request
+            .headers_mut()
+            .insert("x-fortemi-memory", selected.name.parse().unwrap());
+        assert_eq!(
+            app.clone().oneshot(delete_request).await.unwrap().status(),
+            StatusCode::NO_CONTENT
+        );
+        // A real public-archive producer must not appear in this replay.
+        let other = app
+            .clone()
+            .oneshot(http_request(
+                Method::POST,
+                "/api/v1/notes",
+                serde_json::json!({
+                    "content": "Synthetic other archive event", "title": "Other fixture", "pipeline": []
+                }),
+                false,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(other.status(), StatusCode::CREATED);
+        let reconnected = app
+            .clone()
+            .oneshot(stream_request(
+                Some(first["event_id"].as_str().unwrap().into()),
+                false,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(reconnected.status(), StatusCode::OK);
+        let mut replay = reconnected.into_body().into_data_stream();
+        let deleted = super::sse_tests::next_frame(&mut replay).await;
+        assert_eq!(deleted["event_type"], "note.deleted");
+        for key in ["memory", "archive_name", "archive_schema", "tenant_id"] {
+            assert_eq!(first[key], deleted[key]);
+        }
+        assert!(tokio::time::timeout(
+            std::time::Duration::from_millis(50),
+            futures::StreamExt::next(&mut replay)
+        )
+        .await
+        .is_err());
+        assert_eq!(
+            app.clone()
+                .oneshot(create_request())
+                .await
+                .unwrap()
+                .status(),
+            StatusCode::CREATED
+        );
+        let resumed = super::sse_tests::next_frame(&mut replay).await;
+        assert_eq!(resumed["event_type"], "note.created");
+        assert_eq!(resumed["memory"], selected.schema_name);
+        drop(replay);
+        archives.drop_archive_schema(&selected.name).await.unwrap();
     }
     // The database is disposable. Remove this test's role and all grants;
     // rows remain available for failure diagnosis until the fixture is removed.

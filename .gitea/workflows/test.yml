@@ -141,6 +141,9 @@ jobs:
             sleep 2
           done
 
+      - name: Setup Redis for SSE token tests
+        run: bash scripts/ci/test-redis.sh start "matric-fast-redis-${GITHUB_RUN_ID}"
+
       - name: Run migrations
         run: |
           set -euo pipefail
@@ -155,6 +158,7 @@ jobs:
 
       - name: Run fast tests
         run: |
+          set -euo pipefail
           DB_PORT=$((15332 + (GITHUB_RUN_ID % 1000)))
           export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
           export INTEGRATION_TEST_DB=1
@@ -165,6 +169,7 @@ jobs:
           cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api kms::tests
           cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api verified_tenant_policy_context
           cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api hosted_sse_filters
+          cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api sse_tests -- --test-threads=1
           # Hosted route qualification evidence (docs/deployment/hosted-route-qualification.md).
           cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api scoped_search_tests -- --test-threads=1
           cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api handlers::inference_complete::tests::hosted_model_policy
@@ -200,6 +205,10 @@ jobs:
           DB_CONTAINER="matric-fast-db-${GITHUB_RUN_ID}"
           docker stop ${DB_CONTAINER} 2>/dev/null || true
           docker rm ${DB_CONTAINER} 2>/dev/null || true
+
+      - name: Teardown Redis
+        if: always()
+        run: bash scripts/ci/test-redis.sh stop "matric-fast-redis-${GITHUB_RUN_ID}"
 
   # Integration tests (with database)
   integration-tests:
@@ -257,6 +266,9 @@ jobs:
             echo "Waiting for PostgreSQL... ($i/30)"
             sleep 2
           done
+
+      - name: Setup Redis for SSE token tests
+        run: bash scripts/ci/test-redis.sh start "matric-test-redis-${GITHUB_RUN_ID}"
 
       - name: Run migrations
         run: |
@@ -317,6 +329,10 @@ jobs:
           docker stop ${DB_CONTAINER} 2>/dev/null || true
           docker rm ${DB_CONTAINER} 2>/dev/null || true
 
+      - name: Teardown Redis
+        if: always()
+        run: bash scripts/ci/test-redis.sh stop "matric-test-redis-${GITHUB_RUN_ID}"
+
   # Coverage generation
   coverage:
     name: Code Coverage
@@ -374,6 +390,9 @@ jobs:
           export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
           FORTEMI_CI_DISPOSABLE_DATABASE=1 cargo run --locked -p matric-db \
             --features migrations --example ci_database_bootstrap
+
+      - name: Setup Redis for SSE token tests
+        run: bash scripts/ci/test-redis.sh start "matric-coverage-redis-${GITHUB_RUN_ID}"
 
       - name: Install llvm-cov
         run: |
@@ -448,6 +467,10 @@ jobs:
           DB_CONTAINER="matric-coverage-db-${GITHUB_RUN_ID}"
           docker stop ${DB_CONTAINER} 2>/dev/null || true
           docker rm ${DB_CONTAINER} 2>/dev/null || true
+
+      - name: Teardown Redis
+        if: always()
+        run: bash scripts/ci/test-redis.sh stop "matric-coverage-redis-${GITHUB_RUN_ID}"
 
   # Slow/expensive tests (marked with #[ignore])
   slow-tests:

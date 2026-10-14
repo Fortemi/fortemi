@@ -2,7 +2,7 @@ asyncapi: 3.0.0
 channels:
   events:
     address: /api/v1/events
-    description: Server-Sent Events stream delivering real-time domain events. Supports reconnection via `Last-Event-ID` header.
+    description: Server-Sent Events stream delivering real-time domain events. Human credentials may use read (including write) or mcp; service credentials require mcp. Non-admin authenticated streams require an archive filter. Live and bounded Last-Event-ID replay use identical tenant/archive/type/entity filters. Expired cursors emit resync_required. Global queue, job pause/resume and inference configuration/availability events are restricted to unfiltered acknowledged anonymous-local or single-tenant admin monitoring; hosted tenants never receive them. Unattributed archive events are dropped. All delivery uses the shared selection check. Streams end at the validated credential expiry; query tokens retain the verified minting principal and tenant and cannot outlive the minting credential. Transport controls may omit attribution.
     messages:
       ArchiveCreated:
         contentType: application/json
@@ -488,9 +488,9 @@ channels:
       entity_id:
         description: Filter events to a specific entity ID
       memory:
-        description: 'Memory archive to scope events to (default: all archives)'
+        description: Archive request name, overriding X-Fortemi-Memory; required for non-admin authenticated streams. Every archive in the verified tenant is currently selectable.
       token:
-        description: Bearer token for authentication (alternative to Authorization header)
+        description: Short-lived archive-bound event-stream token in single-tenant mode. Reusable credentials must use Authorization. Multi-tenant streams require a verified bearer.
       types:
         description: Comma-separated list of event types to subscribe to (e.g., `note.created,note.updated`)
 components:
@@ -536,6 +536,16 @@ components:
           allOf:
           - $ref: '#/components/schemas/EventActor'
           description: Who/what caused this event.
+        archive_name:
+          description: Archive request name, resolved by the SSE server. Omitted for system-wide events.
+          type:
+          - string
+          - 'null'
+        archive_schema:
+          description: Canonical archive schema, resolved by the SSE server. Omitted for system-wide events.
+          type:
+          - string
+          - 'null'
         causation_id:
           description: ID of the event that caused this event.
           format: uuid
@@ -566,7 +576,7 @@ components:
           description: Namespaced event type (e.g., `"note.updated"`, `"job.started"`).
           type: string
         memory:
-          description: Memory/archive scope. None for system-wide events.
+          description: 'Legacy archive scope: request name in single-tenant mode, schema in multi-tenant mode. None for system-wide events. Prefer archive_schema for canonical archive matching.'
           type:
           - string
           - 'null'
@@ -584,7 +594,7 @@ components:
           minimum: 0.0
           type: integer
         tenant_id:
-          description: Tenant identifier (if multi-tenant).
+          description: Verified tenant identifier in multi-tenant and external-OIDC single-tenant streams. Omitted in local mode when there is no verified tenant identity.
           type:
           - string
           - 'null'
@@ -1430,7 +1440,7 @@ operations:
     action: receive
     channel:
       $ref: '#/channels/events'
-    description: Subscribe to the event stream. Events are delivered as SSE `data:` frames with JSON payloads wrapped in an EventEnvelope.
+    description: Subscribe to the event stream. Events are delivered as SSE data frames with JSON EventEnvelope payloads. For archive events, archive_name is the request name and archive_schema is the canonical schema in both modes. memory retains the single-tenant archive name or multi-tenant schema. tenant_id is the verified tenant UUID in external-OIDC single-tenant and multi-tenant streams; unbound local streams omit it. Live and replay envelopes have identical attribution. These optional fields are additive and payload_version remains 1.
     messages:
     - $ref: '#/channels/events/messages/QueueStatus'
     - $ref: '#/channels/events/messages/JobQueued'

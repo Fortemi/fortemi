@@ -144,8 +144,11 @@ mod tests {
             user_id: Some("subject-sentinel".into()),
         };
         let identity = ValidatedBearerIdentity {
+            parent_credential: None,
             principal: principal.clone(),
             tenant_id: Some(tenant),
+            expires_at: Some(expires_at),
+            stream_identity: None,
             request_principal: None,
             canonical_context: Some(AuthContext {
                 tenant_id: tenant,

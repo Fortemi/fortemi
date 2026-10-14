@@ -3337,6 +3337,115 @@ paths:
           description: Global request rate limit exceeded
       security:
       - bearerAuth: []
+  /api/v1/events:
+    get:
+      tags:
+      - Events
+      summary: 'SSE event stream handler (Issues #43, #452, #456, #457).'
+      description: |-
+        Clients connect to `/api/v1/events` and receive Server-Sent Events.
+
+        ## Auth (Issue #452)
+        - Query param: `?token=<STREAM_TOKEN>`
+        - Header: `Authorization: Bearer <ACCESS_TOKEN>`
+        - When `REQUIRE_AUTH=true`, one of the above is required.
+
+        ## Memory Scoping (Issue #452)
+        - Query param: `?memory=my-archive`
+        - Header: `X-Fortemi-Memory: my-archive`
+        - Without explicit memory: personal admin or anonymous-local monitoring.
+        - Anonymous access requires acknowledged anonymous-local mode.
+        - With explicit memory: only attributed events for that archive are delivered.
+
+        ## Type Filtering (Issue #457)
+        - Query param: `?types=note.created,note.updated` — comma-separated list.
+        - Prefix matching: `?types=note` matches `note.created`, `note.updated`, etc.
+        - Without types filter: all event types are delivered.
+
+        ## Entity Filtering (Issue #457)
+        - Query param: `?entity_id=<uuid>` — only events for this entity.
+        - Matches against `envelope.entity_id`.
+        - Without entity_id filter: events for all entities are delivered.
+
+        ## Replay (Issue #456)
+        - Browser EventSource auto-sends `Last-Event-ID` on reconnect.
+        - Events since that ID are replayed from the in-memory ring buffer.
+        - If the ID is expired (outside replay window), a `resync_required` event is sent.
+        - Delivery semantics: at-least-once. Clients should deduplicate by `event_id`.
+      operationId: sse_events
+      parameters:
+      - name: memory
+        in: query
+        description: Archive request name; required for non-admin authenticated streams. Overrides X-Fortemi-Memory.
+        required: false
+        schema:
+          type: string
+      - name: types
+        in: query
+        description: Comma-separated event type prefixes.
+        required: false
+        schema:
+          type: string
+      - name: entity_id
+        in: query
+        description: Exact entity identifier.
+        required: false
+        schema:
+          type: string
+      - name: token
+        in: query
+        description: Short-lived archive-bound event-stream token; reusable credentials must use Authorization.
+        required: false
+        schema:
+          type: string
+      - name: X-Fortemi-Memory
+        in: header
+        description: Archive request name.
+        required: false
+        schema:
+          type:
+          - string
+          - 'null'
+      - name: Last-Event-ID
+        in: header
+        description: Replay cursor for the bounded in-memory buffer; expired cursors emit resync_required.
+        required: false
+        schema:
+          type:
+          - string
+          - 'null'
+          format: uuid
+      responses:
+        '200':
+          description: SSE EventEnvelope frames. Human read (including write) or mcp admission; service credentials require mcp. Live and replay share tenant/archive/type/entity filters. memory retains the single-tenant request name or multi-tenant schema; archive_name and archive_schema identify the archive. tenant_id is verified in external-OIDC single-tenant and multi-tenant streams, absent for unbound local streams. Streams end at validated credential expiry. Anonymous access requires acknowledged anonymous-local mode; hosted streams require bearer authentication. See /api/v1/asyncapi.yaml.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        '400':
+          description: Invalid filter
+        '401':
+          description: Authentication required, invalid stream token, or minting user/parent credential no longer active with the required scopes. Query-token access is revalidated before admission and replay.
+        '403':
+          description: Insufficient scope or archive selection denied
+        '404':
+          description: Archive not found
+        '503':
+          description: Authorization audit or tenant scope unavailable
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      security:
+      - bearerAuth: []
+      - eventStreamToken: []
+      x-fortemi-anonymous-access:
+        i_understand_no_auth: true
+        mode: anonymous-local
+        multi_tenant: false
+        require_auth: false
   /api/v1/events/tokens:
     post:
       tags:
@@ -16455,6 +16564,11 @@ components:
       bearerFormat: JWT
       scheme: bearer
       type: http
+    eventStreamToken:
+      description: Short-lived archive-bound SSE token minted by POST /api/v1/events/tokens. Supported in personal deployments.
+      in: query
+      name: token
+      type: apiKey
 tags:
 - name: Notes
   description: Note CRUD operations

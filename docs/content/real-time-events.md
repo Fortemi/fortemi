@@ -65,8 +65,10 @@ All SSE events are wrapped in a versioned `EventEnvelope` — a self-describing 
 | `event_id` | UUID (v7) | Yes | Unique, monotonically increasing event ID |
 | `event_type` | String | Yes | Namespaced event type (e.g., `note.created`) |
 | `occurred_at` | ISO 8601 | Yes | When the event occurred (UTC) |
-| `memory` | String | No | Memory/archive scope. Null for system events |
-| `tenant_id` | String | No | Tenant identifier (multi-tenant deployments) |
+| `memory` | String | No | Legacy scope: archive request name in single-tenant mode, canonical schema in multi-tenant mode |
+| `archive_name` | String | No | Archive request name, resolved from archive metadata |
+| `archive_schema` | String | No | Canonical archive schema in both deployment modes |
+| `tenant_id` | String | No | Verified tenant UUID in external-OIDC single-tenant and multi-tenant streams; omitted for local credentials without a tenant |
 | `actor` | Object | Yes | Who/what caused the event |
 | `actor.kind` | String | Yes | `"system"`, `"user"`, or `"agent"` |
 | `actor.id` | String | No | Actor identifier (user ID, API key ID) |
@@ -231,6 +233,22 @@ with `DELETE /api/v1/events/tokens/{token_id}`. The query parameter accepts only
 that event-stream token class; ordinary access tokens and API keys are accepted
 only in the Authorization header.
 
+Human credentials may subscribe with `read` (including `write`) or `mcp`.
+OIDC service principals, legacy API keys, client-credentials tokens, and query
+stream tokens retain `mcp` admission; an OIDC subject alone does not prove a
+human identity. Human PATs also qualify for `read` admission. Authorization
+audits use the verified tenant; failure to persist an allow decision closes
+admission with 503.
+
+Query stream tokens retain stable user and parent credential identifiers.
+Every connection and `Last-Event-ID` reconnect checks current user status,
+parent credential revocation/expiry, and the intersection of minted and current
+scopes before admission and replay. Live query-token delivery repeats these
+checks. Disabling a user, revoking a parent PAT/OAuth token/API key, or removing
+required scopes denies subsequent access even while the stream token exists.
+Single-tenant webhooks retain the archive name in `memory` (for example,
+`research`); `archive_schema` carries the canonical schema (`archive_research`).
+
 When `REQUIRE_AUTH=true` (default), one of the above is required. Authenticated
 or tenant/memory-scoped clients must use SSE; the legacy WebSocket endpoint is
 disabled in auth-required mode. When explicitly running local sidecar/dev mode
@@ -249,10 +267,45 @@ Events can be scoped to a specific memory (archive):
 
 When `REQUIRE_AUTH=true`, an all-events stream with no memory filter requires
 admin scope. Non-admin authenticated clients must request a memory-scoped
-stream, and the selected memory must pass the same read authorization as
-`GET /api/v1/archives/{name}`.
+stream. The archive name is resolved by the server before admission. Archive
+selection currently permits any archive in the principal's tenant; per-archive
+rights will extend this selection check (#1201). The query parameter takes
+precedence over the header, including when selecting the default archive.
 
-System events (no memory scope) pass through all memory filters.
+Archive-filtered streams exclude unscoped application events such as global
+queue status. Only `queue.status`, `jobs.paused`, `jobs.resumed`,
+`inference.config.changed`, and `inference.availability.changed` are system-wide
+application events. They are available only to unfiltered single-tenant admin
+or acknowledged anonymous-local monitoring streams. Global activity can reveal
+work in other archives, so scoped readers, scoped MCP clients, and hosted tenant
+streams do not receive it. Unattributed note/job/index events are dropped even
+for admin monitoring; producers must resolve trusted archive metadata. Worker
+job lifecycle, progress, index materialization and note updates carry the
+persisted execution schema resolved against the archive registry. Transport controls (`resync_required` and
+`events.lagged`) may omit tenant/archive attribution.
+
+For both live events and replay, `archive_name` identifies the request name and
+`archive_schema` the canonical schema. `memory` keeps its legacy meaning: archive
+name in single-tenant mode, schema in multi-tenant mode. External-OIDC
+single-tenant streams attach the verified tenant UUID to personal producer
+events; foreign attributed events are excluded. Multi-tenant streams require
+producer tenant/schema attribution and preserve their existing fields. Local
+streams without a tenant identity omit `tenant_id`. The new optional archive
+fields are additive; `payload_version` remains 1. Consumers that use canonical
+schemas should match `archive_schema`, falling back to legacy `memory` for older
+servers. Replay applies the same archive, tenant, type, and entity filters.
+
+Authenticated streams end at the validated credential expiry for OIDC, PAT,
+local OAuth, expiring API keys, and query stream tokens. OAuth's normal admission
+refresh establishes the connection deadline; an open stream does not refresh it.
+Query tokens persist the minting principal, human/service classification, verified
+tenant, and absolute expiry in Redis. Their expiry is capped by the minting
+credential. Older event tokens without this metadata must be minted again.
+PostgreSQL authorization auditing uses the restored principal and tenant.
+
+The OpenAPI operation declares bearer and query-token security alternatives.
+Anonymous access is conditional on acknowledged anonymous-local mode, documented
+by `x-fortemi-anonymous-access`; it is unavailable in hosted mode.
 
 ### Type Filtering
 

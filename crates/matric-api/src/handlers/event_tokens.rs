@@ -6,7 +6,7 @@ use axum::response::IntoResponse;
 use axum::{Extension, Json};
 use serde_json::json;
 
-use crate::{ApiError, AppState, ArchiveContext, RequireAuth};
+use crate::{sse, ApiError, AppState, ArchiveContext, RequireAuth, ValidatedBearerIdentity};
 
 /// POST /api/v1/events/tokens — mint a short-lived EventSource query token.
 ///
@@ -25,13 +25,26 @@ use crate::{ApiError, AppState, ArchiveContext, RequireAuth};
     )
 )]
 pub async fn mint_event_stream_token(
-    auth: RequireAuth,
+    _auth: RequireAuth,
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
+    Extension(identity): Extension<ValidatedBearerIdentity>,
 ) -> Result<impl IntoResponse, ApiError> {
     let minted = state
         .ingest_token_store
-        .mint_event_stream(&archive_ctx.schema, auth.principal.scope_str())
+        .mint_event_stream(
+            &archive_ctx.schema,
+            matric_api::services::ingest_token_store::EventStreamIdentity {
+                principal: identity.principal.clone(),
+                tenant_id: identity.tenant_id,
+                user_id: sse::stable_user_id(&identity),
+                parent_credential: identity.parent_credential.clone().ok_or_else(|| {
+                    ApiError::Unauthorized("Minting credential identity unavailable".into())
+                })?,
+                human: sse::identity_is_human(&identity),
+                expires_at: identity.expires_at,
+            },
+        )
         .await
         .ok_or_else(|| {
             ApiError::ServiceUnavailable(

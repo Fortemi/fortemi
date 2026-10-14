@@ -27,6 +27,24 @@ fn unique_slug() -> String {
     format!("bootstrap-{}", Uuid::new_v4().simple())
 }
 
+async fn cleanup_tenant(pool: &PgPool, tenant: Uuid) {
+    let mut tx = pool.begin().await.unwrap();
+    for table in ["embedding_set", "embedding_config", "skos_concept_scheme"] {
+        sqlx::query(&format!("DELETE FROM public.{table} WHERE tenant_id=$1"))
+            .bind(tenant)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    sqlx::query("DELETE FROM public.tenant_registry WHERE id=$1")
+        .bind(tenant)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    tx.commit().await.unwrap();
+    assert_eq!(tenant_counts(pool, tenant).await, (0, 0, 0, 0, 0, 0));
+}
+
 async fn tenant_counts(pool: &PgPool, tenant: Uuid) -> (i64, i64, i64, i64, i64, i64) {
     sqlx::query_as(
         "SELECT (SELECT count(*) FROM tenant_registry WHERE id = $1 AND status = 'active'),
@@ -93,6 +111,7 @@ async fn bootstrap_is_idempotent_and_dry_run_writes_nothing() {
     assert!(update.steps[1..]
         .iter()
         .all(|s| s.action == StepAction::None));
+    cleanup_tenant(&pool, request.tenant_id).await;
 }
 
 #[tokio::test]
@@ -154,6 +173,7 @@ async fn bootstrap_refuses_conflicts_and_respects_lifecycle() {
         bootstrap_tenant(&pool, &reactivate, false, CLAIM).await,
         Err(BootstrapError::Conflict(_))
     ));
+    cleanup_tenant(&pool, request.tenant_id).await;
 }
 
 /// The released admission decision (Strategy A) over the production tenant
@@ -232,5 +252,6 @@ mod admission {
             extract_tenant_id_strategy_a(&Claims(unknown.to_string()), &store).await,
             Err(AuthError::UnknownTenant)
         );
+        cleanup_tenant(&pool, request.tenant_id).await;
     }
 }

@@ -50,6 +50,28 @@ const DEFAULT_TTL_SECONDS: u64 = 3600;
 /// Default per-token rate limit (lines/sec); 0 means unlimited.
 const DEFAULT_RATE_LIMIT: u64 = 0;
 
+/// Verified identity captured at minting, never accepted from request parameters.
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EventStreamIdentity {
+    pub principal: matric_core::AuthPrincipal,
+    pub tenant_id: Option<Uuid>,
+    /// Stable application user identity, independent of the OIDC subject.
+    pub user_id: Option<Uuid>,
+    pub parent_credential: EventStreamParent,
+    pub human: bool,
+    /// A delegated stream cannot outlive its minting credential.
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// Non-secret identifiers used to recheck the minting credential.
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum EventStreamParent {
+    OAuthToken(Uuid),
+    ApiKey(Uuid),
+    PersonalAccessToken(Uuid),
+    Oidc(String),
+}
+
 /// The persisted record for a stream token. Holds no token secret; the `token_id`
 /// is a non-secret handle for revocation.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -66,6 +88,10 @@ pub struct IngestTokenData {
     /// Scope captured from the minting principal for read-side stream policy.
     #[serde(default)]
     pub scope: String,
+    #[serde(default)]
+    pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default)]
+    pub event_identity: Option<EventStreamIdentity>,
 }
 
 impl std::fmt::Debug for IngestTokenData {
@@ -169,6 +195,21 @@ impl IngestTokenStore {
         }
     }
 
+    /// Construct an isolated connected store with an explicit lifetime.
+    pub async fn with_ttl(redis_url: &str, ttl_seconds: u64) -> Option<Self> {
+        let store = Self::disabled();
+        let connection = connect(redis_url, ttl_seconds).await?;
+        Some(Self {
+            inner: Arc::new(Inner {
+                connection: RwLock::new(Some(connection)),
+                ttl_seconds,
+                default_rate_limit: 0,
+                prefix: format!("{}{}:", store.inner.prefix, Uuid::new_v4()),
+                id_prefix: format!("{}{}:", store.inner.id_prefix, Uuid::new_v4()),
+            }),
+        })
+    }
+
     /// Whether the store has a live Redis connection (token minting available).
     pub async fn is_connected(&self) -> bool {
         self.inner.connection.read().await.is_some()
@@ -200,14 +241,33 @@ impl IngestTokenStore {
     /// (lines/sec; 0 = unlimited). Returns `None` when Redis is unavailable (the
     /// caller surfaces `503`). The secret token is returned exactly once.
     pub async fn mint(&self, schema: &str, rate_limit: u64) -> Option<MintedIngestToken> {
-        self.mint_for_audience(schema, rate_limit, INGEST_TOKEN_AUDIENCE, "", "mm_ist_")
-            .await
+        self.mint_for_audience(
+            schema,
+            rate_limit,
+            INGEST_TOKEN_AUDIENCE,
+            "",
+            "mm_ist_",
+            None,
+        )
+        .await
     }
 
     /// Mint a short-lived event-stream query token for browser EventSource.
-    pub async fn mint_event_stream(&self, schema: &str, scope: &str) -> Option<MintedIngestToken> {
-        self.mint_for_audience(schema, 0, EVENT_SSE_TOKEN_AUDIENCE, scope, "mm_est_")
-            .await
+    pub async fn mint_event_stream(
+        &self,
+        schema: &str,
+        identity: EventStreamIdentity,
+    ) -> Option<MintedIngestToken> {
+        let scope = identity.principal.scope_str().to_string();
+        self.mint_for_audience(
+            schema,
+            0,
+            EVENT_SSE_TOKEN_AUDIENCE,
+            &scope,
+            "mm_est_",
+            Some(identity),
+        )
+        .await
     }
 
     async fn mint_for_audience(
@@ -217,23 +277,38 @@ impl IngestTokenStore {
         audience: &str,
         scope: &str,
         token_prefix: &str,
+        event_identity: Option<EventStreamIdentity>,
     ) -> Option<MintedIngestToken> {
         let mut guard = self.inner.connection.write().await;
         let conn = guard.as_mut()?;
 
         let token = format!("{}{}", token_prefix, Uuid::new_v4().simple());
         let token_id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now();
+        let expires_at = now + chrono::Duration::seconds(self.inner.ttl_seconds.try_into().ok()?);
+        let expires_at = event_identity
+            .as_ref()
+            .and_then(|identity| identity.expires_at)
+            .map_or(expires_at, |parent| parent.min(expires_at));
+        let ttl_millis: u64 = (expires_at - now)
+            .num_milliseconds()
+            .try_into()
+            .ok()
+            .filter(|ttl: &u64| *ttl > 0)?;
+        let ttl_seconds = ttl_millis.div_ceil(1000);
         let data = IngestTokenData {
             token_id: token_id.clone(),
             schema: schema.to_string(),
             rate_limit,
             audience: audience.to_string(),
             scope: scope.to_string(),
+            expires_at: Some(expires_at),
+            event_identity,
         };
         let json = serde_json::to_string(&data).ok()?;
 
         if let Err(e) = conn
-            .set_ex::<_, _, ()>(&self.key(&token), &json, self.inner.ttl_seconds)
+            .pset_ex::<_, _, ()>(&self.key(&token), &json, ttl_millis)
             .await
         {
             let diagnostic = e.to_string();
@@ -247,11 +322,7 @@ impl IngestTokenStore {
         }
         let token_fingerprint = ingest_token_fingerprint(&token);
         if let Err(e) = conn
-            .set_ex::<_, _, ()>(
-                &self.id_key(&token_id),
-                &token_fingerprint,
-                self.inner.ttl_seconds,
-            )
+            .pset_ex::<_, _, ()>(&self.id_key(&token_id), &token_fingerprint, ttl_millis)
             .await
         {
             let diagnostic = e.to_string();
@@ -270,7 +341,7 @@ impl IngestTokenStore {
             token,
             token_id,
             rate_limit,
-            ttl_seconds: self.inner.ttl_seconds,
+            ttl_seconds,
         })
     }
 
@@ -302,7 +373,12 @@ impl IngestTokenStore {
 
     pub async fn validate_event_stream(&self, token: &str) -> Option<IngestTokenData> {
         let data = self.validate(token).await?;
-        (data.audience == EVENT_SSE_TOKEN_AUDIENCE).then_some(data)
+        (data.audience == EVENT_SSE_TOKEN_AUDIENCE
+            && data
+                .expires_at
+                .is_some_and(|expiry| expiry > chrono::Utc::now())
+            && data.event_identity.is_some())
+        .then_some(data)
     }
 
     /// Revoke a token by its non-secret `token_id`, deleting both the primary and
@@ -427,6 +503,8 @@ mod tests {
             rate_limit: 250,
             audience: INGEST_TOKEN_AUDIENCE.to_string(),
             scope: String::new(),
+            expires_at: None,
+            event_identity: None,
         };
         let json = serde_json::to_string(&data).unwrap();
         let back: IngestTokenData = serde_json::from_str(&json).unwrap();
@@ -450,6 +528,8 @@ mod tests {
             rate_limit: 250,
             audience: EVENT_SSE_TOKEN_AUDIENCE.to_string(),
             scope: "admin private.scope.sk-live-secret".to_string(),
+            expires_at: None,
+            event_identity: None,
         };
 
         let rendered = format!("{data:?}");

@@ -54,6 +54,8 @@ impl FixtureCase {
                 .with_ymd_and_hms(2026, 8, 17, 12, u32::try_from(index % 60).unwrap(), 0)
                 .unwrap(),
             memory: Some("fixture-memory-alpha".to_string()),
+            archive_name: None,
+            archive_schema: None,
             tenant_id: Some("tenant-fixture-001".to_string()),
             actor: EventActor::user(
                 "fixture-user-001",
