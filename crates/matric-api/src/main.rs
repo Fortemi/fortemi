@@ -31,10 +31,10 @@ mod scoped_search_tests;
 mod search_contract;
 mod shard_embedding_contract;
 mod shard_signature;
-mod system_compatibility;
 mod sse;
 #[cfg(test)]
 mod sse_tests;
+mod system_compatibility;
 mod trusted_proxy;
 mod worker_events;
 
