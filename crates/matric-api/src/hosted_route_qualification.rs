@@ -157,7 +157,7 @@ impl Enforcement {
 }
 
 /// Public-safe hosted profile summary reported by system compatibility.
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, utoipa::ToSchema)]
 pub struct HostedProfileSummary {
     pub name: &'static str,
     pub qualified_route_classes: Vec<&'static str>,

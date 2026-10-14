@@ -1,5 +1,23 @@
 # Remote Adapter Capture
 
+## System Compatibility Auth Objects (#1203)
+
+`system-compatibility-auth.json` publishes the exact `auth` object for each
+supported mode at compatibility schema 1, revision `2026-07-06`. External OIDC
+is an additive, revision-compatible extension with optional auth fields;
+consumers that do not support `external_oidc` must keep failing closed for it.
+These are synthetic examples checked against the Rust response builder, not
+runtime captures. External OIDC uses the claim contract `3.0.0` and verifier profile
+`rust-node-jwt-v1` published by the pinned `fortemi-auth` `v2026.10.2`
+dependency. Its issuer and full sorted resource list are public discovery
+metadata; claim-policy content and client identifiers are absent.
+
+The external OIDC example disables local OAuth issuance. Operators who opt in
+to the local authorization server receive the same mode and verifier fields
+with `local_oauth_disabled: false`. The hosted authority tuple is unchanged.
+See [authentication discovery](../../../docs/content/authentication.md#compatibility-discovery)
+for field semantics and the HotM UI/agent-proxy admission changes.
+
 ## Native Search And Mutation Capture (#1146 / React #419/#420)
 
 `native-remote-operations.json` records23 checks/86 real private-loopback HTTP

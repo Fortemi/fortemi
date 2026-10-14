@@ -6957,6 +6957,10 @@ paths:
       responses:
         '200':
           description: Public-safe API compatibility and coarse capability metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompatibilityResponse'
         '429':
           content:
             application/problem+json:
@@ -8391,6 +8395,61 @@ components:
           - 'null'
           format: float
           description: Re-embed if content changed more than this percentage (0.0-1.0)
+    BackofficeCompatibility:
+      type: object
+      required:
+      - contract_revision
+      - production_enabled
+      - preview_responses_enabled
+      - preview_gate
+      - surfaces
+      properties:
+        contract_revision:
+          type: string
+        preview_gate:
+          type: string
+        preview_responses_enabled:
+          type: boolean
+        production_enabled:
+          type: boolean
+        surfaces:
+          type: array
+          items:
+            $ref: '#/components/schemas/BackofficeSurface'
+    BackofficeSurface:
+      type: object
+      required:
+      - key
+      - state
+      - reason_code
+      - endpoint
+      - required_scopes
+      - actions
+      - audit_events
+      - response_contract
+      properties:
+        actions:
+          type: array
+          items:
+            type: string
+        audit_events:
+          type: array
+          items:
+            type: string
+        endpoint:
+          type: string
+        key:
+          type: string
+        reason_code:
+          type: string
+        required_scopes:
+          type: array
+          items:
+            type: string
+        response_contract:
+          type: string
+        state:
+          type: string
     BackupImportBody:
       type: object
       required:
@@ -8925,6 +8984,167 @@ components:
           - 'null'
           format: float
           description: 'Minimum cosine similarity for edge inclusion (default: 0.3).'
+    CompatibilityApi:
+      type: object
+      required:
+      - name
+      - version
+      - minimum_hotm_enterprise_client
+      - git_sha_present
+      - build_date_present
+      properties:
+        build_date_present:
+          type: boolean
+        git_sha_present:
+          type: boolean
+        minimum_hotm_enterprise_client:
+          type: string
+        name:
+          type: string
+        version:
+          type: string
+    CompatibilityAuth:
+      type: object
+      required:
+      - required
+      - mode
+      - oauth_issuer_configured
+      - tenant_context_available
+      properties:
+        audiences:
+          type:
+          - array
+          - 'null'
+          items:
+            type: string
+          description: Complete, sorted set of accepted resource identifiers, as loaded at startup.
+        authority_commit:
+          type:
+          - string
+          - 'null'
+        authority_release:
+          type:
+          - string
+          - 'null'
+        claim_contract_profile:
+          type:
+          - string
+          - 'null'
+        claim_contract_version:
+          type:
+          - string
+          - 'null'
+        issuer:
+          type:
+          - string
+          - 'null'
+          description: Exact issuer trusted by the external OIDC verifier.
+        local_oauth_disabled:
+          type:
+          - boolean
+          - 'null'
+          description: |-
+            Whether local OAuth authorization, registration and token issuance are disabled.
+            Revocation and introspection of existing local tokens remain registered.
+        manifest_sha256:
+          type:
+          - string
+          - 'null'
+        mode:
+          $ref: '#/components/schemas/CompatibilityAuthMode'
+        oauth_issuer_configured:
+          type: boolean
+        release_policy_sha256:
+          type:
+          - string
+          - 'null'
+        required:
+          type: boolean
+        tenant_context_available:
+          type: boolean
+        verifier_claim_contract_profile:
+          type:
+          - string
+          - 'null'
+          description: Verifier profile, independent of the hosted authority tuple.
+        verifier_claim_contract_version:
+          type:
+          - string
+          - 'null'
+          description: Claim contract of the pinned fortemi-auth verifier in external OIDC mode.
+    CompatibilityAuthMode:
+      type: string
+      description: Consumers must fail closed for authentication modes they do not support.
+      enum:
+      - anonymous_local
+      - oauth
+      - hosted_oauth
+      - external_oidc
+    CompatibilityDeployment:
+      type: object
+      required:
+      - mode
+      - edition
+      - hosted_multi_tenant_ready
+      properties:
+        edition:
+          type: string
+        hosted_multi_tenant_ready:
+          type: boolean
+        hosted_profile:
+          oneOf:
+          - type: 'null'
+          - $ref: '#/components/schemas/HostedProfileSummary'
+            description: Route-inventory-derived profile a dedicated hosted deployment can rely on.
+        mode:
+          type: string
+    CompatibilityLinks:
+      type: object
+      required:
+      - openapi
+      - asyncapi
+      - health
+      - streaming_health
+      properties:
+        asyncapi:
+          type: string
+        health:
+          type: string
+        openapi:
+          type: string
+        streaming_health:
+          type: string
+    CompatibilityResponse:
+      type: object
+      required:
+      - schema_version
+      - contract_revision
+      - api
+      - deployment
+      - auth
+      - capabilities
+      - backoffice
+      - links
+      properties:
+        api:
+          $ref: '#/components/schemas/CompatibilityApi'
+        auth:
+          $ref: '#/components/schemas/CompatibilityAuth'
+        backoffice:
+          $ref: '#/components/schemas/BackofficeCompatibility'
+        capabilities: {}
+        contract_revision:
+          type: string
+          description: Remains 2026-07-06 in every auth mode; external OIDC is an additive extension.
+          example: 2026-07-06
+        deployment:
+          $ref: '#/components/schemas/CompatibilityDeployment'
+        links:
+          $ref: '#/components/schemas/CompatibilityLinks'
+        schema_version:
+          type: integer
+          format: int32
+          minimum: 0
     CompleteRequest:
       type: object
       description: |-
@@ -11557,6 +11777,19 @@ components:
       type: string
       description: Monotonic xid8 high-water mark encoded as a decimal string.
       pattern: ^[0-9]{1,20}$
+    HostedProfileSummary:
+      type: object
+      description: Public-safe hosted profile summary reported by system compatibility.
+      required:
+      - name
+      - qualified_route_classes
+      properties:
+        name:
+          type: string
+        qualified_route_classes:
+          type: array
+          items:
+            type: string
     ImportEmbeddingRunRequest:
       type: object
       required:

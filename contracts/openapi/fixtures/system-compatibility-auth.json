@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "contract_revision": "2026-07-06",
+  "modes": {
+    "anonymous_local": {
+      "required": false,
+      "mode": "anonymous_local",
+      "oauth_issuer_configured": false,
+      "tenant_context_available": false
+    },
+    "oauth": {
+      "required": true,
+      "mode": "oauth",
+      "oauth_issuer_configured": true,
+      "tenant_context_available": false
+    },
+    "external_oidc": {
+      "required": true,
+      "mode": "external_oidc",
+      "oauth_issuer_configured": true,
+      "tenant_context_available": false,
+      "verifier_claim_contract_version": "3.0.0",
+      "verifier_claim_contract_profile": "rust-node-jwt-v1",
+      "issuer": "https://idp.example.com/realms/example",
+      "audiences": [
+        "https://fortemi.example.com",
+        "https://fortemi.example.com/mcp"
+      ],
+      "local_oauth_disabled": true
+    },
+    "hosted_oauth": {
+      "required": true,
+      "mode": "hosted_oauth",
+      "oauth_issuer_configured": true,
+      "tenant_context_available": true,
+      "claim_contract_version": "1.1.0",
+      "claim_contract_profile": "rust-node-jwt-v1",
+      "authority_release": "v2026.9.0",
+      "authority_commit": "cff36d293d73080c186e2f35115dd92a594982d2",
+      "manifest_sha256": "2df0a35edad67cc3e8869286183a4d098b1eb8fc2161432ed0b54ba69b17e242",
+      "release_policy_sha256": "bd77fbeba24991f969d07e5f45c5259504e52bb5ab9d7c4137abb22270c4abe8"
+    }
+  }
+}

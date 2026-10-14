@@ -257,6 +257,69 @@ FORTEMI_AUTH_DEFAULT_TENANT=8e7a9ab6-08e0-4b3a-8dc2-e2be91a8f7ef
 | `FORTEMI_AUTH_ALLOW_LEGACY_TOKENS` | no | Defaults to `false`; permits existing `mm_at_` and `mm_key_` tokens only during migration. |
 | `FORTEMI_AUTH_LEGACY_SCOPE_CEILING` | no | Defaults to `read mcp`; caps legacy-token effective scopes when legacy tokens are enabled. |
 
+#### Compatibility discovery
+
+The public `GET /api/v1/system/compatibility` response uses `schema_version: 1`
+and `contract_revision: "2026-07-06"` in all four auth modes. The optional auth
+fields and `external_oidc` mode are an additive, revision-compatible extension.
+In external OIDC mode, its exact `auth` object has this shape (example issuer and
+resources):
+
+```json
+{
+  "required": true,
+  "mode": "external_oidc",
+  "oauth_issuer_configured": true,
+  "tenant_context_available": false,
+  "verifier_claim_contract_version": "3.0.0",
+  "verifier_claim_contract_profile": "rust-node-jwt-v1",
+  "issuer": "https://idp.example.com/realms/example",
+  "audiences": [
+    "https://fortemi.example.com",
+    "https://fortemi.example.com/mcp"
+  ],
+  "local_oauth_disabled": true
+}
+```
+
+`issuer` is the exact issuer trusted by the initialized verifier. `audiences`
+contains every accepted resource identifier from `FORTEMI_AUTH_AUDIENCES`,
+sorted and deduplicated after startup normalization (trailing slashes removed).
+The verifier version and profile come from the conformance manifest and release
+policy of the pinned `fortemi-auth` `v2026.10.2` dependency, commit
+`9da20296ec7d63dfb7ee3ac38a47a658596d9652`. That release does not export Rust
+constants for this metadata; Fortemi mirrors the published values and tests the
+dependency pin so an upgrade requires reviewing the compatibility metadata.
+
+`local_oauth_disabled` reflects the effective local authorization-server switch:
+it is normally `true`, disabling `/oauth/authorize`, `/oauth/register`, and
+`/oauth/token`. It becomes `false` when the operator enables
+`FORTEMI_OAUTH_ALLOW_LOCAL_AS=true` with the required owner authentication. Existing
+local-token introspection and revocation endpoints remain registered. External
+IdP operation continues to hide Fortemi's authorization-server discovery document
+even when local issuance is explicitly enabled.
+
+The hosted multi-tenant `hosted_oauth` authority tuple remains unchanged, and
+external OIDC responses omit it. Anonymous local (`anonymous_local`) and
+Fortemi's own authenticated OAuth (`oauth`) auth objects retain their fields.
+Deployment mode now comes from the multi-tenant setting, independently of KMS
+provider presence. The response publishes no claim policy, client identifiers,
+default tenant identifier, or credentials, and uses `Cache-Control: no-store`.
+The four exact auth objects are published in
+`contracts/openapi/fixtures/system-compatibility-auth.json`; OpenAPI declares
+the complete compatibility response schema.
+
+Consumers that do not support `external_oidc`, including the current HotM UI
+and agent proxy, must keep failing closed for it. Their existing acceptance of
+revision `2026-07-06` remains valid for supported modes. Adding external OIDC
+support requires both HotM consumers to branch auth admission on `mode`.
+For `external_oidc`, validate an accepted verifier contract version/profile
+(`3.0.0` / `rust-node-jwt-v1`), a nonempty issuer and
+resource list, and a boolean `local_oauth_disabled`; retain these fields through
+normalization. Apply hosted authority-release checks only to `hosted_oauth`.
+Local `oauth` has no hosted tuple and needs its own acceptance policy. Unknown
+modes or verifier contracts must still fail compatibility admission.
+
 #### Personal access tokens
 
 Signed-in OIDC users can mint user-bound personal access tokens for tools that

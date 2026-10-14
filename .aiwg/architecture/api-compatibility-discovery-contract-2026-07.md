@@ -12,7 +12,15 @@ Existing `/health` responses expose useful operational status, but they are not 
 GET /api/v1/system/compatibility
 ```
 
-Implementation status at checkpoint: the Fortemi endpoint is implemented in `crates/matric-api/src/main.rs`. The additive 2026-08-24 update to compatibility revision `2026-07-06` identifies the pinned hosted auth claim authority and whether the mandatory runtime KMS provider initialized. It still reports conservative `preview`/`unavailable` states until tenant route coverage, KMS rotation, quota, MCP gate, and enterprise distribution gates close.
+The Fortemi endpoint is implemented in `crates/matric-api/src/main.rs`, with
+its response builder in `system_compatibility.rs`. Contract revision `2026-07-06`
+remains unchanged in all four auth modes. External OIDC resource-server operation
+is an additive, revision-compatible extension: a new `external_oidc` mode and
+optional verifier contract and public discovery metadata fields. Consumers that
+do not support `external_oidc` must keep failing closed for it. The hosted
+authority tuple from the 2026-08-24 update remains unchanged. Capability states
+remain conservative until tenant route coverage, KMS rotation, quota, MCP gate,
+and enterprise distribution gates close.
 
 | Property | Contract |
 |---|---|
@@ -162,7 +170,8 @@ Implementation status at checkpoint: the Fortemi endpoint is implemented in `cra
 |---|---|
 | `anonymous_local` | Local or dev mode allows anonymous API use. |
 | `api_key` | API-key auth is active. |
-| `oauth` | OAuth/JWT auth is active. |
+| `oauth` | Fortemi's own single-tenant OAuth auth is active. |
+| `external_oidc` | Single-tenant external OIDC resource-server verifier is active. |
 | `hosted_oauth` | Hosted OAuth with tenant context is active. |
 | `unknown` | Auth mode cannot be classified. |
 
@@ -175,6 +184,18 @@ pins contract `1.1.0`, profile `rust-node-jwt-v1`, signed authority release
 release-policy SHA-256
 `bd77fbeba24991f969d07e5f45c5259504e52bb5ab9d7c4137abb22270c4abe8`.
 Community and legacy single-tenant OAuth responses omit these fields.
+
+External OIDC responses instead include `verifier_claim_contract_version`
+(`3.0.0`), `verifier_claim_contract_profile` (`rust-node-jwt-v1`), the trusted
+`issuer`, the complete sorted `audiences` resource list, and the effective
+`local_oauth_disabled` boolean. The verifier metadata mirrors the pinned
+`fortemi-auth` `v2026.10.2` conformance manifest and release policy. The disable
+flag covers authorization, registration and issuance; local-token introspection
+and revocation remain registered. Claim policies and client identifiers are never
+included. Exact auth fixtures are published in
+`contracts/openapi/fixtures/system-compatibility-auth.json`; consumer admission
+must branch by mode as described in
+`docs/content/authentication.md#compatibility-discovery`.
 
 ### Capability `state`
 

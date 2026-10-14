@@ -7,6 +7,16 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+### Fixed
+
+- Report external OIDC resource-server authentication as `external_oidc` in
+  system compatibility discovery, with the trusted issuer, accepted resources,
+  pinned verifier claim contract, and effective local OAuth disablement (#1203).
+  Preserve the hosted auth tuple and compatibility revision `2026-07-06` in
+  all four modes; publish a typed OpenAPI response and exact auth fixtures.
+  This additive, revision-compatible extension keeps consumers that do not
+  support `external_oidc` failing closed for that mode.
+
 ## [2026.10.5] - 2026-10-12
 
 Makes the shipped Keycloak reference realm and claim policy work as shipped,
