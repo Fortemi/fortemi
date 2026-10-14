@@ -33,6 +33,7 @@ fn identity(scopes: &str, tenant: Option<Uuid>, human: bool) -> ValidatedBearerI
             expires_at: Utc::now() + chrono::Duration::minutes(5),
             scopes: scopes.split_whitespace().map(str::to_string).collect(),
             session_id: None,
+            token_attribution: None,
             principal_kind: if human {
                 fortemi_auth_core::PrincipalKind::Human
             } else {
