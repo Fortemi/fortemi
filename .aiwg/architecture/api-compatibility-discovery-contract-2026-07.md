@@ -186,10 +186,10 @@ release-policy SHA-256
 Community and legacy single-tenant OAuth responses omit these fields.
 
 External OIDC responses instead include `verifier_claim_contract_version`
-(`3.0.0`), `verifier_claim_contract_profile` (`rust-node-jwt-v1`), the trusted
+(`4.0.0`), `verifier_claim_contract_profile` (`rust-node-jwt-v1`), the trusted
 `issuer`, the complete sorted `audiences` resource list, and the effective
 `local_oauth_disabled` boolean. The verifier metadata mirrors the pinned
-`fortemi-auth` `v2026.10.2` conformance manifest and release policy. The disable
+`fortemi-auth` `v2026.10.3` conformance manifest and release policy. The disable
 flag covers authorization, registration and issuance; local-token introspection
 and revocation remain registered. Claim policies and client identifiers are never
 included. Exact auth fixtures are published in

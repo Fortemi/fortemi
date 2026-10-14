@@ -12198,16 +12198,21 @@ components:
           type:
           - string
           - 'null'
+          description: Authorized party from the verified OIDC token; absent for PATs and legacy credentials.
         credential_class:
           type: string
         email:
           type:
           - string
           - 'null'
+          description: |-
+            Optional OIDC token email attribution; absent for PATs and legacy credentials.
+            Never used for authorization or account matching.
         email_unverified:
           type: boolean
         email_verified:
           type: boolean
+          description: 'True only when the verified token carries boolean `email_verified: true`.'
         iss:
           type: string
         kind:

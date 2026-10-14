@@ -7,8 +7,8 @@ supported mode at compatibility schema 1, revision `2026-07-06`. External OIDC
 is an additive, revision-compatible extension with optional auth fields;
 consumers that do not support `external_oidc` must keep failing closed for it.
 These are synthetic examples checked against the Rust response builder, not
-runtime captures. External OIDC uses the claim contract `3.0.0` and verifier profile
-`rust-node-jwt-v1` published by the pinned `fortemi-auth` `v2026.10.2`
+runtime captures. External OIDC uses the claim contract `4.0.0` and verifier profile
+`rust-node-jwt-v1` published by the pinned `fortemi-auth` `v2026.10.3`
 dependency. Its issuer and full sorted resource list are public discovery
 metadata; claim-policy content and client identifiers are absent.
 

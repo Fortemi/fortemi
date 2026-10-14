@@ -271,7 +271,7 @@ resources):
   "mode": "external_oidc",
   "oauth_issuer_configured": true,
   "tenant_context_available": false,
-  "verifier_claim_contract_version": "3.0.0",
+  "verifier_claim_contract_version": "4.0.0",
   "verifier_claim_contract_profile": "rust-node-jwt-v1",
   "issuer": "https://idp.example.com/realms/example",
   "audiences": [
@@ -286,8 +286,8 @@ resources):
 contains every accepted resource identifier from `FORTEMI_AUTH_AUDIENCES`,
 sorted and deduplicated after startup normalization (trailing slashes removed).
 The verifier version and profile come from the conformance manifest and release
-policy of the pinned `fortemi-auth` `v2026.10.2` dependency, commit
-`9da20296ec7d63dfb7ee3ac38a47a658596d9652`. That release does not export Rust
+policy of the pinned `fortemi-auth` `v2026.10.3` dependency, commit
+`cc273293a6f0300259efa02b5572bbdce9f95f36`. That release does not export Rust
 constants for this metadata; Fortemi mirrors the published values and tests the
 dependency pin so an upgrade requires reviewing the compatibility metadata.
 
@@ -309,16 +309,33 @@ The four exact auth objects are published in
 `contracts/openapi/fixtures/system-compatibility-auth.json`; OpenAPI declares
 the complete compatibility response schema.
 
-Consumers that do not support `external_oidc`, including the current HotM UI
-and agent proxy, must keep failing closed for it. Their existing acceptance of
-revision `2026-07-06` remains valid for supported modes. Adding external OIDC
+Consumers that do not support `external_oidc` must keep failing closed for it.
+Their existing acceptance of revision `2026-07-06` remains valid for supported
+modes. Adding external OIDC
 support requires both HotM consumers to branch auth admission on `mode`.
 For `external_oidc`, validate an accepted verifier contract version/profile
-(`3.0.0` / `rust-node-jwt-v1`), a nonempty issuer and
+(`4.0.0` / `rust-node-jwt-v1`), a nonempty issuer and
 resource list, and a boolean `local_oauth_disabled`; retain these fields through
 normalization. Apply hosted authority-release checks only to `hosted_oauth`.
 Local `oauth` has no hosted tuple and needs its own acceptance policy. Unknown
 modes or verifier contracts must still fail compatibility admission.
+
+#### Current principal and token attribution
+
+`GET /api/v1/me` returns the verified OIDC token's `azp` (authorized party),
+optional `email`, and `email_verified`. Missing email returns JSON `null`
+without error. Missing or non-boolean verification is reported as `false`;
+explicit `false` remains `false`. Legacy API keys and personal access tokens
+have no token attribution: `azp` and `email` are `null`, and `email_verified`
+is `false`, even when the owning application user has stored OIDC attribution.
+
+Email is attribution only. Application users are matched by tenant, issuer,
+and subject, never email; email cannot grant scopes or affect authorization.
+The server persists verified attribution on the application user, while `/me`
+reflects the current OIDC token even if a previous token supplied an email.
+Authorization decision audits report `azp_present` without including email
+or raw client values. The verifier is pinned to signed `fortemi-auth`
+`v2026.10.3`, claim contract `4.0.0`.
 
 #### Personal access tokens
 

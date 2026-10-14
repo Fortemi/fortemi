@@ -423,8 +423,8 @@ dependencies = [
 
 [[package]]
 name = "fortemi-auth-axum"
-version = "2026.10.2"
-source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.2#9da20296ec7d63dfb7ee3ac38a47a658596d9652"
+version = "2026.10.3"
+source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.3#cc273293a6f0300259efa02b5572bbdce9f95f36"
 dependencies = [
  "axum",
  "fortemi-auth-core",
@@ -435,8 +435,8 @@ dependencies = [
 
 [[package]]
 name = "fortemi-auth-clerk"
-version = "2026.10.2"
-source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.2#9da20296ec7d63dfb7ee3ac38a47a658596d9652"
+version = "2026.10.3"
+source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.3#cc273293a6f0300259efa02b5572bbdce9f95f36"
 dependencies = [
  "async-trait",
  "base64",
@@ -474,8 +474,8 @@ dependencies = [
 
 [[package]]
 name = "fortemi-auth-core"
-version = "2026.10.2"
-source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.2#9da20296ec7d63dfb7ee3ac38a47a658596d9652"
+version = "2026.10.3"
+source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.3#cc273293a6f0300259efa02b5572bbdce9f95f36"
 dependencies = [
  "chrono",
  "serde",
@@ -485,8 +485,8 @@ dependencies = [
 
 [[package]]
 name = "fortemi-auth-mock"
-version = "2026.10.2"
-source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.2#9da20296ec7d63dfb7ee3ac38a47a658596d9652"
+version = "2026.10.3"
+source = "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.3#cc273293a6f0300259efa02b5572bbdce9f95f36"
 dependencies = [
  "chrono",
  "fortemi-auth-core",

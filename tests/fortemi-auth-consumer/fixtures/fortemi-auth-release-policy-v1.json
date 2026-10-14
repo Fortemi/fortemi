@@ -1,13 +1,13 @@
 {
   "policy_id": "fortemi-auth-release-compatibility",
-  "policy_version": "1.1.0",
+  "policy_version": "1.2.0",
   "release_scheme": "calver-yyyy-m-patch",
   "current_release": {
-    "version": "2026.10.2",
-    "tag": "v2026.10.2",
-    "contract_version": "3.0.0",
+    "version": "2026.10.3",
+    "tag": "v2026.10.3",
+    "contract_version": "4.0.0",
     "profile": "rust-node-jwt-v1",
-    "manifest_sha256": "4efe18a5c6eff29a658254f368ed36ac10983746fa186f3cda4dae28c60efffa"
+    "manifest_sha256": "a5dca42982b66b436d649d1dfd476396897070228b7e791ac804fb27b0958ba0"
   },
   "compatibility_cases": [
     {
@@ -102,12 +102,25 @@
       }
     },
     {
-      "id": "current-exact",
+      "id": "previous-jwks-normalization-release",
       "candidate": {
         "version": "2026.10.2",
         "contract_version": "3.0.0",
         "profile": "rust-node-jwt-v1",
         "manifest_sha256": "4efe18a5c6eff29a658254f368ed36ac10983746fa186f3cda4dae28c60efffa"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "unsupported_release"
+      }
+    },
+    {
+      "id": "current-exact",
+      "candidate": {
+        "version": "2026.10.3",
+        "contract_version": "4.0.0",
+        "profile": "rust-node-jwt-v1",
+        "manifest_sha256": "a5dca42982b66b436d649d1dfd476396897070228b7e791ac804fb27b0958ba0"
       },
       "expected": {
         "outcome": "accepted"
@@ -116,10 +129,10 @@
     {
       "id": "current-contract-drift",
       "candidate": {
-        "version": "2026.10.2",
-        "contract_version": "2.0.0",
+        "version": "2026.10.3",
+        "contract_version": "3.0.0",
         "profile": "rust-node-jwt-v1",
-        "manifest_sha256": "4efe18a5c6eff29a658254f368ed36ac10983746fa186f3cda4dae28c60efffa"
+        "manifest_sha256": "a5dca42982b66b436d649d1dfd476396897070228b7e791ac804fb27b0958ba0"
       },
       "expected": {
         "outcome": "rejected",
@@ -129,10 +142,10 @@
     {
       "id": "current-profile-drift",
       "candidate": {
-        "version": "2026.10.2",
-        "contract_version": "3.0.0",
+        "version": "2026.10.3",
+        "contract_version": "4.0.0",
         "profile": "rust-node-jwt-v2",
-        "manifest_sha256": "4efe18a5c6eff29a658254f368ed36ac10983746fa186f3cda4dae28c60efffa"
+        "manifest_sha256": "a5dca42982b66b436d649d1dfd476396897070228b7e791ac804fb27b0958ba0"
       },
       "expected": {
         "outcome": "rejected",
@@ -142,8 +155,8 @@
     {
       "id": "current-manifest-drift",
       "candidate": {
-        "version": "2026.10.2",
-        "contract_version": "3.0.0",
+        "version": "2026.10.3",
+        "contract_version": "4.0.0",
         "profile": "rust-node-jwt-v1",
         "manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       },
@@ -156,9 +169,9 @@
       "id": "next-calendar-train",
       "candidate": {
         "version": "2026.11.0",
-        "contract_version": "3.0.0",
+        "contract_version": "4.0.0",
         "profile": "rust-node-jwt-v1",
-        "manifest_sha256": "4efe18a5c6eff29a658254f368ed36ac10983746fa186f3cda4dae28c60efffa"
+        "manifest_sha256": "a5dca42982b66b436d649d1dfd476396897070228b7e791ac804fb27b0958ba0"
       },
       "expected": {
         "outcome": "rejected",
@@ -169,14 +182,28 @@
       "id": "next-calendar-year",
       "candidate": {
         "version": "2027.1.0",
-        "contract_version": "3.0.0",
+        "contract_version": "4.0.0",
         "profile": "rust-node-jwt-v1",
-        "manifest_sha256": "4efe18a5c6eff29a658254f368ed36ac10983746fa186f3cda4dae28c60efffa"
+        "manifest_sha256": "a5dca42982b66b436d649d1dfd476396897070228b7e791ac804fb27b0958ba0"
       },
       "expected": {
         "outcome": "rejected",
         "error": "unsupported_release"
       }
+    },
+    {
+      "id": "current-v1-manifest-drift",
+      "candidate": {
+        "version": "2026.10.3",
+        "contract_version": "4.0.0",
+        "profile": "rust-node-jwt-v1",
+        "manifest_sha256": "4efe18a5c6eff29a658254f368ed36ac10983746fa186f3cda4dae28c60efffa"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "artifact_mismatch"
+      }
     }
-  ]
+  ],
+  "manifest_path": "conformance/v4/manifest.json"
 }

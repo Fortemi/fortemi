@@ -1,4 +1,4 @@
-//! Downstream smoke for the public `fortemi-auth` v3.0 contract.
+//! Downstream smoke for the public `fortemi-auth` v4.0 contract.
 //!
 //! Full hosted router and tenant-transaction integration remains owned by
 //! #728 after its RLS and hardened-role prerequisites are complete.
@@ -28,10 +28,10 @@ use uuid::Uuid;
 use xjp_oidc::{HttpClient, HttpClientError, JwtVerifier, MemoryCache};
 
 const TENANT_ID: Uuid = Uuid::from_u128(0x00000000000040008000000000000001);
-const AUTHORITY_COMMIT: &str = "9da20296ec7d63dfb7ee3ac38a47a658596d9652";
-const MANIFEST_SHA256: &str = "4efe18a5c6eff29a658254f368ed36ac10983746fa186f3cda4dae28c60efffa";
+const AUTHORITY_COMMIT: &str = "cc273293a6f0300259efa02b5572bbdce9f95f36";
+const MANIFEST_SHA256: &str = "a5dca42982b66b436d649d1dfd476396897070228b7e791ac804fb27b0958ba0";
 const RELEASE_POLICY_SHA256: &str =
-    "8850a1698ed34dd3893358fde6816362fefeccc5abfb52c48ab4bf791501f6a2";
+    "ad70bd6273b8512408e2d05f7b1236f4f232b6d9e132c01a51878799658c9a0d";
 
 struct FixtureClaims(AuthContext);
 
@@ -79,6 +79,7 @@ impl OAuthProvider for FixtureProvider {
             principal_kind: PrincipalKind::Human,
             scope_grants: Vec::new(),
             dropped_scope_count: 0,
+            token_attribution: None,
         }))
     }
 
@@ -253,6 +254,8 @@ struct ProviderPolicyCase {
     id: String,
     token_case: String,
     policy: Value,
+    #[serde(default)]
+    allow_multi_audience: bool,
     expected: PolicyExpected,
 }
 
@@ -263,6 +266,7 @@ struct PolicyExpected {
     scopes: Option<Vec<String>>,
     scope_grants: Option<Vec<String>>,
     principal_kind: Option<String>,
+    token_attribution: Option<Value>,
 }
 
 #[derive(Deserialize)]
@@ -273,6 +277,7 @@ struct CorpusExpected {
     principal_id: Option<String>,
     scopes: Option<Vec<String>>,
     key_id: Option<String>,
+    token_attribution: Value,
 }
 
 struct CorpusHttp {
@@ -346,12 +351,13 @@ fn assert_policy_accepted(
 
 fn corpus_provider(
     manifest: &CorpusManifest,
+    allow_multi_audience: bool,
 ) -> ClerkProvider<MemoryCache, CorpusHttp, MemoryTenantStore> {
     let config = ClerkConfig {
         issuer: manifest.config.issuer.clone(),
         audience: manifest.config.audience.clone(),
         accepted_audiences: Vec::new(),
-        allow_multi_audience: false,
+        allow_multi_audience,
         tenant_claim_name: manifest.config.tenant_claim_name.clone(),
         default_tenant_id: None,
         clock_skew_seconds: manifest.config.clock_skew_seconds,
@@ -378,13 +384,13 @@ fn corpus_provider(
 }
 
 #[tokio::test]
-async fn fortemi_executes_the_canonical_v3_corpus() {
-    let manifest_bytes = include_bytes!("../fixtures/fortemi-auth-v1.json");
+async fn fortemi_executes_the_canonical_v4_corpus() {
+    let manifest_bytes = include_bytes!("../fixtures/fortemi-auth-v4.json");
     assert_eq!(sha256(manifest_bytes), MANIFEST_SHA256);
     let manifest: CorpusManifest =
         serde_json::from_slice(manifest_bytes).expect("canonical auth manifest must parse");
     assert_eq!(manifest.contract_id, "fortemi-auth-conformance");
-    assert_eq!(manifest.contract_version, "3.0.0");
+    assert_eq!(manifest.contract_version, "4.0.0");
     assert_eq!(manifest.profile, "rust-node-jwt-v1");
     let config = ClerkConfig {
         issuer: manifest.config.issuer.clone(),
@@ -449,6 +455,15 @@ async fn fortemi_executes_the_canonical_v3_corpus() {
                 "{}",
                 case.id
             );
+            let attribution = context.token_attribution.as_ref().map(
+                |a| json!({"azp": a.azp, "email": a.email, "email_verified": a.email_verified}),
+            );
+            assert_eq!(
+                attribution.unwrap_or(Value::Null),
+                case.expected.token_attribution,
+                "{}",
+                case.id
+            );
             let Credential::Bearer(jwt) = context.credential else {
                 panic!("case {} did not return bearer context", case.id);
             };
@@ -492,7 +507,7 @@ impl TenantStore for FixtureTenantStore<'_> {
 
 #[tokio::test]
 async fn fortemi_executes_the_canonical_tenant_store_cases() {
-    let manifest_bytes = include_bytes!("../fixtures/fortemi-auth-v1.json");
+    let manifest_bytes = include_bytes!("../fixtures/fortemi-auth-v4.json");
     assert_eq!(sha256(manifest_bytes), MANIFEST_SHA256);
     let manifest: CorpusManifest =
         serde_json::from_slice(manifest_bytes).expect("canonical auth manifest must parse");
@@ -513,6 +528,7 @@ async fn fortemi_executes_the_canonical_tenant_store_cases() {
             principal_kind: PrincipalKind::Human,
             scope_grants: Vec::new(),
             dropped_scope_count: 0,
+            token_attribution: None,
         });
         let error =
             extract_tenant_id_strategy_a(&claims, &FixtureTenantStore(case.store_result.as_str()))
@@ -537,11 +553,11 @@ fn fortemi_enforces_the_calver_release_policy() {
 
     assert_eq!(policy.policy_id, "fortemi-auth-release-compatibility");
     assert_eq!(AUTHORITY_COMMIT.len(), 40);
-    assert_eq!(policy.policy_version, "1.1.0");
+    assert_eq!(policy.policy_version, "1.2.0");
     assert_eq!(policy.release_scheme, "calver-yyyy-m-patch");
-    assert_eq!(policy.current_release.version, "2026.10.2");
-    assert_eq!(policy.current_release.tag.as_deref(), Some("v2026.10.2"));
-    assert_eq!(policy.current_release.contract_version, "3.0.0");
+    assert_eq!(policy.current_release.version, "2026.10.3");
+    assert_eq!(policy.current_release.tag.as_deref(), Some("v2026.10.3"));
+    assert_eq!(policy.current_release.contract_version, "4.0.0");
     assert_eq!(policy.current_release.profile, "rust-node-jwt-v1");
     assert_eq!(policy.current_release.manifest_sha256, MANIFEST_SHA256);
     assert_calver(&policy.current_release.version);
@@ -565,7 +581,7 @@ fn fortemi_enforces_the_calver_release_policy() {
 fn fortemi_pins_the_signed_authority_release_commit() {
     let lock = include_str!("../Cargo.lock");
     let source = format!(
-        "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.2#{AUTHORITY_COMMIT}"
+        "git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.3#{AUTHORITY_COMMIT}"
     );
     assert!(
         lock.contains(&source),
@@ -574,12 +590,12 @@ fn fortemi_pins_the_signed_authority_release_commit() {
 }
 
 #[test]
-fn fortemi_executes_the_contract_v3_claim_policy_cases() {
-    let manifest_bytes = include_bytes!("../fixtures/fortemi-auth-v1.json");
+fn fortemi_executes_the_contract_v4_claim_policy_cases() {
+    let manifest_bytes = include_bytes!("../fixtures/fortemi-auth-v4.json");
     assert_eq!(sha256(manifest_bytes), MANIFEST_SHA256);
     let manifest: CorpusManifest =
         serde_json::from_slice(manifest_bytes).expect("canonical auth manifest must parse");
-    assert_eq!(manifest.contract_version, "3.0.0");
+    assert_eq!(manifest.contract_version, "4.0.0");
     assert!(manifest.claim_policy_cases.len() >= 10);
 
     for case in &manifest.claim_policy_cases {
@@ -616,11 +632,11 @@ fn fortemi_executes_the_contract_v3_claim_policy_cases() {
 
 #[tokio::test]
 async fn fortemi_applies_claim_policy_after_signed_token_verification() {
-    let manifest_bytes = include_bytes!("../fixtures/fortemi-auth-v1.json");
+    let manifest_bytes = include_bytes!("../fixtures/fortemi-auth-v4.json");
     assert_eq!(sha256(manifest_bytes), MANIFEST_SHA256);
     let manifest: CorpusManifest =
         serde_json::from_slice(manifest_bytes).expect("canonical auth manifest must parse");
-    assert_eq!(manifest.contract_version, "3.0.0");
+    assert_eq!(manifest.contract_version, "4.0.0");
     assert!(!manifest.provider_policy_cases.is_empty());
 
     for case in &manifest.provider_policy_cases {
@@ -630,7 +646,7 @@ async fn fortemi_applies_claim_policy_after_signed_token_verification() {
             .find(|token| token.id == case.token_case)
             .unwrap_or_else(|| panic!("{} names an unknown token case", case.id))
             .token;
-        let provider = corpus_provider(&manifest)
+        let provider = corpus_provider(&manifest, case.allow_multi_audience)
             .with_claim_policy(build_policy(&case.policy).expect("provider policy must be valid"));
         let result = provider.authenticate(token).await;
         if case.expected.outcome == "accepted" {
@@ -643,6 +659,14 @@ async fn fortemi_applies_claim_policy_after_signed_token_verification() {
                 &context.scopes,
                 &context.scope_grants,
                 context.principal_kind,
+            );
+            assert_eq!(
+                context.token_attribution.map(|a| {
+                    json!({"azp": a.azp, "email": a.email, "email_verified": a.email_verified})
+                }),
+                case.expected.token_attribution,
+                "{} attribution",
+                case.id
             );
         } else {
             assert_eq!(

@@ -25,11 +25,15 @@ pub struct MeResponse {
     pub iss: String,
     pub sub: String,
     pub kind: String,
+    /// Authorized party from the verified OIDC token; absent for PATs and legacy credentials.
     pub azp: Option<String>,
     pub credential_class: String,
     pub scopes: Vec<String>,
     pub pat_id: Option<Uuid>,
+    /// Optional OIDC token email attribution; absent for PATs and legacy credentials.
+    /// Never used for authorization or account matching.
     pub email: Option<String>,
+    /// True only when the verified token carries boolean `email_verified: true`.
     pub email_verified: bool,
     pub email_unverified: bool,
 }

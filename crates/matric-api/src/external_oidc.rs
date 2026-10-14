@@ -81,19 +81,20 @@ impl CredentialClass {
 
 impl RequestPrincipal {
     pub fn from_auth_context(issuer: &str, context: &AuthContext) -> Self {
+        let attribution = context.token_attribution.as_ref();
         Self {
             user_id: None,
             tenant_id: Some(context.tenant_id),
             iss: issuer.to_string(),
             sub: context.principal_id.clone(),
-            azp: None,
+            azp: attribution.and_then(|a| a.azp.clone()),
             scopes: context.scopes.clone(),
             credential_class: CredentialClass::Oidc,
             kind: context.principal_kind,
             pat_id: None,
             jti: jti_from_context(context),
-            email: None,
-            email_verified: false,
+            email: attribution.and_then(|a| a.email.clone()),
+            email_verified: attribution.and_then(|a| a.email_verified).unwrap_or(false),
         }
     }
 
@@ -140,14 +141,14 @@ impl RequestPrincipal {
             tenant_id: Some(tenant_id),
             iss: user.iss.clone(),
             sub: user.sub.clone(),
-            azp: user.azp.clone(),
+            azp: None,
             scopes,
             credential_class: CredentialClass::Pat,
             kind: PrincipalKind::Human,
             pat_id: Some(pat_id),
             jti: None,
-            email: user.email.clone(),
-            email_verified: user.email_verified,
+            email: None,
+            email_verified: false,
         }
     }
 
@@ -183,17 +184,18 @@ pub async fn resolve_user_principal(
         PrincipalKind::Human => "user",
         PrincipalKind::Service => "service",
     };
+    let attribution = context.token_attribution.as_ref();
     let input = AppUserUpsert {
         tenant_id: context.tenant_id,
         iss: issuer.to_string(),
         sub: context.principal_id.clone(),
-        email: None,
-        email_verified: false,
+        email: attribution.and_then(|a| a.email.clone()),
+        email_verified: attribution.and_then(|a| a.email_verified).unwrap_or(false),
         display_name: None,
         groups: Vec::new(),
         current_scopes: context.scopes.clone(),
         kind: kind.to_string(),
-        azp: None,
+        azp: attribution.and_then(|a| a.azp.clone()),
     };
     let user = repository
         .upsert_oidc(input, force_write)
@@ -205,8 +207,6 @@ pub async fn resolve_user_principal(
     let mut principal = RequestPrincipal::from_auth_context(issuer, context);
     principal.user_id = Some(user.id);
     principal.tenant_id = Some(user.tenant_id);
-    principal.email = user.email;
-    principal.email_verified = user.email_verified;
     Ok(principal)
 }
 
@@ -448,22 +448,27 @@ fn parse_i64_bounded(
 mod tests {
     use super::*;
     use chrono::Utc;
-    use fortemi_auth_core::JwtToken;
+    use fortemi_auth_core::{JwtToken, TokenAttribution};
     use matric_db::{create_pool, AppUserUpsert, Database};
 
     async fn app_user_repo() -> Option<(PgAppUserRepository, Uuid)> {
         let Ok(database_url) = std::env::var("DATABASE_URL") else {
             return None;
         };
-        let pool = create_pool(&database_url).await.ok()?;
+        let pool = create_pool(&database_url)
+            .await
+            .expect("test database pool");
         let schema_is_provisioned = sqlx::query_scalar::<_, bool>(
             "SELECT to_regclass('public.tenant_registry') IS NOT NULL",
         )
         .fetch_one(&pool)
         .await
-        .ok()?;
+        .expect("test tenant registry lookup");
         if !schema_is_provisioned {
-            Database::new(pool.clone()).migrate().await.ok()?;
+            Database::new(pool.clone())
+                .migrate()
+                .await
+                .expect("test database migrations");
         }
         let tenant_id = Uuid::new_v4();
         sqlx::query(
@@ -474,7 +479,7 @@ mod tests {
         .bind(format!("external-oidc-test-{tenant_id}"))
         .execute(&pool)
         .await
-        .ok()?;
+        .expect("test tenant creation");
         Some((PgAppUserRepository::new(pool), tenant_id))
     }
 
@@ -494,6 +499,7 @@ mod tests {
             principal_kind: kind,
             scope_grants: Vec::new(),
             dropped_scope_count: 0,
+            token_attribution: None,
         }
     }
 
@@ -638,5 +644,97 @@ mod tests {
         principal.user_id = Some(Uuid::new_v4());
 
         assert!(!principal_can_mint_pats(&principal));
+    }
+
+    #[tokio::test]
+    async fn token_attribution_is_persisted_without_matching_accounts_by_email() {
+        let Some((repo, tenant_id)) = app_user_repo().await else {
+            eprintln!("skipping external OIDC principal test: DATABASE_URL unavailable");
+            return;
+        };
+        let issuer = "https://issuer.example";
+        let mut ctx = context(tenant_id, "first-subject", &["read"], PrincipalKind::Human);
+        let mut attribution = TokenAttribution::default();
+        attribution.azp = Some("synthetic-web-client".to_string());
+        attribution.email = Some("synthetic@example.invalid".to_string());
+        attribution.email_verified = Some(true);
+        ctx.token_attribution = Some(attribution);
+
+        let first = resolve_user_principal(&repo, issuer, &ctx, true)
+            .await
+            .unwrap();
+        let stored = repo
+            .find_by_subject(tenant_id, issuer, &ctx.principal_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.azp, first.azp);
+        assert_eq!(stored.email.as_deref(), Some("synthetic@example.invalid"));
+        assert!(stored.email_verified);
+        assert_eq!(stored.current_scopes, vec!["read"]);
+
+        ctx.principal_id = "second-subject".to_string();
+        let second = resolve_user_principal(&repo, issuer, &ctx, false)
+            .await
+            .unwrap();
+        assert_ne!(first.user_id, second.user_id);
+        assert_eq!(first.email, second.email);
+
+        ctx.principal_id = "first-subject".to_string();
+        let attribution = ctx.token_attribution.as_mut().unwrap();
+        attribution.azp = Some("synthetic-second-client".to_string());
+        attribution.email = Some("changed@example.invalid".to_string());
+        attribution.email_verified = Some(false);
+        let changed = resolve_user_principal(&repo, issuer, &ctx, false)
+            .await
+            .unwrap();
+        assert_eq!(changed.user_id, first.user_id);
+        assert_eq!(changed.scopes, first.scopes);
+        let stored = repo
+            .find_by_subject(tenant_id, issuer, &ctx.principal_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.azp.as_deref(), Some("synthetic-second-client"));
+        assert_eq!(stored.email.as_deref(), Some("changed@example.invalid"));
+        assert!(!stored.email_verified);
+    }
+
+    #[tokio::test]
+    async fn principal_without_email_does_not_inherit_stored_email() {
+        let Some((repo, tenant_id)) = app_user_repo().await else {
+            eprintln!("skipping external OIDC principal test: DATABASE_URL unavailable");
+            return;
+        };
+        let issuer = "https://issuer.example";
+        let mut ctx = context(tenant_id, "same-subject", &["read"], PrincipalKind::Human);
+        let mut attribution = TokenAttribution::default();
+        attribution.azp = Some("synthetic-web-client".to_string());
+        attribution.email = Some("synthetic@example.invalid".to_string());
+        attribution.email_verified = Some(true);
+        ctx.token_attribution = Some(attribution);
+        let first = resolve_user_principal(&repo, issuer, &ctx, true)
+            .await
+            .unwrap();
+
+        let attribution = ctx.token_attribution.as_mut().unwrap();
+        attribution.email = None;
+        attribution.email_verified = None;
+        let without_email = resolve_user_principal(&repo, issuer, &ctx, false)
+            .await
+            .unwrap();
+        assert_eq!(without_email.user_id, first.user_id);
+        assert_eq!(without_email.azp, first.azp);
+        assert!(without_email.email.is_none());
+        assert!(!without_email.email_verified);
+
+        ctx.token_attribution = None;
+        let without_attribution = resolve_user_principal(&repo, issuer, &ctx, false)
+            .await
+            .unwrap();
+        assert_eq!(without_attribution.user_id, first.user_id);
+        assert!(without_attribution.azp.is_none());
+        assert!(without_attribution.email.is_none());
+        assert!(!without_attribution.email_verified);
     }
 }

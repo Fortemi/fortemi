@@ -71,6 +71,7 @@ impl HostedAuthenticator for FixtureIdentity {
             principal_kind: fortemi_auth_core::PrincipalKind::Human,
             scope_grants: Vec::new(),
             dropped_scope_count: 0,
+            token_attribution: None,
         })
     }
 }

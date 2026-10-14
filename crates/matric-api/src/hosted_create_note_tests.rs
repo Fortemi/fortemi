@@ -148,6 +148,7 @@ async fn inject_identity(
                 principal_kind: kind,
                 scope_grants: Vec::new(),
                 dropped_scope_count: 0,
+                token_attribution: None,
             }),
         });
     }

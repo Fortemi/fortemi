@@ -35,6 +35,8 @@ mod sse;
 #[cfg(test)]
 mod sse_tests;
 mod system_compatibility;
+#[cfg(all(test, feature = "hosted-auth"))]
+mod token_attribution_tests;
 mod trusted_proxy;
 mod worker_events;
 
@@ -75243,6 +75245,7 @@ not-json
             principal_kind: fortemi_auth_core::PrincipalKind::Service,
             scope_grants: vec!["kc-agents".to_string()],
             dropped_scope_count: 0,
+            token_attribution: None,
         };
         let input =
             route_policy::authorization_input_for_request(&Method::GET, "/api/v1/notes", None)

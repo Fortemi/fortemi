@@ -6,7 +6,7 @@ SR-17 (client-role claim path), SR-19 (admin-managed tenant attribute),
 SR-24 (service client without impersonation/token exchange), SR-41 (locked-down
 anonymous client registration), SR-42 (device grant + public-client ceiling),
 SR-45 (refresh rotation, no default offline_access, session lifetimes), plus
-the fortemi-auth claim-policy contract 3.0.0 schema.
+the fortemi-auth claim-policy contract 4.0.0 schema.
 
 Usage:
   python3 scripts/ci/verify-reference-realm.py [--root .]

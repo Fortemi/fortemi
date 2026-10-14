@@ -7,9 +7,9 @@ use serde::Serialize;
 use crate::{hosted_route_qualification, route_policy, AppState};
 
 const CONTRACT_REVISION: &str = "2026-07-06";
-// fortemi-auth v2026.10.2, conformance/v1/manifest.json and release-policy.json.
+// fortemi-auth v2026.10.3, conformance/v4/manifest.json and release-policy.json.
 // That release has no exported Rust constants for its claim contract metadata.
-const VERIFIER_CLAIM_CONTRACT_VERSION: &str = "3.0.0";
+const VERIFIER_CLAIM_CONTRACT_VERSION: &str = "4.0.0";
 const VERIFIER_CLAIM_CONTRACT_PROFILE: &str = "rust-node-jwt-v1";
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -513,7 +513,7 @@ mod tests {
                 "mode": "external_oidc",
                 "oauth_issuer_configured": true,
                 "tenant_context_available": false,
-                "verifier_claim_contract_version": "3.0.0",
+                "verifier_claim_contract_version": "4.0.0",
                 "verifier_claim_contract_profile": "rust-node-jwt-v1",
                 "issuer": "https://idp.example.com/realms/example",
                 "audiences": ["https://fortemi.example.com"],
@@ -527,12 +527,27 @@ mod tests {
         // Update the mirrored contract metadata when either verifier dependency changes.
         let manifest = include_str!("../../../Cargo.toml");
         let lockfile = include_str!("../../../Cargo.lock");
+        let policy: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tests/fortemi-auth-consumer/fixtures/fortemi-auth-release-policy-v1.json"
+        ))
+        .unwrap();
+        assert_eq!(VERIFIER_CLAIM_CONTRACT_VERSION, "4.0.0");
+        assert_eq!(
+            policy["current_release"]["contract_version"],
+            VERIFIER_CLAIM_CONTRACT_VERSION
+        );
+        assert_eq!(
+            policy["current_release"]["profile"],
+            VERIFIER_CLAIM_CONTRACT_PROFILE
+        );
+        assert_eq!(policy["current_release"]["tag"], "v2026.10.3");
+        assert_eq!(policy["manifest_path"], "conformance/v4/manifest.json");
         for dependency in ["fortemi-auth-core", "fortemi-auth-clerk"] {
             assert!(manifest.contains(&format!(
-                "{dependency} = {{ version = \"=2026.10.2\", git = \"https://git.integrolabs.net/Fortemi/fortemi-auth.git\", tag = \"v2026.10.2\" }}"
+                "{dependency} = {{ version = \"=2026.10.3\", git = \"https://git.integrolabs.net/Fortemi/fortemi-auth.git\", tag = \"v2026.10.3\" }}"
             )));
             assert!(lockfile.contains(&format!(
-                "name = \"{dependency}\"\nversion = \"2026.10.2\"\nsource = \"git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.2#9da20296ec7d63dfb7ee3ac38a47a658596d9652\""
+                "name = \"{dependency}\"\nversion = \"2026.10.3\"\nsource = \"git+https://git.integrolabs.net/Fortemi/fortemi-auth.git?tag=v2026.10.3#cc273293a6f0300259efa02b5572bbdce9f95f36\""
             )));
         }
     }

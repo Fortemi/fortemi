@@ -9,6 +9,12 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Fixed
 
+- Return verified external OIDC `azp`, optional `email`, and `email_verified`
+  from `/api/v1/me`, persist token attribution for application users, and report
+  authorized-party presence in decision audits (#1206). Email remains attribution
+  only. PATs omit stored OIDC attribution from `/me` and decision audits.
+  Consume signed `fortemi-auth` v2026.10.3 and report its claim contract 4.0.0.
+
 - Report external OIDC resource-server authentication as `external_oidc` in
   system compatibility discovery, with the trusted issuer, accepted resources,
   pinned verifier claim contract, and effective local OAuth disablement (#1203).

@@ -19,7 +19,7 @@
       "mode": "external_oidc",
       "oauth_issuer_configured": true,
       "tenant_context_available": false,
-      "verifier_claim_contract_version": "3.0.0",
+      "verifier_claim_contract_version": "4.0.0",
       "verifier_claim_contract_profile": "rust-node-jwt-v1",
       "issuer": "https://idp.example.com/realms/example",
       "audiences": [

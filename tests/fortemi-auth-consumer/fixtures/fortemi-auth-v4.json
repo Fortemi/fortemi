@@ -1,0 +1,2019 @@
+{
+  "contract_id": "fortemi-auth-conformance",
+  "contract_version": "4.0.0",
+  "profile": "rust-node-jwt-v1",
+  "generated_at": "2026-10-14T00:00:00Z",
+  "test_only": true,
+  "config": {
+    "issuer": "https://issuer.fixture.invalid",
+    "audience": "fortemi-fixture",
+    "tenant_claim_name": "fortemi:tenant_id",
+    "clock_skew_seconds": 60,
+    "required_scope_default": "read",
+    "verification_time_seconds": 1700000000
+  },
+  "jwks": {
+    "keys": [
+      {
+        "kty": "RSA",
+        "n": "kqXD5TXfm4iEyGn721WsaWQ5YXrDein8AKF8Ir5Lm29Zx4dTUpezBBro384LEe-aPAD8YEhSHPCv-e-h8ZdPGjGz1T6pPf2h62oAEa4b9QLLkuLRuToRl5TTZO5Z_7dKN9WJibI5QlaQI5MipAkvKpCEnFUySCi0aS9-d2gTfJm-l1yo3puOFnHkb3nq04ZYphOmq9hcdIdsmYzC3wPbptyXoTK_1OMnfsyaz3cJ-mG-QxC38ncx2Qa6TLQPg035EhXy9Y8uaAmkeu8S-p5WuOZSn7NU3AKBqlD_I2G8VfapR6dpOcnUULZx9UaiBAvoMw4xA31TU68JKMN2cMDG5w",
+        "e": "AQAB",
+        "kid": "fixture-key-1",
+        "use": "sig",
+        "alg": "RS256"
+      },
+      {
+        "kty": "RSA",
+        "n": "uGi8U4SGev1jsChfZXHttpeFpqIqaEdu4FLrLx613z6sHATJ1k9vUhkDv644-qdfhxvS2DpbM8ReGhmbPQlEr9CtCP7okCoC1yPjKzCZwvT66xyVLufRwg8eB5i5OMZ5gW85AbZjrHjIIM4bkz_sE5X61yshqVT8J0dpJ2ErgEZiVR8fpb_2pk2owP_vLDgBSk5DwluWGA98-dMAzjjQHeA5MkzdjLSbqqEl2Z2kDjs38VhWIxEjt0ZJk8ZkvOEPSZIkPMo6iXLQucPYVbdmn0_Xwws_m8ahtpZfx3OUA4jj3VcYUCYidG49732IFfMZSIYWz3TAQenk-JaCKs64CQ",
+        "e": "AQAB",
+        "kid": "fixture-key-2",
+        "use": "sig",
+        "alg": "RS256"
+      },
+      {
+        "kty": "RSA",
+        "n": "myket26EZrtceLQas-QwEUheCcoC5_E539LkpCbnhqQC4ukv1Rb1f1tLPW3khgwyMer7QfnmJXO-8DAxor1vnBwFNfCIq-4-jCH1cW8MGsF5EYeY8Yal1m-cq8OFCa2qbd52MbcA9hCMj0z6NEFUZ0zdKVBv9dVidQDXoZsK_JdoNm0TQ8CXbrLVfG1LvHJyJM3KHMwRmptg-fnuwgyp9ebIoXcFzbZIUTAXtc1Pxx0y3yKvQEAbbj2UR2EnooptSpapZ6e4bM109b-HhqlM-KM_MMdBAid1UmsDsLjzTy6J9OA4Qx_RgfUfY1wQc0u5gflCX2Sr6gJ76UuwQkJIbQ",
+        "e": "AQAB",
+        "kid": "fixture-attribution-key",
+        "use": "sig",
+        "alg": "RS256"
+      }
+    ]
+  },
+  "tenant_store_cases": [
+    {
+      "id": "tenant-store-unavailable",
+      "store_result": "unavailable",
+      "expected": {
+        "error": "tenant_store_unavailable",
+        "http_status": 503
+      }
+    },
+    {
+      "id": "tenant-store-timeout",
+      "store_result": "timeout",
+      "expected": {
+        "error": "tenant_store_unavailable",
+        "http_status": 503
+      }
+    },
+    {
+      "id": "tenant-store-malformed-response",
+      "store_result": "malformed_response",
+      "expected": {
+        "error": "tenant_store_unavailable",
+        "http_status": 503
+      }
+    },
+    {
+      "id": "tenant-inactive",
+      "store_result": "inactive",
+      "expected": {
+        "error": "unknown_tenant",
+        "http_status": 403
+      }
+    },
+    {
+      "id": "tenant-not-found",
+      "store_result": "not_found",
+      "expected": {
+        "error": "unknown_tenant",
+        "http_status": 403
+      }
+    }
+  ],
+  "cases": [
+    {
+      "id": "valid",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjE3MDAwMDM2MDAsImp0aSI6ImZpeHR1cmUtanRpLTAwMSIsInNpZCI6ImZpeHR1cmUtc2Vzc2lvbi0wMDEiLCJmb3J0ZW1pOnRlbmFudF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInNjb3BlIjoicmVhZCB3cml0ZSJ9.aMfF7oCbH3-MDo4h594P534eFczCuEVkizr8e0NpwA7CYJCVnXEgpFafq7BmvsMlU6jAe2mEC7H8rjhHOgKm-jcTyIyb0zgoJhJLKZAJfCUkRSK63XHa6l_l2HJnTKP7MIFOiaMyOsVZysXThJNtqxALlCMoeeZ8gjxw5Ann8GMTCgHi4ozfbrvg5F__296QJTK5ma5kxgiiEB7aNSdMPu2AxKBwYZBoQxgzmFIpOIid052I7v1004oB9FPpHLNt8Cb-E7e1ryz84MBlYo_XLGlJihLQOygS_qpu-BUgDODSME52Qe9H6fET-2PhZFOeWg4lN55d-gf-PyW0HdjyXA",
+      "required_scope": "read",
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-key-1",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "expired",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTkyODAwLCJleHAiOjE2OTk5OTYzOTksImp0aSI6ImZpeHR1cmUtanRpLTAwMSIsInNpZCI6ImZpeHR1cmUtc2Vzc2lvbi0wMDEiLCJmb3J0ZW1pOnRlbmFudF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInNjb3BlIjoicmVhZCJ9.XpWXAzGDDCow7JAEcgykbBIFYHfWfCuaXHRQohQklI9jbj8KjsmxGQZ61mxCs8EVJYULUeOYVayFHo3fvP1ksTY7t2l9KcsIH1EDndmnd4yDuTUunhmYAqi3nDISD-xunCAszfHJW1QQ0wHyG3ynbX7L43NTezNlPgIc4-scvFZIuh90MlsfqBeAUHkRvrtoFtON7t6y4YrngqZRAN07ZxvwvFmpHwbYArj9KWDvaXcpkKsN-Uo4aeAQYGAjIIOAVRz-9bw15-l1phZEf_3QQ5V8UqeDE2kTQJHCSL8_nVZkV9qsZMChfiZ7O5bgcPZNX3OxPyUiNdG-oVrrltqGWA",
+      "expected": {
+        "outcome": "rejected",
+        "error": "expired_token",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "future",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNzAwMDAwMTIwLCJleHAiOjE3MDAwMDM2MDAsImp0aSI6ImZpeHR1cmUtanRpLTAwMSIsInNpZCI6ImZpeHR1cmUtc2Vzc2lvbi0wMDEiLCJmb3J0ZW1pOnRlbmFudF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInNjb3BlIjoicmVhZCJ9.NWPYYcthR8SdFiNnglqsDgFyPhrZqWWYLPIUC8E-FivGp9yvFy1lxsQALiF8ofDN9fCpPs8VXpYxJvyA6gFcevNdEpW8gf_Vp3gRnLrADuzjAyncFUIaAzrblF8HGbVsSPMcF1wniQgie7KbpO1vlh2PNmwFPP04nGd4rWZARXyTnw11wk9JF-m-tqJQCE9wXZXIdFf6NbkSAorzkx2imxedrn5nvgQfZBcmZqxN-ooDRzvtq2C2SNXyLGB10yHpzbPFwcyqDGhTXeCKxeO3jmK_ml61IgVjxXb_lkAyOSqTvRgL2Ir7aehLztGw2SkVUci89fu2IQbrOHMhprqGZA",
+      "expected": {
+        "outcome": "rejected",
+        "error": "not_yet_valid",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "not-yet-valid",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjE3MDAwMDM2MDAsImp0aSI6ImZpeHR1cmUtanRpLTAwMSIsInNpZCI6ImZpeHR1cmUtc2Vzc2lvbi0wMDEiLCJmb3J0ZW1pOnRlbmFudF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInNjb3BlIjoicmVhZCIsIm5iZiI6MTcwMDAwMDEyMH0.LkFuuegUZ8Yp-nGAB6EUQM_w3a7MELP3Jr4QV_GqA9XEQiSGJPbryUqgPDC7OQ3hmi1PuhtVAbrfCETG9Vpamp_V1DgqPac98Sw6-DpyTwuc9SNtprGWRMyOppRBcjIu_dxK7KOfaYGzCAbIP1gdXlGnZ98HiikXBmpTqlsofVWQEKrFtRcJN0KNCDNxOI3Npz7GQ7QNAoM_2HOdIRC6F_KMRcULzsPoPJYoEEjWXJRt-OKUpsuYtVjI7OHUiLnkdyMGee3cxy-c346D9kcuyRPf2joAi41RG2k-L7Uu5jsUzTJlGz1N7oO0hNX0ZShzYzeQXwto0GgL4UXgFdXm_Q",
+      "expected": {
+        "outcome": "rejected",
+        "error": "not_yet_valid",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "tampered",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjE3MDAwMDM2MDAsImp0aSI6ImZpeHR1cmUtanRpLTAwMSIsInNpZCI6ImZpeHR1cmUtc2Vzc2lvbi0wMDEiLCJmb3J0ZW1pOnRlbmFudF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInNjb3BlIjoicmVhZCB3cml0ZSJ9.aMfF7oCbH3-MDo4h594P534eFczCuEVkizr8e0NpwA7CYJCVnXEgpFafq7BmvsMlU6jAe2mEC7H8rjhHOgKm-jcTyIyb0zgoJhJLKZAJfCUkRSK63XHa6l_l2HJnTKP7MIFOiaMyOsVZysXThJNtqxALlCMoeeZ8gjxw5Ann8GMTCgHi4ozfbrvg5F__296QJTK5ma5kxgiiEB7aNSdMPu2AxKBwYZBoQxgzmFIpOIid052I7v1004oB9FPpHLNt8Cb-E7e1ryz84MBlYo_XLGlJihLQOygS_qpu-BUgDODSME52Qe9H6fET-2PhZFOeWg4lN55d-gf-PyW0HdjyXB",
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid_signature",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "wrong-issuer",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL3dyb25nLWlzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjE3MDAwMDM2MDAsImp0aSI6ImZpeHR1cmUtanRpLTAwMSIsInNpZCI6ImZpeHR1cmUtc2Vzc2lvbi0wMDEiLCJmb3J0ZW1pOnRlbmFudF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInNjb3BlIjoicmVhZCJ9.Vbi937Mfl-FWYf10OCToR_1QnzxjXdhe85i7jI-P_nRLXq0rNvb_m8m8cY18Wlv1ztyO05tagXaZyKjJ2GkIYU-uAD9HQzElaLR3ryEcwG_MNmyywPOwawVs_RjadfVP6TJSYUWBZ8h9tTp1EjGwdtNCfUJLsM1RoMxB0fSMa4VofE9zsahOalbvvtaPDGOibFZ3UfHOW-w47NYVGwwhOnY9ImxSzGir15ArDvEyGu5FbMJdXPLi4ITMZfQMaXgTlLdhX2eOR8fMnEKsCxrkJAD6NuiePIPcQvUAWkzaLlOY5CvX80UhYXiR-fdqpqUg44xlzpoVQdATYkrdXqMHcw",
+      "expected": {
+        "outcome": "rejected",
+        "error": "wrong_issuer",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "wrong-audience",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoid3JvbmctYXVkaWVuY2UiLCJpYXQiOjE3MDAwMDAwMDAsImV4cCI6MTcwMDAwMzYwMCwianRpIjoiZml4dHVyZS1qdGktMDAxIiwic2lkIjoiZml4dHVyZS1zZXNzaW9uLTAwMSIsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIn0.dJS_OpI8W9BWfCdGzyXFfatW7c7I51mrNM9kMYxwB3TaZSTEe5GyyMx9ALFLwjQblT-RtZK77iQCKVYXqw9szCbX0mMGbFni-Z_kXVHEQM04xtSefIglvR1Q33jP3-CHHYlLDSgsI2KvehCH_90NoxGSAmG0RNi7a1TEvmMWF3srP1QRKBZRloGtnw0P74xHQYwz3q8nt8wN4jrOewmlwL-v-LkrLPtPp-SGwLwK1mNmP-O359Iih0i74PjrK6avj4AlgfOB3-q0b_wAjKtK3WIbC60eNqYwyKUhJlukrtrA4GZanuy0r81gRfDothtkNeGFF95MVQUo3G8u79tvew",
+      "expected": {
+        "outcome": "rejected",
+        "error": "wrong_audience",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "wrong-algorithm",
+      "token": "eyJhbGciOiJIUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjE3MDAwMDM2MDAsImp0aSI6ImZpeHR1cmUtanRpLTAwMSIsInNpZCI6ImZpeHR1cmUtc2Vzc2lvbi0wMDEiLCJmb3J0ZW1pOnRlbmFudF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInNjb3BlIjoicmVhZCB3cml0ZSJ9.z2fF8I00cooENXN6BEWbkEp1QtvWkBosu-HUk8G8efg",
+      "expected": {
+        "outcome": "rejected",
+        "error": "unsupported_algorithm",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "algorithm-none",
+      "token": "eyJhbGciOiJub25lIiwia2lkIjoiZml4dHVyZS1rZXktMSJ9.e30.x",
+      "expected": {
+        "outcome": "rejected",
+        "error": "unsupported_algorithm",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "algorithm-rs384",
+      "token": "eyJhbGciOiJSUzM4NCIsImtpZCI6ImZpeHR1cmUta2V5LTEifQ.e30.x",
+      "expected": {
+        "outcome": "rejected",
+        "error": "unsupported_algorithm",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "algorithm-ps256",
+      "token": "eyJhbGciOiJQUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEifQ.e30.x",
+      "expected": {
+        "outcome": "rejected",
+        "error": "unsupported_algorithm",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "algorithm-es256",
+      "token": "eyJhbGciOiJFUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEifQ.e30.x",
+      "expected": {
+        "outcome": "rejected",
+        "error": "unsupported_algorithm",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "rsa-public-key-as-hs256-secret",
+      "token": "eyJhbGciOiJIUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjE3MDAwMDM2MDAsImp0aSI6ImZpeHR1cmUtanRpLTAwMSIsInNpZCI6ImZpeHR1cmUtc2Vzc2lvbi0wMDEiLCJmb3J0ZW1pOnRlbmFudF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInNjb3BlIjoicmVhZCB3cml0ZSJ9.2SlXeuKVEt_DnQ-xWXo0I8WvazySPepMX6YGThII4Fg",
+      "generation": {
+        "recipe": "Export fixture-key-1 JWK as SPKI PEM, then HMAC-SHA-256 the encoded header and payload with those public PEM bytes",
+        "node_api": "crypto.createPublicKey({key:jwk,format:'jwk'}).export({type:'spki',format:'pem'}); crypto.createHmac('sha256',pem)",
+        "public_key_pem_sha256": "ccbc6e5aafbf62aee3cb15a1281198fd9f32285b5755b80abf7c720013a112f0",
+        "signature_bytes": 32
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "unsupported_algorithm",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "missing-algorithm",
+      "token": "eyJraWQiOiJmaXh0dXJlLWtleS0xIn0.e30.x",
+      "expected": {
+        "outcome": "rejected",
+        "error": "malformed_token",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "duplicate-algorithm",
+      "token": "eyJhbGciOiJSUzI1NiIsImFsZyI6IkhTMjU2Iiwia2lkIjoiZml4dHVyZS1rZXktMSJ9.e30.x",
+      "expected": {
+        "outcome": "rejected",
+        "error": "malformed_token",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "missing-key-id",
+      "token": "eyJhbGciOiJSUzI1NiJ9.e30.x",
+      "expected": {
+        "outcome": "rejected",
+        "error": "key_not_found",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "duplicate-key-id",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEiLCJraWQiOiJmaXh0dXJlLWtleS0yIn0.e30.x",
+      "expected": {
+        "outcome": "rejected",
+        "error": "malformed_token",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "missing-tenant",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjE3MDAwMDM2MDAsImp0aSI6ImZpeHR1cmUtanRpLTAwMSIsInNpZCI6ImZpeHR1cmUtc2Vzc2lvbi0wMDEiLCJzY29wZSI6InJlYWQifQ.bD8dalV6g5yjhOrpSOYS2lPAMvJ8qf6QsdhWlG0X5sMg43JC8GkA3qGVKDiQ5j9dvdb8YyiPkXKpaVoNYKzgJj52paLq4s3Ijl01xx7Aa0m3f-jlONZcb0AbzB2JWn0CgHdMcG8skQR7RamV59iVuoTGK7ek1EPvdAZxG7W-IjJRitln0DsPMgjYo0-FYzOa-MaHn3c0K3Tl4Tw8IpahrBhJ61IegoIy8fVVH72aqkEZN81uZWwMwwCqy2CgaVr9k0Freo9TOjjNUGVQFhPz54iWSTue3-rxBvd-3BOmGdJ8QaY6U8E_NK0J0c5IGQxb4b7l9hR-5en40S0m9ZkR3g",
+      "expected": {
+        "outcome": "rejected",
+        "error": "missing_tenant_claim",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "invalid-tenant",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjE3MDAwMDM2MDAsImp0aSI6ImZpeHR1cmUtanRpLTAwMSIsInNpZCI6ImZpeHR1cmUtc2Vzc2lvbi0wMDEiLCJmb3J0ZW1pOnRlbmFudF9pZCI6Im5vdC1hLXV1aWQiLCJzY29wZSI6InJlYWQifQ.TkDZ6z7uS7133sfJviXOQqF4iDF1MoQ90rRNX4pGoXwjQtV8EJPRfCEtYQuaD0lpQ_Rv-RxiubuALZE9smmlOTxFx0ymUpbLhwcJIfACKyHfD0UxxfgWrmYI3hul7Teke4wx6ZBZVcKCI33seMoDZCuC0QOUCPepT-TE3_M5TDLF7Rpc_U1FPCqIwZPKHVd5n-nhgJ3kyQ5ADL-cFvM1SkQnObrj4mkMJ56ViNT6dSum2b0KjLsXKMx3wzAdCU3hxd6vwiAWHKKoUY1ZePFpNUREjCTTMOYBtZhkcIi3o7KVcUgx4nZ3-DWnpyv2i5ETYpxnHCTwQpSnEwpD06z0CQ",
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid_tenant_claim",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "insufficient-scope",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjE3MDAwMDM2MDAsImp0aSI6ImZpeHR1cmUtanRpLTAwMSIsInNpZCI6ImZpeHR1cmUtc2Vzc2lvbi0wMDEiLCJmb3J0ZW1pOnRlbmFudF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInNjb3BlIjoicmVhZCJ9.jn4F5iCJ72LVZVB1TShi-XyvpLBrnNxT-PEBxZ4jwzHzNSkomKEZWXvCYjRXJAqk188Wz13RfG5NC5s5S1vK0gbqj6vyQbc4ku9bpay7JDrqH1gKpZu9Op9J9yDcjsxpydWlKLwGIoY2FnPuQA3z0qWeehJai4U2vvOAWtPsAfEOO8Tw304Fs19fRXBC442g85IjvzKVcJzgeK0doxtxWrq_rpBBnbY0UvoGsxKW50q-pbqfLoJnjh4Pkr-b8tc0QygbsR4GOzvahUtGmqQIjLiKT-NFChxY0z8rFyd1Z72edR_botsh24EvMEqllrZNycs0xkDYet_VyRwRHlUDjA",
+      "required_scope": "write",
+      "expected": {
+        "outcome": "rejected",
+        "error": "insufficient_scope",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "malformed",
+      "token": "not-a-jwt",
+      "expected": {
+        "outcome": "rejected",
+        "error": "malformed_token",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "rotation",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTIiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjE3MDAwMDM2MDAsImp0aSI6ImZpeHR1cmUtanRpLTAwMSIsInNpZCI6ImZpeHR1cmUtc2Vzc2lvbi0wMDEiLCJmb3J0ZW1pOnRlbmFudF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInNjb3BlIjoicmVhZCB3cml0ZSJ9.rhgPIhZ2Sr1keR8oyFQ7Y_v2eh_DYESLDzoM2Jl1FKniuf60bF2JBO5xGpUbZ1bP2JumrvqXePhnnixoj_aChLRJeju3dZCx640frtEhUS67XQZolswg98YxU8LCLVIpXkCjSDfOmLVjuuPlf0c0Wp9nd_y2pJL1fGmjrnCBVFvWVef6Gic79xox3OYbSspcGZR2t9YbM0oW_tEfi9sQ10tgk20i4VUR_n1kFdkVK3lPUuW4tPOoaamRWXdxtMF7ZuVd6xOB_BE3PpmGNvj4fCM0GLpJre7Go9V45NbFuisZrTqGmjUysBQehjBbJiO6hSfAMZ5ZwVPzpf9VZ3Hfhg",
+      "required_scope": "read",
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-key-2",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "id-token-nonce",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjE3MDAwMDM2MDAsImp0aSI6ImZpeHR1cmUtanRpLTAwMSIsInNpZCI6ImZpeHR1cmUtc2Vzc2lvbi0wMDEiLCJmb3J0ZW1pOnRlbmFudF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInNjb3BlIjoicmVhZCB3cml0ZSIsIm5vbmNlIjoibm9uY2UifQ.EXVqf6wxsSuUZSNaKcbft0tromJRLtNglZvB0ZZtXPZqb_eC0Gk6n-R9kbgHJxov0eGpoPl_RwTwdOFramWk_-GHTeFfAJAnBgtnGjPGRgFD7t-IA9w_inTgh6PkXs_Jd_Hd5uTe4JRGrI76PjmS9AhhMum6gsCAmKJkcVd3liOa28Zp8177sgmKgehptjXfhrkS-TdiSnThN3q2l9DYVYTerfSP33z2pIVQZbjWve7N7yNY0azKWtwFY024-ISUTxE5QWg8xYrP2SX2YIQoXA5pfw94YnELtUSXR8TJHwhUgV_csDNCxnfbB_vRSwRQ8La_KeJZNVF8Bmyea2ynqg",
+      "expected": {
+        "outcome": "rejected",
+        "error": "malformed_token",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "id-token-at-hash",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjE3MDAwMDM2MDAsImp0aSI6ImZpeHR1cmUtanRpLTAwMSIsInNpZCI6ImZpeHR1cmUtc2Vzc2lvbi0wMDEiLCJmb3J0ZW1pOnRlbmFudF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInNjb3BlIjoicmVhZCB3cml0ZSIsImF0X2hhc2giOiJoYXNoIn0.M3yjg9B6XM5kwzObt78MyI6zyA_JLLADSwJ9ftqzYqNkGfe5nj76oxlQR5n2CQ6rFKJiKDbpfE0D9e1cjmWYq27h1vByiYWzxIESxFBdhPYSJRtTnVK6fTiz8x9kffV2DLtmE7l-_nkqUSrndmzNFrK-8N1q1nElsdil5WKLrH14xfJejOdN9hBjGG8YZWBj6hp01wMsWNBo0SW-oS_5kFF_5sOmUV6kklBw7fN8ac7jhc4XIivKSAzjPl9BMaQGaFs6sGclcp1vHtG-VvXIrp2bBn_5gcBwmnfebn7iE9HM0yzg5xkPslC8O9bB8EdwfAz4PAxetFngN3bZN-ETSA",
+      "expected": {
+        "outcome": "rejected",
+        "error": "malformed_token",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "id-token-c-hash",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjE3MDAwMDM2MDAsImp0aSI6ImZpeHR1cmUtanRpLTAwMSIsInNpZCI6ImZpeHR1cmUtc2Vzc2lvbi0wMDEiLCJmb3J0ZW1pOnRlbmFudF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInNjb3BlIjoicmVhZCB3cml0ZSIsImNfaGFzaCI6Imhhc2gifQ.iixUVEffnLJhR0RFWlf7DN0TuPrGchGkXAZdPHLezonizOwfEcjj7t4IfWTwbLZM8VZPRw0ZEhgDKUdevjgtvpQfGUEefhW9nDiiBWYeTNMVRzRsEyMABCChYJl5RhcSHXgjbR76wNl62Fcvy-1Q3AO5PQxLTBi-eZHoWp0nRqbFSSJvLDBc-5arF1cWA6ls-VJWC9bxgxvbvc_aM7a9ISrJ3BiTbwlKhWEdY1Nlboq_TIQyoUHLP3Vm63wwwqKp0Ff2m2C0tt4fh8g3oYK72Pihk0PRIGsKA0i34LFZ4cLi5oJRtgPtpqOwR_J2ai3nJ55a2oYDd6h4Zh3s5Z1V_g",
+      "expected": {
+        "outcome": "rejected",
+        "error": "malformed_token",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "wrong-token-type",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEiLCJ0eXAiOiJpZCtqd3QifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjE3MDAwMDM2MDAsImp0aSI6ImZpeHR1cmUtanRpLTAwMSIsInNpZCI6ImZpeHR1cmUtc2Vzc2lvbi0wMDEiLCJmb3J0ZW1pOnRlbmFudF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInNjb3BlIjoicmVhZCB3cml0ZSJ9.Ufr9icC9CpZYlotfRUAleIzgTcVrZCceiXj0Dn050Y18ZQlV3Fg1Lu95fSkE2h74FUmPC1Btt73rkoN34jOpmGTgv5wOW2we0cnEif-ogn1y6OGsGC6aRJ6k5U_LRhzqutSSy3CjuTjkfYNATiT_MonmTZdNWO0f2jQ1wPUSYFD3blTvzVuW7ZSw4wxYHlpPRuGK3IdQLs9bSR_vEHTENJdlpYvIH-gIPs91rjK-Rg3ehlTOVyN1uSWGP_TIe7xwZeJOYEnM62lDzej2hS-Jx_28_U2gfccdMTB9Q4blLKA5TkKcPP0HjQufBsLiS-7HBaCQu5TEQjoDzm2MzpvvqQ",
+      "expected": {
+        "outcome": "rejected",
+        "error": "malformed_token",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "multi-audience-outside-default",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjpbImZvcnRlbWktZml4dHVyZSIsIm90aGVyLXJlc291cmNlIl0sImlhdCI6MTcwMDAwMDAwMCwiZXhwIjoxNzAwMDAzNjAwLCJqdGkiOiJmaXh0dXJlLWp0aS0wMDEiLCJzaWQiOiJmaXh0dXJlLXNlc3Npb24tMDAxIiwiZm9ydGVtaTp0ZW5hbnRfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJzY29wZSI6InJlYWQgd3JpdGUifQ.g7mAZtdRw2Z95M6s8h5qdHeR2YcHnNNZjC8DJm_IYShP61O_936wg-cKsQr5ciMvk9Xl9xrid9S_B8jehkhGrA2CSbNDe4Llnme17DTjf6cR3xYJycTKKVhne5GF_3CHwIaDlJn4jb3oDlqmvaI5IdnhtS2-BL5_AcYHh1DWoaQn7iAvSKvmLr1kvm4V-8DBjU-J_9Fna66DbI16059KKjOqZ4-CCVnNSzgR0uvA6BQ-uLzglApyPg39tmxphnT9yrlbXU82ZVmpHnUk7pRD50kLCcxQtqjlRcjHKCr2Le0LzPYAbKcPKwPuz0Z5fFyEMuVPfUPtmfMzHfehGUPbVA",
+      "expected": {
+        "outcome": "rejected",
+        "error": "wrong_audience",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "long-lifetime-24h",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUta2V5LTEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjE3MDAwODY0MDAsImp0aSI6ImZpeHR1cmUtanRpLTAwMSIsInNpZCI6ImZpeHR1cmUtc2Vzc2lvbi0wMDEiLCJmb3J0ZW1pOnRlbmFudF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInNjb3BlIjoicmVhZCB3cml0ZSJ9.c55EisfFcbA8Fx2-LPgjFguh4gKBsEkKTZ54HDrBgHvZOyc01pOIwTJ_RN5nhWyTGgMkyjPSE4ldkAAAG8Ppc0cMnPTiJ2X0sjx-9JYr-n1xu9nlKvj1kb4nd3K91keQolnoB-Iq4u1GoSRaAK_B9k-_NpSgRtFTJWMD5Zhiy3gXg0GAlKEnmkbxCwZ8bxu8w9DAxGFqsMQ8EPFBqBl3J9IwB8Yampp6ekasUiMgYVt49ufo84nk91_aHXfyVLJHHWTTjn-GIYnpeSluuqZ33GRXX0z3EIGX4btH11uG273gjifrC_QMWpQJj4eTYuLC9XZSYiu1Dlu2B5SBY7fcHQ",
+      "expected": {
+        "outcome": "rejected",
+        "error": "expired_token",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "attribution-present",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiZml4dHVyZS1jbGllbnQtYXR0cmlidXRpb24iLCJlbWFpbCI6ImZpeHR1cmUtYXR0cmlidXRpb25AZXhhbXBsZS5pbnZhbGlkIiwiZW1haWxfdmVyaWZpZWQiOnRydWV9.Vgi5TUZXUVX2xgzJMcAswHMKpD5mEwdo9vBUmN7VYAS0iWUyNQc6l4qOGfH498eqwkHglQW-IJHsBEfQsIdrJ8aDWqxnxj_58pP5chw970mih2yWqKydNRT5ZLrDN8mFF_v5J6s9yFUYJlBcNy_bxTGJSVdF-BrdazHytBc5yBv0QxDcf5t_4ok27RgJvQrBuTYF_er_mJmlBFKgmhejIY1yxzSNj4-oYpZ9dTI2WGA_-VIaNplCBQNlLxadFxRP2DrVmZi8EdmTBLKOoPYkGpkhqZG4RRm8oIlEgdPEwV-BAZnlW6f5_NdGz4DXbpjNmPVeKKpXUUSrFiLBcS4iDw",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": "fixture-attribution@example.invalid",
+          "email_verified": true
+        }
+      }
+    },
+    {
+      "id": "attribution-absent",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIn0.bKFmxvVpE-vGtwU8t2rSViv3tda2bSHBUWgff97WGJvSkCuzLuEcQwG1sbhKqPfeREToqZCgt6Nh8n11WqBWcakxg4FKo5vTPvc7bTL7NZLZ22nS_ZAq1kDCFMxo25dEVUpqdqKHZFeEcafb7PrcTImCxKr0te5t8HRH-1uMmfV_PY5omKuh_y-WbQREGRnW2Chi5jqyENc7P9TO360gOc5TAx3DfZKiCTLeT6hkM9HsB7V8hrfzaQy1NVF5jNmUYTm7WmLqxhX6KD1fZoHy5-59heOhcyFn52LU4uG_7sJfbPbu9xRbfniwDw-Uz3nVWmih2VblrwNzmlx6QpKOQw",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "attribution-false",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiZml4dHVyZS1jbGllbnQtYXR0cmlidXRpb24iLCJlbWFpbCI6ImZpeHR1cmUtYXR0cmlidXRpb25AZXhhbXBsZS5pbnZhbGlkIiwiZW1haWxfdmVyaWZpZWQiOmZhbHNlfQ.Hq77rSjKqVpK1q3ljz1doTJBEFOUyBxRkAbHKJ_q-pdvWkW1kJR_LtZNXG2dXNm9olcAS052rusLs-foom3ZEpU2uEY92qE7D2pS7z-uelD9OHCxEtSAR64oLNZpzeSKi251Wo4FN9g0F-kLuy2Kkt53wF5PT5z4DxjzO7P73tIY57oNldpDeBmKoBmxs9gfuM1d7QAbQXiMUMthElzN-IqNQ5WaFERshe2YlS5FTG4mqTEFN0kgSZH1F3u1IpEBpt0HssjaXLwuhHkEp8KsPcQCR9BPOJ1rO_W11V8Ofd-yWML7vX1ZTiZxXlVTEc3qE0I8QLPuzwBMPJ0jlqpMlA",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": "fixture-attribution@example.invalid",
+          "email_verified": false
+        }
+      }
+    },
+    {
+      "id": "attribution-verification-absent",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiZml4dHVyZS1jbGllbnQtYXR0cmlidXRpb24iLCJlbWFpbCI6ImZpeHR1cmUtYXR0cmlidXRpb25AZXhhbXBsZS5pbnZhbGlkIn0.eZeMMvSOqvzkHu31Ofp9rbYpEsLvgRS4DX6Gcq92wSu1XlH5bMNZfvwOsyBILHlefOLXFYK-AEoWx1Fp7EZBeXBaw88fmohbnRCM8qUZNO0fht8vi8tpZvBwptYfdmXQvzzjtmte2wEUd2ZDHihRIV_VCtFTIdThfbrcdHxSY61MKTwSTUC33lUrWHXi8gNJz7AmaGFMnGYv-fGCtoPVRoTvO76DO7PYLphN9SMnCU84z60TzpcuycDFSBKxnRM7JoFVEe9zYhKrG3h6Ht18sWMmPw9jszvSN0xH_fpxh1E-9wWpmXFI7Jbj3q8mOLcG60vSn8DjValjEZdETeWf1w",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": "fixture-attribution@example.invalid",
+          "email_verified": null
+        }
+      }
+    },
+    {
+      "id": "attribution-azp-only",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiZml4dHVyZS1jbGllbnQtYXR0cmlidXRpb24ifQ.UgYszQY8dYW5bUseNUgl6-BTE1lDGSZsUcfN09fCpOUaNp8dNOiWXH86KI8NQlqIxwkty6CrAdKtC40qaxWU1YgQ_mswL4u5ThKO87rd_upoNurRljwN5dM2PB2ha0zUromeKW9FE1_k0AQPQKSIgarmi8707zBs0m6rJImNafg90gJwuizcv1ZqqNUbxX7mXQCTwUwxui-ecuQA_qKG10UfnNIzHWbBqjAk_b_zTkp_5Pa14WBbdRCYm4sq1LkhfWjKyde0Jrq5zNbsMFZma5QYJOEUIz-ALOogt9dgFZJoGRvpjKrbfOsJasE0zyDkIONAQYsUgBKWX-n1pebStw",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": null,
+          "email_verified": null
+        }
+      }
+    },
+    {
+      "id": "attribution-email-only",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiZW1haWwiOiJmaXh0dXJlLWF0dHJpYnV0aW9uQGV4YW1wbGUuaW52YWxpZCJ9.Nu89k14L1ZBk1EZzBZLfIhU2LQ1u6ivqmYMFYjX2OX0uqbTIOFeP99ROf1GgGmMGOBwGMREnE1heVNrYyXIwEkjqUeeGoj6OLeFWlQAyGD9tAPT3rHaUZBrZA9wzD-ZkiQsXV7NOYXhiIGMX9pQx7WYsl9snB7qCiQZcSDo1WrPw1ogGaROoNSQK6ayzoqj5Ek1cAMycXpCAUOKctQbKXFu1z9fmtiJEkUrpll34Qbe6yslch_gOJ2gV5NWuiRgd8isXagaA2pFoypRghGQ3KOzNuihULlk2gGA39jkhx3HCtsLAqSCWC4nS4b-QhHTmzHe1VN47WfEhQe8CfBqZ1A",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": {
+          "azp": null,
+          "email": "fixture-attribution@example.invalid",
+          "email_verified": null
+        }
+      }
+    },
+    {
+      "id": "attribution-verification-only",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiZW1haWxfdmVyaWZpZWQiOnRydWV9.ZvxQqFWVtX8SbPFcTTbrm8m6ZKSEM-weYpfGtI_-dwPfyActRqnq_RIqV2aE5eK6iyzOR4jWLcweLY37EvA1hrxzfOVUKfCUTvD5kS4Ssq5SlevXXRzEWwdUul_anVoRtt17lIB2qnrpCQqPOQ28plCiGMpx6AdsdUtWLiVVA28nTeXczNDc-sp7OBYu994IDlmhrQzrXh0mHotcR9K9TFrEO_tYYF-xC2B_-a-I4M2TD6almwVfY6o86a80lIF0lpIBl5m25avxmhWzFzUhp4qD2KcbNruSt318er40fHDM_iDaiC_3jD95-kNbBRqf-P8gDj1Z31JdEXUgjm4DJg",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": {
+          "azp": null,
+          "email": null,
+          "email_verified": true
+        }
+      }
+    },
+    {
+      "id": "attribution-null-strings",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjpudWxsLCJlbWFpbCI6bnVsbH0.cpmhf2i73izIK6-883cGXIXd3jF2f1ccgxKfkJ3pcGMyhMzwQmR3beqYMmOCyno2Y4_iED2-6CrnM9Yha3h2UoWQPBxVyuH2YsE5zpud2iTMOUW90rQXlLh866ElxQTb07lU3lYQhmNCTWB1Ne7jJZSW7EJELNoxyaB2V6emjIIrU-TCzS77yugv93opGJmy5VMf6ZI-B8cwrB_bW0JRtFkygGp8yL9BECCfu0aZw0REFWz4eYymUt1TdDss4pzEBHMJTC6hPITCPpt5MkiwyDz_A-U4O_dsWs9XixD5d6Ekuyl75Y9XLYcOlCjP7oJ776JoefoM263TqD0wHULftw",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "attribution-verification-string-true",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiZml4dHVyZS1jbGllbnQtYXR0cmlidXRpb24iLCJlbWFpbCI6ImZpeHR1cmUtYXR0cmlidXRpb25AZXhhbXBsZS5pbnZhbGlkIiwiZW1haWxfdmVyaWZpZWQiOiJ0cnVlIn0.SBCaGr3grPq5nHOQ2oRnm2-WHCRq0uPXpM5z5JCo0spaBEhzgFIjMPJM6-88B146ioF2hJIrbcr7nsMdj3pwHUPfhvkn2bGo7Cz3SRtgHfzmXAWZ7FrTvsmO_sp5pTjYqsS9OqRGzzuHGgdWQ2zPYHgdoiqvgRr0SPpvwmHLUEU_K5146NNUmphAY2FSWw7gQrtEx5x28D5VsoZJnFI_k9sijcSLKwA04ydzE2KvbNRlhL-raKal-E_DhPYsPBJkNSMeN1JhOPR0E1wjk2nJ7hne7WHLHk8E2ZtsLyeWYHPkFzL7sf8057tOYBRLaBl0F7_nwrwD-FtSGpAFMLpDIg",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": "fixture-attribution@example.invalid",
+          "email_verified": null
+        }
+      }
+    },
+    {
+      "id": "attribution-verification-string-false",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiZml4dHVyZS1jbGllbnQtYXR0cmlidXRpb24iLCJlbWFpbCI6ImZpeHR1cmUtYXR0cmlidXRpb25AZXhhbXBsZS5pbnZhbGlkIiwiZW1haWxfdmVyaWZpZWQiOiJmYWxzZSJ9.c_AdhAYzWbSFUhZnXTtrOO9n1pj82snmJUYjtrEvkk0Gm5sub7yNJwTGAoS57WXwc6A21Ie4jv0dnIbh-T_QHRxu0ZiHLD9hnt5ExKo7yEjjPXxWUWSdQUI_v6FyJ2r8vet3jTz7oMr1xSaWhh41zLWbcf5Fb82RmcskP7PZjtaJaYWzm8rK4yOJT2nIfv3TBW0MB1m_wtrviLVlK8sny4Rj0IhPBVkGrBkltR6Pl_1AJfi2h-ZTO4w8vNPNfOeW19mnXt9ZcZApcPwfe1HJP64vuOwenwbJOpZ3526zQhjoNSTuMSHifPe_PUgALQwS5xfe9fN8Lsq_pBpmxIDySw",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": "fixture-attribution@example.invalid",
+          "email_verified": null
+        }
+      }
+    },
+    {
+      "id": "attribution-verification-one",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiZml4dHVyZS1jbGllbnQtYXR0cmlidXRpb24iLCJlbWFpbCI6ImZpeHR1cmUtYXR0cmlidXRpb25AZXhhbXBsZS5pbnZhbGlkIiwiZW1haWxfdmVyaWZpZWQiOjF9.K1OI0W2H1PW8SWLFmpJKuSRJkFDzR-jS9lllDG7pOYTwSMvFuXm-m-6pXw2Kns0VyCdFIeSuGtusQC8tRALrqjRn9Gk8P1jzKogxAGNJ5pcUYJMz7oKOJBS5UnyWPTphlsXAKB8XP4eFYb_KxWoBm7QCWpw1FS9-VxUg1-MesdsxVZyjLgC8d1elldQdk_Ed6u7IrsGYo0d1x8gY21Bp0099DN39wVxJI58bf_fGUI-F6x9LX3PRmWks4d63zDbQfhAN1QEiP6TxiHXpNqsaAOeEOLJmVT_Z4_ef8Gp1EsSee38N9BO08wSiQ_qyZoi8KzHepumZWDZviudCngW_2w",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": "fixture-attribution@example.invalid",
+          "email_verified": null
+        }
+      }
+    },
+    {
+      "id": "attribution-verification-zero",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiZml4dHVyZS1jbGllbnQtYXR0cmlidXRpb24iLCJlbWFpbCI6ImZpeHR1cmUtYXR0cmlidXRpb25AZXhhbXBsZS5pbnZhbGlkIiwiZW1haWxfdmVyaWZpZWQiOjB9.a1HoAMyKOLjM6CMCDAKzSg8Hw-u1jLM0Lfxf5FN4GwP8nZGypKgoI7gYpgNPKzqBxt-QOmchbnwQfKcIZYHV4rhjgDX3kcRKwh1z6EOhckluDY81euLtJqyUNL5JJUx9oMJhWPqxxIOww5tzf7W0TOFjQ-Gu7SYgDIHRgOAmuxYZ9Ms6PjVKplNDZ4tQYd0eX9PGHSaMguZTYAQ7JS9M5g6wlWNPIqwLoMPPzn-uymCRUb0jes6b48jeMwRn7-Rog1ARtyOmn88ArG0yPi27gTQYqIKBgHSfGAy0HmiGRvHRUNCgT74gycJeU8N7Uef5YIvEgHZq9GKtKFDuagV0NA",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": "fixture-attribution@example.invalid",
+          "email_verified": null
+        }
+      }
+    },
+    {
+      "id": "attribution-verification-null",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiZml4dHVyZS1jbGllbnQtYXR0cmlidXRpb24iLCJlbWFpbCI6ImZpeHR1cmUtYXR0cmlidXRpb25AZXhhbXBsZS5pbnZhbGlkIiwiZW1haWxfdmVyaWZpZWQiOm51bGx9.mZ4lxb3wdyjmHuR21t3U0bri1RoHIHNNegMC1L1H8-JU-sGOUAHbOaQZehk-qfeJVv-304LHT4AgcyDafvGDu-uEg_XU6xkh_FHwf97tzsC2mF9bxEqODwl3WfTfy2bo5f2gwu6afV-LqxfTRjrPpdqSP-Kl3eNdY-L4ESTYLi_KAMEg7C0alKsIjxrdZjcjtSaE1-1i6k61F2viDsibRf799MV7rcQ6l8zrrKIuPYhMjf-88GHSYsBa_X5kLcmlVjzJ5i1YR2eAozXBnbiM3wzyd8dJ3ekHPMn2q0sGxCoz-_hk2hk0vklUYPDr2RAwwBaBMtyUHZrH6fex_Hv-rQ",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": "fixture-attribution@example.invalid",
+          "email_verified": null
+        }
+      }
+    },
+    {
+      "id": "attribution-verification-array",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiZml4dHVyZS1jbGllbnQtYXR0cmlidXRpb24iLCJlbWFpbCI6ImZpeHR1cmUtYXR0cmlidXRpb25AZXhhbXBsZS5pbnZhbGlkIiwiZW1haWxfdmVyaWZpZWQiOlt0cnVlXX0.GEfGq4FRYcmaRYl1BOHGW4V12UDfZpl7I8DbZtcd0yYoF7cEpoosRajQ9QyVh0j2zM38AVBpX3k7ZVGyHk10j2UbTQmnovepJjMML8-5-dIg_0Gp92V2LHOIOlL1neAil1URQJUYMmTtF0V2WqGSif1GDiTTi7UXudEpmTyEkBPaxWvrikl5wOWq0iS44wIGOy0Z4_uvBZVphyMsv7z9qzK1QrS6Yv2zloOtWDQUMlgu5r8WkuOYC3mcp5yW46rV5nmAjSDYS4A2HprI-bOyZUA6FGCMgbcivYUfo8vd9qPovlU2ZZK1H5DpVU3eDmAA-jf9T4zU5qvBHBW7FBeizA",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": "fixture-attribution@example.invalid",
+          "email_verified": null
+        }
+      }
+    },
+    {
+      "id": "attribution-verification-object",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiZml4dHVyZS1jbGllbnQtYXR0cmlidXRpb24iLCJlbWFpbCI6ImZpeHR1cmUtYXR0cmlidXRpb25AZXhhbXBsZS5pbnZhbGlkIiwiZW1haWxfdmVyaWZpZWQiOnsidmFsdWUiOnRydWV9fQ.JYjB48JQI4_-I8LLkLXyRpeqfcVva7PA1RLWk8yMWrazwepZbCRf8J575Yru8M4xZfKNfk9cWyw-6dZSXoIabU2tbCr8Fwd6pDq7WqR9BmUQMERToxCu27u9froI24bh914sgGWOG9Bmvrhpd-z8LKKUj9tXZfP-wkoFGrklpDtwna-dsy9n_9HY-isnGtEYSXZAxGgkJs2VLfIr-voIEGZU6alx5K1t2SFrN9PuDFXrJJbgkUkh8WI3Uztc8UF7dKDF8QgBFTjvgMDzZ039E2j0hcsHs_v3G5lF6TOdoLZ8jKilFCIveuUuFga0C9Oe7bS5WoIdRsXpALVp6vBfCQ",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": "fixture-attribution@example.invalid",
+          "email_verified": null
+        }
+      }
+    },
+    {
+      "id": "attribution-non-boolean-only",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiZW1haWxfdmVyaWZpZWQiOiJ0cnVlIn0.F-Z3Mt6a1qEsePMlBqBEvGvGHLQv7_tUlBWrqz9MFAFDQWE-ZZr4pGYhkqCiwD8lezYKB8L_VExuLuP0LjoZqgwAlZxCcbn1ahPiaKaXWAM3Ycqpe2OSykPSiXw9U1O8kaBSpV9IXjdFydYr60fvMlaRsPpdvwZl1frmCJCzlT4I0MBgVxJu4hbyY5qZS4MV-EYpmRg8-qDklNdXpZ3f-aw75PgnGyh-z9usRSvzxGtGOjrIbjN-XQcPaf6Vz5GxVziZOyMKoT8_Vo3AHGfPz-GyH9o_9P-_yRk8w7jiDbUf2Hj1jWB9rMBVr2P-VtYYK7XZdTxhXo4qeltMauYktA",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "attribution-email-oversized",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiZml4dHVyZS1jbGllbnQtYXR0cmlidXRpb24iLCJlbWFpbCI6ImVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlfQ.NeKkznUluEaPD3EWzDENsMyj_AG6Akn6XLXmBv1lhT6iZ-DO2Nh30Kc4UEWSYpNbHGyM2YSgnHjJfAy_CI9L0q8Z3M0jR127fGwSabVV83KJSvWX3XPIQFCEjtnVgnxXtScWzHz9Ze-yrD-LQi8PKN_8uafHK9aBOnwxhC9wb62k3OE0Wgn-pHTxzNLlNNZpA4UJtohOxpqt3vPo8kLl16FEmyDj0g1e5dC6MaGReA7TNLabNubykb5gWxJQwd8WtRdWWkjCs9qyFIXY4PnOIpORSReJtkGu_ApJC5pVDym-N-GG9ZYlV3htBeQo6vNLUxmKDeqShW8m7fRS83XCEA",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid",
+        "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": null,
+          "email_verified": true
+        }
+      }
+    },
+    {
+      "id": "attribution-azp-oversized",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWEiLCJlbWFpbCI6ImZpeHR1cmUtYXR0cmlidXRpb25AZXhhbXBsZS5pbnZhbGlkIiwiZW1haWxfdmVyaWZpZWQiOnRydWV9.SWDbLAVaZao8WMIMrfujO4DDAd04bwFgElvK2-HG7EHTNfsg6MgyukjdjKzh2vXY8apyTjySQnBlwbz69jNME07MWXOmUs4Tvhd3N3FWVJvCUf3sbgwgYdFEmNWVhZSN5SGvkXPwDHa1UVNmoWori2BG0dMw7KWlDQnZULSyJ4QSP1HsS7sYZgflSeT3KUUMykDub38y_68bMzAMlkXS3qsiGrES01pldfrvrqqOEPn0jaxItva3BitYjKJti9zELtAqMACo95nEb2Sf0iSll5yiio2mqk_czRKUpUCpwKO3CS6k67BCRsm9Z3r7g9tUyjDWdFcEg7stP_NL1mAOrg",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid_authorization_claim",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "attribution-limits",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYSIsImVtYWlsIjoiZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZX0.KcgJO2XUzIpmbp5cODf9ePi2VR988VJmLOgQuJueH4jxEwDK_w3yIAno2BFh7WWWV2NDZ80jvmXVNBCG50PxgePKe8xCP9ZLXavZ5hLNc4mI713p-_JNqWx-QJamzhMPC8bgImY06S4JFNccI65kNkdB_G0V83nlSdDwrBtjD7_twwTSiP8dI-leU5-HCh0iUV9Coa9kXFvu8FY6_z0KpG1eyA7UvWsTrXf-ddVZWMpUnq_Jbr3-_UaXqbdUdpNLPdOsCIStc0ckn9lv74fg_jrDGMgX3T5WE3Si4KjEFRld6x9f42S5EFK1pDeBZsSDE-3DhgERVBDr5U-HjHWvBg",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid",
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": {
+          "azp": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "email": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "email_verified": true
+        }
+      }
+    },
+    {
+      "id": "attribution-azp-control",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiYmFkXG52YWx1ZSIsImVtYWlsIjoiZml4dHVyZS1hdHRyaWJ1dGlvbkBleGFtcGxlLmludmFsaWQiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZX0.mk4AlYO6ChDior3b2EZJBhC0ACyGX5LCXc3xWL44KkotYSDMbiWcGMw_nYhfkSM3yc8tWzlJEhtO_YZLNwpkzJ8LbWecN3kYP9PMXdrt8UDpafq2NkKFS-Nh-Do54eXsn8QtJk-9Gj4N9D6w-kXj3R85mchUdfsxKrGbVHGDbT5LRbFLIvvvJbLLeLBxmN6V0Kd28IiDj7cG1cQK-ZFoVg0I4XuAmE6c_C-HQdN5ne0MesxH9mWTe8UF7b0XFzZDpWEdOgRdIeeNfEVnHHgDb5B74nhf37Pc-3-g9VxeY3vaBAWjRHXbeq98uPIOy2eDhL7vmpHiIasME5ok2E5B3A",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid",
+        "bad\nvalue"
+      ],
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid_authorization_claim",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "attribution-email-control",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiZml4dHVyZS1jbGllbnQtYXR0cmlidXRpb24iLCJlbWFpbCI6ImJhZFxudmFsdWUiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZX0.bEVVDvnj0TkAGUeJywHdeNGbOhwhE4nINVuGpmRFsIBANq4aXjwRmeEfEfgnrsHZVTw61uPWKDzsrIw9-TtIBk9SFQAjA1j-XCUtlDX3m_chsUy8tnVIT1pPnupM0C7HOjQ1ADQdEHF7Tl4leJFonG88q1nZY5WW3PZNC2DJE_QLa3NG_GtSZHHW1FYmrrwRB8sb_yGmmxQKmnG6zvWBPbAAWPWDmNm-oMBob1ePiV6cFxwVWuXoW5n1PBVMiG95oZApZw-k3sANnKpQczpfIs9uN75Fi52vmtQkI4vFzlJsDCMpZyYC_3e17xA82HBlX_5BLG9Yo99e6jBaiVEqTA",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid",
+        "bad\nvalue"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": null,
+          "email_verified": true
+        }
+      }
+    },
+    {
+      "id": "attribution-azp-space",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiYmFkIHZhbHVlIiwiZW1haWwiOiJmaXh0dXJlLWF0dHJpYnV0aW9uQGV4YW1wbGUuaW52YWxpZCIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlfQ.JW92wAPGfLaK-IyTmcGg5EQBIQGKEtT_zCOoi8NPEr_rR809dmSA1VzLTyclr3TemGbCDwXVglQ2mYjPay-2AjpfeJIH6Sl1CJUAv89w_4nWchcjuQuMkXRKNrr9rAl0849QIR_jmpIlc4E6ilfbGCRXEn5cgmIJ0_hquXRPVj7_Wj1NePfjcsyxBHhB_xTdpczas1ufZkknU-4EScEGagr5Z7cpro6n95xCIBGD2J_Du-_Mm6HK1EghrY8pn1yHBMO2pM7GZJN5TApPZqhynL5_Sr-ZUaZdvLKMcM138aIEmRgN1mQHaETzBv-IP9zSFTzhDQiNQNpKBgM8u0toww",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid",
+        "bad value"
+      ],
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid_authorization_claim",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "attribution-email-space",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiZml4dHVyZS1jbGllbnQtYXR0cmlidXRpb24iLCJlbWFpbCI6ImJhZCB2YWx1ZSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlfQ.b5oP82LmjcfADIqaFdgzlNIXSA4O0p9fXR8WT-5ykSoavBR3cWQpw31vfsmTSdZXejPx8nx37xbKLLJJd0cXeHVhV6mRQDN1rEgCVCCY96JUMx2SdVv-DxdpfW3ssBta09xnlNMeRfUQ3EgpWnbxi1eYc55WTR4N3XQjZ0fM95vp472xz5KW8GmNR-Wt2UvYLYMPKRFL9u-t_GxlKNrM112_xwuX-KoG5XJcO2YcUDohbQM1bysUVbswq7ExRQsuPZQvg3EukBwuBwLoJUoUqXqStGsB35ZPEZrYz5hXQHhteeqsseTm_Lf56_kzdLK_KfhjGoYTERdZfVBySKkEcw",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid",
+        "bad value"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": null,
+          "email_verified": true
+        }
+      }
+    },
+    {
+      "id": "attribution-azp-unicode",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiY2FmXHUwMGU5IiwiZW1haWwiOiJmaXh0dXJlLWF0dHJpYnV0aW9uQGV4YW1wbGUuaW52YWxpZCIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlfQ.cixHnXSC9Z6PUC2lDow_FkckLx17fI010FiLzPPEjijENgq4XNvAwKlLo7TmqOyl0Y5biot1q844WYLaJ8LjyuNks4btqPUckjsamuvQwc603LrV2UBRJxnnTediwpeWXGiLy4QoZkdcW_4PAVPoR4129akF--6XidR6QhaLh4-dSvkkWrs2rH-Fc7Mquq9NTAlfabMhU6Xbh8sqzo1bPGPZJ3VMOu51Cfp27wu2HPsYkyVm2nGJR0nGPTJ08UU67dQlrBRyxl8YIl3asfc9Fgxycq2mUmg__8S6M2NNXNkRtLuR-3tEfMJHFGwgyMrTmerDLmwhT-USZu6EStsb8w",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid",
+        "caf\u00e9"
+      ],
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid_authorization_claim",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "attribution-email-unicode",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiZml4dHVyZS1jbGllbnQtYXR0cmlidXRpb24iLCJlbWFpbCI6ImNhZlx1MDBlOSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlfQ.Azj9x11VAweEu2B3MLdMnYTTYmUrLhul9k8ydFvLwf3pPRaDnPTgSjHyC769NWdZOMgWCwHV99NBu-K8xneRaIaPy5QM3CAbriiYOulpZv6GaCPmWLkxIDy8o7hBYzaTFDy0OITlqyGcUxsaOxRJ1QVdqgPh0rSEI78433cj-whxBcfryS8tqfhChY7HKOaUs06WWhirduRuwq3lvmhKhUthc66h1BotQIPh5_pBVmojCOJIFvf1skTaYc0ApUCwBrDYXyBCtu2k4vfKnE4wXwa5cAEMOTdUPWIBC0fxlF0fataYDLp17MBKx8rRiydz-sOWXqBQNp1_iOV7wO8Svg",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid",
+        "caf\u00e9"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": null,
+          "email_verified": true
+        }
+      }
+    },
+    {
+      "id": "attribution-azp-empty",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiIiwiZW1haWwiOiJmaXh0dXJlLWF0dHJpYnV0aW9uQGV4YW1wbGUuaW52YWxpZCIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlfQ.eXLU4qTIN3T7AtqNcVLSVlaBjllHWIu21R74WtkOynkWrtRlvrLB7s16s7csRSpq7IH-o-uackyD1GrX6S2A7_ucS_6xa86gtOOcsYolgUyYFCYIjxSe6bRRSp_B04kcz_bQWhm5aA7Ys6kxxUMNxZDfwNJ6RTgGNXjkcXkGcTJZb9PLoEWtXijwvNMh0OcrstgJCPwbYCd2Pe-WhmppUBGxdJhGoH2CZ9F0KJhWJ_LpwOIUwVW2MtF1ga1k6tZ3eY0eSAtO5_-LZcytt0rbcUp9HHrgOJ4JcCnJuHVMdw5_kYSIgSR0dAn7Gg3SC9ImJGHeAtq_gCRwzDMnmM4_9A",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid_authorization_claim",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "attribution-email-empty",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiZml4dHVyZS1jbGllbnQtYXR0cmlidXRpb24iLCJlbWFpbCI6IiIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlfQ.J0ILDOpDMc_UZLRPbWuzHsZoGOKWd0Tuke62FFSs7lx1I6jTHMupweC9ib4lY8o4ZftjQSq-LViSG--jufivriuBxPXlyoJgnCBXn9PD45QblPA_ey6OOtxlIBCHkOb5js6p1nFqEOYt_fmzLTZy0j-_UvploJyM26RmxdOtyn36OubEZMa9OOE79KtbUXZLTpyGqSn9L9o2WqWxMZlLEjnuDZ-wo4AltYvY0vpbQ3wAA0WWtxHfwaMoXaY4lifwnpSvncg16RVOAoFB9oaGf15wgR2TUEIC8YfMZmF3G_ReRaWRJ177rfL7gwgS9dA3WfZ_50ZanlT7FPU8FsnFKg",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": null,
+          "email_verified": true
+        }
+      }
+    },
+    {
+      "id": "attribution-azp-type",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjo0MiwiZW1haWwiOiJmaXh0dXJlLWF0dHJpYnV0aW9uQGV4YW1wbGUuaW52YWxpZCIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlfQ.Zz4ojkyABFRnHOinQyIt8vxYXSYPmAtPlvLvoHBB9JriRuslpO3FGUIPkKxtVkKPvEh4BBq7JurZ3M-1vKtccg-Od1J47PzKIEhyG_HvoDznY1IGMttsNMU4Xmp1Kg5hErUQORmp9EbU6vAlDJpJHSrV7vVmPhh1sBrt8INbvRizr3XtJEByxVRdhqVNHNKPcJ6SJi1YAbnsjEtg_cgYxFQ1oo4ruq0qY6e3tMYJWP7t37SUhl_drXk89PP9rZ7lhZTvEfHcivUgxWbEeRtRzk5LdXKGadVQxs_Jdv9r1YZOLQpF7qugHuewOJgq-SjDuXHwj1L73Df8OS2Y3rf-Fw",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid_authorization_claim",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "attribution-email-type",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiZml4dHVyZS1jbGllbnQtYXR0cmlidXRpb24iLCJlbWFpbCI6NDIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlfQ.GeOYWHzYmB-qJHcb8gSqosYEkAS2WNTu8SW6hmzqFJJ7dx0Qdlibyk_NUdFcMPynQ4jK4fTDMhYEIIF1P8R6PM6IRzBhhxSM6qL0Ofp_2uCjGY1kdDwMCOKdOBFqqLpxeX2243cLJldMfqGfGW86JQhaQuMpfO-_4p_Q-92z5LrE_D6QrTGM6t0ar71rvDbYpnXmZPYWeYzsxMsI9AbpZW5MjxHkTMA52IGapKC4G6z1iD0U-7lapuXKVeaeOtc3v1o-FEKI8I4xyINMhi6yaU2LJqifnygHhmIEbx0YYAsmZHqhrVjCiVL1JCghhEvon9fL37WYany6iV-7V2FbUg",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": null,
+          "email_verified": true
+        }
+      }
+    },
+    {
+      "id": "attribution-tampered",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiZml4dHVyZS1jbGllbnQtYXR0cmlidXRpb24iLCJlbWFpbCI6ImZvcmdlZC1hdHRyaWJ1dGlvbkBleGFtcGxlLmludmFsaWQiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZX0.Vgi5TUZXUVX2xgzJMcAswHMKpD5mEwdo9vBUmN7VYAS0iWUyNQc6l4qOGfH498eqwkHglQW-IJHsBEfQsIdrJ8aDWqxnxj_58pP5chw970mih2yWqKydNRT5ZLrDN8mFF_v5J6s9yFUYJlBcNy_bxTGJSVdF-BrdazHytBc5yBv0QxDcf5t_4ok27RgJvQrBuTYF_er_mJmlBFKgmhejIY1yxzSNj4-oYpZ9dTI2WGA_-VIaNplCBQNlLxadFxRP2DrVmZi8EdmTBLKOoPYkGpkhqZG4RRm8oIlEgdPEwV-BAZnlW6f5_NdGz4DXbpjNmPVeKKpXUUSrFiLBcS4iDw",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid_signature",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "attribution-wrong-audience",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoib3V0c2lkZS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiZml4dHVyZS1jbGllbnQtYXR0cmlidXRpb24iLCJlbWFpbCI6ImZpeHR1cmUtYXR0cmlidXRpb25AZXhhbXBsZS5pbnZhbGlkIiwiZW1haWxfdmVyaWZpZWQiOnRydWV9.aisDKr_ZeOUCki-ne00a39L7mm-wuIdenMBUpAR8gpxpkQO7qMkBRLzJdX_mx4f7PT_A6grYaBw7RJJ4JMs26B-0AqTgG-NMLaFnOgcHM9YYmmrqZUXLK51sQUBumTVdjq5tDvcfQqG14xsWDrgJgDsMXSZ9FAUSKfyWtyECpXN9jfviORF93W5GL-BYxqQeKTMK0lJI1HL1JCv6rqkOkdIottkCuzhCx0k_9qCwEfhYLsSti9T0aDWxVD6p9-qna7k1UiKKa7pNGD5493gvbOadGMLMiQ-K0jDg7YiaelxtcoN7gFVaHibnAkth6a3BwIc89ddsD7fyYncX3To8JQ",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "rejected",
+        "error": "wrong_audience",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "attribution-wrong-issuer",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL291dHNpZGUuZml4dHVyZS5pbnZhbGlkIiwic3ViIjoiZml4dHVyZS11c2VyLTAwMSIsImF1ZCI6ImZvcnRlbWktZml4dHVyZSIsImlhdCI6MTY5OTk5OTk0MCwiZXhwIjoxNzAwMDAzNTQwLCJmb3J0ZW1pOnRlbmFudF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInNjb3BlIjoicmVhZCB3cml0ZSIsImF6cCI6ImZpeHR1cmUtY2xpZW50LWF0dHJpYnV0aW9uIiwiZW1haWwiOiJmaXh0dXJlLWF0dHJpYnV0aW9uQGV4YW1wbGUuaW52YWxpZCIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlfQ.MieJM1cbuULTSTwyi0v2zYd4t901is5cPZ3M02kHEgUVOniw_Ndi6Zz-KpJSH1ZiHh-6_6uUiRJNK0Cr15AkvbVQaiU8Rjzb0SGW41ak7swNka61Hq3AYAF31v5uxk2-Q60nAhcKThSpezgmKDy9DXP9IwaCICg662lZK9xHED2iKEHWoJgEEjVP8UWxrRXRyrveJDCpCxOXZA_aPspE8_cVlw2CaKZaT0cZreP8K6KkKXHY4JANcGxwXP4qdlWFkZCMAIY6SFn66NAHxA9yLXOBDa0mIiBlmW0s2-M6EEuQmi8aiRgdd8phP2pfca9Yl80gT3tbsycEFEE6NQlphQ",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "rejected",
+        "error": "wrong_issuer",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "attribution-expired",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk2MDAwLCJleHAiOjE2OTk5OTk2MDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiZml4dHVyZS1jbGllbnQtYXR0cmlidXRpb24iLCJlbWFpbCI6ImZpeHR1cmUtYXR0cmlidXRpb25AZXhhbXBsZS5pbnZhbGlkIiwiZW1haWxfdmVyaWZpZWQiOnRydWV9.hMunQua6HTXI0Yu_9a958ui4VpsqFS66N6aGzuEfnu3aD8HwoJdqBGAuJ2LCBkSUj-Ix7hZnokV7OtN243hZSN_UxK5n_JEG2AATsj6ANRn1zI3amQKdyWEztaaYCxLjOOigAadZIcduv25sEo-haAWKgPs-fb8W53ups-EC6ehV4PHwnGduZMjywGqJeCcIIfpnLnbC6LrVIU9Ekt0FZBDirb4JPd5WNltOyDN8CEHBTPycPxy23MLZ35qZZV3wng64qmqCV9ZzViObzb5RmF4pAS4Ovf1HqLD4QrHiXg-a5N0JqoWHKbqxVCQ4dL32GKmrZALsIsa2e4To2v0-Hg",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "rejected",
+        "error": "expired_token",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "attribution-multi-audience",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjpbImZvcnRlbWktZml4dHVyZSIsIm91dHNpZGUtZml4dHVyZSJdLCJpYXQiOjE2OTk5OTk5NDAsImV4cCI6MTcwMDAwMzU0MCwiZm9ydGVtaTp0ZW5hbnRfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJzY29wZSI6InJlYWQgd3JpdGUiLCJhenAiOiJmaXh0dXJlLWNsaWVudC1hdHRyaWJ1dGlvbiIsImVtYWlsIjoiZml4dHVyZS1hdHRyaWJ1dGlvbkBleGFtcGxlLmludmFsaWQiLCJlbWFpbF92ZXJpZmllZCI6dHJ1ZX0.Rbnh5uCeVdGtSEtubpVQdmgQ6_8ljauPLdBRI2mTr0qI9951hcNF-LuJkCg1F1YBn47_eNxFlX_Ld5o1LddQMgiLHvKDoc4euktzMx0resXPlx4GAmWv30k-BXTdXedYIIEymsrEylQoP5OtsgQqdmaInB3GyhsmEoZlwTCNWT7vS4EqTbERKgDTtHefq2pooLEwvzwLue8iSWKJx2BGiOIZcF2PMr770KzhUcmhDUwN4BRmri5Px0geqfH9ciCk5HEEb2nje9n3rvum3e8YKIHfSqmmEjG_xfC4ZVeukEe_QnKWcajV_u1_uWHnH0GPhDQZTpJYMjLyZGBm-tYefA",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "rejected",
+        "error": "wrong_audience",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "attribution-custom-client",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiYXpwIjoiZml4dHVyZS1jbGllbnQtYXR0cmlidXRpb24iLCJlbWFpbCI6ImZpeHR1cmUtYXR0cmlidXRpb25AZXhhbXBsZS5pbnZhbGlkIiwiZW1haWxfdmVyaWZpZWQiOnRydWUsImNsaWVudF9pZCI6ImFsdGVybmF0ZS1jbGllbnQifQ.J7d6A1rwXYtIi61j0ghKZRyEaSSsTFDU189E4a8TCcbHcKx5Cby_6yu4SlWV4Kxg2ma-cvWaTx2b2iIhJkYkvWtanOR70-I6RgRb6rpYO9bpGcNoD7oJE24xD94poBpUnI_LHwd3pZBzxs3CULAhguWhTMHYK-92OtwT7p6UM5vk2hORRWIM-cO4iceMWPvdf2QcaNOAoOr6GEeV7yjtwhW6Vp8bHs6iq2Ux5bmxTuBZDjNRyMbvt1iqXw4BCRlZkpUx7QgGIKNApWkhHlW_u9Z-5sYK-8weY7KydZ4vnne9C5NP6yZV1Ji9eNXe1eVtQ_jkc3C-IAtYo-mfcAFlwQ",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": "fixture-attribution@example.invalid",
+          "email_verified": true
+        }
+      }
+    },
+    {
+      "id": "attribution-custom-client-no-azp",
+      "token": "eyJhbGciOiJSUzI1NiIsImtpZCI6ImZpeHR1cmUtYXR0cmlidXRpb24ta2V5IiwidHlwIjoiYXQrand0In0.eyJpc3MiOiJodHRwczovL2lzc3Vlci5maXh0dXJlLmludmFsaWQiLCJzdWIiOiJmaXh0dXJlLXVzZXItMDAxIiwiYXVkIjoiZm9ydGVtaS1maXh0dXJlIiwiaWF0IjoxNjk5OTk5OTQwLCJleHAiOjE3MDAwMDM1NDAsImZvcnRlbWk6dGVuYW50X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwic2NvcGUiOiJyZWFkIHdyaXRlIiwiY2xpZW50X2lkIjoiYWx0ZXJuYXRlLWNsaWVudCIsImVtYWlsIjoiZml4dHVyZS1hdHRyaWJ1dGlvbkBleGFtcGxlLmludmFsaWQifQ.Mg85OHMq0sEQqKWKPHXXX_OaQ1rRLMqgYa7KK5csVqewrSduiitKgFoUv2ApWOOBh3_F0a-nEODJJmYbgbtu2_hm_bNKqEnI_6aBn3ctFpdB9_9321riYoBJjRYwIN21DfeGWeefQQE4kithRiF5BOzeRBJrffUIA-lVjx9N_6y0kPVtn1Wzn0tM7r3xhsfJRYZs101JGsbf0cQdB0FHdkot4mOvct4dniWhKhSsO_BbXdPr8T-C41x24L8ppDl_6RmDEfKjPsxZgIpJQ4GE25k3HDEoEragPq12RLDEQ1u8m4F_PItT6xXRzoFiG5RV4jyzOd9_V7DINM7VDgB6Jw",
+      "redaction_sentinels": [
+        "fixture-client-attribution",
+        "fixture-attribution@example.invalid",
+        "forged-attribution@example.invalid"
+      ],
+      "expected": {
+        "outcome": "accepted",
+        "tenant_id": "00000000-0000-4000-8000-000000000001",
+        "principal_id": "fixture-user-001",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "key_id": "fixture-attribution-key",
+        "token_attribution": {
+          "azp": null,
+          "email": "fixture-attribution@example.invalid",
+          "email_verified": null
+        }
+      }
+    }
+  ],
+  "claim_policy_cases": [
+    {
+      "id": "mapped-group",
+      "policy": {
+        "scope_mapping": {
+          "claim": "realm_access.roles",
+          "rules": [
+            {
+              "id": "kc-readers",
+              "value": "fortemi-read",
+              "scopes": [
+                "read"
+              ]
+            },
+            {
+              "id": "kc-writers",
+              "value": "fortemi-write",
+              "scopes": [
+                "read",
+                "write"
+              ]
+            },
+            {
+              "id": "kc-agents",
+              "value": "fortemi-mcp",
+              "scopes": [
+                "mcp"
+              ]
+            }
+          ]
+        }
+      },
+      "token_scopes": [
+        "openid"
+      ],
+      "claims": {
+        "realm_access": {
+          "roles": [
+            "fortemi-read",
+            "offline_access"
+          ]
+        }
+      },
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [
+          "read"
+        ],
+        "scope_grants": [
+          "kc-readers"
+        ],
+        "principal_kind": "human"
+      }
+    },
+    {
+      "id": "multiple-groups-union",
+      "policy": {
+        "scope_mapping": {
+          "claim": "realm_access.roles",
+          "rules": [
+            {
+              "id": "kc-readers",
+              "value": "fortemi-read",
+              "scopes": [
+                "read"
+              ]
+            },
+            {
+              "id": "kc-writers",
+              "value": "fortemi-write",
+              "scopes": [
+                "read",
+                "write"
+              ]
+            },
+            {
+              "id": "kc-agents",
+              "value": "fortemi-mcp",
+              "scopes": [
+                "mcp"
+              ]
+            }
+          ]
+        }
+      },
+      "token_scopes": [],
+      "claims": {
+        "realm_access": {
+          "roles": [
+            "fortemi-mcp",
+            "fortemi-write",
+            "fortemi-read"
+          ]
+        }
+      },
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [
+          "mcp",
+          "read",
+          "write"
+        ],
+        "scope_grants": [
+          "kc-agents",
+          "kc-readers",
+          "kc-writers"
+        ],
+        "principal_kind": "human"
+      }
+    },
+    {
+      "id": "unmapped-denies",
+      "policy": {
+        "scope_mapping": {
+          "claim": "realm_access.roles",
+          "rules": [
+            {
+              "id": "kc-readers",
+              "value": "fortemi-read",
+              "scopes": [
+                "read"
+              ]
+            },
+            {
+              "id": "kc-writers",
+              "value": "fortemi-write",
+              "scopes": [
+                "read",
+                "write"
+              ]
+            },
+            {
+              "id": "kc-agents",
+              "value": "fortemi-mcp",
+              "scopes": [
+                "mcp"
+              ]
+            }
+          ]
+        }
+      },
+      "token_scopes": [
+        "read",
+        "write"
+      ],
+      "claims": {
+        "realm_access": {
+          "roles": [
+            "FORTEMI-READ",
+            "offline_access"
+          ]
+        }
+      },
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [],
+        "scope_grants": [],
+        "principal_kind": "human"
+      }
+    },
+    {
+      "id": "absent-claim-denies",
+      "policy": {
+        "scope_mapping": {
+          "claim": "realm_access.roles",
+          "rules": [
+            {
+              "id": "kc-readers",
+              "value": "fortemi-read",
+              "scopes": [
+                "read"
+              ]
+            },
+            {
+              "id": "kc-writers",
+              "value": "fortemi-write",
+              "scopes": [
+                "read",
+                "write"
+              ]
+            },
+            {
+              "id": "kc-agents",
+              "value": "fortemi-mcp",
+              "scopes": [
+                "mcp"
+              ]
+            }
+          ]
+        }
+      },
+      "token_scopes": [
+        "read"
+      ],
+      "claims": {},
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [],
+        "scope_grants": [],
+        "principal_kind": "human"
+      }
+    },
+    {
+      "id": "single-string-is-one-value",
+      "policy": {
+        "scope_mapping": {
+          "claim": "realm_access.roles",
+          "rules": [
+            {
+              "id": "kc-readers",
+              "value": "fortemi-read",
+              "scopes": [
+                "read"
+              ]
+            },
+            {
+              "id": "kc-writers",
+              "value": "fortemi-write",
+              "scopes": [
+                "read",
+                "write"
+              ]
+            },
+            {
+              "id": "kc-agents",
+              "value": "fortemi-mcp",
+              "scopes": [
+                "mcp"
+              ]
+            }
+          ]
+        }
+      },
+      "token_scopes": [],
+      "claims": {
+        "realm_access": {
+          "roles": "fortemi-read fortemi-write"
+        }
+      },
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [],
+        "scope_grants": [],
+        "principal_kind": "human"
+      }
+    },
+    {
+      "id": "malformed-array-member",
+      "policy": {
+        "scope_mapping": {
+          "claim": "realm_access.roles",
+          "rules": [
+            {
+              "id": "kc-readers",
+              "value": "fortemi-read",
+              "scopes": [
+                "read"
+              ]
+            },
+            {
+              "id": "kc-writers",
+              "value": "fortemi-write",
+              "scopes": [
+                "read",
+                "write"
+              ]
+            },
+            {
+              "id": "kc-agents",
+              "value": "fortemi-mcp",
+              "scopes": [
+                "mcp"
+              ]
+            }
+          ]
+        }
+      },
+      "token_scopes": [],
+      "claims": {
+        "realm_access": {
+          "roles": [
+            "fortemi-read",
+            7
+          ]
+        }
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid_authorization_claim"
+      }
+    },
+    {
+      "id": "malformed-intermediate",
+      "policy": {
+        "scope_mapping": {
+          "claim": "realm_access.roles",
+          "rules": [
+            {
+              "id": "kc-readers",
+              "value": "fortemi-read",
+              "scopes": [
+                "read"
+              ]
+            },
+            {
+              "id": "kc-writers",
+              "value": "fortemi-write",
+              "scopes": [
+                "read",
+                "write"
+              ]
+            },
+            {
+              "id": "kc-agents",
+              "value": "fortemi-mcp",
+              "scopes": [
+                "mcp"
+              ]
+            }
+          ]
+        }
+      },
+      "token_scopes": [],
+      "claims": {
+        "realm_access": "fortemi-read"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid_authorization_claim"
+      }
+    },
+    {
+      "id": "json-pointer-dotted-client",
+      "policy": {
+        "scope_mapping": {
+          "claim": "/resource_access/fortemi.api/roles",
+          "rules": [
+            {
+              "id": "client-admin",
+              "value": "admin",
+              "scopes": [
+                "admin"
+              ]
+            }
+          ]
+        }
+      },
+      "token_scopes": [],
+      "claims": {
+        "resource_access": {
+          "fortemi.api": {
+            "roles": [
+              "admin"
+            ]
+          }
+        }
+      },
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [
+          "admin"
+        ],
+        "scope_grants": [
+          "client-admin"
+        ],
+        "principal_kind": "human"
+      }
+    },
+    {
+      "id": "union-source",
+      "policy": {
+        "scope_source": "union",
+        "scope_mapping": {
+          "claim": "groups",
+          "rules": [
+            {
+              "id": "staff",
+              "value": "/acme/staff",
+              "scopes": [
+                "read",
+                "openid"
+              ]
+            }
+          ]
+        },
+        "allow_token_scopes": true
+      },
+      "token_scopes": [
+        "openid",
+        "profile"
+      ],
+      "claims": {
+        "groups": [
+          "/acme/staff"
+        ]
+      },
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [
+          "read"
+        ],
+        "scope_grants": [
+          "staff"
+        ],
+        "principal_kind": "human"
+      }
+    },
+    {
+      "id": "service-client-allowlisted",
+      "policy": {
+        "clients": {
+          "allowed": [
+            "fortemi-web"
+          ],
+          "service": [
+            "fortemi-etl"
+          ]
+        },
+        "allow_token_scopes": true
+      },
+      "token_scopes": [
+        "read"
+      ],
+      "claims": {
+        "sub": "service-account-fortemi-etl",
+        "azp": "fortemi-etl",
+        "client_id": "fortemi-etl"
+      },
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [
+          "read"
+        ],
+        "scope_grants": [],
+        "principal_kind": "service"
+      }
+    },
+    {
+      "id": "human-client-allowlisted",
+      "policy": {
+        "clients": {
+          "allowed": [
+            "fortemi-web"
+          ],
+          "service": [
+            "fortemi-etl"
+          ]
+        },
+        "allow_token_scopes": true
+      },
+      "token_scopes": [
+        "read"
+      ],
+      "claims": {
+        "sub": "user-1",
+        "azp": "fortemi-web"
+      },
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [
+          "read"
+        ],
+        "scope_grants": [],
+        "principal_kind": "human"
+      }
+    },
+    {
+      "id": "client-not-listed",
+      "policy": {
+        "clients": {
+          "allowed": [
+            "fortemi-web"
+          ],
+          "service": [
+            "fortemi-etl"
+          ]
+        },
+        "allow_token_scopes": true
+      },
+      "token_scopes": [
+        "read"
+      ],
+      "claims": {
+        "sub": "user-1",
+        "azp": "other-client"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "client_not_allowed"
+      }
+    },
+    {
+      "id": "client-absent-with-allowlist",
+      "policy": {
+        "clients": {
+          "allowed": [
+            "fortemi-web"
+          ]
+        },
+        "allow_token_scopes": true
+      },
+      "token_scopes": [
+        "read"
+      ],
+      "claims": {
+        "sub": "user-1"
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "client_not_allowed"
+      }
+    },
+    {
+      "id": "client-claim-wrong-type",
+      "policy": {
+        "clients": {
+          "service": [
+            "fortemi-etl"
+          ]
+        },
+        "allow_token_scopes": true
+      },
+      "token_scopes": [
+        "read"
+      ],
+      "claims": {
+        "azp": [
+          "fortemi-etl"
+        ]
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid_authorization_claim"
+      }
+    },
+    {
+      "id": "invalid-policy-duplicate-rule",
+      "policy": {
+        "scope_mapping": {
+          "claim": "groups",
+          "rules": [
+            {
+              "id": "r",
+              "value": "a",
+              "scopes": [
+                "read"
+              ]
+            },
+            {
+              "id": "r",
+              "value": "b",
+              "scopes": [
+                "read"
+              ]
+            }
+          ]
+        }
+      },
+      "token_scopes": [],
+      "claims": {},
+      "expected": {
+        "outcome": "config_rejected",
+        "error": "config_error"
+      }
+    },
+    {
+      "id": "invalid-policy-token-source-with-mapping",
+      "policy": {
+        "scope_source": "token",
+        "scope_mapping": {
+          "claim": "groups",
+          "rules": [
+            {
+              "id": "r",
+              "value": "a",
+              "scopes": [
+                "read"
+              ]
+            }
+          ]
+        }
+      },
+      "token_scopes": [],
+      "claims": {},
+      "expected": {
+        "outcome": "config_rejected",
+        "error": "config_error"
+      }
+    }
+  ],
+  "provider_policy_cases": [
+    {
+      "id": "signed-token-unmapped-groups",
+      "token_case": "valid",
+      "policy": {
+        "scope_mapping": {
+          "claim": "groups",
+          "rules": [
+            {
+              "id": "staff",
+              "value": "/acme/staff",
+              "scopes": [
+                "read:note"
+              ]
+            }
+          ]
+        }
+      },
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [],
+        "scope_grants": [],
+        "principal_kind": "human",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "signed-token-union-keeps-token-scopes",
+      "token_case": "valid",
+      "policy": {
+        "scope_source": "union",
+        "scope_mapping": {
+          "claim": "groups",
+          "rules": [
+            {
+              "id": "staff",
+              "value": "/acme/staff",
+              "scopes": [
+                "read:note"
+              ]
+            }
+          ]
+        },
+        "allow_token_scopes": true
+      },
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "scope_grants": [],
+        "principal_kind": "human",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "signed-token-client-allowlist-rejects-missing-azp",
+      "token_case": "valid",
+      "policy": {
+        "clients": {
+          "allowed": [
+            "fortemi-web"
+          ]
+        },
+        "allow_token_scopes": true
+      },
+      "expected": {
+        "outcome": "rejected",
+        "error": "client_not_allowed",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "signed-token-service-by-configured-claim",
+      "token_case": "valid",
+      "policy": {
+        "clients": {
+          "claim": "sub",
+          "service": [
+            "fixture-user-001"
+          ],
+          "service_marker_claim": "jti"
+        },
+        "allow_token_scopes": true
+      },
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "scope_grants": [],
+        "principal_kind": "service",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "attribution-policy-allowed",
+      "token_case": "attribution-present",
+      "policy": {
+        "clients": {
+          "allowed": [
+            "fixture-client-attribution"
+          ]
+        },
+        "allow_token_scopes": true
+      },
+      "allow_multi_audience": false,
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "scope_grants": [],
+        "principal_kind": "human",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": "fixture-attribution@example.invalid",
+          "email_verified": true
+        }
+      }
+    },
+    {
+      "id": "attribution-policy-denied",
+      "token_case": "attribution-present",
+      "policy": {
+        "clients": {
+          "allowed": [
+            "other-client"
+          ]
+        },
+        "allow_token_scopes": true
+      },
+      "allow_multi_audience": false,
+      "expected": {
+        "outcome": "rejected",
+        "error": "client_not_allowed",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "attribution-policy-multi-allowed",
+      "token_case": "attribution-multi-audience",
+      "policy": {
+        "clients": {
+          "allowed": [
+            "fixture-client-attribution"
+          ]
+        },
+        "allow_token_scopes": true
+      },
+      "allow_multi_audience": true,
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "scope_grants": [],
+        "principal_kind": "human",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": "fixture-attribution@example.invalid",
+          "email_verified": true
+        }
+      }
+    },
+    {
+      "id": "attribution-policy-multi-denied",
+      "token_case": "attribution-multi-audience",
+      "policy": {
+        "clients": {
+          "allowed": [
+            "other-client"
+          ]
+        },
+        "allow_token_scopes": true
+      },
+      "allow_multi_audience": true,
+      "expected": {
+        "outcome": "rejected",
+        "error": "wrong_audience",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "attribution-policy-custom-client",
+      "token_case": "attribution-custom-client",
+      "policy": {
+        "clients": {
+          "claim": "client_id",
+          "allowed": [
+            "alternate-client"
+          ]
+        },
+        "allow_token_scopes": true
+      },
+      "allow_multi_audience": false,
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "scope_grants": [],
+        "principal_kind": "human",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": "fixture-attribution@example.invalid",
+          "email_verified": true
+        }
+      }
+    },
+    {
+      "id": "attribution-policy-custom-client-no-azp",
+      "token_case": "attribution-custom-client-no-azp",
+      "policy": {
+        "clients": {
+          "claim": "client_id",
+          "allowed": [
+            "alternate-client"
+          ]
+        },
+        "allow_token_scopes": true
+      },
+      "allow_multi_audience": false,
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "scope_grants": [],
+        "principal_kind": "human",
+        "token_attribution": {
+          "azp": null,
+          "email": "fixture-attribution@example.invalid",
+          "email_verified": null
+        }
+      }
+    },
+    {
+      "id": "attribution-policy-custom-client-invalid-azp",
+      "token_case": "attribution-azp-type",
+      "policy": {
+        "clients": {
+          "claim": "sub",
+          "allowed": [
+            "fixture-user-001"
+          ]
+        },
+        "allow_token_scopes": true
+      },
+      "allow_multi_audience": false,
+      "expected": {
+        "outcome": "rejected",
+        "error": "invalid_authorization_claim",
+        "token_attribution": null
+      }
+    },
+    {
+      "id": "attribution-policy-email-oversized",
+      "token_case": "attribution-email-oversized",
+      "policy": {
+        "clients": {
+          "allowed": [
+            "fixture-client-attribution"
+          ]
+        },
+        "allow_token_scopes": true
+      },
+      "allow_multi_audience": false,
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "scope_grants": [],
+        "principal_kind": "human",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": null,
+          "email_verified": true
+        }
+      }
+    },
+    {
+      "id": "attribution-policy-verification-string-true",
+      "token_case": "attribution-verification-string-true",
+      "policy": {
+        "clients": {
+          "allowed": [
+            "fixture-client-attribution"
+          ]
+        },
+        "allow_token_scopes": true
+      },
+      "allow_multi_audience": false,
+      "expected": {
+        "outcome": "accepted",
+        "scopes": [
+          "read",
+          "write"
+        ],
+        "scope_grants": [],
+        "principal_kind": "human",
+        "token_attribution": {
+          "azp": "fixture-client-attribution",
+          "email": "fixture-attribution@example.invalid",
+          "email_verified": null
+        }
+      }
+    }
+  ]
+}
