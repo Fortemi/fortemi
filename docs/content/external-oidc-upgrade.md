@@ -174,12 +174,14 @@ With memories `research` and `archive_research`, `research` and `archive_researc
 both address the first memory; use `archive_archive_research` for the second.
 Each request changes only the resolved memory's canonical persisted pause key.
 
-Set both URLs explicitly, with the original owner and runtime passwords
-URL-encoded in your secret manager:
+Set both URLs explicitly from your secret manager. `MIGRATION_DATABASE_URL`
+connects as the original owner role (`matric`) and `DATABASE_URL` as the
+restricted runtime role (`fortemi_runtime`), both to the same database, with
+URL-encoded passwords:
 
 ```text
-MIGRATION_DATABASE_URL=postgresql://matric:<encoded-owner-password>@127.0.0.1:5432/matric
-DATABASE_URL=postgresql://fortemi_runtime:<encoded-runtime-password>@127.0.0.1:5432/matric
+MIGRATION_DATABASE_URL=<MIGRATION_DATABASE_URL>
+DATABASE_URL=<DATABASE_URL>
 ```
 
 With an IdP access token whose claim policy grants `admin`, validate provisioning
