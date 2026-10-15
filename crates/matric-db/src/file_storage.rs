@@ -3343,6 +3343,19 @@ mod sweep_tests {
     use super::*;
     use std::time::Duration;
 
+    /// The sweep threshold in these tests. Files are made older than it by
+    /// setting their mtime, so the outcome does not depend on host speed (#1218).
+    const SWEEP_AGE: Duration = Duration::from_secs(3600);
+
+    fn make_stale(path: &std::path::Path) {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - 2 * SWEEP_AGE)
+            .unwrap();
+    }
+
     async fn stage_bytes(
         backend: &FilesystemBackend,
         blob_id: Uuid,
@@ -4093,13 +4106,17 @@ mod sweep_tests {
         tokio::fs::write(&invalid_identifier, b"unrelated")
             .await
             .unwrap();
-
-        tokio::time::sleep(Duration::from_millis(250)).await;
+        for path in [
+            backend.staged_shard_blob_path(&stale.blob_id()),
+            stale_temp.clone(),
+            unrelated.clone(),
+            invalid_identifier.clone(),
+        ] {
+            make_stale(&path);
+        }
         let fresh = stage_bytes(&backend, Uuid::now_v7(), b"fresh").await;
 
-        let removed = backend
-            .sweep_staged_shard_blobs(Duration::from_millis(100))
-            .await;
+        let removed = backend.sweep_staged_shard_blobs(SWEEP_AGE).await;
 
         assert_eq!(removed, 2, "stale verified and temp files are removed");
         assert!(!backend.staged_shard_blob_path(&stale.blob_id()).exists());
@@ -4121,15 +4138,15 @@ mod sweep_tests {
 
     /// Sweeper removes `.bin.tmp` files older than the threshold and leaves
     /// fresh `.bin.tmp` files alone (in-flight writes from concurrent uploads).
-    /// Distinguishes "stale" from "fresh" via real-time sleep + the threshold,
-    /// avoiding any platform-specific mtime-manipulation dependency.
+    /// Distinguishes "stale" from "fresh" by setting mtimes with the standard
+    /// library, not by sleeping past a short threshold.
     #[tokio::test]
     async fn sweep_removes_stale_bin_tmp_only() {
         let tmp = tempfile::tempdir().unwrap();
         let backend = FilesystemBackend::new(tmp.path());
 
         // Layout:
-        //   blobs/aa/bb/stale.bin.tmp     — written first, MUST be swept after sleep
+        //   blobs/aa/bb/stale.bin.tmp     — aged past the threshold, MUST be swept
         //   blobs/aa/bb/finalized.bin     — committed file, MUST be kept (wrong ext)
         //   blobs/aa/bb/unrelated.tmp     — not our extension, MUST be kept
         let blobs = tmp.path().join("blobs/aa/bb");
@@ -4141,15 +4158,15 @@ mod sweep_tests {
         tokio::fs::write(&final_file, b"x").await.unwrap();
         tokio::fs::write(&unrelated, b"x").await.unwrap();
 
-        // Wait so `stale` is older than the 100ms threshold.
-        tokio::time::sleep(Duration::from_millis(250)).await;
+        for path in [&stale, &final_file, &unrelated] {
+            make_stale(path);
+        }
 
-        // Now create a `fresh.bin.tmp` after the sleep — it must survive
-        // because its mtime is newer than (now - 100ms).
+        // A `fresh.bin.tmp` keeps its current mtime and must survive.
         let fresh = blobs.join("fresh.bin.tmp");
         tokio::fs::write(&fresh, b"x").await.unwrap();
 
-        let removed = backend.sweep_temp_files(Duration::from_millis(100)).await;
+        let removed = backend.sweep_temp_files(SWEEP_AGE).await;
         assert_eq!(removed, 1, "exactly 1 stale .bin.tmp swept");
         assert!(!stale.exists(), "stale .bin.tmp removed");
         assert!(fresh.exists(), "fresh .bin.tmp kept (in-flight write)");
