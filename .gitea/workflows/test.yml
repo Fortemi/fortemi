@@ -398,6 +398,12 @@ jobs:
       - name: Setup Redis for SSE token tests
         run: bash scripts/ci/test-redis.sh start "matric-coverage-redis-${GITHUB_RUN_ID}"
 
+      # --all-features compiles the hosted MCP regression tests, which need
+      # the locked mcp-server dependencies.
+      - name: Install locked MCP test dependencies
+        working-directory: mcp-server
+        run: npm ci --ignore-scripts --no-fund --no-audit
+
       - name: Install llvm-cov
         run: |
           cargo install cargo-llvm-cov || true
