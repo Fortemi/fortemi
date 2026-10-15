@@ -29,7 +29,12 @@ fn unique_slug() -> String {
 
 async fn cleanup_tenant(pool: &PgPool, tenant: Uuid) {
     let mut tx = pool.begin().await.unwrap();
-    for table in ["embedding_set", "embedding_config", "skos_concept_scheme"] {
+    for table in [
+        "document_type",
+        "embedding_set",
+        "embedding_config",
+        "skos_concept_scheme",
+    ] {
         sqlx::query(&format!("DELETE FROM public.{table} WHERE tenant_id=$1"))
             .bind(tenant)
             .execute(&mut *tx)
