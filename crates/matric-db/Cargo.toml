@@ -18,6 +18,11 @@ path = "tests/feb_to_current_migration_gate.rs"
 required-features = ["migrations"]
 
 [[test]]
+name = "community_migration_test"
+path = "tests/community_migration_test.rs"
+required-features = ["migrations"]
+
+[[test]]
 name = "tenant_isolation_test"
 path = "tests/tenant_isolation_test.rs"
 required-features = ["migrations"]

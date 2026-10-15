@@ -13,6 +13,9 @@ from pathlib import Path
 MIGRATION_PREFIX = "migrations/"
 CANONICAL_RESTORE_SHA384 = {
     "migrations/20260215000000_native_uuidv7.sql": "c4a8d7097ce200e9bd39d7bd70882403119c1181bbfa5999335d48ebd087e9703587297347bbef014974cb1699f07772",
+    # Unreleased #1207: defer PAT query planning so NOBYPASSRLS bundle owners
+    # can migrate. Exact old checksums are repaired in the bundle and DB runner.
+    "migrations/20261014050000_pat_tenant_lookup.sql": "3470572b226ad5752fa3bb78077d81584899d1859596588ee06a0173823425621f095ecd0e87484a92e0a6b915ccb925",
 }
 
 

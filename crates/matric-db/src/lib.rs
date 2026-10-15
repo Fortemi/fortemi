@@ -620,7 +620,9 @@ impl Database {
     /// validates all applied migration checksums before running pending
     /// migrations, so we repair only exact known legacy checksums and mark split
     /// seed migrations as applied only when their data/schema evidence already
-    /// exists.
+    /// exists. The unreleased #1207 PAT lookup also changed from SQL to
+    /// PL/pgSQL so NOBYPASSRLS community owners can migrate; repair only its
+    /// exact successfully applied old checksum, as for the canonical restores.
     #[cfg(feature = "migrations")]
     async fn repair_legacy_migration_history(&self) -> Result<()> {
         let has_migrations_table: bool =
@@ -687,7 +689,8 @@ impl Database {
                   (20260204300000::bigint, '3124b8d2f897b6975d13a505d26d521c77d385e3249bceb62e51a561e54797aeb53caedf301c8af07e0625f1e723577f', 'f1ca1202710adb96d33fdb44b954997ba2d2562758d295dd6267dd698010218c33bbd2f21cb8d9718235feba03b93eb4'),
                   (20260204400000::bigint, 'a04dd06d6564f4a3b76507555300c0973cb2ec5b5a05493cd48ce0c0adfb7cae42c216f7efdcde5ff5023014837c1211', '6cd49a208083d58085e8f56ae965472549b003895bddfe19995a234013e8e80b12315796bbc2d85538ea71a62c49237b'),
                   (20260205000000::bigint, '129709ef75d569f09f6ccd6dd37dcba50c21d0bcf906f56569b9f848cb8cd64a338461f2e3886896989167ddc77d6dec', '299534b2f551486fc188eddc173f58088fe00823afffbc76f2f9bc44bc558ca2fb6c337c5a40158b3e2f43c5a5d65e1a'),
-                  (20260215000000::bigint, '2bdad6ec8fffbe68cde85e0e749ac510ef319b694aa15dee71bcae3ad13b3db2f8b317f7ef2b393ea27e432b5f33872c', 'c4a8d7097ce200e9bd39d7bd70882403119c1181bbfa5999335d48ebd087e9703587297347bbef014974cb1699f07772')
+                  (20260215000000::bigint, '2bdad6ec8fffbe68cde85e0e749ac510ef319b694aa15dee71bcae3ad13b3db2f8b317f7ef2b393ea27e432b5f33872c', 'c4a8d7097ce200e9bd39d7bd70882403119c1181bbfa5999335d48ebd087e9703587297347bbef014974cb1699f07772'),
+                  (20261014050000::bigint, 'e95e56f3cc4829c7deaec70c908e8128ee720b9503650479a91253ce87d47461538d6adf8218caa4cddc6cc3d282b0d5', '3470572b226ad5752fa3bb78077d81584899d1859596588ee06a0173823425621f095ecd0e87484a92e0a6b915ccb925')
               )
               UPDATE public._sqlx_migrations AS migration
                  SET checksum = decode(repairs.new_sha384, 'hex')

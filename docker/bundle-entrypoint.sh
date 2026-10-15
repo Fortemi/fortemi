@@ -357,6 +357,9 @@ ensure_pre_migration_backup
 
 # One-time repair for deployments that applied the briefly modified
 # 20260215000000 migration from 10d2601f before the file was restored.
+# Also repair the unreleased #1207 PAT lookup's SQL-to-PL/pgSQL change:
+# creation must work for NOBYPASSRLS owners; runtime security is unchanged.
+# Only the exact successfully applied old checksum is eligible, as above.
 # sqlx stores SHA-384 bytes in _sqlx_migrations.checksum and validates them
 # before pending migrations can run.
 echo ">>> Checking migration checksum repair..."
@@ -372,6 +375,12 @@ BEGIN
    WHERE version = 20260215000000
      AND success = true
      AND checksum = decode('2bdad6ec8fffbe68cde85e0e749ac510ef319b694aa15dee71bcae3ad13b3db2f8b317f7ef2b393ea27e432b5f33872c', 'hex');
+
+  UPDATE public._sqlx_migrations
+     SET checksum = decode('3470572b226ad5752fa3bb78077d81584899d1859596588ee06a0173823425621f095ecd0e87484a92e0a6b915ccb925', 'hex')
+   WHERE version = 20261014050000
+     AND success = true
+     AND checksum = decode('e95e56f3cc4829c7deaec70c908e8128ee720b9503650479a91253ce87d47461538d6adf8218caa4cddc6cc3d282b0d5', 'hex');
 END $$;
 SQL
 
