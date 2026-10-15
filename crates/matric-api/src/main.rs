@@ -2054,12 +2054,14 @@ fn apply_openapi_route_security(value: &mut serde_yaml::Value) {
                     .and_then(serde_yaml::Value::as_mapping_mut)
                     .expect("OpenAPI responses must be a mapping");
                 responses.entry(yaml_key("403")).or_insert_with(|| {
-                    serde_yaml::to_value(serde_json::json!({
+                    // serde_json preserve_order is feature-dependent; the published
+                    // contract must not change with the build's feature set.
+                    serde_yaml::to_value(canonicalize_json_value(serde_json::json!({
                         "description": "Complete-catalog archive access required (in addition to route scopes)",
                         "content": {"application/problem+json": {"schema": {
                             "$ref": "#/components/schemas/ProblemDetails"
                         }}}
-                    })).expect("Archive denial response must serialize")
+                    }))).expect("Archive denial response must serialize")
                 });
             }
             let requirement = if path == "/api/v1/events" && *method == "get" {
@@ -82939,6 +82941,27 @@ not-json
                 .as_str(),
             Some("Public")
         );
+        // The published contract is byte-compared against the running image, whose
+        // features enable serde_json preserve_order; key order must be canonical.
+        let injected = "Complete-catalog archive access required (in addition to route scopes)";
+        let mut checked = 0;
+        for path_item in document["paths"].as_mapping().unwrap().values() {
+            for operation in path_item.as_mapping().unwrap().values() {
+                let denial = &operation["responses"]["403"];
+                if denial["description"].as_str() != Some(injected) {
+                    continue;
+                }
+                let keys: Vec<_> = denial
+                    .as_mapping()
+                    .unwrap()
+                    .keys()
+                    .filter_map(serde_yaml::Value::as_str)
+                    .collect();
+                assert_eq!(keys, ["content", "description"]);
+                checked += 1;
+            }
+        }
+        assert!(checked > 0, "complete-catalog routes document their 403");
     }
 
     #[test]
