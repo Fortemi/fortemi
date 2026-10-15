@@ -72,6 +72,14 @@ pub enum EventStreamParent {
     Oidc(String),
 }
 
+/// Identity captured by the authenticated mint endpoint for policy rechecks.
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IngestIdentity {
+    pub principal: matric_core::AuthPrincipal,
+    pub tenant_id: Option<Uuid>,
+    pub user_id: Option<Uuid>,
+}
+
 /// The persisted record for a stream token. Holds no token secret; the `token_id`
 /// is a non-secret handle for revocation.
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -92,6 +100,8 @@ pub struct IngestTokenData {
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
     #[serde(default)]
     pub event_identity: Option<EventStreamIdentity>,
+    #[serde(default)]
+    pub ingest_identity: Option<IngestIdentity>,
 }
 
 impl std::fmt::Debug for IngestTokenData {
@@ -241,13 +251,31 @@ impl IngestTokenStore {
     /// (lines/sec; 0 = unlimited). Returns `None` when Redis is unavailable (the
     /// caller surfaces `503`). The secret token is returned exactly once.
     pub async fn mint(&self, schema: &str, rate_limit: u64) -> Option<MintedIngestToken> {
+        self.mint_ingest(
+            schema,
+            rate_limit,
+            IngestIdentity {
+                principal: matric_core::AuthPrincipal::Anonymous,
+                tenant_id: None,
+                user_id: None,
+            },
+        )
+        .await
+    }
+
+    pub async fn mint_ingest(
+        &self,
+        schema: &str,
+        rate_limit: u64,
+        identity: IngestIdentity,
+    ) -> Option<MintedIngestToken> {
         self.mint_for_audience(
             schema,
             rate_limit,
             INGEST_TOKEN_AUDIENCE,
             "",
             "mm_ist_",
-            None,
+            (None, Some(identity)),
         )
         .await
     }
@@ -265,7 +293,7 @@ impl IngestTokenStore {
             EVENT_SSE_TOKEN_AUDIENCE,
             &scope,
             "mm_est_",
-            Some(identity),
+            (Some(identity), None),
         )
         .await
     }
@@ -277,8 +305,9 @@ impl IngestTokenStore {
         audience: &str,
         scope: &str,
         token_prefix: &str,
-        event_identity: Option<EventStreamIdentity>,
+        identities: (Option<EventStreamIdentity>, Option<IngestIdentity>),
     ) -> Option<MintedIngestToken> {
+        let (event_identity, ingest_identity) = identities;
         let mut guard = self.inner.connection.write().await;
         let conn = guard.as_mut()?;
 
@@ -304,6 +333,7 @@ impl IngestTokenStore {
             scope: scope.to_string(),
             expires_at: Some(expires_at),
             event_identity,
+            ingest_identity,
         };
         let json = serde_json::to_string(&data).ok()?;
 
@@ -505,6 +535,7 @@ mod tests {
             scope: String::new(),
             expires_at: None,
             event_identity: None,
+            ingest_identity: None,
         };
         let json = serde_json::to_string(&data).unwrap();
         let back: IngestTokenData = serde_json::from_str(&json).unwrap();
@@ -530,6 +561,7 @@ mod tests {
             scope: "admin private.scope.sk-live-secret".to_string(),
             expires_at: None,
             event_identity: None,
+            ingest_identity: None,
         };
 
         let rendered = format!("{data:?}");

@@ -8539,6 +8539,8 @@ mod tests {
             "payload.url contained https://provider.example/error?api_key=sécret";
         let webhook = Webhook {
             id: webhook_id,
+            tenant_id: Uuid::nil(),
+            created_by_user_id: None,
             url: webhook_url.to_string(),
             secret: Some("outbound-webhook-signing-secret".to_string()),
             events: vec!["note.created.secret".to_string()],
@@ -11597,6 +11599,9 @@ impl fmt::Debug for CreateNoteProvenanceRequest {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Webhook {
     pub id: Uuid,
+    pub tenant_id: Uuid,
+    #[serde(default)]
+    pub created_by_user_id: Option<Uuid>,
     pub url: String,
     #[serde(skip_serializing)]
     pub secret: Option<String>,

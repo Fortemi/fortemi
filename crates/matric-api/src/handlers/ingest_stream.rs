@@ -126,6 +126,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use uuid::Uuid;
 
 use matric_api::services::{IngestCursorStore, SearchCache};
+use matric_core::ArchiveRepository;
 use matric_core::CreateNoteRequest;
 use matric_db::{PgNoteRepository, SchemaContext};
 
@@ -1249,10 +1250,13 @@ pub async fn ingest_stream_handler(
     // the SSE event stream). A valid stream token binds the write to *its* mint-
     // time archive schema and its lines/sec rate limit; with no/invalid token we
     // fail closed (401) unless `INGEST_REQUIRE_TOKEN=false`.
-    let (schema, rate_limit) = match resolve_stream_token(&headers, &state, &archive_ctx).await {
-        Ok(v) => v,
-        Err(resp) => return resp,
-    };
+    let (resolved_archive, rate_limit) =
+        match resolve_stream_token(&headers, &state, &archive_ctx).await {
+            Ok(v) => v,
+            Err(resp) => return resp,
+        };
+
+    let schema = resolved_archive.schema.clone();
 
     // Resolve resumption (#828): a fresh stream gets a new id and skip=0; a valid
     // `X-Ingest-Cursor` within the TTL resumes after the server's stored line; an
@@ -1283,7 +1287,7 @@ pub async fn ingest_stream_handler(
     let pool = state.db.pool.clone();
     // Memory name for the outbox `note.created` rows (#830/#452); the write
     // schema is the token's bound schema (#829), independent of this label.
-    let memory = archive_ctx.name.clone();
+    let memory = resolved_archive.name.clone();
     let search_cache = state.search_cache.clone();
     let controls = StreamControls {
         bp: Backpressure::new(
@@ -1367,18 +1371,45 @@ fn gone(message: &str) -> Response {
 /// Resolve the per-stream bearer token (#829) into the effective
 /// `(schema, rate_limit)`. A valid token binds the stream to its mint-time
 /// archive schema and lines/sec rate limit (so a token cannot write outside the
-/// archive it was minted for). With no/invalid token: `Err(401)` when
+/// archive it was minted for). Identity-less legacy records additionally require
+/// anonymous complete-catalog access; rejection never uses header/default routing.
+/// With no/invalid token: `Err(401)` when
 /// `INGEST_REQUIRE_TOKEN=true` (the default), else `Ok((request archive schema,
 /// 0 = unlimited))` for the open single-user/dev mode.
 #[allow(clippy::result_large_err)]
-async fn resolve_stream_token(
+pub(crate) async fn resolve_stream_token(
     headers: &HeaderMap,
     state: &AppState,
     archive_ctx: &ArchiveContext,
-) -> Result<(String, u64), Response> {
+) -> Result<(ArchiveContext, u64), Response> {
     if let Some(token) = extract_bearer(headers) {
         if let Some(data) = state.ingest_token_store.validate_ingest(&token).await {
-            return Ok((data.schema, data.rate_limit));
+            if data.ingest_identity.is_none() {
+                // Legacy Redis records have no identity. They retain their exact
+                // stored schema/rate only when anonymous catalog access is complete.
+                let caller = crate::archive_access::Caller {
+                    principal: matric_core::AuthPrincipal::Anonymous,
+                    tenant_id: None,
+                    user_id: None,
+                };
+                if caller.require_complete_catalog(state).await.is_ok() {
+                    if let Ok(archive) = caller.resolve_schema(state, &data.schema).await {
+                        return Ok((archive, data.rate_limit));
+                    }
+                }
+                // A recognized legacy token never falls through to header/default.
+                return Err(unauthorized("a valid ingest stream token is required; mint one at POST /api/v1/ingest/tokens"));
+            }
+            if let Some(identity) = data.ingest_identity {
+                let caller = crate::archive_access::Caller {
+                    principal: identity.principal,
+                    tenant_id: identity.tenant_id,
+                    user_id: identity.user_id,
+                };
+                if let Ok(archive) = caller.resolve_schema(state, &data.schema).await {
+                    return Ok((archive, data.rate_limit));
+                }
+            }
         }
     }
     if ingest_require_token() {
@@ -1386,7 +1417,42 @@ async fn resolve_stream_token(
             "a valid ingest stream token is required; mint one at POST /api/v1/ingest/tokens",
         ))
     } else {
-        Ok((archive_ctx.schema.clone(), 0))
+        let caller = crate::archive_access::Caller {
+            principal: matric_core::AuthPrincipal::Anonymous,
+            tenant_id: None,
+            user_id: None,
+        };
+        let name = headers
+            .get(crate::middleware::archive_routing::MEMORY_HEADER)
+            .and_then(|v| v.to_str().ok());
+        let selected = if let Some(name) = name {
+            state
+                .db
+                .archives
+                .get_archive_by_name(name)
+                .await
+                .ok()
+                .flatten()
+                .map(|a| ArchiveContext::from(&a))
+        } else {
+            state
+                .db
+                .archives
+                .get_default_archive()
+                .await
+                .ok()
+                .flatten()
+                .map(|a| ArchiveContext::from(&a))
+                .or_else(|| Some(archive_ctx.clone()))
+        };
+        match selected {
+            Some(archive) => caller
+                .resolve_schema(state, &archive.schema)
+                .await
+                .map(|archive| (archive, 0))
+                .map_err(IntoResponse::into_response),
+            None => Err(crate::archive_access::not_found().into_response()),
+        }
     }
 }
 

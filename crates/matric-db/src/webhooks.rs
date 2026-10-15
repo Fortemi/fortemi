@@ -18,11 +18,20 @@ impl PgWebhookRepository {
 
     /// Create a new webhook registration.
     pub async fn create(&self, req: CreateWebhookRequest) -> Result<Uuid> {
+        self.create_with_creator(req, None).await
+    }
+
+    /// Capture the verified application user, never an identity from the body.
+    pub async fn create_with_creator(
+        &self,
+        req: CreateWebhookRequest,
+        user: Option<Uuid>,
+    ) -> Result<Uuid> {
         let id = matric_core::new_v7();
         let now = Utc::now();
         sqlx::query(
-            "INSERT INTO webhook (id, url, secret, events, max_retries, created_at, updated_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            "INSERT INTO public.webhook (id, url, secret, events, max_retries, created_at, updated_at, created_by_user_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
         )
         .bind(id)
         .bind(&req.url)
@@ -31,6 +40,7 @@ impl PgWebhookRepository {
         .bind(req.max_retries)
         .bind(now)
         .bind(now)
+        .bind(user)
         .execute(&self.pool)
         .await
         .map_err(Error::Database)?;
@@ -41,8 +51,8 @@ impl PgWebhookRepository {
     pub async fn list(&self) -> Result<Vec<Webhook>> {
         let rows = sqlx::query(
             "SELECT id, url, secret, events, is_active, created_at, updated_at,
-                    last_triggered_at, failure_count, max_retries
-             FROM webhook ORDER BY created_at DESC",
+                    last_triggered_at, failure_count, max_retries, tenant_id, created_by_user_id
+             FROM public.webhook ORDER BY created_at DESC",
         )
         .fetch_all(&self.pool)
         .await
@@ -55,8 +65,8 @@ impl PgWebhookRepository {
     pub async fn get(&self, id: Uuid) -> Result<Option<Webhook>> {
         let row = sqlx::query(
             "SELECT id, url, secret, events, is_active, created_at, updated_at,
-                    last_triggered_at, failure_count, max_retries
-             FROM webhook WHERE id = $1",
+                    last_triggered_at, failure_count, max_retries, tenant_id, created_by_user_id
+             FROM public.webhook WHERE id = $1",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -111,8 +121,8 @@ impl PgWebhookRepository {
     pub async fn list_active_for_event(&self, event_type: &str) -> Result<Vec<Webhook>> {
         let rows = sqlx::query(
             "SELECT id, url, secret, events, is_active, created_at, updated_at,
-                    last_triggered_at, failure_count, max_retries
-             FROM webhook
+                    last_triggered_at, failure_count, max_retries, tenant_id, created_by_user_id
+             FROM public.webhook
              WHERE is_active = true AND ($1 = ANY(events) OR events = '{}')",
         )
         .bind(event_type)
@@ -211,6 +221,8 @@ impl PgWebhookRepository {
     fn parse_row(r: &sqlx::postgres::PgRow) -> Webhook {
         Webhook {
             id: r.get("id"),
+            tenant_id: r.get("tenant_id"),
+            created_by_user_id: r.get("created_by_user_id"),
             url: r.get("url"),
             secret: r.get("secret"),
             events: r.get("events"),

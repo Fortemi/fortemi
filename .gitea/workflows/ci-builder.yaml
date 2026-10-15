@@ -759,7 +759,7 @@ jobs:
           # Worker tests require serial execution due to shared database state
           # (tests share job queue, workers can claim jobs from other tests)
           # Run these FIRST on a clean database before other tests create data
-          cargo test --package matric-jobs --test worker_integration_test -- --test-threads=1
+          cargo test --package matric-jobs --test worker_integration_test --test archive_input_isolation_test -- --test-threads=1
 
       - name: Run other tests
         run: |

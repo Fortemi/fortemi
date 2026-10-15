@@ -1,6 +1,7 @@
 //! Library components for matric-api
 
 pub mod admin_bootstrap;
+pub mod authorization_policy;
 #[cfg(feature = "hosted-auth")]
 pub mod external_oidc;
 #[cfg(feature = "hosted-auth")]

@@ -14,15 +14,12 @@ use tracing::{debug, info, instrument, warn};
 use matric_core::{
     embedding_chunk_hash, embedding_doc_hash, AttachmentStatus, CreateFileProvenanceRequest,
     CreateProvDeviceRequest, CreateProvLocationRequest, CreateSemanticRelationRequest,
-    EmbeddingConfigProfile, EmbeddingContract, EmbeddingRepository, GenerationBackend, JobType,
-    LinkRepository, MeteringError, NoteRepository, ProvRelation, RevisionMode,
-    SkosSemanticRelation, UsageAttributes, UsageClass, UsageCorrelation, UsageDimension,
-    UsageEvent, UsageMeasurement, UsageMeter, UsageOutcome, UsageProducer, UsageQuantity,
-    UsageSource, UsageSubject,
+    EmbeddingConfigProfile, EmbeddingContract, GenerationBackend, JobType, MeteringError,
+    ProvRelation, RevisionMode, SkosSemanticRelation, UsageAttributes, UsageClass,
+    UsageCorrelation, UsageDimension, UsageEvent, UsageMeasurement, UsageMeter, UsageOutcome,
+    UsageProducer, UsageQuantity, UsageSource, UsageSubject,
 };
-use matric_db::{
-    Chunker, ChunkerConfig, Database, SchemaContext, SemanticChunker, SkosRelationRepository,
-};
+use matric_db::{Chunker, ChunkerConfig, Database, SchemaContext, SemanticChunker};
 use matric_inference::{NerBackend, OllamaBackend, ProviderRegistry};
 use matric_jobs::adapters::exif::{
     extract_exif_metadata, parse_exif_datetime, prepare_attachment_metadata,
@@ -34,9 +31,9 @@ mod document_types;
 use document_types::note_document_type;
 
 #[cfg(test)]
-use matric_core::EmbeddingBackend;
-#[cfg(test)]
 use matric_core::JobRepository;
+#[cfg(test)]
+use matric_core::{EmbeddingBackend, NoteRepository};
 
 const AI_GENERATION_JOB_FAILURE: &str = "AI generation failed. Check server logs for diagnostics.";
 const MODEL_RESOLUTION_JOB_FAILURE: &str =
@@ -1876,9 +1873,7 @@ impl JobHandler for AiRevisionHandler {
             let mut phase2_payload = serde_json::json!({
                 "revision_mode": revision_mode,
             });
-            if schema != "public" {
-                phase2_payload["schema"] = serde_json::json!(schema);
-            }
+            phase2_payload["schema"] = serde_json::json!(schema);
             if let Some(m) = &model_override {
                 phase2_payload["model"] = serde_json::json!(m);
             }
@@ -1929,9 +1924,7 @@ impl JobHandler for AiRevisionHandler {
             // For contextual mode, AiRevisionContextual will chain it after Phase 2.
             // Pipeline: AiRevision → ConceptTagging → RelatedConceptInference → Embedding → Linking (#538).
             let mut ct_payload = serde_json::Map::new();
-            if schema != "public" {
-                ct_payload.insert("schema".to_string(), serde_json::json!(schema));
-            }
+            ct_payload.insert("schema".to_string(), serde_json::json!(schema));
             if let Some(m) = &model_override {
                 ct_payload.insert("model".to_string(), serde_json::json!(m));
             }
@@ -2032,9 +2025,7 @@ impl AiRevisionContextualHandler {
         model_override: &Option<String>,
     ) {
         let mut ct_payload = serde_json::Map::new();
-        if schema != "public" {
-            ct_payload.insert("schema".to_string(), serde_json::json!(schema));
-        }
+        ct_payload.insert("schema".to_string(), serde_json::json!(schema));
         if let Some(m) = model_override {
             ct_payload.insert("model".to_string(), serde_json::json!(m));
         }
@@ -2292,12 +2283,22 @@ impl JobHandler for AiRevisionContextualHandler {
             .and_then(|v| serde_json::from_value(v.clone()).ok());
 
         let fetch_limit = (MAX_CONTEXT_NOTES * 2) as i64;
+        let mut context_tx = match schema_ctx.begin_tx().await {
+            Ok(tx) => tx,
+            Err(e) => return ai_contextual_revision_job_failure(e, "context_search_begin_tx"),
+        };
         let related_notes = if let Some(filter) = &context_filter {
             // ContextualFiltered: scoped search
             match self
                 .db
                 .embeddings
-                .find_similar_with_strict_filter(&query_vec, filter, fetch_limit, true)
+                .find_similar_with_strict_filter_tx(
+                    &mut context_tx,
+                    &query_vec,
+                    filter,
+                    fetch_limit,
+                    true,
+                )
                 .await
             {
                 Ok(hits) => hits
@@ -2318,11 +2319,11 @@ impl JobHandler for AiRevisionContextualHandler {
                 }
             }
         } else {
-            // Contextual/Full: unscoped search
+            // Contextual/Full: archive-scoped search
             match self
                 .db
                 .embeddings
-                .find_similar(&query_vec, fetch_limit, true)
+                .find_similar_tx(&mut context_tx, &query_vec, fetch_limit, true)
                 .await
             {
                 Ok(hits) => hits
@@ -2344,6 +2345,9 @@ impl JobHandler for AiRevisionContextualHandler {
             }
         };
 
+        if let Err(e) = context_tx.commit().await {
+            return ai_contextual_revision_job_failure(e, "context_search_commit");
+        }
         let related_count = related_notes.len();
         let related_note_ids: Vec<uuid::Uuid> = related_notes.iter().map(|h| h.note_id).collect();
 
@@ -3510,11 +3514,7 @@ impl TitleGenerationHandler {
         next_tier: i16,
         initiated_by_user_id: Option<uuid::Uuid>,
     ) -> Option<uuid::Uuid> {
-        let payload = if schema != "public" {
-            Some(serde_json::json!({ "schema": schema }))
-        } else {
-            None
-        };
+        let payload = Some(serde_json::json!({ "schema": schema }));
         match self
             .db
             .jobs
@@ -3790,8 +3790,19 @@ impl LinkingHandler {
     }
 
     /// Resolve a wiki-link title to a note ID by searching for matching titles.
-    async fn resolve_wiki_link(&self, title: &str) -> Option<uuid::Uuid> {
-        let results = self.db.search.search(title, 5, true).await.ok()?;
+    async fn resolve_wiki_link(
+        &self,
+        title: &str,
+        schema_ctx: &SchemaContext,
+    ) -> Option<uuid::Uuid> {
+        let mut tx = schema_ctx.begin_tx().await.ok()?;
+        let results = self
+            .db
+            .search
+            .search_tx(&mut tx, title, 5, true)
+            .await
+            .ok()?;
+        tx.commit().await.ok()?;
 
         for hit in results {
             if let Some(hit_title) = &hit.title {
@@ -3801,6 +3812,21 @@ impl LinkingHandler {
             }
         }
         None
+    }
+
+    async fn archive_concepts(
+        &self,
+        schema_ctx: &SchemaContext,
+        note_ids: &[uuid::Uuid],
+    ) -> matric_core::Result<std::collections::HashMap<uuid::Uuid, HashSet<uuid::Uuid>>> {
+        let mut tx = schema_ctx.begin_tx().await?;
+        let concepts = self
+            .db
+            .skos
+            .get_concept_ids_bulk_tx(&mut tx, note_ids)
+            .await?;
+        tx.commit().await?;
+        Ok(concepts)
     }
 
     /// Cosine similarity between two vectors.
@@ -3840,6 +3866,7 @@ impl LinkingHandler {
         source_id: uuid::Uuid,
         candidates: &mut [(matric_core::SearchHit, pgvector::Vector)],
         tag_weight: f32,
+        schema_ctx: &SchemaContext,
     ) {
         if tag_weight <= 0.0 || candidates.is_empty() {
             return;
@@ -3850,7 +3877,7 @@ impl LinkingHandler {
         note_ids.push(source_id);
 
         // Bulk fetch concept IDs
-        let concept_map = match self.db.skos.get_concept_ids_bulk(&note_ids).await {
+        let concept_map = match self.archive_concepts(schema_ctx, &note_ids).await {
             Ok(m) => m,
             Err(e) => {
                 debug!(
@@ -3989,7 +4016,7 @@ impl LinkingHandler {
         }
 
         // Apply tag-based boost: blend embedding similarity with SKOS tag overlap (#420)
-        self.apply_tag_boost(note_id, &mut filtered, config.tag_boost_weight)
+        self.apply_tag_boost(note_id, &mut filtered, config.tag_boost_weight, schema_ctx)
             .await;
 
         // Run Algorithm 4: diverse neighbor selection
@@ -4149,7 +4176,7 @@ impl LinkingHandler {
         let boosted = if tag_boost_weight > 0.0 {
             let mut note_ids: Vec<uuid::Uuid> = similar.iter().map(|h| h.note_id).collect();
             note_ids.push(note_id);
-            let concept_map = self.db.skos.get_concept_ids_bulk(&note_ids).await.ok();
+            let concept_map = self.archive_concepts(schema_ctx, &note_ids).await.ok();
             if let Some(ref cmap) = concept_map {
                 let empty_set = std::collections::HashSet::new();
                 let source_concepts = cmap.get(&note_id).unwrap_or(&empty_set);
@@ -4308,15 +4335,20 @@ impl JobHandler for LinkingHandler {
 
         // Resolve and create explicit links from wiki-style links
         for link_title in &wiki_links {
-            if let Some(target_id) = self.resolve_wiki_link(link_title).await {
+            if let Some(target_id) = self.resolve_wiki_link(link_title, &schema_ctx).await {
                 if target_id != note_id {
                     let metadata = serde_json::json!({"wiki_title": link_title});
-                    if let Err(e) = self
-                        .db
-                        .links
-                        .create(note_id, target_id, "wiki", 1.0, Some(metadata))
-                        .await
-                    {
+                    let result = async {
+                        let mut tx = schema_ctx.begin_tx().await?;
+                        self.db
+                            .links
+                            .create_tx(&mut tx, note_id, target_id, "wiki", 1.0, Some(metadata))
+                            .await?;
+                        tx.commit().await?;
+                        matric_core::Result::Ok(())
+                    }
+                    .await;
+                    if let Err(e) = result {
                         debug!(
                             error_len = diagnostic_len(&e),
                             detail = JOB_LINKING_DIAGNOSTIC_FAILURE_DETAIL,
@@ -4609,7 +4641,17 @@ impl JobHandler for PurgeNoteHandler {
         // Update stats for all affected embedding sets
         let mut stats_updated = 0;
         for set_id in &affected_sets {
-            if let Err(e) = self.db.embedding_sets.refresh_stats(*set_id).await {
+            let result = async {
+                let mut tx = schema_ctx.begin_tx().await?;
+                self.db
+                    .embedding_sets
+                    .refresh_stats_tx(&mut tx, *set_id)
+                    .await?;
+                tx.commit().await?;
+                matric_core::Result::Ok(())
+            }
+            .await;
+            if let Err(e) = result {
                 warn!(
                     error_len = diagnostic_len(&e),
                     detail = JOB_PURGE_DIAGNOSTIC_FAILURE_DETAIL,
@@ -4749,7 +4791,14 @@ impl JobHandler for ContextUpdateHandler {
         let mut linked_context = String::new();
         for link in &links {
             if let Some(to_note_id) = link.to_note_id {
-                if let Ok(linked_note) = self.db.notes.fetch(to_note_id).await {
+                let linked_note = async {
+                    let mut tx = schema_ctx.begin_tx().await?;
+                    let note = self.db.notes.fetch_tx(&mut tx, to_note_id).await?;
+                    tx.commit().await?;
+                    matric_core::Result::Ok(note)
+                }
+                .await;
+                if let Ok(linked_note) = linked_note {
                     let preview: String = if !linked_note.revised.content.is_empty() {
                         linked_note
                             .revised
@@ -4898,11 +4947,7 @@ impl ConceptTaggingHandler {
         schema: &str,
         initiated_by_user_id: Option<uuid::Uuid>,
     ) -> Option<uuid::Uuid> {
-        let payload = if schema != "public" {
-            Some(serde_json::json!({ "schema": schema }))
-        } else {
-            None
-        };
+        let payload = Some(serde_json::json!({ "schema": schema }));
         // RelatedConceptInference starts at tier-1 (fast GPU).
         match self
             .db
@@ -5351,9 +5396,7 @@ Output ONLY a JSON array of tag paths, nothing else. Example:
             "prior_tier": prior_tier,
             "prior_count": prior_concepts.len(),
         });
-        if schema != "public" {
-            payload["schema"] = serde_json::json!(schema);
-        }
+        payload["schema"] = serde_json::json!(schema);
         match self
             .db
             .jobs
@@ -5784,11 +5827,7 @@ impl ReferenceExtractionHandler {
         next_tier: i16,
         initiated_by_user_id: Option<uuid::Uuid>,
     ) -> Option<uuid::Uuid> {
-        let payload = if schema != "public" {
-            Some(serde_json::json!({ "schema": schema }))
-        } else {
-            None
-        };
+        let payload = Some(serde_json::json!({ "schema": schema }));
         match self
             .db
             .jobs
@@ -6407,11 +6446,7 @@ impl RelatedConceptHandler {
         initiated_by_user_id: Option<uuid::Uuid>,
     ) -> (Option<uuid::Uuid>, Option<uuid::Uuid>) {
         let should_queue_embedding = default_embedding_target_is_internal(&self.db, schema).await;
-        let payload = if schema != "public" {
-            Some(serde_json::json!({ "schema": schema }))
-        } else {
-            None
-        };
+        let payload = Some(serde_json::json!({ "schema": schema }));
         // Embedding and Linking are tier-agnostic (NULL).
         let embed_id = if should_queue_embedding {
             match self
@@ -6476,11 +6511,7 @@ impl RelatedConceptHandler {
         schema: &str,
         initiated_by_user_id: Option<uuid::Uuid>,
     ) -> Option<uuid::Uuid> {
-        let payload = if schema != "public" {
-            Some(serde_json::json!({ "schema": schema }))
-        } else {
-            None
-        };
+        let payload = Some(serde_json::json!({ "schema": schema }));
         match self
             .db
             .jobs
@@ -6909,19 +6940,26 @@ If no meaningful related pairs exist, output an empty array: []"#
             }
 
             // Create the related relation (is_inferred=false triggers reciprocal via trigger)
-            match self
-                .db
-                .skos
-                .create_semantic_relation(CreateSemanticRelationRequest {
-                    subject_id: a.id,
-                    object_id: b.id,
-                    relation_type: SkosSemanticRelation::Related,
-                    inference_score: Some(confidence),
-                    is_inferred: false,
-                    created_by: Some("related_concept_inference".to_string()),
-                })
-                .await
-            {
+            let relation = CreateSemanticRelationRequest {
+                subject_id: a.id,
+                object_id: b.id,
+                relation_type: SkosSemanticRelation::Related,
+                inference_score: Some(confidence),
+                is_inferred: false,
+                created_by: Some("related_concept_inference".to_string()),
+            };
+            let result = async {
+                let mut tx = schema_ctx.begin_tx().await?;
+                let id = self
+                    .db
+                    .skos
+                    .create_semantic_relation_tx(&mut tx, relation)
+                    .await?;
+                tx.commit().await?;
+                matric_core::Result::Ok(id)
+            }
+            .await;
+            match result {
                 Ok(_) => {
                     relations_created += 1;
                     debug!(
@@ -7015,11 +7053,7 @@ impl MetadataExtractionHandler {
         next_tier: i16,
         initiated_by_user_id: Option<uuid::Uuid>,
     ) -> Option<uuid::Uuid> {
-        let payload = if schema != "public" {
-            Some(serde_json::json!({ "schema": schema }))
-        } else {
-            None
-        };
+        let payload = Some(serde_json::json!({ "schema": schema }));
         match self
             .db
             .jobs
@@ -7972,7 +8006,8 @@ async fn vector_index_set_row_counts(
     db: &Database,
     payload: &matric_db::vector_index::VectorIndexJobPayload,
 ) -> matric_core::Result<serde_json::Map<String, serde_json::Value>> {
-    matric_db::validate_schema_name(&payload.schema)?;
+    let schema_ctx = db.for_schema(&payload.schema)?;
+    let mut tx = schema_ctx.begin_tx().await?;
     let query = format!(
         "SELECT es.id, count(e.id)::bigint AS rows
          FROM {schema}.embedding_set es
@@ -7987,9 +8022,10 @@ async fn vector_index_set_row_counts(
     let rows = sqlx::query(&query)
         .bind(payload.dimension)
         .bind(&payload.vector_type)
-        .fetch_all(&db.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(matric_core::Error::Database)?;
+    tx.commit().await?;
     let mut counts = serde_json::Map::new();
     for row in rows {
         let set_id: uuid::Uuid = row.get("id");
@@ -12105,3 +12141,7 @@ Quick note about the meeting discussion and action items."#;
         }
     }
 }
+
+#[cfg(all(test, feature = "hosted-auth"))]
+#[path = "jobs/archive_isolation_tests.rs"]
+mod hosted_create_note_tests;

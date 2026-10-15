@@ -8,6 +8,9 @@ use tower::ServiceExt;
 #[path = "me_tenant_tests.rs"]
 mod me_tenant_tests;
 
+#[path = "archive_access_tests.rs"]
+mod archive_access_tests;
+
 async fn create_after_startup(admin: sqlx::PgPool, existing_tenant: bool) {
     use sqlx::ConnectOptions;
     sqlx::query("CREATE EXTENSION IF NOT EXISTS postgis")

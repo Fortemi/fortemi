@@ -51,6 +51,7 @@ pub struct MintIngestTokenParams {
 pub async fn mint_ingest_token(
     _auth: RequireAuth,
     State(state): State<AppState>,
+    caller: crate::archive_access::Caller,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Query(params): Query<MintIngestTokenParams>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -59,7 +60,15 @@ pub async fn mint_ingest_token(
         .unwrap_or_else(|| state.ingest_token_store.default_rate_limit());
     let minted = state
         .ingest_token_store
-        .mint(&archive_ctx.schema, rate_limit)
+        .mint_ingest(
+            &archive_ctx.schema,
+            rate_limit,
+            matric_api::services::ingest_token_store::IngestIdentity {
+                principal: caller.principal,
+                tenant_id: caller.tenant_id,
+                user_id: caller.user_id,
+            },
+        )
         .await
         .ok_or_else(|| {
             ApiError::ServiceUnavailable(

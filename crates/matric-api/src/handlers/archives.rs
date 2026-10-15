@@ -219,9 +219,70 @@ pub async fn get_memory_context(
     responses((status = 200, description = "Success")))]
 pub async fn list_archives(
     State(state): State<AppState>,
+    caller: crate::archive_access::Caller,
+    scope: Option<Extension<TenantRequestScope>>,
 ) -> Result<Json<Vec<ArchiveInfo>>, ApiError> {
-    let archives = state.db.archives.list_archive_schemas().await?;
+    let mut archives =
+        crate::archive_access::visible(&state, &caller, scope.as_ref().map(|scope| &scope.0))
+            .await?;
+    crate::archive_access::load_stats(&state, &mut archives).await?;
     Ok(Json(archives))
+}
+
+/// Minimal archive picker entry. No physical schema, counts, or storage details.
+#[derive(Serialize, utoipa::ToSchema)]
+pub struct AvailableMemory {
+    pub name: String,
+    pub is_default: bool,
+}
+
+/// List only memories the current principal may select, including public fallback.
+#[utoipa::path(get, path = "/api/v1/memories/available", tag = "Archives",
+    responses(
+        (status = 200, description = "Selectable memories, without statistics", body = Vec<AvailableMemory>,
+            headers(("Cache-Control" = String, description = "no-store"))),
+        (status = 401, description = "Authentication required", body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 403, description = "Read scope required", body = ProblemDetails, content_type = "application/problem+json"),
+        (status = 503, description = "Authentication or tenant dependency unavailable", body = ProblemDetails, content_type = "application/problem+json")
+    ))]
+pub async fn available_memories(
+    State(state): State<AppState>,
+    caller: crate::archive_access::Caller,
+    scope: Option<Extension<TenantRequestScope>>,
+) -> Result<impl IntoResponse, ApiError> {
+    let archives =
+        crate::archive_access::catalog(&state, scope.as_ref().map(|scope| &scope.0)).await?;
+    let has_default = archives.iter().any(|archive| archive.is_default);
+    let has_public = archives.iter().any(|archive| archive.name == "public");
+    let mut memories = Vec::new();
+    for archive in archives {
+        if caller
+            .allows(
+                state.authorization_policy.as_ref(),
+                &archive.name,
+                &archive.schema_name,
+            )
+            .await
+        {
+            memories.push(AvailableMemory {
+                name: archive.name,
+                is_default: archive.is_default,
+            });
+        }
+    }
+    // Public is a real selectable fallback even without a registry entry. Do not
+    // expose an alias whose name is already occupied by a registered archive.
+    if !has_public
+        && caller
+            .allows(state.authorization_policy.as_ref(), "public", "public")
+            .await
+    {
+        memories.push(AvailableMemory {
+            name: "public".into(),
+            is_default: !has_default,
+        });
+    }
+    Ok(([(header::CACHE_CONTROL, "no-store")], Json(memories)))
 }
 
 /// Get a specific archive by name.
@@ -267,13 +328,16 @@ pub async fn get_archive(
 /// - 500 Internal Server Error if schema creation fails
 #[utoipa::path(post, path = "/api/v1/archives", tag = "Archives",
     request_body = CreateArchiveRequest,
-    responses((status = 201, description = "Created")))]
+    description = "Requires admin in external-OIDC mode. Creating a name in the shared archive namespace also requires complete-catalog access.",
+    responses((status = 201, description = "Created"), (status = 403, description = "Insufficient scope, external-OIDC admin required, or complete-catalog access required"), (status = 404, description = "Archive not found or not selectable")))]
 pub async fn create_archive(
     State(state): State<AppState>,
     events: RequestEvents,
     tenant: Option<Extension<crate::VerifiedRequestTenant>>,
+    caller: crate::archive_access::Caller,
     Json(req): Json<CreateArchiveRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    caller.require_complete_catalog(&state).await?;
     // Validate archive name
     if req.name.trim().is_empty() {
         return Err(ApiError::BadRequest(
@@ -356,7 +420,8 @@ pub async fn create_archive(
 #[utoipa::path(patch, path = "/api/v1/archives/{name}", tag = "Archives",
     params(("name" = String, Path, description = "Archive name")),
     request_body = UpdateArchiveRequest,
-    responses((status = 204, description = "No Content")))]
+    description = "Requires admin in external-OIDC mode.",
+    responses((status = 204, description = "No Content"), (status = 403, description = "Insufficient scope or external-OIDC admin required"), (status = 404, description = "Archive not found or not selectable")))]
 pub async fn update_archive(
     State(state): State<AppState>,
     events: RequestEvents,
@@ -399,7 +464,8 @@ pub async fn update_archive(
 /// - 500 Internal Server Error if schema deletion fails
 #[utoipa::path(delete, path = "/api/v1/archives/{name}", tag = "Archives",
     params(("name" = String, Path, description = "Archive name")),
-    responses((status = 204, description = "No Content")))]
+    description = "Requires admin in external-OIDC mode.",
+    responses((status = 204, description = "No Content"), (status = 403, description = "Insufficient scope or external-OIDC admin required"), (status = 404, description = "Archive not found or not selectable")))]
 pub async fn delete_archive(
     State(state): State<AppState>,
     events: RequestEvents,
@@ -454,7 +520,8 @@ pub async fn delete_archive(
 /// - 500 Internal Server Error if database update fails
 #[utoipa::path(post, path = "/api/v1/archives/{name}/set-default", tag = "Archives",
     params(("name" = String, Path, description = "Archive name")),
-    responses((status = 204, description = "No Content")))]
+    description = "Requires admin in external-OIDC mode.",
+    responses((status = 204, description = "No Content"), (status = 403, description = "Insufficient scope or external-OIDC admin required"), (status = 404, description = "Archive not found or not selectable")))]
 pub async fn set_default_archive(
     State(state): State<AppState>,
     events: RequestEvents,
@@ -541,13 +608,16 @@ pub async fn get_archive_stats(
 #[utoipa::path(post, path = "/api/v1/archives/{name}/clone", tag = "Archives",
     params(("name" = String, Path, description = "Source archive name")),
     request_body = CloneArchiveRequest,
-    responses((status = 201, description = "Created")))]
+    description = "Requires admin in external-OIDC mode. Creating a name in the shared archive namespace also requires complete-catalog access.",
+    responses((status = 201, description = "Created"), (status = 403, description = "Insufficient scope, external-OIDC admin required, or complete-catalog access required"), (status = 404, description = "Archive not found or not selectable")))]
 pub async fn clone_archive(
     State(state): State<AppState>,
     tenant: Option<Extension<crate::VerifiedRequestTenant>>,
     Path(name): Path<String>,
+    caller: crate::archive_access::Caller,
     Json(req): Json<CloneArchiveRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
+    caller.require_complete_catalog(&state).await?;
     if req.new_name.trim().is_empty() {
         return Err(ApiError::BadRequest(
             "Clone name cannot be empty".to_string(),

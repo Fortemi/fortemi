@@ -58,6 +58,18 @@ impl From<&matric_core::ArchiveInfo> for ArchiveContext {
     }
 }
 
+/// Per-request observation of sync attempts, including failed best-effort calls.
+#[cfg(test)]
+#[derive(Clone)]
+pub(crate) struct SchemaSyncCounter(pub std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+#[cfg(test)]
+fn observe_schema_sync(req: &axum::http::Request<axum::body::Body>) {
+    if let Some(counter) = req.extensions().get::<SchemaSyncCounter>() {
+        counter.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// Cached default archive with TTL expiration.
 ///
 /// Stores the default archive context and refreshes from the database only
@@ -153,22 +165,6 @@ async fn refresh_and_get(state: &AppState) -> ArchiveContext {
             return ctx;
         }
     };
-
-    // Auto-migrate if schema is outdated
-    if let Err(e) = state
-        .db
-        .archives
-        .sync_archive_schema(&archive_info.name)
-        .await
-    {
-        let diagnostic = e.to_string();
-        tracing::warn!(
-            archive_name_len = telemetry_text_len(&archive_info.name),
-            reason_code = archive_routing_diagnostic_reason(&diagnostic),
-            error_len = telemetry_text_len(&diagnostic),
-            "failed to sync default archive schema"
-        );
-    }
 
     // Update cache with fetched archive
     let ctx = ArchiveContext {
@@ -364,6 +360,76 @@ pub async fn archive_routing_middleware(
     mut req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
+    // Admission must precede every routing side effect, in both explicit and
+    // default community branches as well as the hosted/external branches.
+    if let Err(response) = crate::admit_route_archive_isolation(&state, &mut req).await {
+        return response;
+    }
+    // SSE query selection has precedence over the header and implicit default.
+    let query_memory = if req.uri().path() == "/api/v1/events" {
+        match axum::extract::Query::<crate::SseQuery>::try_from_uri(req.uri()) {
+            Ok(query) => query.0.memory,
+            Err(error) => return error.into_response(),
+        }
+    } else {
+        None
+    };
+    // Query credentials must authenticate before any archive lookup, including
+    // implicit/header selections. The SSE handler authenticates and then resolves.
+    if req.uri().path() == "/api/v1/events" {
+        let query = axum::extract::Query::<crate::SseQuery>::try_from_uri(req.uri()).unwrap();
+        if query.token.is_some()
+            || req
+                .extensions()
+                .get::<crate::ValidatedBearerIdentity>()
+                .is_none()
+        {
+            req.extensions_mut().insert(ArchiveContext::default());
+            return next.run(req).await;
+        }
+    }
+    // Ingest admission authenticates its own delegated principal and stored
+    // archive. Header/default routing cannot authorize that operation.
+    if !state.multi_tenant && req.uri().path() == "/api/v1/ingest/stream" {
+        req.extensions_mut().insert(ArchiveContext::default());
+        return next.run(req).await;
+    }
+    let selected_name = if query_memory.is_some() {
+        query_memory
+    } else {
+        match req.headers().get(MEMORY_HEADER).map(|value| value.to_str()) {
+            Some(Ok(name)) => Some(name.to_owned()),
+            Some(Err(_)) => {
+                return archive_problem_response(
+                    axum::http::StatusCode::BAD_REQUEST,
+                    "validation-error",
+                    "Bad Request",
+                    "Invalid memory selection header.",
+                )
+            }
+            None => None,
+        }
+    };
+    // Probes and OAuth metadata have no implicit archive selection. Keep them
+    // available when a caller cannot select the deployment's default archive.
+    if !req.headers().contains_key(MEMORY_HEADER)
+        && crate::matched_route_policy(req.method(), req.extensions()).is_some_and(|policy| {
+            matches!(
+                policy.class,
+                crate::route_policy::PolicyClass::Public | crate::route_policy::PolicyClass::OAuth
+            )
+        })
+    {
+        req.extensions_mut().insert(ArchiveContext::default());
+        return next.run(req).await;
+    }
+    // Inventory endpoints filter their catalog, and named paths resolve their
+    // own target. An implicit default must not prevent discovering another grant.
+    if !req.headers().contains_key(MEMORY_HEADER)
+        && crate::archive_access::is_inventory_or_named_path(req.uri().path())
+    {
+        return next.run(req).await;
+    }
     if state.multi_tenant {
         // Exempt public probes need no archive database access. Protected routes
         // have already authenticated and established their tenant transaction.
@@ -374,20 +440,13 @@ pub async fn archive_routing_middleware(
             req.extensions_mut().insert(ArchiveContext::default());
             return next.run(req).await;
         };
-        let name = match req.headers().get(MEMORY_HEADER).map(|v| v.to_str()) {
-            Some(Err(_)) => {
-                return archive_problem_response(
-                    axum::http::StatusCode::BAD_REQUEST,
-                    "validation-error",
-                    "Bad Request",
-                    "Invalid memory selection header.",
-                )
-            }
-            Some(Ok(name)) => Some(name.to_owned()),
-            None => None,
-        };
-        match resolve_hosted_archive(scope, name).await {
+        match resolve_hosted_archive(scope, selected_name.clone()).await {
             Ok(context) => {
+                if let Err(error) =
+                    crate::archive_access::enforce(&state, req.extensions(), &context).await
+                {
+                    return error.into_response();
+                }
                 req.extensions_mut().insert(context);
                 return next.run(req).await;
             }
@@ -401,28 +460,21 @@ pub async fn archive_routing_middleware(
         .as_ref()
         .filter(|_| state.auth_mode.external_oidc())
     {
-        let name = match req.headers().get(MEMORY_HEADER).map(|v| v.to_str()) {
-            Some(Err(_)) => {
-                return archive_problem_response(
-                    axum::http::StatusCode::BAD_REQUEST,
-                    "validation-error",
-                    "Bad Request",
-                    "Invalid memory selection header.",
-                )
-            }
-            Some(Ok(name)) => Some(name),
-            None => None,
-        };
         match resolve_external_archive(
             &state.db.pool,
             req.extensions()
                 .get::<super::tenant_scope::TenantRequestScope>(),
             config.default_tenant_id,
-            name,
+            selected_name.as_deref(),
         )
         .await
         {
             Ok(context) => {
+                if let Err(error) =
+                    crate::archive_access::enforce(&state, req.extensions(), &context).await
+                {
+                    return error.into_response();
+                }
                 req.extensions_mut().insert(context);
                 return next.run(req).await;
             }
@@ -431,23 +483,19 @@ pub async fn archive_routing_middleware(
     }
 
     // Check for explicit memory selection via header
-    if let Some(memory_name) = req.headers().get(MEMORY_HEADER) {
-        let name = match memory_name.to_str() {
-            Ok(n) => n.to_string(),
-            Err(_) => {
-                return archive_problem_response(
-                    axum::http::StatusCode::BAD_REQUEST,
-                    "validation-error",
-                    "Bad Request",
-                    "Invalid memory selection header.",
-                );
-            }
-        };
-
+    if let Some(name) = selected_name {
         // Look up the requested memory
         match state.db.archives.get_archive_by_name(&name).await {
             Ok(Some(info)) => {
+                let context = ArchiveContext::from(&info);
+                if let Err(error) =
+                    crate::archive_access::enforce(&state, req.extensions(), &context).await
+                {
+                    return error.into_response();
+                }
                 // Auto-migrate if schema is outdated (non-blocking best-effort)
+                #[cfg(test)]
+                observe_schema_sync(&req);
                 if let Err(e) = state.db.archives.sync_archive_schema(&name).await {
                     let diagnostic = e.to_string();
                     tracing::warn!(
@@ -460,18 +508,13 @@ pub async fn archive_routing_middleware(
                 let ctx = ArchiveContext {
                     schema: info.schema_name,
                     is_default: false,
-                    name: Some(name.clone()),
+                    name: Some(info.name),
                 };
                 req.extensions_mut().insert(ctx);
                 return next.run(req).await;
             }
             Ok(None) => {
-                return archive_problem_response(
-                    axum::http::StatusCode::NOT_FOUND,
-                    "not-found",
-                    "Not Found",
-                    "Requested memory is not present or not visible to the caller.",
-                );
+                return crate::archive_access::not_found().into_response();
             }
             Err(_) => {
                 return archive_problem_response(
@@ -485,7 +528,21 @@ pub async fn archive_routing_middleware(
     }
 
     // No explicit selection — use default archive (cached)
+    let needs_sync = state.default_archive_cache.read().await.is_expired();
     let ctx = resolve_archive_context(&state).await;
+    if let Err(error) = crate::archive_access::enforce(&state, req.extensions(), &ctx).await {
+        return error.into_response();
+    }
+    if let Some(name) = ctx.name.as_ref().filter(|_| needs_sync) {
+        #[cfg(test)]
+        observe_schema_sync(&req);
+        if let Err(error) = state.db.archives.sync_archive_schema(name).await {
+            tracing::warn!(
+                reason_code = archive_routing_diagnostic_reason(&error.to_string()),
+                "failed to sync default archive schema"
+            );
+        }
+    }
     req.extensions_mut().insert(ctx);
 
     next.run(req).await

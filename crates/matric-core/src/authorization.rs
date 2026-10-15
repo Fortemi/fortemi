@@ -24,6 +24,25 @@ pub const IN_PROCESS_POLICY_EVAL_TARGET_AVG_MICROS: u128 = 250;
 
 #[async_trait]
 pub trait AuthorizationPolicy: Send + Sync {
+    /// Policy-wide invariant: every caller may select every archive in its tenant.
+    /// Restrictive or fallible policies must retain the default `false`, so each
+    /// complete-catalog admission consults the current catalog and grants.
+    fn permits_complete_archive_catalog(&self) -> bool {
+        false
+    }
+
+    /// Decide archive visibility independently of route scopes. Callers supply
+    /// resolver-derived archive name/schema and verified tenant/user context.
+    /// Errors deny visibility. Grant storage and policy belong to enterprise.
+    async fn may_select_archive(
+        &self,
+        _principal: &AuthPrincipal,
+        archive: &Resource,
+        ctx: &AuthzContext,
+    ) -> Result<bool, AuthzError> {
+        Ok(archive.kind == ResourceKind::Archive && archive.tenant_id == ctx.tenant_id)
+    }
+
     /// Decide whether `principal` may perform `action` on `resource` in `ctx`.
     ///
     /// Implementations must be deterministic for the same inputs within a
@@ -405,6 +424,10 @@ pub struct AllowAllPolicy;
 
 #[async_trait]
 impl AuthorizationPolicy for AllowAllPolicy {
+    fn permits_complete_archive_catalog(&self) -> bool {
+        true
+    }
+
     async fn authorize(
         &self,
         _principal: &AuthPrincipal,
@@ -433,6 +456,10 @@ pub struct RoleBasedPolicy;
 
 #[async_trait]
 impl AuthorizationPolicy for RoleBasedPolicy {
+    fn permits_complete_archive_catalog(&self) -> bool {
+        true
+    }
+
     async fn authorize(
         &self,
         principal: &AuthPrincipal,

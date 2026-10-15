@@ -227,7 +227,7 @@ run_integration_tests() {
     # (tests share job queue, workers can claim jobs from other tests)
     # Run these FIRST on a clean database before other tests create data
     print_info "Running worker integration tests (serial)..."
-    cargo test --package matric-jobs --test worker_integration_test -- --test-threads=1
+    cargo test --package matric-jobs --test worker_integration_test --test archive_input_isolation_test -- --test-threads=1
 
     # Run all other integration tests
     print_info "Running other integration tests..."

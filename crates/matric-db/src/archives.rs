@@ -210,6 +210,23 @@ pub struct PgArchiveRepository {
 }
 
 impl PgArchiveRepository {
+    /// A schema SQL dump must not bypass authority over shared control data.
+    pub async fn schema_contains_shared_tables(&self, schema: &str) -> Result<bool> {
+        if schema == "public" {
+            return Ok(true);
+        }
+        sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_class c
+             JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+             WHERE n.nspname=$1 AND c.relname = ANY($2::text[]))",
+        )
+        .bind(schema)
+        .bind(SHARED_TABLES)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Error::Database)
+    }
+
     /// Create a new PgArchiveRepository with the given connection pool.
     pub fn new(pool: Pool<Postgres>) -> Self {
         Self { pool }

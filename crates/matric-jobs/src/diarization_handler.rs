@@ -179,6 +179,8 @@ impl JobHandler for SpeakerDiarizationHandler {
 
         ctx.report_progress(10, Some("Retrieving audio file"));
 
+        // Retain inline bytes on disk until the backend has consumed the file.
+        let mut inline_audio = None;
         // 3. Get the audio file path for diarization
         let audio_path = {
             let mut tx = match schema_ctx.begin_tx().await {
@@ -204,9 +206,8 @@ impl JobHandler for SpeakerDiarizationHandler {
                     ));
                 }
             };
-            let _ = tx.commit().await;
 
-            match info.source {
+            let path = match info.source {
                 FileSource::Filesystem(ref storage_path) => {
                     match file_storage.resolve_storage_path(storage_path) {
                         Some(p) => p,
@@ -215,7 +216,7 @@ impl JobHandler for SpeakerDiarizationHandler {
                 }
                 FileSource::Inline(_) => {
                     // For inline storage, write to a temp file
-                    let data = match file_storage.download_file(attachment_id).await {
+                    let data = match file_storage.download_file_tx(&mut tx, attachment_id).await {
                         Ok((data, _, _)) => data,
                         Err(e) => {
                             let error_text = e.to_string();
@@ -248,11 +249,14 @@ impl JobHandler for SpeakerDiarizationHandler {
                             diarization_error_reason_code(&error_text)
                         ));
                     }
-                    // Leak the tempfile so it persists until this handler completes
-                    let _ = tmp.into_temp_path();
+                    inline_audio = Some(tmp);
                     path
                 }
+            };
+            if tx.commit().await.is_err() {
+                return JobResult::Failed("Audio read transaction failed".into());
             }
+            path
         };
 
         // 3b. Transcode to 16kHz mono PCM WAV for reliable pyannote compatibility.
@@ -312,6 +316,7 @@ impl JobHandler for SpeakerDiarizationHandler {
             }
         };
 
+        drop(inline_audio);
         if diarization_result.segments.is_empty() {
             info!(
                 attachment_present = true,

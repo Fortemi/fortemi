@@ -1,0 +1,466 @@
+metadata:
+  schema_version: 1.0.0
+  created_at: '2026-10-15T08:14:50Z'
+  issue: Fortemi/fortemi#1201
+  enterprise_followup: Fortemi-Enterprise/rbac#2
+  base_commit: 4764267391051ab376885521698d3cfa5659fa32
+  updated_at: '2026-10-15T12:33:03Z'
+  audit: /home/roctinam/.cache/claude-work/fortemi-srvfix/audit-1201e.r5.md
+  round: 6
+entity:
+  id: urn:aiwg:artifact:.aiwg/reports/issue-1201-public-archive-access.md
+  type: artifact_bundle
+  created_at: '2026-10-15T08:14:50Z'
+  updated_at: '2026-10-15T12:33:03Z'
+  checksum: sha256:dde2bc42d7c99949cfbcda9cd0c1b2e992bcd1249992d6008d7f4d90b8a78385
+  size_bytes: 27683
+  attributes:
+    artifacts:
+    - path: .aiwg/reports/issue-1201-public-archive-access.md
+      sha256: dde2bc42d7c99949cfbcda9cd0c1b2e992bcd1249992d6008d7f4d90b8a78385
+      bytes: 27683
+    - path: .gitea/workflows/ci-builder.yaml
+      sha256: 271c479f0d5495f4205f71d3404dee20f1d5e237e8aea07e9f061858192b9bd2
+      bytes: 84697
+    - path: .gitea/workflows/test.yml
+      sha256: 7cc31a4be8fc6d18fcbc14d583fe0ea082b8ca820eb055b9c2d64ad73980e4e9
+      bytes: 31912
+    - path: CHANGELOG.md
+      sha256: a91c41253198b3158f48b0b325adb0dc2e69616789a0a1ea6ac5d085c0f31082
+      bytes: 236631
+    - path: contracts/openapi/openapi.sha256
+      sha256: 4d33d7ebdc338e2b51b52e2f35e48bf40031678d39da1ae1b2eb51749e8e7247
+      bytes: 79
+    - path: contracts/openapi/openapi.yaml
+      sha256: 1fd2a725a97f4aebfdd198ce98af6833f41406a86cc0c69a774714572c524cdf
+      bytes: 524295
+    - path: crates/matric-api/src/archive_access.rs
+      sha256: 44dbde78caaee3ae9b92e71ebe94c5faef28f44334f8c62d897df70fa32c9dd1
+      bytes: 16423
+    - path: crates/matric-api/src/archive_access_support.rs
+      sha256: e4a483d8a6387cfb8459b0d5169531d04b98039d766c9194f6f83532b7fa5086
+      bytes: 5505
+    - path: crates/matric-api/src/archive_access_tests.rs
+      sha256: 62b5792c5591245193c2cc81b66f102879f1e79d7b7901d09a59801e3814fcea
+      bytes: 11894
+    - path: crates/matric-api/src/archive_global_access_tests.rs
+      sha256: e1c33e48cf96729b0ee3eb3399371cb8609c5481237d6a51a9af1b874e1240da
+      bytes: 10508
+    - path: crates/matric-api/src/archive_job_access_tests.rs
+      sha256: 597fc647883c90041880b7a860647a5e00dfc1f96a62b1ee4bd416e495d37911
+      bytes: 8919
+    - path: crates/matric-api/src/archive_management_tests.rs
+      sha256: 4fb3a1a232a69aad2fbd2cd5a34c8eef036081aa8281b140056e60d84675684b
+      bytes: 3534
+    - path: crates/matric-api/src/archive_round3_tests.rs
+      sha256: 283f6c1694dc4b47e1268e2dd14f7f2dfb59cb422b11648c47cf7c8031fef5e1
+      bytes: 15651
+    - path: crates/matric-api/src/archive_round4_tests.rs
+      sha256: 05ff48649a99b530ac35a0294d6683001cb6c85c48d3dd3749d27abd7ca18b53
+      bytes: 15185
+    - path: crates/matric-api/src/archive_round5_tests.rs
+      sha256: c20c2e4965d9739029386368240652c9324eeeed24aed78cd4a442aceee66b8b
+      bytes: 13177
+    - path: crates/matric-api/src/archive_stream_access_tests.rs
+      sha256: 5e1804e1bb019f169b7c57c335be040a7b29019fb69eea9c45186836a0ff61d0
+      bytes: 3644
+    - path: crates/matric-api/src/archive_sync_order_tests.rs
+      sha256: b0bab85821bdae8a071fee5d595710ed00830f6b4ccd3f535ee1ac74d3927d60
+      bytes: 8864
+    - path: crates/matric-api/src/authorization_policy.rs
+      sha256: f04f9bcefb0f660eb13d34d8b433bfa8fdb0610c8bb510fb7cac1d1c8e1a0ed4
+      bytes: 1405
+    - path: crates/matric-api/src/community_archive_upgrade_tests.rs
+      sha256: d3f63b138d68fd9b732942428bdd29121f7237f7c0369f79c31472af7bbd6766
+      bytes: 14020
+    - path: crates/matric-api/src/external_oidc_note_tests.rs
+      sha256: 0b38f4d1961c34494eee80b9f0620b045bfaa4874f4f7316b9560c8e1feb8380
+      bytes: 33452
+    - path: crates/matric-api/src/handlers/archives.rs
+      sha256: c5e663e2414df4806b7faa5172222671a8f4ea8c1b1416b649917efd0d6738b1
+      bytes: 38849
+    - path: crates/matric-api/src/handlers/inference_config.rs
+      sha256: 4114f73c438ffebf2fc4d97aa1414218c7f0907dab9245d596b255dfac7214a3
+      bytes: 158044
+    - path: crates/matric-api/src/handlers/ingest_stream.rs
+      sha256: f98d05dab086934d32c99ac1ff0738ead1353fc2d0d1408eb66a4785e3802042
+      bytes: 102739
+    - path: crates/matric-api/src/handlers/ingest_tokens.rs
+      sha256: 638267f2442c86f56fd5e1429170822e08cab1b70dd25ed25edd82ee4f94de4e
+      bytes: 4404
+    - path: crates/matric-api/src/handlers/jobs.rs
+      sha256: f5c6ebfb0ed352345c21590d351b0c4caca2b733df53da762c982e3b62472bb6
+      bytes: 464179
+    - path: crates/matric-api/src/handlers/jobs/archive_isolation_tests.rs
+      sha256: 2b4b60d97f1c9320dfd20baa40d7133e1deb6003dccfb10218da648bf7b6e882
+      bytes: 8295
+    - path: crates/matric-api/src/job_access.rs
+      sha256: 323b6f04cb5b60c15747710611b683be91aaf2e6bd7c2cd10b33d3bbb1f9b404
+      bytes: 3457
+    - path: crates/matric-api/src/job_batch_progress.rs
+      sha256: 93ecb525ea51aff26bf068f80296a6acf44c9df251747a26aa2a6afd8cc3fa7d
+      bytes: 2300
+    - path: crates/matric-api/src/lib.rs
+      sha256: f861c0af089f05a359fead0780c80565d44e9ba6df61732639a689bfcbd370b6
+      bytes: 341
+    - path: crates/matric-api/src/main.rs
+      sha256: 94edec96e21d64c0892d84c824cef7d702a1ffea6bd523ff30f3bc57eba2c6e2
+      bytes: 3417858
+    - path: crates/matric-api/src/me_tenant_tests.rs
+      sha256: 06c308ca6212807bfaf20b9cca474da05daac2faf21429b1524ee49e00d072c8
+      bytes: 21194
+    - path: crates/matric-api/src/middleware/archive_routing.rs
+      sha256: 780937675a2b87940972ff6962068698454aeb5b9594b996a964889dc141f48d
+      bytes: 25864
+    - path: crates/matric-api/src/route_policy.rs
+      sha256: 713b4a992ba9b02e6c3a12b51a094ed0f4dd83250d0353504e6a0e564226cfe2
+      bytes: 106958
+    - path: crates/matric-api/src/services/ingest_token_store.rs
+      sha256: 977bdcf6a1d87edb9425b3f748c3d3ad60bbeae44b6b37eea1752e18adc3d810
+      bytes: 23716
+    - path: crates/matric-api/src/sse.rs
+      sha256: 560c6f840aed2d773cbb05703554e3b52d1a355d425efb3f36c26562349fb6f3
+      bytes: 15950
+    - path: crates/matric-api/src/sse_tests.rs
+      sha256: 6f17a0d3949107c4a66f6d8159b129010c434bca6145c0bc25781ce1c19f5b6e
+      bytes: 53690
+    - path: crates/matric-api/src/webhook_access.rs
+      sha256: 3a921fb667e410345c9ccbe62835af6d545dcbed9682f97864e9fc8c3728ec41
+      bytes: 1527
+    - path: crates/matric-core/src/authorization.rs
+      sha256: de1b4b0892c8dd7780c5e1d725a5c0e31fe523556a320be52e053e0260d3c68a
+      bytes: 25323
+    - path: crates/matric-core/src/models.rs
+      sha256: 8ecc0085868404addde00dc8b81a297414d322043f7f663205320a0ef5ec5934
+      bytes: 442317
+    - path: crates/matric-db/src/archives.rs
+      sha256: 55582eb366a22434169fff31e3d5f8771bcc6cbb29019c720c0a3c207d18e3e8
+      bytes: 68037
+    - path: crates/matric-db/src/embeddings.rs
+      sha256: 8db1ea4ae04e630e6894576a978154cedfd6b3b7175633e7ff11c60166b9c6e1
+      bytes: 39406
+    - path: crates/matric-db/src/jobs.rs
+      sha256: 86f66bcf62a68e687c6a136554666ccda964132d7cb93ca7c01f9615512c4e0f
+      bytes: 60204
+    - path: crates/matric-db/src/skos_tags.rs
+      sha256: 7afdaa1ecb8512fbe48509e61c27ee8572d53eb39e871d94bc6317992fc35710
+      bytes: 111897
+    - path: crates/matric-db/src/webhooks.rs
+      sha256: b1fa0bf218b73d4b9705be6d534b841c2c2e8fdb8a8f1bd5d18f324303304b46
+      bytes: 19504
+    - path: crates/matric-jobs/src/diarization_handler.rs
+      sha256: b0516c7083031437dda6c92539d8925960a44e4d7e7bf60882c1e883afee600e
+      bytes: 27857
+    - path: crates/matric-jobs/src/extraction_handler.rs
+      sha256: edc1b67ab2cb7a2accf5a96444b1c8e29f85a6b03b6c035903e8fd88c0814a5f
+      bytes: 120939
+    - path: crates/matric-jobs/tests/archive_input_isolation_test.rs
+      sha256: 3a340304af675f189b4011ea38e94602935a2185f0ccbb320c2219287591b619
+      bytes: 11048
+    - path: docs/content/authentication.md
+      sha256: 5bffffbc5f56afcdb91d3f809485961bedda6203a504228ee19d2132f9b3851a
+      bytes: 81219
+    - path: docs/content/external-oidc-upgrade.md
+      sha256: 822a19d17fd6b7e9c8b085bd3c9d926435a8f8e0bc3cc1e861a69aee32b655b7
+      bytes: 15324
+    - path: docs/deployment/hosted-route-qualification.md
+      sha256: bd6dca6926a5e900cbbeb0e98e137b2045fdc681c2365eea11abc185357e90aa
+      bytes: 73003
+    - path: migrations/20261015010000_webhook_creator.sql
+      sha256: 3844e611577753b7698d689dfeed95e828f2acd6fe077b30d32f61f06646391a
+      bytes: 763
+    - path: scripts/ci/run-suite-platform-contract.sh
+      sha256: 9b59467629027f0289698eeb72da7424221bf3e8d800c7450b0ac638fc59e02d
+      bytes: 24331
+    - path: scripts/test-quick-start.sh
+      sha256: 6e6e319e17e153bc8f756247b93189436a50ca6304672fef7cfcf47b88ec0571
+      bytes: 11125
+activity:
+  id: urn:aiwg:activity:modification:issue-1201-public-archive-access:006
+  type: modification
+  started_at: '2026-10-15T08:14:50Z'
+  ended_at: '2026-10-15T12:33:03Z'
+  description: 'Round 6: move create, shared-schema memory backup, and unscoped job-detail catalog decisions
+    before routing side effects; extend zero-sync regressions and method-specific OpenAPI assertions;
+    correct admission documentation.'
+agent:
+  id: urn:aiwg:agent:codex-gpt-6
+  type: ai_assistant
+  name: Codex
+  version: GPT-6
+relationships:
+  wasGeneratedBy:
+    entity: urn:aiwg:artifact:.aiwg/reports/issue-1201-public-archive-access.md
+    activity: urn:aiwg:activity:modification:issue-1201-public-archive-access:006
+    time: '2026-10-15T08:14:50Z'
+  wasAssociatedWith:
+    activity: urn:aiwg:activity:modification:issue-1201-public-archive-access:006
+    agent: urn:aiwg:agent:codex-gpt-6
+  wasAttributedTo:
+    entity: urn:aiwg:artifact:.aiwg/reports/issue-1201-public-archive-access.md
+    agent: urn:aiwg:agent:codex-gpt-6
+  wasDerivedFrom:
+  - entity: urn:aiwg:artifact:.aiwg/reports/issue-1201-public-archive-access.md
+    source: urn:aiwg:issue:Fortemi/fortemi:1201
+    derivation_type: implements
+    activity: urn:aiwg:activity:modification:issue-1201-public-archive-access:006
+  - entity: urn:aiwg:artifact:.aiwg/reports/issue-1201-public-archive-access.md
+    source: urn:git:commit:4764267391051ab376885521698d3cfa5659fa32
+    derivation_type: extends
+    activity: urn:aiwg:activity:modification:issue-1201-public-archive-access:006
+  used:
+  - activity: urn:aiwg:activity:modification:issue-1201-public-archive-access:006
+    entity: urn:aiwg:issue:Fortemi/fortemi:1201
+    role: requirements
+    path: /home/roctinam/.cache/claude-work/fortemi-srvfix/issue-1201.md
+    sha256: 25cd05ec231c4569c48a7aaad2dd24c4add9556e20de8dff04a3410c831ffcd1
+  - activity: urn:aiwg:activity:modification:issue-1201-public-archive-access:006
+    entity: urn:aiwg:audit:Fortemi/fortemi:1201:r1
+    role: independent_audit
+    path: /home/roctinam/.cache/claude-work/fortemi-srvfix/audit-1201a.r1.md
+    sha256: 692f94040c8d39ef85044257d4e4dd3c2378aff0b4dc3b8ef35085d3263c4749
+  - activity: urn:aiwg:activity:modification:issue-1201-public-archive-access:006
+    entity: urn:aiwg:audit:Fortemi/fortemi:1201:r3
+    role: independent_audit
+    path: /home/roctinam/.cache/claude-work/fortemi-srvfix/audit-1201c.r3.md
+    sha256: ac927cb068aa4d7e9922eac768959c1c6fb93dfde381766a5f51862b8e0f6ba4
+  - activity: urn:aiwg:activity:modification:issue-1201-public-archive-access:006
+    entity: urn:aiwg:audit:Fortemi/fortemi:1201:r4
+    role: independent_audit
+    path: /home/roctinam/.cache/claude-work/fortemi-srvfix/audit-1201d.r4.md
+    sha256: ddb3e9cba2b204f117d00a7eafcd1a576dc76db19e7883672b01dcd7e177bcb1
+  - activity: urn:aiwg:activity:modification:issue-1201-public-archive-access:006
+    entity: urn:aiwg:audit:Fortemi/fortemi:1201:r5
+    role: independent_audit
+    path: /home/roctinam/.cache/claude-work/fortemi-srvfix/audit-1201e.r5.md
+    sha256: 554c5344461eec5d00d1ca695ee51e22d6df9dd56cf9d7542992c980268d1ae9
+round1_validation:
+  hosted_auth_suite:
+    passed: 1300
+    failed: 0
+    existing_ignored: 1
+    log: /home/roctinam/.cache/claude-work/fortemi-srvfix/hosted-1201.log
+  final_archive_suite:
+    passed: 60
+    failed: 0
+    ignored: 0
+    log: /home/roctinam/.cache/claude-work/fortemi-srvfix/archive-final-1201.log
+  openapi_generator: scripts/ci/openapi-contract.sh generate
+  final_verification_command: TMPDIR=/home/roctinam/.cache/claude-work/fortemi-srvfix/tmp /home/roctinam/.cache/claude-work/fortemi-srvfix/verify-redis.sh
+    "$PWD" 55441
+  memory_search_regressions:
+    passed: 7
+    failed: 0
+    ignored: 0
+    log: /home/roctinam/.cache/claude-work/fortemi-srvfix/memory-search-1201.log
+  final_verification:
+    gates: GATES fmt=0 migrations=1 clippy=0 tests=0 docs=0
+    result: VERIFY PASS
+    summary: binaries=121 passed=4077 failed=0
+    log: /home/roctinam/.cache/claude-work/fortemi-srvfix/verify-1201.log
+previous_validation:
+  hosted_auth_suite:
+    passed: 1308
+    failed: 0
+    existing_ignored: 1
+    log: /home/roctinam/.cache/claude-work/fortemi-srvfix/hosted-1201-r2-final.log
+  archive_access_regressions:
+    passed: 10
+    failed: 0
+    includes: All 22 REST job types, live MCP forwarding through the restrictive production router, job
+      visibility/counts/pagination, ingest identity, query-token indistinguishability, global gates, attributed
+      SSE live/replay and legacy WebSocket upgrade
+  migration_immutability: 'python3 scripts/ci/verify-migration-immutability.py: passed; no DB migration
+    needed for Redis identity'
+  openapi_generator: scripts/ci/openapi-contract.sh generate
+  openapi_contract: Verified mutation/alias admin requirements and 403s, SSE 404, job submission/detail
+    404s, and generated SHA-256
+  mcp_unit_tests:
+    passed: 205
+    failed: 0
+    schemas: 213
+  final_verification_command: TMPDIR=/home/roctinam/.cache/claude-work/fortemi-srvfix/tmp /home/roctinam/.cache/claude-work/fortemi-srvfix/verify-redis.sh
+    "$PWD" 55491
+  final_verification:
+    gates: GATES fmt=0 migrations=1 clippy=0 tests=0 docs=0
+    result: VERIFY PASS
+    summary: binaries=121 passed=4077 failed=0
+    log: /home/roctinam/.cache/claude-work/fortemi-srvfix/verify-55491-r3.log
+  hosted_create_note_tests_round3:
+    result: 'test result: ok. 56 passed; 0 failed; 0 ignored; 0 measured; 1257 filtered out; finished
+      in 116.11s'
+    log: /home/roctinam/.cache/claude-work/fortemi-srvfix/hosted-55481-r3.log
+    redis: disposable redis:7-alpine
+    port: 55481
+  matric_jobs_round3:
+    passed: 618
+    failed: 0
+    test_binaries: 10
+    preexisting_ignored_doc_examples: 1
+    results:
+    - 'test result: ok. 577 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.84s'
+    - 'test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s'
+    - 'test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s'
+    - 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.43s'
+    - 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.42s'
+    - 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.90s'
+    - 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.20s'
+    - 'test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s'
+    - 'test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s'
+    - 'test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.84s'
+    - 'test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s'
+    log: /home/roctinam/.cache/claude-work/fortemi-srvfix/jobs-55482-r3.log
+    port: 55482
+  migration_immutability_round3: 'python3 scripts/ci/verify-migration-immutability.py: passed; additive
+    migration only'
+  new_file_limit_round3: All new files have fewer than 500 lines
+  round4:
+    round: 4
+    route_inventory:
+      paths: 236
+      CompleteCatalog: 193
+      CatalogFiltered: 18
+      ArchiveScoped: 3
+      Public: 22
+      required_field: compile-time constructor argument; router inventory/isolation tests; runtime missing-metadata
+        gate
+    hosted_create_note_tests:
+      command: REDIS_URL=<disposable redis:7-alpine> FORTEMI_TEST_HOSTED_CREATE=1 bash /home/roctinam/.cache/claude-work/fortemi-srvfix/testdb.sh
+        "$PWD" 55531 -- --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api hosted_create_note_tests
+        -- --test-threads=1
+      result: 'test result: ok. 64 passed; 0 failed; 0 ignored; 0 measured; 1258 filtered out; finished
+        in 125.79s'
+      log: /home/roctinam/.cache/claude-work/fortemi-srvfix/hosted-1201-r4-final.log
+    matric_jobs:
+      command: bash /home/roctinam/.cache/claude-work/fortemi-srvfix/testdb.sh "$PWD" 55541 -- --locked
+        -p matric-jobs -- --test-threads=1
+      results:
+      - 'test result: ok. 577 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.88s'
+      - 'test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.49s'
+      - 'test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s'
+      - 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.62s'
+      - 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.50s'
+      - 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.78s'
+      - 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s'
+      - 'test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s'
+      - 'test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s'
+      - 'test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.06s'
+      - 'test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s'
+      passed: 618
+      failed: 0
+      existing_ignored_doc_examples: 1
+      log: /home/roctinam/.cache/claude-work/fortemi-srvfix/jobs-1201-r4.log
+    final_verification:
+      command: /home/roctinam/.cache/claude-work/fortemi-srvfix/verify-redis.sh "$PWD" 55551
+      summary: binaries=121 passed=4078 failed=0
+      gates: GATES fmt=0 migrations=1 clippy=0 tests=0 docs=0
+      result: VERIFY PASS
+      log: /home/roctinam/.cache/claude-work/fortemi-srvfix/verify-1201-r4.log
+    openapi_generator: scripts/ci/openapi-contract.sh generate
+    worker_sweep_report: .aiwg/reports/issue-1201-public-archive-access.md#worker-database-sweep-pass-3-1
+    migration_immutability: passed (committed history comparison); additive migration also exercised by
+      disposable bootstrap and migration gate
+    new_files: all fewer than 500 lines
+    git_diff_check: passed
+    workflow_yaml_and_shell_syntax: passed
+    source_snapshot:
+      path: /home/roctinam/.cache/claude-work/fortemi-srvfix/source-snapshot-1201-r4.json
+      sha256: a6aa7779722c190e0ce61b9ae52be39ee0a9365affa5c2ae26a95e1b2199f92b
+      files: 47
+      unchanged_during_final_verifier: true
+    no_new_skips: true
+    committed: false
+  round5:
+    round: 5
+    route_inventory:
+      paths: 238
+      CompleteCatalog: 193
+      CatalogFiltered: 18
+      ArchiveScoped: 3
+      Public: 24
+      runtime_binding: Exact Axum MatchedPath template plus HTTP method; unknown template/method or no
+        MatchedPath requires complete catalog
+      registration: Inventory constructors require class and methods; route registration is independent
+        and tested
+    hosted_create_note_tests:
+      port: 55591
+      result: 'test result: ok. 71 passed; 0 failed; 0 ignored; 0 measured; 1259 filtered out; finished
+        in 181.30s'
+      log: /home/roctinam/.cache/claude-work/fortemi-srvfix/hosted-1201-r5.log
+      redis: disposable redis:7-alpine
+    matric_jobs:
+      port: 55601
+      results:
+      - 'test result: ok. 577 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.29s'
+      - 'test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.73s'
+      - 'test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s'
+      - 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.48s'
+      - 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.66s'
+      - 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.13s'
+      - 'test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.32s'
+      - 'test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s'
+      - 'test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s'
+      - 'test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.49s'
+      - 'test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s'
+      passed: 619
+      failed: 0
+      existing_ignored_doc_examples: 1
+      log: /home/roctinam/.cache/claude-work/fortemi-srvfix/jobs-1201-r5.log
+    route_policy_tests:
+      passed: 27
+      failed: 0
+      log: /home/roctinam/.cache/claude-work/fortemi-srvfix/route-policy-1201-r5.log
+    final_verification:
+      command: /home/roctinam/.cache/claude-work/fortemi-srvfix/verify-redis.sh "$PWD" 55611
+      summary: binaries=121 passed=4079 failed=0
+      gates: GATES fmt=0 migrations=1 clippy=0 tests=0 docs=0
+      result: VERIFY PASS
+      log: /home/roctinam/.cache/claude-work/fortemi-srvfix/verify-1201-r5.log
+    openapi_generator: scripts/ci/openapi-contract.sh generate
+    git_diff_check: passed
+    new_files: all fewer than 500 lines
+    no_new_skips: true
+    committed: false
+    source_snapshot:
+      path: /home/roctinam/.cache/claude-work/fortemi-srvfix/source-snapshot-1201-r5.json
+      sha256: 023549345087e5aca1dc57fe56404746cb1838473f235d0a8efcb68b8875ec8f
+      files: 50
+      code_unchanged_during_final_verifier: true
+      documentation_checked_by_final_docs_contract: true
+validation:
+  round: 6
+  route_inventory:
+    templates: 238
+    rows: 240
+    CompleteCatalog: 195
+    CatalogFiltered: 18
+    ArchiveScoped: 3
+    Public: 24
+  hosted_create_note_tests:
+    port: 55651
+    result: 'test result: ok. 72 passed; 0 failed; 0 ignored; 0 measured; 1259 filtered out; finished
+      in 190.38s'
+    log: /home/roctinam/.cache/claude-work/fortemi-srvfix/hosted-1201-r6-final.log
+    redis: disposable redis:7-alpine
+  final_verification:
+    command: /home/roctinam/.cache/claude-work/fortemi-srvfix/verify-redis.sh "$PWD" 55661
+    summary: binaries=121 passed=4079 failed=0
+    gates: GATES fmt=0 migrations=1 clippy=0 tests=0 docs=0
+    result: VERIFY PASS
+    log: /home/roctinam/.cache/claude-work/fortemi-srvfix/verify-1201-r6.log
+  mcp:
+    passed: 205
+    failed: 0
+    schemas: 213
+  openapi_generator: scripts/ci/openapi-contract.sh generate
+  openapi_diff: Only create POST isolation annotations on archives and memories, plus checksum
+  source_snapshot:
+    path: /home/roctinam/.cache/claude-work/fortemi-srvfix/source-snapshot-1201-r6.json
+    sha256: 1ca8a5eafe88ed051bd5f9b3eed4fe7f150842b9de87ac7709d7601a92712699
+    files: 42
+    code_unchanged_during_final_commands: true
+  git_diff_check: passed
+  new_files: all fewer than 500 lines
+  matric_jobs: unchanged this round; worker tests not rerun
+  no_new_skips: true
+  committed: false

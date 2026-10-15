@@ -25,6 +25,137 @@ pub struct PgJobRepository {
 }
 
 impl PgJobRepository {
+    pub async fn list_filtered_in_archives(
+        &self,
+        status: Option<&str>,
+        job_type: Option<&str>,
+        note_id: Option<Uuid>,
+        limit: i64,
+        offset: i64,
+        schemas: Option<&[String]>,
+    ) -> Result<Vec<Job>> {
+        let mut conditions = Vec::new();
+        let mut param_idx = 1;
+
+        if status.is_some() {
+            conditions.push(format!("status::text = ${}", param_idx));
+            param_idx += 1;
+        }
+        if job_type.is_some() {
+            conditions.push(format!("job_type::text = ${}", param_idx));
+            param_idx += 1;
+        }
+        if note_id.is_some() {
+            conditions.push(format!("note_id = ${}", param_idx));
+            param_idx += 1;
+        }
+
+        if schemas.is_some() {
+            conditions.push(format!(
+                "NULLIF(payload->>'schema','') = ANY(${}::text[])",
+                param_idx
+            ));
+            param_idx += 1;
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        let query = format!(
+            "SELECT id, note_id, job_type::text, status::text, priority, payload, result,
+                    error_message, progress_percent, progress_message, retry_count, max_retries,
+                    created_at, started_at, completed_at, cost_tier, initiated_by_user_id
+             FROM job_queue
+             {}
+             ORDER BY created_at DESC
+             LIMIT ${} OFFSET ${}",
+            where_clause,
+            param_idx,
+            param_idx + 1
+        );
+
+        let mut q = sqlx::query(&query);
+        if let Some(s) = status {
+            q = q.bind(s);
+        }
+        if let Some(jt) = job_type {
+            q = q.bind(jt);
+        }
+        if let Some(nid) = note_id {
+            q = q.bind(nid);
+        }
+        if let Some(schemas) = schemas {
+            q = q.bind(schemas);
+        }
+        q = q.bind(limit).bind(offset);
+
+        let rows = q.fetch_all(&self.pool).await.map_err(Error::Database)?;
+        rows.into_iter().map(Self::parse_job_row).collect()
+    }
+
+    pub async fn queue_stats_in_archives(&self, schemas: Option<&[String]>) -> Result<QueueStats> {
+        let supported_types = Self::supported_job_type_strings();
+        let supported_statuses = Self::supported_job_status_strings();
+        let row = sqlx::query(
+            "SELECT
+                COUNT(*) FILTER (
+                    WHERE status = 'pending'
+                      AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
+                      AND job_type::text = ANY($1)
+                ) as pending,
+                COUNT(*) FILTER (
+                    WHERE status = 'pending'
+                      AND next_attempt_at > NOW()
+                      AND job_type::text = ANY($1)
+                ) as delayed,
+                COUNT(*) FILTER (
+                    WHERE status = 'running'
+                      AND job_type::text = ANY($1)
+                ) as processing,
+                COUNT(*) FILTER (
+                    WHERE status = 'completed'
+                      AND job_type::text = ANY($1)
+                      AND completed_at > NOW() - INTERVAL '1 hour'
+                ) as completed_last_hour,
+                COUNT(*) FILTER (
+                    WHERE status = 'failed'
+                      AND job_type::text = ANY($1)
+                      AND completed_at > NOW() - INTERVAL '1 hour'
+                ) as failed_last_hour,
+                COUNT(*) FILTER (
+                    WHERE status = 'failed'
+                      AND job_type::text = ANY($1)
+                ) as dead,
+                COUNT(*) FILTER (
+                    WHERE NOT (job_type::text = ANY($1))
+                       OR NOT (status::text = ANY($2))
+                ) as incompatible,
+                COUNT(*) as total
+             FROM job_queue WHERE ($3::text[] IS NULL OR NULLIF(payload->>'schema','') = ANY($3))",
+        )
+        .bind(&supported_types)
+        .bind(&supported_statuses)
+        .bind(schemas)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Error::Database)?;
+
+        use sqlx::Row;
+        Ok(QueueStats {
+            pending: row.get::<i64, _>("pending"),
+            delayed: row.get::<i64, _>("delayed"),
+            processing: row.get::<i64, _>("processing"),
+            completed_last_hour: row.get::<i64, _>("completed_last_hour"),
+            failed_last_hour: row.get::<i64, _>("failed_last_hour"),
+            dead: row.get::<i64, _>("dead"),
+            incompatible: row.get::<i64, _>("incompatible"),
+            total: row.get::<i64, _>("total"),
+        })
+    }
+
     /// Create a new PgJobRepository with the given connection pool and notify handle.
     pub fn new(pool: Pool<Postgres>) -> Self {
         Self {
@@ -194,6 +325,9 @@ impl PgJobRepository {
                  WHERE NOT EXISTS (
                      SELECT 1 FROM job_queue
                      WHERE note_id = $2 AND job_type = $3::job_type
+                       AND tenant_id = current_setting('app.current_tenant')::uuid
+                       AND COALESCE(NULLIF(payload->>'schema',''),'public') =
+                           COALESCE(NULLIF($5::jsonb->>'schema',''),'public')
                        AND status IN ('pending'::job_status, 'running'::job_status)
                  )
                  RETURNING id",
@@ -232,6 +366,9 @@ impl PgJobRepository {
                  WHERE NOT EXISTS (
                      SELECT 1 FROM job_queue
                      WHERE note_id IS NULL AND job_type = $2::job_type
+                       AND tenant_id = current_setting('app.current_tenant')::uuid
+                       AND COALESCE(NULLIF(payload->>'schema',''),'public') =
+                           COALESCE(NULLIF($4::jsonb->>'schema',''),'public')
                        AND status IN ('pending'::job_status, 'running'::job_status)
                  )
                  RETURNING id",
@@ -1125,114 +1262,11 @@ impl JobRepository for PgJobRepository {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<Job>> {
-        let mut conditions = Vec::new();
-        let mut param_idx = 1;
-
-        if status.is_some() {
-            conditions.push(format!("status::text = ${}", param_idx));
-            param_idx += 1;
-        }
-        if job_type.is_some() {
-            conditions.push(format!("job_type::text = ${}", param_idx));
-            param_idx += 1;
-        }
-        if note_id.is_some() {
-            conditions.push(format!("note_id = ${}", param_idx));
-            param_idx += 1;
-        }
-
-        let where_clause = if conditions.is_empty() {
-            String::new()
-        } else {
-            format!("WHERE {}", conditions.join(" AND "))
-        };
-
-        let query = format!(
-            "SELECT id, note_id, job_type::text, status::text, priority, payload, result,
-                    error_message, progress_percent, progress_message, retry_count, max_retries,
-                    created_at, started_at, completed_at, cost_tier, initiated_by_user_id
-             FROM job_queue
-             {}
-             ORDER BY created_at DESC
-             LIMIT ${} OFFSET ${}",
-            where_clause,
-            param_idx,
-            param_idx + 1
-        );
-
-        let mut q = sqlx::query(&query);
-        if let Some(s) = status {
-            q = q.bind(s);
-        }
-        if let Some(jt) = job_type {
-            q = q.bind(jt);
-        }
-        if let Some(nid) = note_id {
-            q = q.bind(nid);
-        }
-        q = q.bind(limit).bind(offset);
-
-        let rows = q.fetch_all(&self.pool).await.map_err(Error::Database)?;
-        rows.into_iter().map(Self::parse_job_row).collect()
+        self.list_filtered_in_archives(status, job_type, note_id, limit, offset, None)
+            .await
     }
-
     async fn queue_stats(&self) -> Result<QueueStats> {
-        let supported_types = Self::supported_job_type_strings();
-        let supported_statuses = Self::supported_job_status_strings();
-        let row = sqlx::query(
-            "SELECT
-                COUNT(*) FILTER (
-                    WHERE status = 'pending'
-                      AND (next_attempt_at IS NULL OR next_attempt_at <= NOW())
-                      AND job_type::text = ANY($1)
-                ) as pending,
-                COUNT(*) FILTER (
-                    WHERE status = 'pending'
-                      AND next_attempt_at > NOW()
-                      AND job_type::text = ANY($1)
-                ) as delayed,
-                COUNT(*) FILTER (
-                    WHERE status = 'running'
-                      AND job_type::text = ANY($1)
-                ) as processing,
-                COUNT(*) FILTER (
-                    WHERE status = 'completed'
-                      AND job_type::text = ANY($1)
-                      AND completed_at > NOW() - INTERVAL '1 hour'
-                ) as completed_last_hour,
-                COUNT(*) FILTER (
-                    WHERE status = 'failed'
-                      AND job_type::text = ANY($1)
-                      AND completed_at > NOW() - INTERVAL '1 hour'
-                ) as failed_last_hour,
-                COUNT(*) FILTER (
-                    WHERE status = 'failed'
-                      AND job_type::text = ANY($1)
-                ) as dead,
-                COUNT(*) FILTER (
-                    WHERE NOT (job_type::text = ANY($1))
-                       OR NOT (status::text = ANY($2))
-                ) as incompatible,
-                COUNT(*) as total
-             FROM job_queue",
-        )
-        .bind(&supported_types)
-        .bind(&supported_statuses)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(Error::Database)?;
-
-        use sqlx::Row;
-        Ok(QueueStats {
-            pending: row.get::<i64, _>("pending"),
-            delayed: row.get::<i64, _>("delayed"),
-            processing: row.get::<i64, _>("processing"),
-            completed_last_hour: row.get::<i64, _>("completed_last_hour"),
-            failed_last_hour: row.get::<i64, _>("failed_last_hour"),
-            dead: row.get::<i64, _>("dead"),
-            incompatible: row.get::<i64, _>("incompatible"),
-            total: row.get::<i64, _>("total"),
-        })
+        self.queue_stats_in_archives(None).await
     }
 
     async fn cleanup(&self, keep_count: i64) -> Result<i64> {

@@ -221,6 +221,7 @@ pub(super) async fn authorize_memory_subscription(
     human: bool,
     tenant: Option<Uuid>,
     name: &str,
+    user_id: Option<Uuid>,
 ) -> Result<(), ApiError> {
     let tenant_text = tenant.map(|id| id.to_string());
     let path = format!("/api/v1/archives/{name}");
@@ -231,6 +232,12 @@ pub(super) async fn authorize_memory_subscription(
         state.db.archives.get_archive_by_name(&archive_name).await
     })
     .await;
+    if let Some(user_id) = user_id {
+        input
+            .context
+            .environment
+            .insert("app_user_id".into(), serde_json::json!(user_id));
+    }
     // Archive selection shares the stream's human-read or MCP admission.
     input.action = authorization_input(&auth.principal, human, tenant).action;
     authorize_policy_input(
@@ -244,8 +251,11 @@ pub(super) async fn authorize_memory_subscription(
 }
 
 /// Archive access seam for #1201. Names/schemas must come from a trusted
-/// archive resolver. Today every archive in the principal's tenant is selectable.
-pub(super) fn may_select_archive(
+/// archive resolver. The default policy permits every archive in the principal's
+/// tenant; a selected enterprise policy can narrow that visibility.
+pub(super) async fn may_select_archive(
+    policy: &dyn AuthorizationPolicy,
+    user_id: Option<Uuid>,
     principal: &AuthPrincipal,
     principal_tenant: Option<Uuid>,
     archive_tenant: Option<Uuid>,
@@ -257,7 +267,14 @@ pub(super) fn may_select_archive(
     (principal_tenant == archive_tenant
         || (!multi_tenant && principal_tenant.is_none() && archive_tenant == Some(Uuid::nil())))
         && match archive {
-            Some(_) => true,
+            Some((name, schema)) => {
+                let (resource, context) =
+                    archive_access::policy_input(principal_tenant, user_id, name, schema);
+                policy
+                    .may_select_archive(principal, &resource, &context)
+                    .await
+                    .unwrap_or(false)
+            }
             // Global queue/configuration data can reveal activity across archives.
             // Preserve personal operator monitoring; hosted tenants never see it.
             None => {
@@ -279,6 +296,8 @@ fn is_system_event(event: &ServerEvent) -> bool {
 
 #[derive(Clone)]
 pub(super) struct Subscription {
+    pub policy: Arc<dyn AuthorizationPolicy>,
+    pub user_id: Option<Uuid>,
     pub principal: AuthPrincipal,
     pub tenant_id: Option<Uuid>,
     pub multi_tenant: bool,
@@ -309,6 +328,23 @@ impl Subscription {
             }
         }
 
+        // System/queue payloads can carry cross-archive counts even when the
+        // publisher attributes a copy to a particular archive.
+        if is_system_event(&envelope.payload)
+            && !archive_access::complete_catalog(
+                db,
+                &archive_access::Caller {
+                    principal: self.principal.clone(),
+                    tenant_id: self.tenant_id,
+                    user_id: self.user_id,
+                },
+                self.policy.as_ref(),
+            )
+            .await
+        {
+            return None;
+        }
+
         let archive = if let Some((name, schema)) = &self.archive {
             let event_schema = envelope
                 .archive_schema
@@ -335,7 +371,8 @@ impl Subscription {
                 ("public".to_string(), "public".to_string())
             } else {
                 sqlx::query_as::<_, (String, String)>(
-                    "SELECT name, schema_name FROM public.archive_registry WHERE name = $1 OR schema_name = $1",
+                    "SELECT name, schema_name FROM public.archive_registry WHERE name = $1 OR schema_name = $1
+                     ORDER BY CASE WHEN schema_name = $1 THEN 0 ELSE 1 END LIMIT 1",
                 ).bind(memory).fetch_optional(&db.pool).await.ok()??
             }
         } else {
@@ -348,14 +385,20 @@ impl Subscription {
                 .map(Uuid::parse_str)
                 .transpose()
                 .ok()?;
-            return may_select_archive(
+            if !may_select_archive(
+                self.policy.as_ref(),
+                self.user_id,
                 &self.principal,
                 self.tenant_id,
                 event_tenant,
                 None,
                 self.multi_tenant,
             )
-            .then_some(envelope);
+            .await
+            {
+                return None;
+            }
+            return Some(envelope);
         };
 
         let archive_tenant = envelope
@@ -365,12 +408,16 @@ impl Subscription {
             .transpose()
             .ok()?;
         if !may_select_archive(
+            self.policy.as_ref(),
+            self.user_id,
             &self.principal,
             self.tenant_id,
             archive_tenant,
             Some((&archive.0, &archive.1)),
             self.multi_tenant,
-        ) {
+        )
+        .await
+        {
             return None;
         }
         envelope.memory = Some(if self.multi_tenant {

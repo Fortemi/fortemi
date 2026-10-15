@@ -18,7 +18,7 @@
 use async_trait::async_trait;
 use chrono::Utc;
 use serde_json::{json, Value};
-use sqlx::{Pool, Postgres, Row};
+use sqlx::{Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use matric_core::{
@@ -2141,12 +2141,27 @@ impl PgSkosRepository {
         if note_ids.is_empty() {
             return Ok(std::collections::HashMap::new());
         }
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        let result = self.get_concept_ids_bulk_tx(&mut tx, note_ids).await?;
+        tx.commit().await.map_err(Error::Database)?;
+        Ok(result)
+    }
+
+    /// Bulk concepts within the job's selected archive.
+    pub async fn get_concept_ids_bulk_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        note_ids: &[Uuid],
+    ) -> Result<std::collections::HashMap<Uuid, std::collections::HashSet<Uuid>>> {
+        if note_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
 
         let rows = sqlx::query(
             "SELECT note_id, concept_id FROM note_skos_concept WHERE note_id = ANY($1::uuid[])",
         )
         .bind(note_ids)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut **tx)
         .await
         .map_err(Error::Database)?;
 

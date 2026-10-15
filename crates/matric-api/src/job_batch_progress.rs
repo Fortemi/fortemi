@@ -38,9 +38,18 @@ pub async fn attach_child_job_progress(db: &Database, mut job: Job) -> Result<Jo
         FROM job_queue
         WHERE job_type = 'embedding'::job_type
           AND payload->>'embedding_batch_id' = $1
+          AND COALESCE(NULLIF(payload->>'schema',''),'public') = $2
         "#,
     )
     .bind(&batch_id)
+    .bind(
+        job.payload
+            .as_ref()
+            .and_then(|p| p.get("schema"))
+            .and_then(serde_json::Value::as_str)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("public"),
+    )
     .fetch_one(&db.pool)
     .await
     .map_err(Error::Database)?;

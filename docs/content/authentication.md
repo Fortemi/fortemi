@@ -22,11 +22,168 @@ scopes, and 401/403 troubleshooting.
 - [API Key Authentication](#api-key-authentication)
 - [OAuth2 Authentication](#oauth2-authentication)
 - [Scopes and Permissions](#scopes-and-permissions)
+- [Archive access](#archive-access)
 - [Rate Limiting](#rate-limiting)
 - [Error Handling](#error-handling)
 - [Security Best Practices](#security-best-practices)
 
 ---
+
+## Archive access
+
+In external-OIDC mode, `admin` is required to update or delete an archive, clone
+it, or set it as the default (`PATCH`/`DELETE /api/v1/archives/{name}` and
+`POST /api/v1/archives/{name}/clone` or `/set-default`). The `/memories/{name}`
+aliases have the same requirements. `write` alone no longer authorizes these
+operations. `GET /api/v1/memories/overview`, which includes statistics, also
+requires `admin`. The existing `/archives` and `/memories` inventories remain
+admin-only.
+
+Readers can use `GET /api/v1/memories/available` to choose an archive. It requires
+`read` and returns only selectable names and their default flag, with
+`Cache-Control: no-store`:
+
+```json
+[{"name":"research","is_default":true}]
+```
+
+The route inventory in `crates/matric-api/src/route_policy.rs` records an
+archive-isolation class and supported methods for each template. Inventory
+constructors require the class; ordinary Axum route registration remains separate.
+Tests compare registrations (including merged modules and Swagger templates)
+and probe the production router. Runtime isolation admission looks up the exact
+`axum::extract::MatchedPath` template **and HTTP method**. An unclassified matched
+template, an unlisted method, or a request with no `MatchedPath` defaults to
+`CompleteCatalog`; a static route cannot inherit a parameterized route's class.
+Missing ordinary request policy input does not bypass this independent gate.
+
+| Class | Admission and handler contract |
+| --- | --- |
+| `ArchiveScoped` | Verified operations use the authorized, resolver-selected archive. |
+| `CatalogFiltered` | Named targets can be resolved read-only at early admission; handlers also resolve effective targets or filter catalog/results through the current archive policy. Shared-schema memory SQL backups require early complete-catalog admission. |
+| `CompleteCatalog` | Shared/global data or isolation not yet verified; central middleware requires every archive in the tenant, including built-in `public`. |
+| `Public` | No archive data (coarse probes, protocol and identity surfaces); ordinary authentication and scopes still apply. |
+
+The early gate checks route classification before archive routing, default-cache
+updates, schema synchronization, handler extractors or handler execution. It also
+resolves named memory SQL backup targets read-only and requires complete-catalog
+access for public or shared-table schemas before those routing side effects.
+Job-detail visibility also runs early, including complete-catalog authority for
+unscoped jobs; hidden and missing IDs retain the same 404.
+Read-only named-target resolution preserves missing/denied 404 equivalence.
+Handlers retain defence-in-depth checks. Catalog checks that filter job lists,
+coarse health responses or event delivery still run at the point of use.
+It also covers bearer-exempt routes using the
+caller's available identity (anonymous for inline-proof admission). A restrictive
+policy must leave `permits_complete_archive_catalog()` false; missing grants and
+lookup errors deny admission. The two built-in policies declare that every caller
+can select the complete tenant catalog, preserving default admission and scopes.
+
+Uncertain routes are conservatively `CompleteCatalog`. Each inventory row shares
+one class across its listed methods; separate rows can classify methods on the
+same path differently. Other mixed paths remain conservatively `CompleteCatalog`
+when a listed method is unverified; an unlisted method defaults
+to `CompleteCatalog` at runtime. Thus
+embedding-set creation **and reads on the same path**, shard import (skip, merge,
+replace and multipart), call transcripts, document types, incoming receivers and
+connectors, shared configurations, detailed health, database SQL backups/restores and
+shared backup files require complete-catalog access. Named memory SQL export
+remains archive-scoped for ordinary non-public schemas. Early admission and the
+handler both require complete-catalog access when the effective schema is
+`public` or contains tables from the shared-control table registry. Set-default
+changes shared routing and requires it too. Archive creation POSTs on `/archives`
+and `/memories` are `CompleteCatalog`, with an additional handler check before
+shared-name checks; list GET/HEAD operations remain `CatalogFiltered`. Clone paths are
+`CompleteCatalog`. The mixed note list/create path is also `CompleteCatalog`
+because creation reads shared document-type configuration; reconstruction is
+conservatively gated too.
+This intentionally limits restricted callers to the explicitly verified paths;
+it is not a claim that every schema-capable route has been qualified.
+
+Send archive selections in `X-Fortemi-Memory`. Once target resolution runs,
+missing and denied archives return the same 404, including named paths and
+job payload targets; hidden and missing job IDs also share 404. Named targets
+resolve read-only before catalog admission. `CompleteCatalog` admission can
+return 403 before header/default resolution, even when the requested archive
+would otherwise be selectable.
+A header or preliminary selection cannot authorize a later payload or stored
+token target. Job submission resolves `payload.schema` through the tenant
+catalog (historical worker fallback: `public`) and checks named `memory` hints.
+Deduplication includes the canonical effective schema and trusted database tenant,
+for both note jobs and note-less jobs, including PATCH pipelines and worker
+follow-ups. Missing or empty legacy schemas use the worker's `public` fallback.
+It rejects underscore-prefixed keys recursively. Workers derive internal controls
+and storage paths. REST and MCP use the same gate. Job lists filter before
+pagination and summaries; unscoped jobs require complete-catalog authority.
+
+`/health` returns only status, version and lifecycle readiness to restricted
+callers, before querying queues or constructing activity metrics. Detailed
+health (including `/api/v1/health/streaming`) is `CompleteCatalog`. Default
+policies retain the existing detailed `/health` response. The live/ready probes
+remain coarse. Named SQL restore executes dump statements through `psql`, so a
+selected archive does not confine the dump. `/memory/info` exposes shared storage
+statistics and also requires complete-catalog authority.
+
+Federated `all` search visits authorized public first, then authorized registry
+archives in creation-descending order; `memories_searched` uses that order.
+Inventory and overview results include only selectable archives. Overview counts
+registered public once, correcting the previous duplicate breakdown and totals.
+Overview totals and capacity counts cover visible archives; when any archive is hidden,
+`database_size_bytes` reports visible archive storage. SSE authenticates query
+tokens before resolving query/header/default archive selections, so invalid
+tokens reveal no archive existence. Ingest tokens store their minting principal,
+verified app_user ID and tenant in Redis (no database migration), and recheck
+their stored archive against current policy when used. A denied, missing or
+unresolvable stored archive behaves like an invalid token (401 when ingest
+tokens are required, the default). Pre-change Redis tokens without a captured
+identity retain their stored schema and rate limit when the current policy
+permits anonymous complete-catalog access, as both default policies do. They
+never fall through to header/default selection. Under a restrictive policy they
+return 401, including when ingest tokens are optional. Redis is a trusted
+identity store; these records are not independently credential-bound.
+
+Live and replayed SSE events use the same current archive decision. Global
+queue/system frames require complete-catalog access even when attributed to
+an allowed archive. Legacy anonymous WebSocket upgrades require complete-catalog
+access and recheck it before every event, closing the socket before sending an
+event if access has been lost. Authentication-required deployments retain their
+existing disabled route.
+
+Outgoing webhook subscriptions record the verified creating app_user. Dispatch
+rechecks that active user's current complete-catalog access before each send.
+Legacy/local subscriptions without an app_user use anonymous catalog policy,
+which preserves delivery under the default policies. A missing user, disabled
+user, denied archive or failed policy lookup suppresses dispatch. Knowledge
+Shard export includes shared embedding configs only through the selected
+archive's declarations or exported embedding-set references. Creating those
+shared-config bindings, importing them under any conflict mode, and other
+unverified embedding-set paths require complete-catalog authority; a restricted
+caller cannot create a reference to establish access. Inventory order
+remains creation-descending.
+
+The public default permits selection of every archive in the authenticated
+principal's tenant. It implements no grant store or per-user grant assignment.
+The product model is per archive: one administrator and other members as
+readers. Grant storage and the real grant policy belong to
+`Fortemi-Enterprise/rbac#2`.
+
+Enterprise bootstrap can call
+`matric_api::authorization_policy::install_policy_selector` once before policy
+selection. The selector receives `PolicyMode` and the existing default policy
+(`RoleBasedPolicy` for external OIDC or hosted mode, `AllowAllPolicy` locally)
+and can wrap or replace it. Implement `AuthorizationPolicy::may_select_archive`
+for visibility; errors deny access. Its resource contains the resolver-derived
+archive name and schema, with verified tenant context and `app_user_id` in
+`AuthzContext.environment` when the credential has a provisioned application
+user. The regular route decision receives that user ID and trusted archive
+context too. Raw selection headers are never policy input. Policies must support
+concurrent calls, including per-event SSE checks.
+
+Hosted multi-tenant scopes and tenant-migration gates are unchanged. Hosted
+authentication retains explicitly mapped scopes and does not automatically
+promote a tenant owner to `admin`, so the new external-OIDC admin requirement
+does not change hosted owners' scope contract. Community localhost installations
+using `AllowAllPolicy` retain management access without authentication.
 
 ## Quick Start
 

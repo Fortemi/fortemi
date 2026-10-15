@@ -7,6 +7,16 @@ community localhost installations. The configured external owner is E.
 
 ## Upgrade from 2026.10.5
 
+Archive-management authorization is hardened by #1201. Ensure the administrator's
+IdP claim mapping grants `admin`: `write` alone no longer permits archive
+update/delete/clone/set-default, including `/memories/{name}` aliases. The full
+`GET /api/v1/memories/overview` also requires `admin`; reader clients should use
+`GET /api/v1/memories/available` for names and default flags without statistics.
+The default policy still permits every archive within the caller's tenant;
+per-archive grants require the enterprise policy (`Fortemi-Enterprise/rbac#2`).
+Archive visibility hooks apply to routing, inventories and live/replayed SSE;
+missing and denied archives return the same 404.
+
 1. Back up PostgreSQL and the attachment storage directory. Record the configured
    E UUID. Keep the existing PAT pepper and attachment storage paths.
 2. Stop **all** API instances and workers that write this database, including

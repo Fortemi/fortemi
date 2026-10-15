@@ -2,8 +2,9 @@
 //!
 //! This table is intentionally executable: authentication exemptions and
 //! admin/operator checks read from it, and tests compare it with the Axum router
-//! declarations in `main.rs`. The first slice keeps enforcement coarse while
-//! making every externally registered route carry policy/docs/cache metadata.
+//! declarations in `main.rs` and production modules. The inventory records
+//! policy/docs/cache/isolation metadata; runtime isolation uses exact Axum
+//! matched templates and methods, defaulting unknown identities to complete catalog.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -40,6 +41,20 @@ pub enum CacheHeaderClass {
     NoStore,
 }
 
+/// Archive authority required in addition to the ordinary route decision.
+/// Methods may use separate inventory rows when their archive authority differs.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ArchiveIsolation {
+    /// Verified handler operations use only the authorized resolver-selected archive.
+    ArchiveScoped,
+    /// Explicit target/catalog filtering applies the current archive policy.
+    CatalogFiltered,
+    /// Shared, global, or not yet verified: require every archive in the tenant.
+    CompleteCatalog,
+    /// No archive data; ordinary authentication/authorization still applies.
+    Public,
+}
+
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub struct RoutePolicy {
     pub path: &'static str,
@@ -47,6 +62,8 @@ pub struct RoutePolicy {
     pub action_family: &'static str,
     pub docs: DocsExposureClass,
     pub cache: CacheHeaderClass,
+    pub archive_isolation: ArchiveIsolation,
+    pub methods: &'static [&'static str],
 }
 
 impl fmt::Debug for RoutePolicy {
@@ -57,6 +74,7 @@ impl fmt::Debug for RoutePolicy {
             .field("action_family_len", &self.action_family.chars().count())
             .field("docs", &self.docs)
             .field("cache", &self.cache)
+            .field("archive_isolation", &self.archive_isolation)
             .finish()
     }
 }
@@ -92,1624 +110,2185 @@ use PolicyClass::{
     RealtimeTransport, SystemHealth, TenantObject,
 };
 
+use ArchiveIsolation::{ArchiveScoped, CatalogFiltered, CompleteCatalog, Public as NoArchiveData};
+
 pub const OPERATOR_DOCS_PATH: &str = "/api/v1/operator/docs";
 pub const OPERATOR_OPENAPI_PATH: &str = "/api/v1/operator/openapi.yaml";
 pub const OPERATOR_ASYNCAPI_PATH: &str = "/api/v1/operator/asyncapi.yaml";
 
 pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
     r(
+        "/api/v1/operator/docs/",
+        &["GET", "HEAD"],
+        AdminOperator,
+        "docs_schema",
+        Operator,
+        NoStore,
+        NoArchiveData,
+    ),
+    r(
+        "/api/v1/operator/docs/{*rest}",
+        &["GET", "HEAD"],
+        AdminOperator,
+        "docs_schema",
+        Operator,
+        NoStore,
+        NoArchiveData,
+    ),
+    r(
         "/.well-known/oauth-authorization-server",
+        &["GET", "HEAD"],
         OAuth,
         "oauth_discovery",
         DocsPublic,
         PublicProbe,
+        NoArchiveData,
     ),
     r(
         "/.well-known/oauth-protected-resource",
+        &["GET", "HEAD"],
         OAuth,
         "oauth_discovery",
         DocsPublic,
         PublicProbe,
+        NoArchiveData,
     ),
     r(
         "/.well-known/oauth-protected-resource/{*resource_path}",
+        &["GET", "HEAD"],
         OAuth,
         "oauth_discovery",
         DocsPublic,
         PublicProbe,
+        NoArchiveData,
     ),
     r(
         "/api/v1/api-keys",
+        &["GET", "HEAD", "POST"],
         AdminOperator,
         "credential_management",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/api-keys/{id}",
+        &["DELETE"],
         AdminOperator,
         "credential_management",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/archives",
+        &["GET", "HEAD"],
         AdminOperator,
         "memory_management",
         Authenticated,
         PrivateUserData,
+        CatalogFiltered,
+    ),
+    r(
+        "/api/v1/archives",
+        &["POST"],
+        AdminOperator,
+        "memory_management",
+        Authenticated,
+        PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/archives/{name}",
+        &["DELETE", "GET", "HEAD", "PATCH"],
         TenantObject,
         "memory_management",
         Authenticated,
         PrivateUserData,
+        CatalogFiltered,
     ),
     r(
         "/api/v1/archives/{name}/clone",
+        &["POST"],
         TenantObject,
         "memory_management",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/archives/{name}/set-default",
+        &["POST"],
         TenantObject,
         "memory_management",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/archives/{name}/stats",
+        &["GET", "HEAD"],
         AuthenticatedRead,
         "memory_management",
         Authenticated,
         PrivateUserData,
+        CatalogFiltered,
     ),
     r(
         "/api/v1/attachments",
+        &["GET", "HEAD"],
         TenantObject,
         "attachment",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/attachments/{attachment_id}",
+        &["DELETE", "GET", "HEAD"],
         TenantObject,
         "attachment",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/attachments/{attachment_id}/download",
+        &["GET", "HEAD"],
         TenantObject,
         "attachment",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/attachments/{attachment_id}/sprites/{sprite_index}",
+        &["GET", "HEAD"],
         TenantObject,
         "attachment",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/attachments/{attachment_id}/subtitles",
+        &["GET", "HEAD"],
         TenantObject,
         "attachment",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/attachments/{attachment_id}/thumbnail",
+        &["GET", "HEAD"],
         TenantObject,
         "attachment",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/attachments/{attachment_id}/thumbnails.vtt",
+        &["GET", "HEAD"],
         TenantObject,
         "attachment",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/audio/transcribe",
+        &["POST"],
         AuthenticatedWrite,
         "ai_execution",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/auth/token-info",
+        &["GET", "HEAD"],
         AuthenticatedRead,
         "token_verification",
         Hidden,
         NoStore,
+        NoArchiveData,
     ),
     r(
         "/api/v1/me",
+        &["GET", "HEAD"],
         AuthenticatedRead,
         "principal",
         Authenticated,
         PrivateUserData,
+        NoArchiveData,
     ),
     r(
         "/api/v1/me/tokens",
+        &["GET", "HEAD", "POST"],
         AuthenticatedRead,
         "credential_management",
         Authenticated,
         NoStore,
+        NoArchiveData,
     ),
     r(
         "/api/v1/me/tokens/{id}",
+        &["DELETE"],
         AuthenticatedWrite,
         "credential_management",
         Authenticated,
         NoStore,
+        NoArchiveData,
     ),
     r(
         "/api/v1/admin/users",
+        &["GET", "HEAD"],
         AdminOperator,
         "principal_admin",
         Operator,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/admin/users/{id}/disable",
+        &["POST"],
         AdminOperator,
         "principal_admin",
         Operator,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/admin/tokens",
+        &["GET", "HEAD"],
         AdminOperator,
         "credential_management",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/admin/tokens/{id}",
+        &["DELETE"],
         AdminOperator,
         "credential_management",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/admin/users/{id}/enable",
+        &["POST"],
         AdminOperator,
         "principal_admin",
         Operator,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/backup/database",
+        &["GET", "HEAD"],
         AdminOperator,
         "backup_restore",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/backup/database/restore",
+        &["POST"],
         AdminOperator,
         "backup_restore",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/backup/database/snapshot",
+        &["POST"],
         AdminOperator,
         "backup_restore",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/backup/database/upload",
+        &["POST"],
         AdminOperator,
         "backup_restore",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/backup/download",
+        &["GET", "HEAD"],
         AdminOperator,
         "backup_restore",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/backup/export",
+        &["GET", "HEAD"],
         AdminOperator,
         "backup_restore",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/backup/import",
+        &["POST"],
         AdminOperator,
         "backup_restore",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/backup/knowledge-archive",
+        &["POST"],
         AdminOperator,
         "backup_restore",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/backup/knowledge-archive/{filename}",
+        &["GET", "HEAD"],
         AdminOperator,
         "backup_restore",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/backup/knowledge-shard",
+        &["GET", "HEAD"],
         AdminOperator,
         "backup_restore",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/backup/knowledge-shard/import",
+        &["POST"],
         AdminOperator,
         "backup_restore",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/backup/knowledge-shard/upload",
+        &["POST"],
         AdminOperator,
         "backup_restore",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/backup/list",
+        &["GET", "HEAD"],
         AdminOperator,
         "backup_restore",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/backup/list/{filename}",
+        &["GET", "HEAD"],
         AdminOperator,
         "backup_restore",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/backup/memory/{name}",
+        &["GET", "HEAD"],
         AdminOperator,
         "backup_restore",
         Operator,
         NoStore,
+        CatalogFiltered,
     ),
     r(
         "/api/v1/backup/metadata/{filename}",
+        &["GET", "HEAD", "PUT"],
         AdminOperator,
         "backup_restore",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/backup/status",
+        &["GET", "HEAD"],
         AdminOperator,
         "backup_restore",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/backup/swap",
+        &["POST"],
         AdminOperator,
         "backup_restore",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/backup/trigger",
+        &["POST"],
         AdminOperator,
         "backup_restore",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/calls/{id}",
+        &["GET", "HEAD"],
         TenantObject,
         "realtime_call",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/chat",
+        &["POST"],
         AuthenticatedWrite,
         "ai_execution",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/chat/models",
+        &["GET", "HEAD"],
         AuthenticatedRead,
         "ai_execution",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/chat/stream",
+        &["POST"],
         AuthenticatedWrite,
         "ai_execution",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/collections",
+        &["GET", "HEAD", "POST"],
         TenantObject,
         "collection",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/collections/{id}",
+        &["DELETE", "GET", "HEAD", "PATCH"],
         TenantObject,
         "collection",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/collections/{id}/export",
+        &["GET", "HEAD"],
         TenantObject,
         "collection",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/collections/{id}/notes",
+        &["GET", "HEAD"],
         TenantObject,
         "collection",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/concepts",
+        &["GET", "HEAD", "POST"],
         TenantObject,
         "taxonomy",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/concepts/autocomplete",
+        &["GET", "HEAD"],
         TenantObject,
         "taxonomy",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/concepts/collections",
+        &["GET", "HEAD", "POST"],
         TenantObject,
         "taxonomy",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/concepts/collections/{id}",
+        &["DELETE", "GET", "HEAD", "PATCH"],
         TenantObject,
         "taxonomy",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/concepts/collections/{id}/members",
+        &["PUT"],
         TenantObject,
         "taxonomy",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/concepts/collections/{id}/members/{concept_id}",
+        &["DELETE", "POST"],
         TenantObject,
         "taxonomy",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/concepts/governance",
+        &["GET", "HEAD"],
         AdminOperator,
         "taxonomy",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/concepts/schemes",
+        &["GET", "HEAD", "POST"],
         TenantObject,
         "taxonomy",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/concepts/schemes/export/turtle",
+        &["GET", "HEAD"],
         TenantObject,
         "taxonomy",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/concepts/schemes/{id}",
+        &["DELETE", "GET", "HEAD", "PATCH"],
         TenantObject,
         "taxonomy",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/concepts/schemes/{id}/export/turtle",
+        &["GET", "HEAD"],
         TenantObject,
         "taxonomy",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/concepts/schemes/{id}/top-concepts",
+        &["GET", "HEAD"],
         TenantObject,
         "taxonomy",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/concepts/{id}",
+        &["DELETE", "GET", "HEAD", "PATCH"],
         TenantObject,
         "taxonomy",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/concepts/{id}/ancestors",
+        &["GET", "HEAD"],
         TenantObject,
         "taxonomy",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/concepts/{id}/broader",
+        &["GET", "HEAD", "POST"],
         TenantObject,
         "taxonomy",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/concepts/{id}/broader/{target_id}",
+        &["DELETE"],
         TenantObject,
         "taxonomy",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/concepts/{id}/descendants",
+        &["GET", "HEAD"],
         TenantObject,
         "taxonomy",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/concepts/{id}/full",
+        &["GET", "HEAD"],
         TenantObject,
         "taxonomy",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/concepts/{id}/narrower",
+        &["GET", "HEAD", "POST"],
         TenantObject,
         "taxonomy",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/concepts/{id}/narrower/{target_id}",
+        &["DELETE"],
         TenantObject,
         "taxonomy",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/concepts/{id}/related",
+        &["GET", "HEAD", "POST"],
         TenantObject,
         "taxonomy",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/concepts/{id}/related/{target_id}",
+        &["DELETE"],
         TenantObject,
         "taxonomy",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/document-types",
+        &["GET", "HEAD", "POST"],
         AdminOperator,
         "document_type_catalog",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/document-types/detect",
+        &["POST"],
         AuthenticatedWrite,
         "document_type_catalog",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/document-types/{name}",
+        &["DELETE", "GET", "HEAD", "PATCH"],
         AdminOperator,
         "document_type_catalog",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/embedding-configs",
+        &["GET", "HEAD", "POST"],
         AdminOperator,
         "embedding_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/embedding-configs/default",
+        &["GET", "HEAD"],
         AdminOperator,
         "embedding_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/embedding-configs/{id}",
+        &["DELETE", "GET", "HEAD", "PATCH"],
         AdminOperator,
         "embedding_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/embedding-sets",
+        &["GET", "HEAD", "POST"],
         TenantObject,
         "embedding_control",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/embedding-sets/{slug}",
+        &["DELETE", "GET", "HEAD", "PATCH"],
         TenantObject,
         "embedding_control",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/embedding-sets/{slug}/members",
+        &["GET", "HEAD", "POST"],
         TenantObject,
         "embedding_control",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/embedding-sets/{slug}/members/{note_id}",
+        &["DELETE"],
         TenantObject,
         "embedding_control",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/embedding-sets/{slug}/build-index",
+        &["POST"],
         TenantObject,
         "embedding_control",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/embedding-sets/{slug}/index-health",
+        &["GET", "HEAD"],
         AdminOperator,
         "embedding_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/embedding-sets/{slug}/runs",
+        &["GET", "HEAD", "POST"],
         TenantObject,
         "embedding_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/embedding-sets/{slug}/runs/{run_id}",
+        &["GET", "HEAD"],
         TenantObject,
         "embedding_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/embedding-sets/{slug}/refresh",
+        &["POST"],
         TenantObject,
         "embedding_control",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/entities/similar",
+        &["GET", "HEAD"],
         TenantObject,
         "search",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/events",
+        &["GET", "HEAD"],
         RealtimeTransport,
         "event_stream",
         Authenticated,
         NoStore,
+        CatalogFiltered,
     ),
     r(
         "/api/v1/events/tokens",
+        &["POST"],
         AdminOperator,
         "event_stream",
         Operator,
         NoStore,
+        CatalogFiltered,
     ),
     r(
         "/api/v1/events/tokens/{token_id}",
+        &["DELETE"],
         AdminOperator,
         "event_stream",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/extraction/stats",
+        &["GET", "HEAD"],
         AdminOperator,
         "system_diagnostics",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/graph/cold-spots",
+        &["GET", "HEAD"],
         TenantObject,
         "graph_control",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/graph/community/coarse",
+        &["POST"],
         TenantObject,
         "graph_control",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/graph/diagnostics",
+        &["GET", "HEAD"],
         AdminOperator,
         "graph_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/graph/diagnostics/compare",
+        &["GET", "HEAD"],
         AdminOperator,
         "graph_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/graph/diagnostics/history",
+        &["GET", "HEAD"],
         AdminOperator,
         "graph_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/graph/diagnostics/snapshot",
+        &["POST"],
         AdminOperator,
         "graph_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/graph/maintenance",
+        &["POST"],
         AdminOperator,
         "graph_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/graph/pfnet/sparsify",
+        &["POST"],
         AdminOperator,
         "graph_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/graph/snn/recompute",
+        &["POST"],
         AdminOperator,
         "graph_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/graph/topology/stats",
+        &["GET", "HEAD"],
         AuthenticatedRead,
         "graph_control",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/graph/{id}",
+        &["GET", "HEAD"],
         TenantObject,
         "graph_control",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/health/access-frequency",
+        &["GET", "HEAD"],
         SystemHealth,
         "health_diagnostics",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/health/knowledge",
+        &["GET", "HEAD"],
         SystemHealth,
         "health_diagnostics",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/health/orphan-tags",
+        &["GET", "HEAD"],
         SystemHealth,
         "health_diagnostics",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/health/stale-notes",
+        &["GET", "HEAD"],
         SystemHealth,
         "health_diagnostics",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/health/streaming",
+        &["GET", "HEAD"],
         SystemHealth,
         "health_diagnostics",
         DocsPublic,
         PublicProbe,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/system/compatibility",
+        &["GET", "HEAD"],
         SystemHealth,
         "compatibility_discovery",
         DocsPublic,
         NoStore,
+        NoArchiveData,
     ),
     r(
         "/api/v1/health/tag-cooccurrence",
+        &["GET", "HEAD"],
         SystemHealth,
         "health_diagnostics",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/health/unlinked-notes",
+        &["GET", "HEAD"],
         SystemHealth,
         "health_diagnostics",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/inbound-sources",
+        &["GET", "HEAD", "POST"],
         AdminOperator,
         "inbound_connector",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/inbound-sources/{name}",
+        &["DELETE"],
         AdminOperator,
         "inbound_connector",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/inference/complete",
+        &["POST"],
         AuthenticatedWrite,
         "ai_execution",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/inference/catalog",
+        &["GET", "HEAD"],
         AuthenticatedRead,
         "ai_execution",
         Hidden,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/inference/config",
+        &["DELETE", "GET", "HEAD", "POST"],
         AdminOperator,
         "model_config",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/inference/config/audit",
+        &["GET", "HEAD"],
         AdminOperator,
         "model_config",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/inference/embed",
+        &["POST"],
         AuthenticatedWrite,
         "ai_execution",
         Hidden,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/inference/providers",
+        &["GET", "HEAD"],
         AuthenticatedRead,
         "ai_execution",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/inference/stream",
+        &["POST"],
         AuthenticatedWrite,
         "ai_execution",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/inference/test-connection",
+        &["POST"],
         AdminOperator,
         "model_config",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/ingest/stream",
+        &["POST"],
         RealtimeTransport,
         "ingest_stream",
         Hidden,
         NoStore,
+        CatalogFiltered,
     ),
     r(
         "/api/v1/ingest/tokens",
+        &["POST"],
         AdminOperator,
         "ingest_stream",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/ingest/tokens/{token_id}",
+        &["DELETE"],
         AdminOperator,
         "ingest_stream",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/jobs",
+        &["GET", "HEAD", "POST"],
         AdminOperator,
         "job_control",
         Operator,
         NoStore,
+        CatalogFiltered,
     ),
     r(
         "/api/v1/jobs/pause",
+        &["POST"],
         AdminOperator,
         "job_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/jobs/pause/{archive}",
+        &["POST"],
         AdminOperator,
         "job_control",
         Operator,
         NoStore,
+        CatalogFiltered,
     ),
     r(
         "/api/v1/jobs/pending",
+        &["GET", "HEAD"],
         AdminOperator,
         "job_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/jobs/resume",
+        &["POST"],
         AdminOperator,
         "job_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/jobs/resume/{archive}",
+        &["POST"],
         AdminOperator,
         "job_control",
         Operator,
         NoStore,
+        CatalogFiltered,
     ),
     r(
         "/api/v1/jobs/stats",
+        &["GET", "HEAD"],
         AdminOperator,
         "job_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/jobs/status",
+        &["GET", "HEAD"],
         AdminOperator,
         "job_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/jobs/{id}",
+        &["GET", "HEAD"],
         AdminOperator,
         "job_control",
         Operator,
         NoStore,
+        CatalogFiltered,
     ),
     r(
         "/api/v1/memories",
+        &["GET", "HEAD"],
         AdminOperator,
         "memory_management",
         Authenticated,
         PrivateUserData,
+        CatalogFiltered,
+    ),
+    r(
+        "/api/v1/memories",
+        &["POST"],
+        AdminOperator,
+        "memory_management",
+        Authenticated,
+        PrivateUserData,
+        CompleteCatalog,
+    ),
+    r(
+        "/api/v1/memories/available",
+        &["GET", "HEAD"],
+        AuthenticatedRead,
+        "memory_management",
+        Authenticated,
+        NoStore,
+        CatalogFiltered,
     ),
     r(
         "/api/v1/memories/overview",
+        &["GET", "HEAD"],
         TenantObject,
         "memory_management",
         Authenticated,
         PrivateUserData,
+        CatalogFiltered,
     ),
     r(
         "/api/v1/memories/search",
+        &["GET", "HEAD"],
         TenantObject,
         "memory_management",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/memories/{name}",
+        &["DELETE", "GET", "HEAD", "PATCH"],
         TenantObject,
         "memory_management",
         Authenticated,
         PrivateUserData,
+        CatalogFiltered,
     ),
     r(
         "/api/v1/memories/{name}/clone",
+        &["POST"],
         TenantObject,
         "memory_management",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/memories/{name}/set-default",
+        &["POST"],
         TenantObject,
         "memory_management",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/memories/{name}/stats",
+        &["GET", "HEAD"],
         AuthenticatedRead,
         "memory_management",
         Authenticated,
         PrivateUserData,
+        CatalogFiltered,
     ),
     r(
         "/api/v1/lifecycle-purge",
+        &["POST"],
         AuthenticatedWrite,
         "note",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/lifecycle-purge/preview",
+        &["POST"],
         AuthenticatedWrite,
         "note",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/lifecycle-purge/{operation_id}",
+        &["GET", "HEAD"],
         TenantObject,
         "note",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/lifecycle-purge/{operation_id}/resume",
+        &["POST"],
         TenantObject,
         "note",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/memory/context",
+        &["GET", "HEAD"],
         TenantObject,
         "memory_management",
         Authenticated,
         NoStore,
+        ArchiveScoped,
     ),
     r(
         "/api/v1/memory/export",
+        &["POST"],
         AuthenticatedRead,
         "memory_management",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/memory/info",
+        &["GET", "HEAD"],
         AuthenticatedRead,
         "memory_management",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/models",
+        &["GET", "HEAD"],
         AuthenticatedRead,
         "model_catalog",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes",
+        &["GET", "HEAD", "POST"],
         TenantObject,
         "note",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/activity",
+        &["GET", "HEAD"],
         TenantObject,
         "note",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/bulk",
+        &["POST"],
         TenantObject,
         "note",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/source-upsert",
+        &["POST"],
         AuthenticatedWrite,
         "note",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/reprocess",
+        &["POST"],
         TenantObject,
         "note",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/timeline",
+        &["GET", "HEAD"],
         TenantObject,
         "note",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}",
+        &["DELETE", "GET", "HEAD", "PATCH"],
         TenantObject,
         "note",
         Authenticated,
         PrivateUserData,
+        ArchiveScoped,
     ),
     r(
         "/api/v1/notes/{id}/attachments",
+        &["GET", "HEAD", "POST"],
         TenantObject,
         "attachment",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}/attachments/tus",
+        &["OPTIONS", "POST"],
         TenantObject,
         "attachment",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}/attachments/tus/{upload_id}",
+        &["DELETE", "GET", "HEAD", "PATCH"],
         TenantObject,
         "attachment",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}/attachments/upload",
+        &["POST"],
         TenantObject,
         "attachment",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}/backlinks",
+        &["GET", "HEAD"],
         TenantObject,
         "note",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}/concepts",
+        &["GET", "HEAD", "POST"],
         TenantObject,
         "taxonomy",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}/concepts/{concept_id}",
+        &["DELETE"],
         TenantObject,
         "taxonomy",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}/export",
+        &["GET", "HEAD"],
         TenantObject,
         "note",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}/full",
+        &["GET", "HEAD"],
         TenantObject,
         "note",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}/links",
+        &["GET", "HEAD", "POST"],
         TenantObject,
         "note",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}/memory-provenance",
+        &["GET", "HEAD"],
         TenantObject,
         "provenance",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}/move",
+        &["POST"],
         TenantObject,
         "collection",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}/provenance",
+        &["GET", "HEAD"],
         TenantObject,
         "provenance",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}/purge",
+        &["POST"],
         TenantObject,
         "note",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}/related",
+        &["GET", "HEAD"],
         TenantObject,
         "note",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}/similar",
+        &["GET", "HEAD"],
         TenantObject,
         "search",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}/reprocess",
+        &["POST"],
         TenantObject,
         "note",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}/restore",
+        &["POST"],
         TenantObject,
         "note",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}/status",
+        &["PATCH"],
         TenantObject,
         "note",
         Authenticated,
         NoStore,
+        ArchiveScoped,
     ),
     r(
         "/api/v1/notes/{id}/tags",
+        &["GET", "HEAD", "PUT"],
         TenantObject,
         "note",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}/versions",
+        &["GET", "HEAD"],
         TenantObject,
         "note",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}/versions/diff",
+        &["GET", "HEAD"],
         TenantObject,
         "note",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}/versions/{version}",
+        &["DELETE", "GET", "HEAD"],
         TenantObject,
         "note",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/notes/{id}/versions/{version}/restore",
+        &["POST"],
         TenantObject,
         "note",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/pke/address",
+        &["POST"],
         AuthenticatedWrite,
         "pke",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/pke/decrypt",
+        &["POST"],
         AuthenticatedWrite,
         "pke",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/pke/encrypt",
+        &["POST"],
         AuthenticatedWrite,
         "pke",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/pke/keygen",
+        &["POST"],
         AuthenticatedWrite,
         "pke",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/pke/keysets",
+        &["GET", "HEAD", "POST"],
         AdminOperator,
         "pke_keyset",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/pke/keysets/active",
+        &["GET", "HEAD"],
         AdminOperator,
         "pke_keyset",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/pke/keysets/import",
+        &["POST"],
         AdminOperator,
         "pke_keyset",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/pke/keysets/{name_or_id}",
+        &["DELETE"],
         AdminOperator,
         "pke_keyset",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/pke/keysets/{name_or_id}/active",
+        &["PUT"],
         AdminOperator,
         "pke_keyset",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/pke/keysets/{name_or_id}/export",
+        &["GET", "HEAD"],
         AdminOperator,
         "pke_keyset",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/pke/recipients",
+        &["POST"],
         AuthenticatedWrite,
         "pke",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/pke/verify/{address}",
+        &["GET", "HEAD"],
         AuthenticatedRead,
         "pke",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/provenance/devices",
+        &["POST"],
         TenantObject,
         "provenance",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/provenance/files",
+        &["POST"],
         TenantObject,
         "provenance",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/provenance/locations",
+        &["POST"],
         TenantObject,
         "provenance",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/provenance/named-locations",
+        &["POST"],
         TenantObject,
         "provenance",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/provenance/notes",
+        &["POST"],
         TenantObject,
         "provenance",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/rate-limit/status",
+        &["GET", "HEAD"],
         AuthenticatedRead,
         "rate_limit",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/realtime/twilio/{provider_call_id}",
+        &["GET", "HEAD"],
         PublicWithInlineProof,
         "realtime_provider_callback",
         Hidden,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/search",
+        &["GET", "HEAD"],
         TenantObject,
         "search",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/search/evidence/resolve",
+        &["POST"],
         AuthenticatedRead,
         "search",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/search/federated",
+        &["POST"],
         TenantObject,
         "search",
         Authenticated,
         PrivateUserData,
+        CatalogFiltered,
     ),
     r(
         "/api/v1/tags",
+        &["GET", "HEAD"],
         AuthenticatedRead,
         "taxonomy",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/templates",
+        &["GET", "HEAD", "POST"],
         TenantObject,
         "template",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/templates/{id}",
+        &["DELETE", "GET", "HEAD", "PATCH"],
         TenantObject,
         "template",
         Authenticated,
         PrivateUserData,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/templates/{id}/instantiate",
+        &["POST"],
         TenantObject,
         "template",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/user/secrets",
+        &["GET", "HEAD", "POST"],
         TenantObject,
         "user_secret",
         Hidden,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/user/secrets/{id}",
+        &["DELETE"],
         TenantObject,
         "user_secret",
         Hidden,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/vision/describe",
+        &["POST"],
         AuthenticatedWrite,
         "ai_execution",
         Authenticated,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/webhooks",
+        &["GET", "HEAD", "POST"],
         AdminOperator,
         "webhook_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/webhooks/incoming",
+        &["GET", "HEAD", "POST"],
         AdminOperator,
         "webhook_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/webhooks/incoming/validate",
+        &["POST"],
         PublicWithInlineProof,
         "webhook_receiver",
         Hidden,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/webhooks/incoming/{slug}",
+        &["DELETE", "GET", "HEAD", "PATCH", "POST"],
         PublicWithInlineProof,
         "webhook_receiver",
         Hidden,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/webhooks/{id}",
+        &["DELETE", "GET", "HEAD", "PATCH"],
         AdminOperator,
         "webhook_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/webhooks/{id}/deliveries",
+        &["GET", "HEAD"],
         AdminOperator,
         "webhook_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/webhooks/{id}/test",
+        &["POST"],
         AdminOperator,
         "webhook_control",
         Operator,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         "/api/v1/ws",
+        &["GET", "HEAD"],
         RealtimeTransport,
         "event_stream",
         Hidden,
         NoStore,
+        CompleteCatalog,
     ),
     r(
         OPERATOR_ASYNCAPI_PATH,
+        &["GET", "HEAD"],
         AdminOperator,
         "docs_schema",
         Operator,
         NoStore,
+        NoArchiveData,
     ),
     r(
         OPERATOR_DOCS_PATH,
+        &["GET", "HEAD"],
         AdminOperator,
         "docs_schema",
         Operator,
         NoStore,
+        NoArchiveData,
     ),
     r(
         OPERATOR_OPENAPI_PATH,
+        &["GET", "HEAD"],
         AdminOperator,
         "docs_schema",
         Operator,
         NoStore,
+        NoArchiveData,
     ),
-    r("/health", Public, "health_probe", DocsPublic, PublicProbe),
     r(
-        "/health/live",
+        "/health",
+        &["GET", "HEAD", "POST"],
         Public,
         "health_probe",
         DocsPublic,
         PublicProbe,
+        CatalogFiltered,
     ),
-    r("/livez", Public, "health_probe", DocsPublic, PublicProbe),
-    r("/readyz", Public, "health_probe", DocsPublic, PublicProbe),
+    r(
+        "/health/live",
+        &["GET", "HEAD"],
+        Public,
+        "health_probe",
+        DocsPublic,
+        PublicProbe,
+        NoArchiveData,
+    ),
+    r(
+        "/livez",
+        &["GET", "HEAD"],
+        Public,
+        "health_probe",
+        DocsPublic,
+        PublicProbe,
+        NoArchiveData,
+    ),
+    r(
+        "/readyz",
+        &["GET", "HEAD"],
+        Public,
+        "health_probe",
+        DocsPublic,
+        PublicProbe,
+        NoArchiveData,
+    ),
     // Bypasses bearer middleware, but the handler authenticates the resource owner
     // and binds consent to a server-side transaction (#943).
     r(
         "/oauth/authorize",
+        &["GET", "HEAD", "POST"],
         OAuth,
         "oauth_owner_consent",
         DocsPublic,
         NoStore,
+        NoArchiveData,
     ),
     r(
         "/oauth/introspect",
+        &["POST"],
         OAuth,
         "oauth_flow",
         DocsPublic,
         NoStore,
+        NoArchiveData,
     ),
-    r("/oauth/register", OAuth, "oauth_flow", DocsPublic, NoStore),
-    r("/oauth/revoke", OAuth, "oauth_flow", DocsPublic, NoStore),
-    r("/oauth/token", OAuth, "oauth_flow", DocsPublic, NoStore),
-    r("/recording.wav", Public, "test_fixture", Hidden, NoStore),
     r(
-        "/api/v1/problem-contract-test",
+        "/oauth/register",
+        &["POST"],
+        OAuth,
+        "oauth_flow",
+        DocsPublic,
+        NoStore,
+        NoArchiveData,
+    ),
+    r(
+        "/oauth/revoke",
+        &["POST"],
+        OAuth,
+        "oauth_flow",
+        DocsPublic,
+        NoStore,
+        NoArchiveData,
+    ),
+    r(
+        "/oauth/token",
+        &["POST"],
+        OAuth,
+        "oauth_flow",
+        DocsPublic,
+        NoStore,
+        NoArchiveData,
+    ),
+    r(
+        "/recording.wav",
+        &["GET", "HEAD"],
         Public,
         "test_fixture",
         Hidden,
         NoStore,
+        NoArchiveData,
+    ),
+    r(
+        "/api/v1/problem-contract-test",
+        &["GET", "HEAD"],
+        Public,
+        "test_fixture",
+        Hidden,
+        NoStore,
+        NoArchiveData,
     ),
     r(
         "/api/v1/problem-contract-status/{status}",
+        &["GET", "HEAD"],
         Public,
         "test_fixture",
         Hidden,
         NoStore,
+        NoArchiveData,
     ),
 ];
 
 const fn r(
     path: &'static str,
+    methods: &'static [&'static str],
     class: PolicyClass,
     action_family: &'static str,
     docs: DocsExposureClass,
     cache: CacheHeaderClass,
+    archive_isolation: ArchiveIsolation,
 ) -> RoutePolicy {
     RoutePolicy {
         path,
@@ -1717,19 +2296,22 @@ const fn r(
         action_family,
         docs,
         cache,
+        archive_isolation,
+        methods,
     }
 }
 
+/// Exact Axum route identity. Unknown templates or methods fail closed at admission.
+pub fn route_policy_for_matched_path(
+    method: &Method,
+    template: &str,
+) -> Option<&'static RoutePolicy> {
+    ROUTE_POLICY_INVENTORY
+        .iter()
+        .find(|route| route.path == template && route.methods.contains(&method.as_str()))
+}
+
 pub fn route_policy_for_path(path: &str) -> Option<&'static RoutePolicy> {
-    if path == OPERATOR_DOCS_PATH
-        || path
-            .strip_prefix(OPERATOR_DOCS_PATH)
-            .is_some_and(|suffix| suffix.starts_with('/'))
-    {
-        return ROUTE_POLICY_INVENTORY
-            .iter()
-            .find(|route| route.path == OPERATOR_DOCS_PATH);
-    }
     ROUTE_POLICY_INVENTORY
         .iter()
         .find(|route| route_template_matches(route.path, path))
@@ -1749,6 +2331,7 @@ pub fn hosted_tenant_transaction_ready(method: &Method, path: &str) -> bool {
         (&Method::GET, "/api/v1/events")
             | (&Method::GET, "/api/v1/me")
             | (&Method::GET, "/api/v1/memory/context")
+            | (&Method::GET, "/api/v1/memories/available")
             | (&Method::POST, "/api/v1/memory/export")
             | (&Method::GET, "/api/v1/search")
             | (&Method::GET, "/api/v1/entities/similar")
@@ -1817,6 +2400,7 @@ pub fn authorization_input_for_request(
     tenant_id: Option<&str>,
 ) -> Option<RoutePolicyInput> {
     let policy = route_policy_for_path(path)?;
+    let policy = route_policy_for_matched_path(method, policy.path).unwrap_or(policy);
     let params = route_params(policy.path, path);
     let action_family = action_family_for_request(policy, method);
     let policy_class = policy_class_for_request(policy, method);
@@ -1944,6 +2528,29 @@ pub(crate) fn policy_class_for_request(policy: &RoutePolicy, method: &Method) ->
     }
 }
 
+/// Hosted scopes are mapped explicitly, with no implicit owner -> admin grant.
+/// Keep their existing scope contract and migration gates. External deployments
+/// have one administrator; inventory statistics and archive mutations need admin.
+pub(crate) fn apply_external_oidc_archive_hardening(
+    mut input: RoutePolicyInput,
+    external: bool,
+) -> RoutePolicyInput {
+    let archive_mutation = input.policy.action_family == "memory_management"
+        && input.policy.path.contains("{name}")
+        && !input.action.name.ends_with(":get")
+        && !input.action.name.ends_with(":head")
+        && !input.action.name.ends_with(":options");
+    if external && (archive_mutation || input.policy.path == "/api/v1/memories/overview") {
+        input.action.scope_family = ScopeFamily::Admin;
+        input.action.required_scopes = vec!["admin".into()];
+        input
+            .resource
+            .attrs
+            .insert("policy_class".into(), json!("AdminOperator"));
+    }
+    input
+}
+
 fn is_incoming_webhook_receiver_slug_route(policy: &RoutePolicy) -> bool {
     policy.path == "/api/v1/webhooks/incoming/{slug}" && policy.action_family == "webhook_receiver"
 }
@@ -2015,6 +2622,11 @@ fn resource_id_for_policy(
     policy: &RoutePolicy,
     params: &HashMap<&'static str, &str>,
 ) -> Option<ResourceIdCandidate> {
+    // Swagger's catch-all is an embedded asset name, not a database object.
+    // Operator scope is still required for every exact documentation template.
+    if policy.action_family == "docs_schema" {
+        return None;
+    }
     let preferred_param = match policy.action_family {
         "attachment" if policy.path.starts_with("/api/v1/notes/") => "id",
         "attachment" => "attachment_id",
@@ -2139,13 +2751,29 @@ fn is_template_param(segment: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::collections::BTreeSet;
 
     #[test]
+    fn every_registered_route_requires_an_archive_isolation_class() {
+        for path in all_registered_routes() {
+            let route = ROUTE_POLICY_INVENTORY
+                .iter()
+                .find(|route| route.path == path)
+                .unwrap_or_else(|| panic!("Route lacks archive isolation: {path}"));
+            // The constructor and field are required: omitting a class is also
+            // a compile error, including for a newly inventoried route.
+            assert!(matches!(
+                route.archive_isolation,
+                ArchiveScoped | CatalogFiltered | CompleteCatalog | NoArchiveData
+            ));
+        }
+    }
+
+    #[test]
     fn registered_routes_have_policy_inventory_rows() {
-        let registered = extract_registered_routes(include_str!("main.rs"));
+        let registered = all_registered_routes();
         let inventoried: BTreeSet<_> = ROUTE_POLICY_INVENTORY
             .iter()
             .map(|route| route.path)
@@ -2160,7 +2788,7 @@ mod tests {
 
     #[test]
     fn policy_inventory_paths_are_registered() {
-        let registered = extract_registered_routes(include_str!("main.rs"));
+        let registered = all_registered_routes();
         let unregistered: Vec<_> = ROUTE_POLICY_INVENTORY
             .iter()
             .map(|route| route.path)
@@ -2175,9 +2803,9 @@ mod tests {
 
     #[test]
     fn registered_route_operations_build_complete_policy_inputs() {
-        let operations = extract_registered_route_operations(include_str!("main.rs"));
+        let operations = all_registered_operations();
         assert!(
-            operations.len() > extract_registered_routes(include_str!("main.rs")).len(),
+            operations.len() > all_registered_routes().len(),
             "method-level inventory must expand multi-method routes"
         );
 
@@ -2264,6 +2892,11 @@ mod tests {
             assert_eq!(input.policy.cache, NoStore);
             assert_eq!(input.action.scope_family, ScopeFamily::Admin);
             assert_eq!(input.action.required_scopes, vec!["admin"]);
+            assert!(
+                input.resource.id.is_none(),
+                "embedded docs have no database resource ID"
+            );
+            assert_eq!(input.resource.attrs["resource_id_normalized"], true);
         }
 
         for legacy_path in ["/docs", "/openapi.yaml", "/asyncapi.yaml"] {
@@ -2280,8 +2913,8 @@ mod tests {
             .collect();
         assert_eq!(
             docs_policies.len(),
-            3,
-            "OpenAPI, AsyncAPI, and Swagger must be the only generated-doc mounts"
+            5,
+            "OpenAPI, AsyncAPI, and the three Swagger templates must be the only generated-doc routes"
         );
         assert!(docs_policies.iter().all(|policy| {
             policy.class == AdminOperator && policy.docs == Operator && policy.cache == NoStore
@@ -2366,6 +2999,8 @@ mod tests {
             action_family: "archive-secret-action-family",
             docs: Authenticated,
             cache: PrivateUserData,
+            archive_isolation: CompleteCatalog,
+            methods: &["GET", "HEAD"],
         };
 
         let mut resource = Resource::new(ResourceKind::Other(
@@ -2816,9 +3451,7 @@ mod tests {
     fn hosted_route_qualification_matrix_doc_is_current() {
         use crate::hosted_route_qualification::matrix;
 
-        let operations: Vec<_> = extract_registered_route_operations(include_str!("main.rs"))
-            .into_iter()
-            .collect();
+        let operations: Vec<_> = all_registered_operations().into_iter().collect();
         let expected = matrix::render(&operations);
         let committed = matrix::committed_region(HOSTED_ROUTE_QUALIFICATION_DOC)
             .expect("hosted route qualification doc must contain the generated region");
@@ -2864,7 +3497,7 @@ mod tests {
     fn hosted_ready_operations_are_registered_and_classified() {
         use crate::hosted_route_qualification::{qualification, Qualification};
 
-        let operations = extract_registered_route_operations(include_str!("main.rs"));
+        let operations = all_registered_operations();
         for policy in ROUTE_POLICY_INVENTORY {
             for method in [
                 Method::GET,
@@ -2891,10 +3524,10 @@ mod tests {
 
         while let Some(route_pos) = remaining.find(".route(") {
             remaining = &remaining[route_pos + ".route(".len()..];
-            let Some(first_quote) = remaining.find('"') else {
+            let Some(quoted) = remaining.trim_start().strip_prefix('"') else {
                 continue;
             };
-            remaining = &remaining[first_quote + 1..];
+            remaining = quoted;
             let Some(second_quote) = remaining.find('"') else {
                 continue;
             };
@@ -2906,14 +3539,17 @@ mod tests {
         let mut remaining = source;
         while let Some(swagger_pos) = remaining.find("SwaggerUi::new(") {
             remaining = &remaining[swagger_pos + "SwaggerUi::new(".len()..];
-            let Some(first_quote) = remaining.find('"') else {
+            let Some(quoted) = remaining.trim_start().strip_prefix('"') else {
                 continue;
             };
-            remaining = &remaining[first_quote + 1..];
+            remaining = quoted;
             let Some(second_quote) = remaining.find('"') else {
                 continue;
             };
-            routes.insert(&remaining[..second_quote]);
+            let base = &remaining[..second_quote];
+            routes.insert(base);
+            routes.insert(Box::leak(format!("{base}/").into_boxed_str()));
+            routes.insert(Box::leak(format!("{base}/{{*rest}}").into_boxed_str()));
             remaining = &remaining[second_quote + 1..];
         }
 
@@ -2946,7 +3582,10 @@ mod tests {
                 break;
             };
             let call = &remaining[..call_end];
-            let Some(first_quote) = call.find('"') else {
+            let Some(first_quote) = call
+                .find('"')
+                .filter(|index| call[..*index].trim().is_empty())
+            else {
                 remaining = &remaining[call_end + 1..];
                 continue;
             };
@@ -2981,11 +3620,107 @@ mod tests {
             let Some(second_quote) = remaining.find('"') else {
                 continue;
             };
-            operations.insert((&remaining[..second_quote], "GET"));
+            let base = &remaining[..second_quote];
+            operations.insert((base, "GET"));
+            operations.insert((Box::leak(format!("{base}/").into_boxed_str()), "GET"));
+            operations.insert((
+                Box::leak(format!("{base}/{{*rest}}").into_boxed_str()),
+                "GET",
+            ));
             remaining = &remaining[second_quote + 1..];
         }
 
+        let heads: Vec<_> = operations
+            .iter()
+            .filter(|(_, method)| *method == "GET")
+            .map(|(path, _)| (*path, "HEAD"))
+            .collect();
+        operations.extend(heads);
         operations
+    }
+
+    // Include registrations in merged production modules as well as main.rs.
+    // Test-only modules are not part of the production registration surface.
+    fn registration_sources() -> Vec<&'static str> {
+        fn collect(dir: &std::path::Path, sources: &mut Vec<&'static str>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    collect(&path, sources);
+                } else if path.extension().is_some_and(|ext| ext == "rs") {
+                    let name = path.file_name().unwrap().to_string_lossy();
+                    if name == "main.rs" || name.contains("test") {
+                        continue;
+                    }
+                    let source = std::fs::read_to_string(path).unwrap();
+                    // Test-only imports/hooks can precede production code.
+                    // Exclude the test module, not everything after the first
+                    // cfg(test) attribute.
+                    let production = source
+                        .split("\n#[cfg(test)]\nmod tests")
+                        .next()
+                        .unwrap()
+                        .split("\n#[cfg(test)]\npub(crate) mod tests")
+                        .next()
+                        .unwrap();
+                    sources.push(Box::leak(production.to_owned().into_boxed_str()));
+                }
+            }
+        }
+        let mut sources = vec![include_str!("main.rs")];
+        collect(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut sources,
+        );
+        sources
+    }
+
+    fn all_registered_routes() -> BTreeSet<&'static str> {
+        registration_sources()
+            .into_iter()
+            .flat_map(extract_registered_routes)
+            .collect()
+    }
+
+    pub(crate) fn all_registered_operations() -> BTreeSet<(&'static str, &'static str)> {
+        registration_sources()
+            .into_iter()
+            .flat_map(extract_registered_route_operations)
+            .collect()
+    }
+
+    #[test]
+    fn matched_route_inventory_requires_exact_template_and_method() {
+        let mut identities = BTreeSet::new();
+        for route in ROUTE_POLICY_INVENTORY {
+            for method in route.methods {
+                assert!(
+                    identities.insert((route.path, *method)),
+                    "duplicate {method} {}",
+                    route.path
+                );
+            }
+        }
+        for path in ["/api/v1/archives", "/api/v1/memories"] {
+            for (method, expected) in [
+                (Method::GET, CatalogFiltered),
+                (Method::HEAD, CatalogFiltered),
+                (Method::POST, CompleteCatalog),
+            ] {
+                let policy = route_policy_for_matched_path(&method, path).unwrap();
+                assert_eq!(policy.archive_isolation, expected, "{method} {path}");
+                let input = authorization_input_for_request(&method, path, None).unwrap();
+                assert_eq!(input.policy.archive_isolation, expected);
+            }
+        }
+        for (template, method) in all_registered_operations() {
+            let method = Method::from_bytes(method.as_bytes()).unwrap();
+            let policy = route_policy_for_matched_path(&method, template)
+                .unwrap_or_else(|| panic!("unclassified {method} {template}"));
+            assert_eq!(policy.path, template);
+        }
+        assert!(route_policy_for_matched_path(&Method::GET, "/api/v1/notes/private").is_none());
+        assert!(route_policy_for_matched_path(&Method::POST, "/api/v1/notes/{id}").is_none());
     }
 
     fn matching_call_end(call: &str) -> Option<usize> {
@@ -3019,7 +3754,7 @@ mod tests {
         None
     }
 
-    fn materialize_route_template(template: &str) -> String {
+    pub(crate) fn materialize_route_template(template: &str) -> String {
         template
             .split('/')
             .map(|segment| {

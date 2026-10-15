@@ -1364,6 +1364,7 @@ fn merge_archive_over_global(global: Option<&Value>, archive: &Value) -> Value {
         ("validate" = Option<bool>, Query, description = "Pre-check endpoint reachability before persisting"),
     ),
     responses(
+        (status = 403, description = "Complete-catalog access required for global config mutation"),
         (status = 200, description = "Config applied"),
         (status = 400, description = "Validation error"),
         (status = 500, description = "Database or backend error"),
@@ -1372,11 +1373,17 @@ fn merge_archive_over_global(global: Option<&Value>, archive: &Value) -> Value {
 pub async fn update_inference_config(
     auth: Auth,
     State(state): State<AppState>,
+    caller: crate::archive_access::Caller,
     events: RequestEvents,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Query(params): Query<UpdateConfigQuery>,
     Json(req): Json<UpdateInferenceConfigRequest>,
 ) -> impl IntoResponse {
+    if archive_override_schema(&archive_ctx).is_none() {
+        if let Err(error) = caller.require_complete_catalog(&state).await {
+            return error.into_response();
+        }
+    }
     // 0. #655: when X-Fortemi-Memory selects a non-default archive, we
     // operate on the archive's override row instead of the global one.
     // Storage path diverges (archive_inference_override vs user_config),
@@ -2413,6 +2420,7 @@ pub async fn update_inference_config(
     path = "/api/v1/inference/config",
     tag = "Inference",
     responses(
+        (status = 403, description = "Complete-catalog access required for global config mutation"),
         (status = 200, description = "Config reset to env/defaults"),
         (status = 500, description = "Database or backend error"),
     )
@@ -2420,9 +2428,15 @@ pub async fn update_inference_config(
 pub async fn delete_inference_config(
     auth: Auth,
     State(state): State<AppState>,
+    caller: crate::archive_access::Caller,
     events: RequestEvents,
     Extension(archive_ctx): Extension<ArchiveContext>,
 ) -> impl IntoResponse {
+    if archive_override_schema(&archive_ctx).is_none() {
+        if let Err(error) = caller.require_complete_catalog(&state).await {
+            return error.into_response();
+        }
+    }
     // #655: archive-scoped DELETE clears just the per-archive override row;
     // the global config is untouched and continues to serve traffic.
     if let Some(schema) = archive_override_schema(&archive_ctx) {
@@ -2706,14 +2720,19 @@ fn default_audit_limit() -> i64 {
         ("action" = Option<String>, Query, description = "Filter by action type"),
     ),
     responses(
+        (status = 403, description = "Complete-catalog access required for shared audit history"),
         (status = 200, description = "Audit entries"),
         (status = 500, description = "Database error"),
     )
 )]
 pub async fn get_inference_config_audit(
     State(state): State<AppState>,
+    caller: crate::archive_access::Caller,
     Query(query): Query<AuditQuery>,
 ) -> impl IntoResponse {
+    if let Err(error) = caller.require_complete_catalog(&state).await {
+        return error.into_response();
+    }
     let limit = query.limit.clamp(1, 200);
 
     // Three optional filters yield four valid SQL shapes; build dynamically

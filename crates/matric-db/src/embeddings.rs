@@ -430,12 +430,34 @@ impl PgEmbeddingRepository {
         limit: i64,
         exclude_archived: bool,
     ) -> Result<Vec<SearchHit>> {
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        let results = self
+            .find_similar_with_strict_filter_tx(
+                &mut tx,
+                query_vec,
+                strict_filter,
+                limit,
+                exclude_archived,
+            )
+            .await?;
+        tx.commit().await.map_err(Error::Database)?;
+        Ok(results)
+    }
+
+    /// Strict concept filtering within the caller's archive transaction.
+    pub async fn find_similar_with_strict_filter_tx(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        query_vec: &Vector,
+        strict_filter: &matric_core::StrictTagFilter,
+        limit: i64,
+        exclude_archived: bool,
+    ) -> Result<Vec<SearchHit>> {
         use crate::strict_filter::StrictFilterQueryBuilder;
 
-        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
-        let contract = default_contract(&mut tx, query_vec.as_slice().len()).await?;
+        let contract = default_contract(tx, query_vec.as_slice().len()).await?;
         contract.validate_vector(query_vec)?;
-        apply_ef_search(&mut tx, Some(contract.embedding_set_id)).await?;
+        apply_ef_search(tx, Some(contract.embedding_set_id)).await?;
         let distance = contract.distance_expr("e.vector", "$1");
         let set_predicate = contract.set_predicate("e", "$3");
 
@@ -446,7 +468,9 @@ impl PgEmbeddingRepository {
 
         // If filter is empty, fall back to regular search
         if strict_filter.is_empty() {
-            return self.find_similar(query_vec, limit, exclude_archived).await;
+            return self
+                .find_similar_tx(tx, query_vec, limit, exclude_archived)
+                .await;
         }
 
         let archive_clause = if exclude_archived {
@@ -515,10 +539,9 @@ impl PgEmbeddingRepository {
         }
 
         let rows = query_builder
-            .fetch_all(&mut *tx)
+            .fetch_all(&mut **tx)
             .await
             .map_err(Error::Database)?;
-        tx.commit().await.map_err(Error::Database)?;
 
         let results = rows
             .into_iter()

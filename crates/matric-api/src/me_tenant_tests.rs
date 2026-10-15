@@ -526,3 +526,46 @@ async fn me_external_oidc_legacy_tenant_matches_live_and_replay(admin: sqlx::PgP
     assert_eq!(body["credential_class"], "legacy");
     state.db.pool.close().await;
 }
+
+#[sqlx::test(migrations = false)]
+async fn hosted_reader_memory_picker_keeps_tenant_and_scope_boundaries(admin: sqlx::PgPool) {
+    let (state, _, tenant, issuer) = setup(&admin, true).await;
+    let token = issuer.token(serde_json::json!({"fortemi:tenant_id":tenant,"groups":["reader"]}));
+    let app = crate::production_router(state.clone(), None);
+    let response = app
+        .clone()
+        .oneshot(bearer_request("/api/v1/memories/available", &token))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+    let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    let memories: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(
+        memories,
+        serde_json::json!([{"name":"public","is_default":true}])
+    );
+    let identity = validate_bearer_identity(&state, &token, None)
+        .await
+        .unwrap();
+    assert!(
+        !identity.principal.has_scope("admin"),
+        "tenant ownership does not imply admin"
+    );
+    for (method, path) in [
+        (Method::DELETE, "/api/v1/archives/public"),
+        (Method::GET, "/api/v1/memories/overview"),
+    ] {
+        let mut request = bearer_request(path, &token);
+        *request.method_mut() = method;
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(
+            response.status(),
+            StatusCode::SERVICE_UNAVAILABLE,
+            "existing hosted migration gate is preserved"
+        );
+    }
+    state.db.pool.close().await;
+}

@@ -12,10 +12,12 @@ mod event_scope;
 mod evidence_resolution;
 mod handlers;
 use event_scope::{event_context_for, RequestEvents};
+mod archive_access;
 mod hosted_exempt_routes;
 #[cfg(test)]
 mod hosted_exempt_routes_tests;
 mod hosted_route_qualification;
+mod job_access;
 mod job_batch_progress;
 mod middleware;
 mod migrate_only;
@@ -42,6 +44,7 @@ mod system_compatibility;
 #[cfg(all(test, feature = "hosted-auth"))]
 mod token_attribution_tests;
 mod trusted_proxy;
+mod webhook_access;
 mod worker_events;
 use worker_events::bridge_worker_events;
 
@@ -105,21 +108,21 @@ use matric_api::services::{
     RequestQuotaDecision, RequestQuotaIdentity, RequestQuotaPolicy, UserSecretRewrapWorkerConfig,
 };
 #[cfg(test)]
-use matric_core::EventContext;
+use matric_core::{AllowAllPolicy, EventContext};
 use matric_core::{
-    AllowAllPolicy, ArchiveRepository, AttachmentScanStatus, AttachmentStatus,
-    AuditAvailabilityPhase, AuditEvent, AuditFailureDisposition, AuditFailurePolicy, AuditOutcome,
-    AuditSeverity, AuditSink, AuditSource, AuditVisibilityClass, AuthPrincipal,
-    AuthorizationPolicy, AuthorizationServerMetadata, BatchTagNoteRequest,
-    ClientRegistrationRequest, CollectionRepository, CreateApiKeyRequest, CreateNoteRequest,
-    Decision, DenyReason, DocumentTypeRepository, EmbeddingConfigProfile, EventBus, EventEnvelope,
-    ExtractionAdapter, ExtractionStrategy, Job, JobRepository, JobStatus, JobType,
-    ListNotesRequest, MeteringError, NoOpMeter, NoteRepository, OAuthError, ResourceKind,
-    RevisionMode, RoleBasedPolicy, ServerEvent, StrictTagFilterInput, TagInput, TagRepository,
-    TemplateRepository, TokenIntrospectionResponse, TokenRequest, TracingSink,
-    UpdateNoteStatusRequest, UsageAttributeKey, UsageAttributeValue, UsageAttributes, UsageClass,
-    UsageCorrelation, UsageDimension, UsageEvent, UsageMeasurement, UsageMeter, UsageOutcome,
-    UsageProducer, UsageQuantity, UsageSource, UsageSubject, UsageUnit,
+    ArchiveRepository, AttachmentScanStatus, AttachmentStatus, AuditAvailabilityPhase, AuditEvent,
+    AuditFailureDisposition, AuditFailurePolicy, AuditOutcome, AuditSeverity, AuditSink,
+    AuditSource, AuditVisibilityClass, AuthPrincipal, AuthorizationPolicy,
+    AuthorizationServerMetadata, BatchTagNoteRequest, ClientRegistrationRequest,
+    CollectionRepository, CreateApiKeyRequest, CreateNoteRequest, Decision, DenyReason,
+    DocumentTypeRepository, EmbeddingConfigProfile, EventBus, EventEnvelope, ExtractionAdapter,
+    ExtractionStrategy, Job, JobRepository, JobStatus, JobType, ListNotesRequest, MeteringError,
+    NoOpMeter, NoteRepository, OAuthError, ResourceKind, RevisionMode, RoleBasedPolicy,
+    ServerEvent, StrictTagFilterInput, TagInput, TagRepository, TemplateRepository,
+    TokenIntrospectionResponse, TokenRequest, TracingSink, UpdateNoteStatusRequest,
+    UsageAttributeKey, UsageAttributeValue, UsageAttributes, UsageClass, UsageCorrelation,
+    UsageDimension, UsageEvent, UsageMeasurement, UsageMeter, UsageOutcome, UsageProducer,
+    UsageQuantity, UsageSource, UsageSubject, UsageUnit,
 };
 use matric_core::{EmbeddingBackend, GenerationBackend};
 use matric_crypto::KeyProvider;
@@ -911,6 +914,7 @@ fn invalid_memory_search_radius() -> ApiError {
     ApiError::BadRequest("Radius must be positive.".to_string())
 }
 
+#[cfg(test)]
 fn memory_not_found() -> ApiError {
     ApiError::NotFound("Memory not found.".to_string())
 }
@@ -1037,9 +1041,7 @@ async fn queue_nlp_pipeline_inner(
         let mut payload = serde_json::json!({
             "revision_mode": revision_mode
         });
-        if let Some(s) = schema {
-            payload["schema"] = serde_json::json!(s);
-        }
+        payload["schema"] = serde_json::json!(schema.filter(|s| !s.is_empty()).unwrap_or("public"));
         if let Some(m) = model {
             payload["model"] = serde_json::json!(m);
         }
@@ -1111,9 +1113,10 @@ async fn queue_nlp_pipeline_inner(
     for job_type in phase1_jobs {
         // Create payload with schema and optional model override
         let mut payload = serde_json::Map::new();
-        if let Some(s) = schema {
-            payload.insert("schema".to_string(), serde_json::json!(s));
-        }
+        payload.insert(
+            "schema".to_string(),
+            serde_json::json!(schema.filter(|s| !s.is_empty()).unwrap_or("public")),
+        );
         if let Some(m) = model {
             payload.insert("model".to_string(), serde_json::json!(m));
         }
@@ -1168,9 +1171,10 @@ async fn queue_nlp_pipeline_inner(
         && feature_enabled("concept_tagging")
     {
         let mut payload = serde_json::Map::new();
-        if let Some(s) = schema {
-            payload.insert("schema".to_string(), serde_json::json!(s));
-        }
+        payload.insert(
+            "schema".to_string(),
+            serde_json::json!(schema.filter(|s| !s.is_empty()).unwrap_or("public")),
+        );
         if let Some(m) = model {
             payload.insert("model".to_string(), serde_json::json!(m));
         }
@@ -1237,8 +1241,8 @@ use matric_search::{EnhancedSearchHit, HybridSearchConfig, HybridSearchEngine, S
 
 use handlers::{
     archives::{
-        clone_archive, create_archive, delete_archive, get_archive, get_archive_stats,
-        get_memory_context, list_archives, set_default_archive, update_archive,
+        available_memories, clone_archive, create_archive, delete_archive, get_archive,
+        get_archive_stats, get_memory_context, list_archives, set_default_archive, update_archive,
     },
     audio::transcribe_audio,
     chat::{chat_handler, chat_stream_handler, list_chat_models, ChatStreamMetrics},
@@ -1547,6 +1551,7 @@ impl AppState {
         get_backup_metadata, update_backup_metadata, memory_info,
         // handlers::archives
         handlers::archives::get_memory_context,
+        handlers::archives::available_memories,
         handlers::memory_export::export_memory,
         handlers::archives::list_archives, handlers::archives::get_archive,
         handlers::archives::create_archive, handlers::archives::update_archive,
@@ -2019,6 +2024,9 @@ fn apply_openapi_route_security(value: &mut serde_yaml::Value) {
             .as_str()
             .expect("OpenAPI path keys must be strings");
         let public = route_policy::is_public_without_bearer(path);
+        let template = route_policy::route_policy_for_path(path)
+            .expect("Documented routes must have isolation metadata")
+            .path;
         let operations = path_item
             .as_mapping_mut()
             .expect("OpenAPI path item must be a mapping");
@@ -2029,6 +2037,31 @@ fn apply_openapi_route_security(value: &mut serde_yaml::Value) {
             else {
                 continue;
             };
+            let isolation = route_policy::route_policy_for_matched_path(
+                &Method::from_bytes(method.to_ascii_uppercase().as_bytes())
+                    .expect("OpenAPI HTTP method"),
+                template,
+            )
+            .map(|policy| policy.archive_isolation)
+            .unwrap_or(route_policy::ArchiveIsolation::CompleteCatalog);
+            operation.insert(
+                yaml_key("x-fortemi-archive-isolation"),
+                yaml_key(&format!("{isolation:?}")),
+            );
+            if isolation == route_policy::ArchiveIsolation::CompleteCatalog {
+                let responses = operation
+                    .get_mut(yaml_key("responses"))
+                    .and_then(serde_yaml::Value::as_mapping_mut)
+                    .expect("OpenAPI responses must be a mapping");
+                responses.entry(yaml_key("403")).or_insert_with(|| {
+                    serde_yaml::to_value(serde_json::json!({
+                        "description": "Complete-catalog archive access required (in addition to route scopes)",
+                        "content": {"application/problem+json": {"schema": {
+                            "$ref": "#/components/schemas/ProblemDetails"
+                        }}}
+                    })).expect("Archive denial response must serialize")
+                });
+            }
             let requirement = if path == "/api/v1/events" && *method == "get" {
                 operation.insert(yaml_key("x-fortemi-anonymous-access"), serde_yaml::to_value(canonicalize_json_value(serde_json::json!({
                     "mode": "anonymous-local", "require_auth": false, "i_understand_no_auth": true,
@@ -3436,11 +3469,10 @@ fn authorization_policy_for_auth(
     multi_tenant: bool,
     external_oidc: bool,
 ) -> Arc<dyn AuthorizationPolicy> {
-    if multi_tenant || external_oidc {
-        Arc::new(RoleBasedPolicy)
-    } else {
-        Arc::new(AllowAllPolicy)
-    }
+    matric_api::authorization_policy::select_policy(matric_api::authorization_policy::PolicyMode {
+        multi_tenant,
+        external_oidc,
+    })
 }
 
 async fn audit_sink_for_mode(
@@ -5009,13 +5041,6 @@ async fn main() -> anyhow::Result<()> {
         None
     };
 
-    // Spawn webhook dispatcher (Issue #44)
-    let wh_bus = event_bus.clone();
-    let wh_db = db.clone();
-    tokio::spawn(async move {
-        webhook_dispatcher(wh_bus, wh_db).await;
-    });
-
     // Spawn telemetry mirror (Issue #45)
     let tm_bus = event_bus.clone();
     tokio::spawn(async move {
@@ -5236,6 +5261,13 @@ async fn main() -> anyhow::Result<()> {
         lifecycle: lifecycle.clone(),
         trusted_proxy_config,
     };
+
+    let wh_bus = state.event_bus.clone();
+    let wh_db = state.db.clone();
+    let wh_policy = state.authorization_policy.clone();
+    tokio::spawn(async move {
+        webhook_dispatcher(wh_bus, wh_db, wh_policy).await;
+    });
 
     if let Some(config) = user_secret_rewrap {
         let pool = state.db.pool.clone();
@@ -5614,6 +5646,7 @@ fn production_router(state: AppState, http_telemetry: otel::HttpTelemetryState) 
         // Memories (aliases for archives - user-facing terminology, Issue #179)
         .route("/api/v1/memories", get(list_archives).post(create_archive))
         .route("/api/v1/memories/overview", get(memories_overview))
+        .route("/api/v1/memories/available", get(available_memories))
         .route(
             "/api/v1/memories/{name}",
             get(get_archive)
@@ -6951,7 +6984,11 @@ async fn handle_twilio_control_event(
 /// retired whenever auth is required because the legacy protocol has no bearer,
 /// tenant, memory, replay, or canonical-envelope handshake. Hosted mode never
 /// reaches this handler: `auth_middleware` answers 401/503 first (#1163).
-async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
+async fn ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+    caller: archive_access::Caller,
+) -> Response {
     if state.require_auth {
         return (
             StatusCode::GONE,
@@ -6963,11 +7000,15 @@ async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Resp
             .into_response();
     }
 
-    ws.on_upgrade(|socket| handle_ws_connection(socket, state))
+    if let Err(error) = caller.require_complete_catalog(&state).await {
+        return error.into_response();
+    }
+
+    ws.on_upgrade(|socket| handle_ws_connection(socket, state, caller))
         .into_response()
 }
 
-async fn handle_ws_connection(socket: WebSocket, state: AppState) {
+async fn handle_ws_connection(socket: WebSocket, state: AppState, caller: archive_access::Caller) {
     use futures::{SinkExt, StreamExt};
 
     let count = state.ws_connections.fetch_add(1, Ordering::Relaxed) + 1;
@@ -6976,14 +7017,19 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState) {
     let (mut sender, mut receiver) = socket.split();
     let mut event_rx = state.event_bus.subscribe();
 
-    // Spawn task to forward events to client
-    let send_task = tokio::spawn(async move {
+    // Recheck catalog visibility at delivery, including newly created archives.
+    let delivery_state = state.clone();
+    let mut send_task = tokio::spawn(async move {
         let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(30));
         loop {
             tokio::select! {
                 event = event_rx.recv() => {
                     match event {
                         Ok(envelope) => {
+                            if caller.require_complete_catalog(&delivery_state).await.is_err() {
+                                let _ = sender.send(Message::Close(None)).await;
+                                break;
+                            }
                             // Send payload only for HotM WebSocket backward compatibility
                             if let Ok(json) = serde_json::to_string(&envelope.payload) {
                                 if sender.send(Message::Text(json.into())).await.is_err() {
@@ -7009,7 +7055,7 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState) {
     // Handle incoming messages from client
     let event_bus = state.event_bus.clone();
     let db = state.db.clone();
-    let recv_task = tokio::spawn(async move {
+    let mut recv_task = tokio::spawn(async move {
         while let Some(Ok(msg)) = receiver.next().await {
             match msg {
                 Message::Text(ref text) if text.as_str() == "refresh" => {
@@ -7024,8 +7070,8 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState) {
 
     // Wait for either task to finish
     tokio::select! {
-        _ = send_task => {}
-        _ = recv_task => {}
+        _ = &mut send_task => { recv_task.abort(); }
+        _ = &mut recv_task => { send_task.abort(); }
     }
     let count = state.ws_connections.fetch_sub(1, Ordering::Relaxed) - 1;
     tracing::info!(active = count, "WebSocket connection closed");
@@ -7191,8 +7237,8 @@ impl fmt::Debug for SseQuery {
         (status = 200, description = "SSE EventEnvelope frames. Human read (including write) or mcp admission; service credentials require mcp. Live and replay share tenant/archive/type/entity filters. memory retains the single-tenant request name or multi-tenant schema; archive_name and archive_schema identify the archive. tenant_id is verified in external-OIDC single-tenant and multi-tenant streams, the reserved local owner for scoped community publishers, and absent for unbound local publishers. Streams end at validated credential expiry. Anonymous access requires acknowledged anonymous-local mode; hosted streams require bearer authentication. See /api/v1/asyncapi.yaml.", body = String, content_type = "text/event-stream"),
         (status = 400, description = "Invalid filter"),
         (status = 401, description = "Authentication required, invalid stream token, or minting user/parent credential no longer active with the required scopes. Query-token access is revalidated before admission and replay."),
-        (status = 403, description = "Insufficient scope or archive selection denied"),
-        (status = 404, description = "Archive not found"),
+        (status = 403, description = "Insufficient scope or stream token bound to another archive"),
+        (status = 404, description = "Archive not found or not selectable"),
         (status = 503, description = "Authorization audit or tenant scope unavailable")
     ),
     security(("bearerAuth" = []), ("eventStreamToken" = []))
@@ -7311,9 +7357,29 @@ async fn sse_events(
             .insert("archive_schema".into(), serde_json::json!(context.schema));
         input.action = sse::authorization_input(&principal, human, tenant_id).action;
         input = apply_verified_tenant_to_policy_input(input, Some(scope.tenant()));
+        input = apply_archive_context_to_policy_input(input, Some(&context));
+        if let Some(user) = identity.as_ref().and_then(sse::stable_user_id) {
+            input
+                .context
+                .environment
+                .insert("app_user_id".into(), serde_json::json!(user));
+        }
         // All scoped stream reads are complete. Release the connection before
         // the configured authorization sink performs its durable write.
         scope.release_preliminary().await?;
+        if !sse::may_select_archive(
+            state.authorization_policy.as_ref(),
+            identity.as_ref().and_then(sse::stable_user_id),
+            &principal,
+            tenant_id,
+            tenant_id,
+            Some((&memory_name, &context.schema)),
+            state.multi_tenant,
+        )
+        .await
+        {
+            return Err(archive_access::not_found());
+        }
         authorize_policy_input(
             state.authorization_policy.as_ref(),
             state.audit_sink.as_ref(),
@@ -7331,15 +7397,19 @@ async fn sse_events(
             }
         })?;
         (Some(memory_name), Some(context.schema))
-    } else if let Some(ref name) = params.memory {
-        // Validate requested memory exists
+    } else if let Some(name) = params.memory.as_deref().or_else(|| {
+        headers
+            .get(middleware::archive_routing::MEMORY_HEADER)
+            .and_then(|v| v.to_str().ok())
+    }) {
+        // Authenticate above before resolving query/header-selected archives
         let archive = state
             .db
             .archives
             .get_archive_by_name(name)
             .await?
-            .ok_or_else(memory_not_found)?;
-        (Some(name.clone()), Some(archive.schema_name))
+            .ok_or_else(archive_access::not_found)?;
+        (Some(archive.name), Some(archive.schema_name))
     } else if !archive_ctx.is_default {
         // Explicitly selected via X-Fortemi-Memory header
         (
@@ -7352,6 +7422,24 @@ async fn sse_events(
     } else {
         (None, None) // Default — deliver all events (admin/monitoring view)
     };
+
+    if scope.is_none() {
+        if let Some((name, schema)) = memory_filter.as_ref().zip(memory_schema.as_ref()) {
+            if !sse::may_select_archive(
+                state.authorization_policy.as_ref(),
+                identity.as_ref().and_then(sse::stable_user_id),
+                &principal,
+                tenant_id,
+                tenant_id,
+                Some((name, schema)),
+                state.multi_tenant,
+            )
+            .await
+            {
+                return Err(archive_access::not_found());
+            }
+        }
+    }
 
     if !sse_query_token_allows_memory(query_token_schema.as_deref(), memory_schema.as_deref()) {
         return Err(ApiError::Forbidden(
@@ -7374,6 +7462,13 @@ async fn sse_events(
                 .as_ref()
                 .and_then(|identity| identity.request_principal.as_ref()),
         );
+        let mut input = input;
+        if let Some(user) = identity.as_ref().and_then(sse::stable_user_id) {
+            input
+                .context
+                .environment
+                .insert("app_user_id".into(), serde_json::json!(user));
+        }
         authorize_policy_input(
             state.authorization_policy.as_ref(),
             state.audit_sink.as_ref(),
@@ -7383,8 +7478,15 @@ async fn sse_events(
         .await
         .map_err(sse::authorization_error)?;
         if let Some(memory_name) = memory_filter.as_deref() {
-            sse::authorize_memory_subscription(&state, &auth, human, tenant_id, memory_name)
-                .await?;
+            sse::authorize_memory_subscription(
+                &state,
+                &auth,
+                human,
+                tenant_id,
+                memory_name,
+                identity.as_ref().and_then(sse::stable_user_id),
+            )
+            .await?;
         }
     }
 
@@ -7417,22 +7519,13 @@ async fn sse_events(
     }
 
     let subscription = sse::Subscription {
+        policy: state.authorization_policy.clone(),
+        user_id: identity.as_ref().and_then(sse::stable_user_id),
         principal: principal.clone(),
         tenant_id,
         multi_tenant: state.multi_tenant,
         archive: memory_filter.clone().zip(memory_schema.clone()),
     };
-    if let Some((name, schema)) = subscription.archive.as_ref() {
-        if !sse::may_select_archive(
-            &principal,
-            tenant_id,
-            tenant_id,
-            Some((name, schema)),
-            state.multi_tenant,
-        ) {
-            return Err(ApiError::Forbidden("SSE archive selection denied".into()));
-        }
-    }
 
     // --- Entity ID filter parsing (Issue #457) ---
     let entity_id_filter: Option<String> = if let Some(ref eid) = params.entity_id {
@@ -7778,7 +7871,11 @@ fn sse_query_token_allows_memory(
 // =============================================================================
 
 /// Webhook dispatcher: subscribes to EventBus and delivers matching events to webhooks.
-async fn webhook_dispatcher(event_bus: Arc<EventBus>, db: Database) {
+async fn webhook_dispatcher(
+    event_bus: Arc<EventBus>,
+    db: Database,
+    policy: Arc<dyn AuthorizationPolicy>,
+) {
     let webhook_timeout = std::env::var("MATRIC_WEBHOOK_TIMEOUT_SECS")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
@@ -7824,7 +7921,11 @@ async fn webhook_dispatcher(event_bus: Arc<EventBus>, db: Database) {
                     let db = db.clone();
                     let payload = payload.clone();
                     let event_type = event_type.to_string();
+                    let policy = policy.clone();
                     tokio::spawn(async move {
+                        if !webhook_access::allows_delivery(&db, policy.as_ref(), &webhook).await {
+                            return;
+                        }
                         deliver_webhook(&client, &db, &webhook, &event_type, &payload).await;
                     });
                 }
@@ -8233,20 +8334,26 @@ fn incoming_webhook_accepted_response(
 }
 #[utoipa::path(post, path = "/api/v1/webhooks", tag = "Webhooks",
     request_body = matric_core::CreateWebhookRequest,
-    responses((status = 201, description = "Created")))]
+    responses((status = 403, description = "Complete-catalog access required"), (status = 201, description = "Created")))]
 
 async fn create_webhook(
     auth: Auth,
     State(state): State<AppState>,
+    caller: archive_access::Caller,
     Json(body): Json<matric_core::CreateWebhookRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     let event_count = body.events.len();
     let max_retries = body.max_retries;
     let secret_set = body
         .secret
         .as_ref()
         .is_some_and(|secret| !secret.is_empty());
-    let id = state.db.webhooks.create(body).await?;
+    let id = state
+        .db
+        .webhooks
+        .create_with_creator(body, caller.user_id)
+        .await?;
     emit_webhook_control_audit_event(webhook_control_audit_event(
         &auth,
         "subscription_create",
@@ -8263,8 +8370,12 @@ async fn create_webhook(
 }
 
 #[utoipa::path(get, path = "/api/v1/webhooks", tag = "Webhooks",
-    responses((status = 200, description = "Success")))]
-async fn list_webhooks(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+    responses((status = 403, description = "Complete-catalog access required"), (status = 200, description = "Success")))]
+async fn list_webhooks(
+    State(state): State<AppState>,
+    caller: archive_access::Caller,
+) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     let webhooks = state.db.webhooks.list().await?;
     let response: Vec<WebhookResponse> = webhooks.into_iter().map(Into::into).collect();
     Ok(Json(response))
@@ -8272,11 +8383,13 @@ async fn list_webhooks(State(state): State<AppState>) -> Result<impl IntoRespons
 
 #[utoipa::path(get, path = "/api/v1/webhooks/{id}", tag = "Webhooks",
     params(("id" = Uuid, Path, description = "Webhook ID")),
-    responses((status = 200, description = "Success")))]
+    responses((status = 403, description = "Complete-catalog access required"), (status = 200, description = "Success")))]
 async fn get_webhook(
     State(state): State<AppState>,
+    caller: archive_access::Caller,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     let webhook = state
         .db
         .webhooks
@@ -8289,13 +8402,15 @@ async fn get_webhook(
 #[utoipa::path(patch, path = "/api/v1/webhooks/{id}", tag = "Webhooks",
     params(("id" = Uuid, Path, description = "Webhook ID")),
     request_body = UpdateWebhookBody,
-    responses((status = 200, description = "Success")))]
+    responses((status = 403, description = "Complete-catalog access required"), (status = 200, description = "Success")))]
 async fn update_webhook(
     auth: Auth,
     State(state): State<AppState>,
+    caller: archive_access::Caller,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateWebhookBody>,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     // Verify exists
     state
         .db
@@ -8337,12 +8452,14 @@ async fn update_webhook(
 
 #[utoipa::path(delete, path = "/api/v1/webhooks/{id}", tag = "Webhooks",
     params(("id" = Uuid, Path, description = "Webhook ID")),
-    responses((status = 204, description = "No Content")))]
+    responses((status = 403, description = "Complete-catalog access required"), (status = 204, description = "No Content")))]
 async fn delete_webhook_handler(
     auth: Auth,
     State(state): State<AppState>,
+    caller: archive_access::Caller,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     let webhook = state
         .db
         .webhooks
@@ -8370,12 +8487,14 @@ async fn delete_webhook_handler(
 
 #[utoipa::path(get, path = "/api/v1/webhooks/{id}/deliveries", tag = "Webhooks",
     params(("id" = Uuid, Path, description = "Webhook ID")),
-    responses((status = 200, description = "Success")))]
+    responses((status = 403, description = "Complete-catalog access required"), (status = 200, description = "Success")))]
 async fn list_webhook_deliveries(
     State(state): State<AppState>,
+    caller: archive_access::Caller,
     Path(id): Path<Uuid>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     let limit = params
         .get("limit")
         .and_then(|l| l.parse::<i64>().ok())
@@ -8387,12 +8506,14 @@ async fn list_webhook_deliveries(
 
 #[utoipa::path(post, path = "/api/v1/webhooks/{id}/test", tag = "Webhooks",
     params(("id" = Uuid, Path, description = "Webhook ID")),
-    responses((status = 200, description = "Success")))]
+    responses((status = 403, description = "Complete-catalog access required"), (status = 200, description = "Success")))]
 async fn test_webhook(
     auth: Auth,
     State(state): State<AppState>,
+    caller: archive_access::Caller,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     let webhook = state
         .db
         .webhooks
@@ -10707,8 +10828,14 @@ async fn auth_middleware(
     // Public routes and CORS preflights bypass all auth.
     if is_auth_exempt(&method, &path)
         && !hosted_bearer
-        && !(method == Method::GET
-            && path == "/api/v1/events"
+        && !(((method == Method::GET && path == "/api/v1/events")
+            || (!state
+                .authorization_policy
+                .permits_complete_archive_catalog()
+                && (path == "/health"
+                    || matched_route_policy(&method, request.extensions()).is_none_or(|route| {
+                        route.archive_isolation == route_policy::ArchiveIsolation::CompleteCatalog
+                    }))))
             && (state.multi_tenant || request.headers().contains_key(header::AUTHORIZATION)))
     {
         return next.run(request).await;
@@ -11233,6 +11360,11 @@ async fn authorize_middleware(
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     let Some(auth) = request.extensions().get::<Auth>().cloned() else {
+        if let Err(error) =
+            enforce_route_archive_isolation(&state, request.method(), request.extensions()).await
+        {
+            return error.into_response();
+        }
         return next.run(request).await;
     };
     let Some(input) = request
@@ -11240,10 +11372,34 @@ async fn authorize_middleware(
         .get::<route_policy::RoutePolicyInput>()
         .cloned()
     else {
+        if let Err(error) =
+            enforce_route_archive_isolation(&state, request.method(), request.extensions()).await
+        {
+            return error.into_response();
+        }
         return next.run(request).await;
     };
 
-    let archive_ctx = request.extensions().get::<ArchiveContext>().cloned();
+    let archive_ctx = match archive_access::path_target(&state, request.extensions(), &input).await
+    {
+        Ok(Some(context)) => {
+            request.extensions_mut().insert(context.clone());
+            Some(context)
+        }
+        Ok(None) => request.extensions().get::<ArchiveContext>().cloned(),
+        Err(error) => return error.into_response(),
+    };
+    if let Err(error) =
+        enforce_route_archive_isolation(&state, request.method(), request.extensions()).await
+    {
+        return error.into_response();
+    }
+    let mut input = input;
+    if input.policy.action_family == "memory_management" && input.policy.path.contains("{name}") {
+        input.resource.id = archive_ctx
+            .as_ref()
+            .and_then(|archive| archive.name.clone());
+    }
     let tenant = request.extensions().get::<VerifiedRequestTenant>().copied();
     let scope = request.extensions().get::<TenantRequestScope>().cloned();
     let input = apply_verified_tenant_to_policy_input(input, tenant);
@@ -11265,6 +11421,7 @@ async fn authorize_middleware(
     let external_oidc = state.auth_mode.external_oidc();
     #[cfg(not(feature = "hosted-auth"))]
     let external_oidc = false;
+    let input = route_policy::apply_external_oidc_archive_hardening(input, external_oidc);
     let synchronization = if external_oidc {
         state
             .db
@@ -11317,7 +11474,7 @@ async fn authorize_middleware(
             return ApiError::from(error).into_response();
         }
     }
-    if scope.is_some() || synchronization.is_some() {
+    if (scope.is_some() || synchronization.is_some()) && archive_ctx.is_some() {
         // Admission and maintenance leave a gap. Establish the handler transaction
         // and re-resolve the archive and resource on that same connection.
         let archive = if let Some(scope) = &scope {
@@ -11377,6 +11534,161 @@ async fn authorize_middleware(
         request.extensions_mut().insert(archive);
     }
     next.run(request).await
+}
+
+fn matched_route_policy(
+    method: &Method,
+    extensions: &axum::http::Extensions,
+) -> Option<&'static route_policy::RoutePolicy> {
+    extensions
+        .get::<axum::extract::MatchedPath>()
+        .and_then(|matched| route_policy::route_policy_for_matched_path(method, matched.as_str()))
+}
+
+#[allow(clippy::result_large_err)]
+async fn admit_route_archive_isolation(
+    state: &AppState,
+    request: &mut axum::http::Request<Body>,
+) -> Result<(), Response> {
+    let input = request
+        .extensions()
+        .get::<route_policy::RoutePolicyInput>()
+        .cloned()
+        .or_else(|| {
+            matched_route_policy(request.method(), request.extensions())
+                .filter(|route| {
+                    matches!(
+                        route.path,
+                        "/api/v1/backup/memory/{name}" | "/api/v1/jobs/{id}"
+                    )
+                })
+                .and_then(|_| {
+                    route_policy::authorization_input_for_request(
+                        request.method(),
+                        request.uri().path(),
+                        None,
+                    )
+                })
+        });
+    if let (Some(input), Some(auth)) = (&input, request.extensions().get::<Auth>()) {
+        if matches!(
+            input.policy.path,
+            "/api/v1/backup/memory/{name}" | "/api/v1/jobs/{id}"
+        ) || (input.policy.action_family == "memory_management"
+            && input.policy.path.contains("{name}"))
+        {
+            // Route/action admission must not depend on target existence. The
+            // later middleware still normalizes and authorizes the resource.
+            let tenant = request.extensions().get::<VerifiedRequestTenant>().copied();
+            let input = apply_verified_tenant_to_policy_input(input.clone(), tenant);
+            #[cfg(feature = "hosted-auth")]
+            let input = apply_claim_policy_audit_context(
+                input,
+                request.extensions().get::<fortemi_auth_core::AuthContext>(),
+                request.extensions().get::<RequestPrincipal>(),
+            );
+            #[cfg(feature = "hosted-auth")]
+            let external_oidc = state.auth_mode.external_oidc();
+            #[cfg(not(feature = "hosted-auth"))]
+            let external_oidc = false;
+            let input = route_policy::apply_external_oidc_archive_hardening(input, external_oidc);
+            if let Some(scope) = request.extensions().get::<TenantRequestScope>() {
+                scope
+                    .release_preliminary()
+                    .await
+                    .map_err(|error| ApiError::from(error).into_response())?;
+            }
+            authorize_policy_action_with_challenge(
+                state.authorization_policy.as_ref(),
+                state.audit_sink.as_ref(),
+                auth,
+                &input,
+                Some(&state.issuer),
+            )
+            .await?;
+        }
+    }
+    admit_route_archive_targets(state, request, input.as_ref())
+        .await
+        .map_err(IntoResponse::into_response)
+}
+
+async fn admit_route_archive_targets(
+    state: &AppState,
+    request: &mut axum::http::Request<Body>,
+    input: Option<&route_policy::RoutePolicyInput>,
+) -> Result<(), ApiError> {
+    // Resolve targets read-only after ordinary admission, before catalog
+    // admission. No routing cache or synchronization runs here.
+    if let Some(input) = input {
+        if input.policy.path == "/api/v1/jobs/{id}" {
+            if let Some(id) = input
+                .resource
+                .id
+                .as_deref()
+                .and_then(|id| urlencoding::decode(id).ok())
+                .and_then(|id| id.parse().ok())
+            {
+                if let Some(scope) = request.extensions().get::<TenantRequestScope>() {
+                    scope.release_preliminary().await?;
+                }
+                let caller = archive_access::Caller::from_extensions(request.extensions());
+                job_access::admit_detail(state, &caller, id).await?;
+            }
+        }
+        if let Some(context) =
+            archive_access::path_target(state, request.extensions(), input).await?
+        {
+            // The dump target can differ from header/default routing. Inspect
+            // its trusted schema before any routing cache update or schema sync.
+            if input.policy.path == "/api/v1/backup/memory/{name}"
+                && state
+                    .db
+                    .archives
+                    .schema_contains_shared_tables(&context.schema)
+                    .await?
+            {
+                archive_access::Caller::from_extensions(request.extensions())
+                    .require_complete_catalog(state)
+                    .await?;
+            }
+            request.extensions_mut().insert(context);
+        }
+    }
+    enforce_route_archive_isolation(state, request.method(), request.extensions()).await
+}
+
+#[cfg(test)]
+async fn archive_isolation_middleware(
+    State(state): State<AppState>,
+    mut request: axum::http::Request<Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    if let Err(response) = admit_route_archive_isolation(&state, &mut request).await {
+        return response;
+    }
+    next.run(request).await
+}
+
+/// Fail closed before archive synchronization, cache writes, extractors, or handlers.
+/// Exempt/inline-auth routes pass here too, using anonymous catalog authority.
+async fn enforce_route_archive_isolation(
+    state: &AppState,
+    method: &Method,
+    extensions: &axum::http::Extensions,
+) -> Result<(), ApiError> {
+    let route = matched_route_policy(method, extensions);
+    if route.is_none_or(|route| {
+        route.archive_isolation == route_policy::ArchiveIsolation::CompleteCatalog
+    }) {
+        if let Some(scope) = extensions.get::<TenantRequestScope>() {
+            scope.release_preliminary().await?;
+        }
+        archive_access::Caller::from_extensions(extensions)
+            .require_complete_catalog(state)
+            .await?;
+    }
+    Ok(())
 }
 
 #[allow(clippy::result_large_err)]
@@ -11960,6 +12272,15 @@ where
     match archive_lookup(archive_name).await {
         Ok(Some(archive)) => {
             route_policy::mark_resource_id_normalized(&mut input);
+            input.resource.id = Some(archive.name.clone());
+            input
+                .context
+                .environment
+                .insert("archive_name".into(), serde_json::json!(archive.name));
+            input.context.environment.insert(
+                "archive_schema".into(),
+                serde_json::json!(archive.schema_name),
+            );
             input
                 .resource
                 .attrs
@@ -13281,6 +13602,19 @@ async fn authorize_policy_input_with_challenge(
         ));
     }
 
+    authorize_policy_action_with_challenge(policy, audit_sink, auth, input, resource).await
+}
+
+/// Route/action admission can run before backing-resource normalization. Its
+/// allow never replaces the later normalized resource authorization.
+#[allow(clippy::result_large_err)]
+async fn authorize_policy_action_with_challenge(
+    policy: &dyn AuthorizationPolicy,
+    audit_sink: &dyn AuditSink,
+    auth: &Auth,
+    input: &route_policy::RoutePolicyInput,
+    resource: Option<&str>,
+) -> Result<(), axum::response::Response> {
     match policy
         .authorize(
             &auth.principal,
@@ -13437,6 +13771,12 @@ fn apply_claim_policy_audit_context(
         );
     }
     if let Some(principal) = principal {
+        if let Some(user_id) = principal.user_id {
+            input
+                .context
+                .environment
+                .insert("app_user_id".into(), serde_json::json!(user_id));
+        }
         input.context.environment.insert(
             "credential_class".to_string(),
             serde_json::json!(principal.credential_class.as_str()),
@@ -13690,10 +14030,25 @@ fn provider_url_configured(url: &str) -> bool {
     path = "/health",
     tag = "System",
     responses(
-        (status = 200, description = "Success"),
+        (status = 200, description = "Coarse status for restricted callers; detailed diagnostics with complete-catalog access"),
     )
 )]
-async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
+async fn health_check(
+    State(state): State<AppState>,
+    caller: archive_access::Caller,
+) -> Json<serde_json::Value> {
+    if !archive_access::complete_catalog(&state.db, &caller, state.authorization_policy.as_ref())
+        .await
+    {
+        return Json(serde_json::json!({
+            "status": "healthy",
+            "version": env!("CARGO_PKG_VERSION"),
+            "lifecycle": {
+                "ready": state.lifecycle.is_ready(),
+                "draining": state.lifecycle.is_draining(),
+            },
+        }));
+    }
     let job_processing = if let Some(ref ps) = state.pause_state {
         if ps.is_globally_paused() {
             "paused"
@@ -23420,51 +23775,14 @@ impl fmt::Debug for FederatedSearchResponse {
     responses((status = 200, description = "Success")))]
 async fn federated_search(
     State(state): State<AppState>,
-    Extension(_archive_ctx): Extension<ArchiveContext>,
+    caller: archive_access::Caller,
     Json(body): Json<FederatedSearchRequest>,
 ) -> Result<Json<FederatedSearchResponse>, ApiError> {
-    use matric_core::ArchiveRepository;
     use sqlx::Row;
 
     let limit = body.limit.unwrap_or(10);
 
-    // Resolve which schemas to search
-    let schemas: Vec<(String, String)> = if body.memories.len() == 1 && body.memories[0] == "all" {
-        // Search all memories plus public — deduplicate by schema_name
-        let mut seen = std::collections::HashSet::new();
-        let mut schemas = Vec::new();
-        // Always include public first
-        seen.insert("public".to_string());
-        schemas.push(("public".to_string(), "public".to_string()));
-        let archives = state.db.archives.list_archive_schemas().await?;
-        for a in archives {
-            if seen.insert(a.schema_name.clone()) {
-                schemas.push((a.name, a.schema_name));
-            }
-        }
-        schemas
-    } else {
-        let mut seen = std::collections::HashSet::new();
-        let mut schemas = Vec::new();
-        for name in &body.memories {
-            if name == "public" {
-                if seen.insert("public".to_string()) {
-                    schemas.push(("public".to_string(), "public".to_string()));
-                }
-            } else {
-                let archive = state
-                    .db
-                    .archives
-                    .get_archive_by_name(name)
-                    .await?
-                    .ok_or_else(memory_not_found)?;
-                if seen.insert(archive.schema_name.clone()) {
-                    schemas.push((archive.name, archive.schema_name));
-                }
-            }
-        }
-        schemas
-    };
+    let schemas = archive_access::search_targets(&state, &caller, &body.memories).await?;
 
     let memories_searched: Vec<String> = schemas.iter().map(|(name, _)| name.clone()).collect();
     let mut all_results: Vec<FederatedSearchHit> = Vec::new();
@@ -23592,7 +23910,7 @@ struct MemoriesOverviewResponse {
     total_size_bytes: i64,
     /// Human-readable total size.
     total_size_human: String,
-    /// Total database size on disk (pg_database_size).
+    /// Whole database size when every archive is visible; otherwise visible storage.
     database_size_bytes: i64,
     /// Human-readable database size.
     database_size_human: String,
@@ -23624,87 +23942,17 @@ impl std::fmt::Debug for MemoriesOverviewResponse {
 
 /// GET /api/v1/memories/overview
 ///
-/// Returns aggregate stats across all running memories, showing total capacity
-/// usage, remaining slots, and per-memory breakdown. This is the primary
-/// tool for users/agents to understand system overhead and plan memory allocation.
+/// Statistics over selectable memories, with visible totals and per-memory breakdown.
+/// External-OIDC deployments require admin; readers use /memories/available.
 #[utoipa::path(get, path = "/api/v1/memories/overview", tag = "System",
-    responses((status = 200, description = "Success")))]
+    responses((status = 200, description = "Success"),
+        (status = 403, description = "External-OIDC inventory requires admin", body = ProblemDetails, content_type = "application/problem+json")))]
 async fn memories_overview(
     State(state): State<AppState>,
+    caller: archive_access::Caller,
+    scope: Option<Extension<TenantRequestScope>>,
 ) -> Result<Json<MemoriesOverviewResponse>, ApiError> {
-    use matric_core::ArchiveRepository;
-
-    let archives = state.db.archives.list_archive_schemas().await?;
-
-    // Update stats for each archive (best-effort)
-    for archive in &archives {
-        let _ = state.db.archives.update_archive_stats(&archive.name).await;
-    }
-
-    // Re-fetch with updated stats
-    let archives = state.db.archives.list_archive_schemas().await?;
-
-    // Count notes in public schema
-    let public_notes: i64 =
-        sqlx::query_scalar("SELECT COUNT(*) FROM public.note WHERE deleted_at IS NULL")
-            .fetch_one(state.db.pool())
-            .await
-            .map_err(matric_core::Error::Database)?;
-
-    let public_size: i64 = sqlx::query_scalar(
-        "SELECT pg_total_relation_size('public.note'::regclass) + pg_total_relation_size('public.embedding'::regclass)",
-    )
-    .fetch_one(state.db.pool())
-    .await
-    .unwrap_or(0);
-
-    let mut total_notes: i64 = public_notes;
-    let mut total_size: i64 = public_size;
-    let mut breakdowns = vec![MemoryBreakdown {
-        name: "public".to_string(),
-        note_count: public_notes as i32,
-        size_bytes: public_size,
-        is_default: archives.iter().all(|a| !a.is_default),
-        created_at: chrono::Utc::now(), // public has no creation time
-    }];
-
-    for archive in &archives {
-        let notes = archive.note_count.unwrap_or(0);
-        let size = archive.size_bytes.unwrap_or(0);
-        total_notes += notes as i64;
-        total_size += size;
-        breakdowns.push(MemoryBreakdown {
-            name: archive.name.clone(),
-            note_count: notes,
-            size_bytes: size,
-            is_default: archive.is_default,
-            created_at: archive.created_at,
-        });
-    }
-
-    // Sort by note_count descending
-    breakdowns.sort_by_key(|breakdown| std::cmp::Reverse(breakdown.note_count));
-
-    let memory_count = archives.len() as i64;
-    let remaining = (state.max_memories - memory_count).max(0);
-
-    // Get total database size on disk
-    let db_size: i64 = sqlx::query_scalar("SELECT pg_database_size(current_database())")
-        .fetch_one(state.db.pool())
-        .await
-        .unwrap_or(0);
-
-    Ok(Json(MemoriesOverviewResponse {
-        memory_count,
-        max_memories: state.max_memories,
-        remaining_slots: remaining,
-        total_notes,
-        total_size_bytes: total_size,
-        total_size_human: format_size(total_size as u64),
-        database_size_bytes: db_size,
-        database_size_human: format_size(db_size as u64),
-        memories: breakdowns,
-    }))
+    archive_access::overview(state, caller, scope.map(|scope| scope.0)).await
 }
 
 // =============================================================================
@@ -24150,20 +24398,24 @@ async fn get_embedding_set_index_health(
 
 /// List embedding configs
 #[utoipa::path(get, path = "/api/v1/embedding-configs", tag = "Embeddings",
-    responses((status = 200, description = "Success")))]
+    responses((status = 403, description = "Complete-catalog access required"), (status = 200, description = "Success")))]
 async fn list_embedding_configs(
     State(state): State<AppState>,
+    caller: archive_access::Caller,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     let configs = state.db.embedding_sets.list_configs().await?;
     Ok(Json(configs))
 }
 
 /// Get default embedding config
 #[utoipa::path(get, path = "/api/v1/embedding-configs/default", tag = "Embeddings",
-    responses((status = 200, description = "Success")))]
+    responses((status = 403, description = "Complete-catalog access required"), (status = 200, description = "Success")))]
 async fn get_default_embedding_config(
     State(state): State<AppState>,
+    caller: archive_access::Caller,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     let config = state
         .db
         .embedding_sets
@@ -24176,11 +24428,13 @@ async fn get_default_embedding_config(
 /// Get embedding config by ID
 #[utoipa::path(get, path = "/api/v1/embedding-configs/{id}", tag = "Embeddings",
     params(("id" = Uuid, Path, description = "Config ID")),
-    responses((status = 200, description = "Success")))]
+    responses((status = 403, description = "Complete-catalog access required"), (status = 200, description = "Success")))]
 async fn get_embedding_config(
     State(state): State<AppState>,
+    caller: archive_access::Caller,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     let config = state
         .db
         .embedding_sets
@@ -24192,11 +24446,13 @@ async fn get_embedding_config(
 
 /// Create a new embedding config
 #[utoipa::path(post, path = "/api/v1/embedding-configs", tag = "Embeddings",
-    responses((status = 201, description = "Success")))]
+    responses((status = 403, description = "Complete-catalog access required"), (status = 201, description = "Success")))]
 async fn create_embedding_config(
     State(state): State<AppState>,
+    caller: archive_access::Caller,
     Json(body): Json<matric_core::CreateEmbeddingConfigRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     let config = state.db.embedding_sets.create_config(body).await?;
     Ok((StatusCode::CREATED, Json(config)))
 }
@@ -24204,13 +24460,15 @@ async fn create_embedding_config(
 /// Update an embedding config
 #[utoipa::path(patch, path = "/api/v1/embedding-configs/{id}", tag = "Embeddings",
     params(("id" = Uuid, Path, description = "Config ID")),
-    responses((status = 204, description = "Success")))]
+    responses((status = 403, description = "Complete-catalog access required"), (status = 204, description = "Success")))]
 async fn update_embedding_config(
     State(state): State<AppState>,
+    caller: archive_access::Caller,
     #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Path(id): Path<Uuid>,
     Json(body): Json<matric_core::UpdateEmbeddingConfigRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     #[cfg(feature = "hosted-auth")]
     let initiated_by_user_id = principal
         .as_ref()
@@ -24256,11 +24514,13 @@ async fn update_embedding_config(
 /// Delete an embedding config
 #[utoipa::path(delete, path = "/api/v1/embedding-configs/{id}", tag = "Embeddings",
     params(("id" = Uuid, Path, description = "Config ID")),
-    responses((status = 204, description = "Success")))]
+    responses((status = 403, description = "Complete-catalog access required"), (status = 204, description = "Success")))]
 async fn delete_embedding_config(
     State(state): State<AppState>,
+    caller: archive_access::Caller,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     state.db.embedding_sets.delete_config(id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -24515,10 +24775,11 @@ fn looks_sensitive_job_string(value: &str) -> bool {
 }
 
 #[utoipa::path(post, path = "/api/v1/jobs", tag = "Jobs",
-    responses((status = 201, description = "Success")))]
+    responses((status = 400, description = "Invalid job type or reserved internal payload key (keys beginning with underscore)"), (status = 201, description = "Success"), (status = 404, description = "Payload-selected worker archive not found or not selectable")))]
 async fn create_job(
     State(state): State<AppState>,
     events: RequestEvents,
+    caller: archive_access::Caller,
     #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Json(body): Json<CreateJobBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -24554,14 +24815,27 @@ async fn create_job(
         _ => return Err(ApiError::BadRequest(INVALID_JOB_TYPE_MESSAGE.to_string())),
     };
 
+    let target = job_access::authorize_submission(&state, &caller, body.payload.as_ref()).await?;
+    let mut body = body;
+    let payload = body.payload.get_or_insert_with(|| serde_json::json!({}));
+    if !payload.is_object() {
+        return Err(ApiError::BadRequest(
+            "Job payload must be an object.".into(),
+        ));
+    }
+    payload["schema"] = serde_json::json!(target.schema);
+
     // Validate note exists before queuing (avoids raw FK constraint error)
     if let Some(note_id) = body.note_id {
+        let ctx = state.db.for_schema(&target.schema)?;
+        let mut tx = ctx.begin_tx().await?;
         state
             .db
             .notes
-            .fetch(note_id)
+            .fetch_tx(&mut tx, note_id)
             .await
             .map_err(|_| note_not_found())?;
+        tx.commit().await.map_err(matric_core::Error::Database)?;
     }
 
     let priority = body.priority.unwrap_or_else(|| job_type.default_priority());
@@ -24571,7 +24845,7 @@ async fn create_job(
     }
 
     if body.deduplicate {
-        // Deduplicated queuing: skip if same note_id+job_type already pending
+        // Deduplicate within the effective archive and database tenant.
         let maybe_id = state
             .db
             .jobs
@@ -24655,9 +24929,10 @@ async fn create_job(
 
 #[utoipa::path(get, path = "/api/v1/jobs/{id}", tag = "Jobs",
     params(("id" = Uuid, Path, description = "Job ID")),
-    responses((status = 200, description = "Success")))]
+    responses((status = 200, description = "Success"), (status = 404, description = "Job not found or not visible to the caller")))]
 async fn get_job(
     State(state): State<AppState>,
+    caller: archive_access::Caller,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
     let job = state
@@ -24666,13 +24941,20 @@ async fn get_job(
         .get(id)
         .await?
         .ok_or_else(|| ApiError::NotFound("Job not found".to_string()))?;
+    if !job_access::visible(&state, &caller, &job).await {
+        return Err(ApiError::NotFound("Job not found".into()));
+    }
     let job = job_batch_progress::attach_child_job_progress(&state.db, job).await?;
     Ok(Json(JobResponse::from(job)))
 }
 
 #[utoipa::path(get, path = "/api/v1/jobs/pending", tag = "Jobs",
-    responses((status = 200, description = "Success")))]
-async fn pending_jobs_count(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+    responses((status = 200, description = "Success"), (status = 403, description = "Insufficient scope or complete-catalog access required")))]
+async fn pending_jobs_count(
+    State(state): State<AppState>,
+    caller: archive_access::Caller,
+) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     let count = state.db.jobs.pending_count().await?;
     Ok(Json(serde_json::json!({ "pending": count })))
 }
@@ -24705,28 +24987,35 @@ impl fmt::Debug for ListJobsQuery {
 }
 
 #[utoipa::path(get, path = "/api/v1/jobs", tag = "Jobs",
-    responses((status = 200, description = "Success")))]
+    responses((status = 200, description = "Only jobs in selectable archives; unscoped jobs require complete-catalog access. Counts and pagination use the same visible set.")))]
 async fn list_jobs(
     State(state): State<AppState>,
+    caller: archive_access::Caller,
     Query(query): Query<ListJobsQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let limit = query.limit.unwrap_or(matric_core::defaults::PAGE_LIMIT);
     let offset = query.offset.unwrap_or(matric_core::defaults::PAGE_OFFSET);
 
+    let schemas = job_access::list_scope(&state, &caller).await?;
     let jobs = state
         .db
         .jobs
-        .list_filtered(
+        .list_filtered_in_archives(
             query.status.as_deref(),
             query.job_type.as_deref(),
             query.note_id,
             limit,
             offset,
+            schemas.as_deref(),
         )
         .await?;
 
     // Get stats for summary
-    let stats = state.db.jobs.queue_stats().await?;
+    let stats = state
+        .db
+        .jobs
+        .queue_stats_in_archives(schemas.as_deref())
+        .await?;
 
     let mut job_responses = Vec::with_capacity(jobs.len());
     for job in jobs {
@@ -24748,8 +25037,12 @@ async fn list_jobs(
 }
 
 #[utoipa::path(get, path = "/api/v1/jobs/stats", tag = "Jobs",
-    responses((status = 200, description = "Success")))]
-async fn queue_stats(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+    responses((status = 200, description = "Success"), (status = 403, description = "Insufficient scope or complete-catalog access required")))]
+async fn queue_stats(
+    State(state): State<AppState>,
+    caller: archive_access::Caller,
+) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     let stats = state.db.jobs.queue_stats().await?;
     Ok(Json(stats))
 }
@@ -24760,10 +25053,12 @@ async fn queue_stats(State(state): State<AppState>) -> Result<impl IntoResponse,
 
 /// Get current job processing pause status.
 #[utoipa::path(get, path = "/api/v1/jobs/status", tag = "Jobs",
-    responses((status = 200, description = "Current pause state")))]
+    responses((status = 200, description = "Current pause state"), (status = 403, description = "Insufficient scope or complete-catalog access required")))]
 async fn get_job_pause_status(
     State(state): State<AppState>,
+    caller: archive_access::Caller,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     let ps = state
         .pause_state
         .as_ref()
@@ -24781,12 +25076,14 @@ async fn get_job_pause_status(
 
 /// Pause all job processing globally.
 #[utoipa::path(post, path = "/api/v1/jobs/pause", tag = "Jobs",
-    responses((status = 200, description = "Jobs paused globally")))]
+    responses((status = 200, description = "Jobs paused globally"), (status = 403, description = "Insufficient scope or complete-catalog access required")))]
 async fn pause_jobs_global(
     auth: Auth,
     State(state): State<AppState>,
     events: RequestEvents,
+    caller: archive_access::Caller,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     let ps = state
         .pause_state
         .as_ref()
@@ -24820,12 +25117,14 @@ async fn pause_jobs_global(
 
 /// Resume all job processing globally.
 #[utoipa::path(post, path = "/api/v1/jobs/resume", tag = "Jobs",
-    responses((status = 200, description = "Jobs resumed globally")))]
+    responses((status = 200, description = "Jobs resumed globally"), (status = 403, description = "Insufficient scope or complete-catalog access required")))]
 async fn resume_jobs_global(
     auth: Auth,
     State(state): State<AppState>,
     events: RequestEvents,
+    caller: archive_access::Caller,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     let ps = state
         .pause_state
         .as_ref()
@@ -24864,20 +25163,21 @@ async fn resume_jobs_global(
 async fn pause_jobs_archive(
     auth: Auth,
     State(state): State<AppState>,
+    caller: archive_access::Caller,
     events: RequestEvents,
     Path(archive): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ps = state
-        .pause_state
-        .as_ref()
-        .ok_or_else(|| ApiError::ServiceUnavailable("Pause state not available".into()))?;
-
     let target = state
         .db
         .archives
         .get_archive_by_name_or_schema(&archive)
         .await?
-        .ok_or_else(memory_not_found)?;
+        .ok_or_else(archive_access::not_found)?;
+    caller.require(&state, &target).await?;
+    let ps = state
+        .pause_state
+        .as_ref()
+        .ok_or_else(|| ApiError::ServiceUnavailable("Pause state not available".into()))?;
     ps.pause_archive(&target.schema_name)
         .await
         .map_err(ApiError::Database)?;
@@ -24912,20 +25212,21 @@ async fn pause_jobs_archive(
 async fn resume_jobs_archive(
     auth: Auth,
     State(state): State<AppState>,
+    caller: archive_access::Caller,
     events: RequestEvents,
     Path(archive): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ps = state
-        .pause_state
-        .as_ref()
-        .ok_or_else(|| ApiError::ServiceUnavailable("Pause state not available".into()))?;
-
     let target = state
         .db
         .archives
         .get_archive_by_name_or_schema(&archive)
         .await?
-        .ok_or_else(memory_not_found)?;
+        .ok_or_else(archive_access::not_found)?;
+    caller.require(&state, &target).await?;
+    let ps = state
+        .pause_state
+        .as_ref()
+        .ok_or_else(|| ApiError::ServiceUnavailable("Pause state not available".into()))?;
     ps.resume_archive(&target.schema_name)
         .await
         .map_err(ApiError::Database)?;
@@ -25008,8 +25309,12 @@ fn job_queue_control_audit_event(
 /// - Average duration for completed jobs
 /// - Breakdown by extraction strategy
 #[utoipa::path(get, path = "/api/v1/extraction/stats", tag = "Jobs",
-    responses((status = 200, description = "Success")))]
-async fn extraction_stats(State(state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+    responses((status = 200, description = "Success"), (status = 403, description = "Insufficient scope or complete-catalog access required")))]
+async fn extraction_stats(
+    State(state): State<AppState>,
+    caller: archive_access::Caller,
+) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     let stats = matric_db::get_extraction_stats(&state.db.pool).await?;
     Ok(Json(stats))
 }
@@ -27259,12 +27564,14 @@ fn backup_trigger_dry_run_output(filename: &str) -> String {
 /// as `database_backup_snapshot` but with the `auto_` prefix.
 /// Respects X-Fortemi-Memory header for note count metadata (#421).
 #[utoipa::path(post, path = "/api/v1/backup/trigger", tag = "Backup",
-    responses((status = 200, description = "Success")))]
+    responses((status = 200, description = "Success"), (status = 403, description = "Insufficient scope or complete-catalog access required")))]
 async fn backup_trigger(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
+    caller: archive_access::Caller,
     body: Option<Json<BackupTriggerBody>>,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     let body = body.map(|b| b.0).unwrap_or(BackupTriggerBody {
         destinations: None,
         dry_run: false,
@@ -27766,8 +28073,12 @@ impl std::fmt::Debug for LatestBackupInfo {
 
 /// Get the status of the backup system.
 #[utoipa::path(get, path = "/api/v1/backup/status", tag = "Backup",
-    responses((status = 200, description = "Success")))]
-async fn backup_status(State(_state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+    responses((status = 200, description = "Success"), (status = 403, description = "Insufficient scope or complete-catalog access required")))]
+async fn backup_status(
+    caller: archive_access::Caller,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     use std::fs;
 
     let backup_dir =
@@ -33534,8 +33845,7 @@ async fn knowledge_shard(
                 FROM embedding_config ec
                 WHERE ec.tenant_id = current_setting('app.current_tenant')::uuid
                 AND (
-                    $1
-                    OR EXISTS (
+                    EXISTS (
                         SELECT 1 FROM shard_embedding_config_declaration declaration
                         WHERE declaration.config_id = ec.id
                           AND declaration.tenant_id = ec.tenant_id
@@ -33544,7 +33854,7 @@ async fn knowledge_shard(
                         SELECT 1
                         FROM embedding_set es
                         WHERE es.embedding_config_id = ec.id
-                          AND es.shard_export_present
+                          AND ($1 OR es.shard_export_present)
                     )
                 )
                 ORDER BY id
@@ -37542,8 +37852,12 @@ fn format_size(bytes: u64) -> String {
 /// Issue #257: Use consistent shard_type values
 /// Issue #218: Bundle primary files with metadata sidecars
 #[utoipa::path(get, path = "/api/v1/backup/list", tag = "Backup",
-    responses((status = 200, description = "Success")))]
-async fn list_backups(State(_state): State<AppState>) -> Result<impl IntoResponse, ApiError> {
+    responses((status = 200, description = "Success"), (status = 403, description = "Insufficient scope or complete-catalog access required")))]
+async fn list_backups(
+    caller: archive_access::Caller,
+    State(state): State<AppState>,
+) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     use std::collections::HashMap;
     use std::fs;
 
@@ -37746,11 +38060,13 @@ fn extract_manifest_from_shard(path: &std::path::Path) -> Result<ShardManifest, 
 /// Get detailed info about a specific knowledge shard.
 #[utoipa::path(get, path = "/api/v1/backup/list/{filename}", tag = "Backup",
     params(("filename" = String, Path, description = "Backup filename")),
-    responses((status = 200, description = "Success")))]
+    responses((status = 200, description = "Success"), (status = 403, description = "Insufficient scope or complete-catalog access required")))]
 async fn get_backup_info(
-    State(_state): State<AppState>,
+    caller: archive_access::Caller,
+    State(state): State<AppState>,
     Path(filename): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     use std::fs;
 
     let backup_dir =
@@ -37908,13 +38224,15 @@ fn swap_wipes_existing_data(strategy: Option<&str>) -> Result<bool, ApiError> {
 /// Swap to a different backup (restore from shard file on disk).
 /// Respects X-Fortemi-Memory header for archive-scoped swaps (#421).
 #[utoipa::path(post, path = "/api/v1/backup/swap", tag = "Backup",
-    responses((status = 200, description = "Success")))]
+    responses((status = 200, description = "Success"), (status = 403, description = "Insufficient scope or complete-catalog access required")))]
 async fn swap_backup(
+    caller: archive_access::Caller,
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Json(req): Json<SwapBackupRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     use std::fs::File;
 
     #[cfg(feature = "hosted-auth")]
@@ -43803,9 +44121,10 @@ impl fmt::Debug for SnapshotRequest {
 /// much smaller backup than a full database dump.
 #[utoipa::path(get, path = "/api/v1/backup/memory/{name}", tag = "Backup",
     params(("name" = String, Path, description = "Memory name")),
-    responses((status = 200, description = "Success")))]
+    responses((status = 200, description = "Success"), (status = 403, description = "SQL export of public or any schema containing shared control tables requires complete-catalog archive access")))]
 async fn memory_backup_download(
     State(state): State<AppState>,
+    caller: archive_access::Caller,
     Path(name): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     use matric_core::ArchiveRepository;
@@ -43817,7 +44136,19 @@ async fn memory_backup_download(
         .get_archive_by_name(&name)
         .await
         .map_err(|e| backup_operation_failed("Memory backup", "look up memory archive", e))?
-        .ok_or_else(memory_not_found)?;
+        .ok_or_else(archive_access::not_found)?;
+    caller.require(&state, &archive).await?;
+    // A schema dump includes shared control tables as well as archive content.
+    // Public always contains shared data; archive schemas with control tables
+    // need the same admission even if those tables were moved or copied there.
+    let shared_schema = state
+        .db
+        .archives
+        .schema_contains_shared_tables(&archive.schema_name)
+        .await?;
+    if shared_schema {
+        caller.require_complete_catalog(&state).await?;
+    }
 
     let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
     let filename = memory_backup_download_filename(&name, &timestamp);
@@ -43873,10 +44204,12 @@ async fn memory_backup_download(
 }
 
 #[utoipa::path(get, path = "/api/v1/backup/database", tag = "Backup",
-    responses((status = 200, description = "Success")))]
+    responses((status = 200, description = "Success"), (status = 403, description = "Insufficient scope or complete-catalog access required")))]
 async fn database_backup_download(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
+    caller: archive_access::Caller,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
     let filename = format!("{}_database_{}.sql.gz", backup_prefix::SNAPSHOT, timestamp);
 
@@ -43921,11 +44254,13 @@ async fn database_backup_download(
 
 /// Create a named snapshot and save to backup directory.
 #[utoipa::path(post, path = "/api/v1/backup/database/snapshot", tag = "Backup",
-    responses((status = 200, description = "Success")))]
+    responses((status = 200, description = "Success"), (status = 403, description = "Insufficient scope or complete-catalog access required")))]
 async fn database_backup_snapshot(
     State(state): State<AppState>,
+    caller: archive_access::Caller,
     Json(req): Json<SnapshotRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     let backup_dir =
         std::env::var("BACKUP_DEST").unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
 
@@ -44071,11 +44406,13 @@ impl fmt::Debug for DatabaseUploadRequest {
 
 /// Upload a database backup file (adds to backup list, does not restore).
 #[utoipa::path(post, path = "/api/v1/backup/database/upload", tag = "Backup",
-    responses((status = 200, description = "Success")))]
+    responses((status = 200, description = "Success"), (status = 403, description = "Insufficient scope or complete-catalog access required")))]
 async fn database_backup_upload(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
+    caller: archive_access::Caller,
     Json(req): Json<DatabaseUploadRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     let backup_dir =
         std::env::var("BACKUP_DEST").unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
 
@@ -44241,6 +44578,7 @@ fn knowledge_archive_download_filename(filename: &str) -> String {
 /// 3. No risk of leftover objects from previous state
 async fn memory_scoped_restore(
     state: &AppState,
+    caller: &archive_access::Caller,
     backup_path: &std::path::Path,
     filename: &str,
     memory_name: &str,
@@ -44254,7 +44592,8 @@ async fn memory_scoped_restore(
         .get_archive_by_name(memory_name)
         .await
         .map_err(|e| backup_operation_failed("Memory restore", "look up memory archive", e))?
-        .ok_or_else(memory_not_found)?;
+        .ok_or_else(archive_access::not_found)?;
+    caller.require(state, &archive).await?;
 
     let schema_name = archive.schema_name.clone();
 
@@ -44384,12 +44723,27 @@ async fn memory_scoped_restore(
 /// Restore from a database backup file.
 /// Creates a pre-restore snapshot first (unless skip_snapshot=true).
 /// The API will attempt to reconnect after restore.
+/// All restores require complete-catalog access: even a named memory restore
+/// executes arbitrary SQL from the dump and is not schema-confined.
 #[utoipa::path(post, path = "/api/v1/backup/database/restore", tag = "Backup",
-    responses((status = 200, description = "Success")))]
+    responses((status = 200, description = "Success"), (status = 403, description = "Insufficient scope or complete-catalog access required")))]
 async fn database_backup_restore(
     State(state): State<AppState>,
+    caller: archive_access::Caller,
     Json(req): Json<DatabaseRestoreRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    // Both restore modes execute arbitrary dump SQL through psql.
+    caller.require_complete_catalog(&state).await?;
+    if let Some(name) = req.memory.as_deref() {
+        let target = state
+            .db
+            .archives
+            .get_archive_by_name(name)
+            .await?
+            .ok_or_else(archive_access::not_found)?;
+        caller.require(&state, &target).await?;
+    }
+
     let backup_dir =
         std::env::var("BACKUP_DEST").unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
 
@@ -44412,7 +44766,8 @@ async fn database_backup_restore(
 
     // Memory-scoped restore: use clean DROP SCHEMA CASCADE approach
     if let Some(ref memory_name) = req.memory {
-        return memory_scoped_restore(&state, &backup_path, &req.filename, memory_name).await;
+        return memory_scoped_restore(&state, &caller, &backup_path, &req.filename, memory_name)
+            .await;
     }
 
     // Get current note count for metadata
@@ -45077,8 +45432,13 @@ fn default_backup_metadata_for_path(
 /// Get metadata for a specific backup file.
 #[utoipa::path(get, path = "/api/v1/backup/metadata/{filename}", tag = "Backup",
     params(("filename" = String, Path, description = "Backup filename")),
-    responses((status = 200, description = "Success")))]
-async fn get_backup_metadata(Path(filename): Path<String>) -> Result<impl IntoResponse, ApiError> {
+    responses((status = 200, description = "Success"), (status = 403, description = "Insufficient scope or complete-catalog access required")))]
+async fn get_backup_metadata(
+    caller: archive_access::Caller,
+    State(state): State<AppState>,
+    Path(filename): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     let backup_dir =
         std::env::var("BACKUP_DEST").unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
 
@@ -45126,11 +45486,14 @@ async fn get_backup_metadata(Path(filename): Path<String>) -> Result<impl IntoRe
 /// Update or create metadata for a backup file.
 #[utoipa::path(put, path = "/api/v1/backup/metadata/{filename}", tag = "Backup",
     params(("filename" = String, Path, description = "Backup filename")),
-    responses((status = 200, description = "Success")))]
+    responses((status = 200, description = "Success"), (status = 403, description = "Insufficient scope or complete-catalog access required")))]
 async fn update_backup_metadata(
+    caller: archive_access::Caller,
+    State(state): State<AppState>,
     Path(filename): Path<String>,
     Json(req): Json<UpdateMetadataRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     let backup_dir =
         std::env::var("BACKUP_DEST").unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
 
@@ -45387,11 +45750,13 @@ impl fmt::Debug for HardwareRecommendations {
 /// Get detailed memory/storage info for hardware planning.
 /// Respects X-Fortemi-Memory header for archive-scoped info (#421).
 #[utoipa::path(get, path = "/api/v1/memory/info", tag = "System",
-    responses((status = 200, description = "Success")))]
+    responses((status = 200, description = "Success"), (status = 403, description = "Insufficient scope or complete-catalog access required")))]
 async fn memory_info(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
+    caller: archive_access::Caller,
 ) -> Result<impl IntoResponse, ApiError> {
+    caller.require_complete_catalog(&state).await?;
     // Schema-scoped transaction for all queries
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let mut tx = ctx.begin_tx().await?;
@@ -78530,6 +78895,8 @@ not-json
     fn test_webhook_resource(id: Uuid) -> matric_core::Webhook {
         matric_core::Webhook {
             id,
+            tenant_id: Uuid::nil(),
+            created_by_user_id: None,
             url: "https://example.test/webhook".to_string(),
             secret: Some("secret-not-for-policy-metadata".to_string()),
             events: vec!["note.created".to_string(), "note.updated".to_string()],
@@ -82553,8 +82920,25 @@ not-json
 
     #[test]
     fn generated_openapi_passes_strict_contract_validation() {
-        validate_generated_openapi(&openapi_yaml_with_problem_contract())
+        let generated = openapi_yaml_with_problem_contract();
+        validate_generated_openapi(&generated)
             .expect("generated OpenAPI must satisfy the published contract");
+        let document: serde_yaml::Value = serde_yaml::from_str(&generated).unwrap();
+        for path in ["/api/v1/archives", "/api/v1/memories"] {
+            for (method, expected) in [("get", "CatalogFiltered"), ("post", "CompleteCatalog")] {
+                assert_eq!(
+                    document["paths"][path][method]["x-fortemi-archive-isolation"].as_str(),
+                    Some(expected),
+                    "{method} {path}"
+                );
+            }
+        }
+        assert_eq!(
+            document["paths"]["/.well-known/oauth-protected-resource/{resource_path}"]["get"]
+                ["x-fortemi-archive-isolation"]
+                .as_str(),
+            Some("Public")
+        );
     }
 
     #[test]

@@ -580,7 +580,7 @@ stop_authority_server
 
 (
   cd "$AUTHORITY_DIR"
-  cargo test --package matric-jobs --test worker_integration_test -- --test-threads=1
+  cargo test --package matric-jobs --test worker_integration_test --test archive_input_isolation_test -- --test-threads=1
   # The authority integration tests share one PostgreSQL instance. Preserve
   # their database isolation while retaining dedicated concurrency coverage.
   cargo test --workspace --exclude matric-jobs -- --test-threads=1

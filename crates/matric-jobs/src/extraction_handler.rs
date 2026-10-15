@@ -244,6 +244,12 @@ impl JobHandler for ExtractionHandler {
             .to_string();
         let mut config = payload.get("config").cloned().unwrap_or_else(|| json!({}));
 
+        // Queued payloads may predate submission validation. Only this handler
+        // may derive internal adapter controls from schema-scoped storage.
+        if let Some(object) = config.as_object_mut() {
+            object.retain(|key, _| !key.starts_with('_'));
+        }
+
         // Parse optional attachment_id (used later for persisting results)
         let attachment_id: Option<Uuid> =
             if let Some(id_str) = payload.get("attachment_id").and_then(|v| v.as_str()) {
@@ -1121,9 +1127,7 @@ impl JobHandler for ExtractionHandler {
                                             "attachment_id": child_id.to_string(),
                                             "downstream_jobs": [],
                                         });
-                                        if schema != "public" {
-                                            payload["schema"] = json!(schema);
-                                        }
+                                        payload["schema"] = json!(schema);
                                         match self
                                             .db
                                             .jobs
@@ -1198,9 +1202,7 @@ impl JobHandler for ExtractionHandler {
                                     json!(audio_att_id.to_string()),
                                 );
                                 at_payload.insert("is_video".into(), json!(true));
-                                if schema != "public" {
-                                    at_payload.insert("schema".into(), json!(&schema));
-                                }
+                                at_payload.insert("schema".into(), json!(&schema));
                                 match self
                                     .db
                                     .jobs
@@ -1275,9 +1277,7 @@ impl JobHandler for ExtractionHandler {
                             let mut diar_payload = serde_json::Map::new();
                             diar_payload
                                 .insert("attachment_id".to_string(), json!(att_id.to_string()));
-                            if schema != "public" {
-                                diar_payload.insert("schema".to_string(), json!(&schema));
-                            }
+                            diar_payload.insert("schema".to_string(), json!(&schema));
                             match self
                                 .db
                                 .jobs
@@ -1342,9 +1342,7 @@ impl JobHandler for ExtractionHandler {
                         let mut sprite_payload = serde_json::Map::new();
                         sprite_payload
                             .insert("attachment_id".to_string(), json!(att_id.to_string()));
-                        if schema != "public" {
-                            sprite_payload.insert("schema".to_string(), json!(&schema));
-                        }
+                        sprite_payload.insert("schema".to_string(), json!(&schema));
                         match self
                             .db
                             .jobs
@@ -1459,9 +1457,7 @@ impl JobHandler for ExtractionHandler {
                                             .insert("timestamp_secs".into(), json!(timestamp_secs));
                                         vision_payload
                                             .insert("total_frames".into(), json!(total_frames));
-                                        if schema != "public" {
-                                            vision_payload.insert("schema".into(), json!(&schema));
-                                        }
+                                        vision_payload.insert("schema".into(), json!(&schema));
 
                                         // Use queue() not queue_deduplicated() — each frame
                                         // is a distinct job sharing the same (note_id, job_type).
@@ -1670,9 +1666,7 @@ impl JobHandler for ExtractionHandler {
                                             .insert("total_views".into(), json!(total_views));
                                         vision_payload
                                             .insert("filename".into(), json!(parent_filename));
-                                        if schema != "public" {
-                                            vision_payload.insert("schema".into(), json!(&schema));
-                                        }
+                                        vision_payload.insert("schema".into(), json!(&schema));
 
                                         match self
                                             .db
@@ -1824,9 +1818,7 @@ impl JobHandler for ExtractionHandler {
                         let downstream_types = [JobType::TitleGeneration];
 
                         let mut schema_payload = serde_json::Map::new();
-                        if schema != "public" {
-                            schema_payload.insert("schema".to_string(), json!(&schema));
-                        }
+                        schema_payload.insert("schema".to_string(), json!(&schema));
                         let job_payload = if schema_payload.is_empty() {
                             None
                         } else {
@@ -1839,9 +1831,7 @@ impl JobHandler for ExtractionHandler {
                         let mut revision_payload = serde_json::Map::new();
                         revision_payload.insert("revision_mode".to_string(), json!("standard"));
                         revision_payload.insert("post_extraction".to_string(), json!(true));
-                        if schema != "public" {
-                            revision_payload.insert("schema".to_string(), json!(&schema));
-                        }
+                        revision_payload.insert("schema".to_string(), json!(&schema));
                         match self
                             .db
                             .jobs

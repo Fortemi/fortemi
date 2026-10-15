@@ -9,6 +9,49 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Fixed
 
+- Require `admin` for archive updates, deletion, cloning, default changes and
+  `/memories/overview` in external-OIDC mode, including memory aliases (#1201).
+  Add the read-scoped `/memories/available` picker and a startup policy-selection
+  hook with verified application-user and archive context. Apply archive
+  visibility to routing, payload-selected REST/MCP jobs, job lists/details,
+  stored ingest-token identities, inventories and live/replayed SSE. Authenticate
+  SSE query tokens before archive resolution. Resolved denied/missing archive
+  targets and hidden/missing job IDs share 404; complete-catalog admission can
+  return 403 before header/default resolution. Denied ingest archives behave as invalid tokens.
+  Record archive-isolation classes and supported methods in the route inventory;
+  compare registrations and probe the production router in tests. Bind runtime
+  admission to the exact Axum MatchedPath template and method. Unknown templates,
+  unlisted methods and missing MatchedPath default to complete-catalog admission.
+  Apply route-classification admission before archive routing, cache updates or
+  schema synchronization: require complete-catalog access for shared/global or
+  unverified routes, including archive-create POSTs on both aliases. Resolve named
+  memory SQL backup targets read-only and require the same early admission for
+  public or shared-table schemas. Check job-detail visibility early too, including
+  complete-catalog authority for unscoped jobs. Retain handler checks for defence
+  in depth and catalog checks that filter results or event delivery.
+  Gate call transcripts, shared receiver/connector/document-type operations,
+  default routing changes, embedding-set binding and all shard import modes.
+  Keep restricted `/health` coarse and gate detailed diagnostics.
+  Require complete-catalog access for global queue/system data, database backups
+  and all SQL dump restores (including named restores), named SQL exports of
+  public or other schemas containing shared control tables, memory storage info,
+  shared backup namespaces, archive creation/cloning, outgoing webhook management,
+  shared embedding configs, global inference config mutation and its audit history.
+  Recheck legacy WebSocket access before each event and webhook creator access
+  before dispatch. Preserve legacy ingest tokens' stored schema/rate under default
+  catalog policy; reject identity-less tokens under restrictive policy. Reject
+  caller-supplied internal job controls. Scope worker attachment, linked-note,
+  similarity and concept reads, wiki/relation writes, purge statistics and index
+  row counts through the job's schema context. Run archive input regressions
+  wherever worker integration tests run, including coverage and ci-builder. Export
+  only archive-declared/referenced embedding configs and retain creation-descending
+  inventory order. Scope job deduplication by canonical effective schema and
+  database tenant for REST, note PATCH and worker follow-ups, including note-less
+  jobs. Restore federated `all` search's public-first order and `memories_searched`.
+  Fix overview's double-counted registered public notes, storage and breakdown.
+  Default archive policies continue to allow the full catalog. Grant storage and policy remain
+  enterprise work (`Fortemi-Enterprise/rbac#2`).
+
 - Return the verified `tenant_id` from `/api/v1/me` using the same admitted
   identity as SSE event attribution, including live delivery and replay. Cover
   community, hosted, external-OIDC, PAT and enabled legacy credentials; keep

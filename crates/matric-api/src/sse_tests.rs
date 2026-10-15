@@ -330,6 +330,8 @@ async fn single_and_multi_tenant_live_and_replay_envelopes_are_consistent() {
     );
     for multi_tenant in [false, true] {
         let subscription = sse::Subscription {
+            policy: Arc::new(RoleBasedPolicy),
+            user_id: None,
             principal: identity("mcp", Some(tenant), false).principal,
             tenant_id: Some(tenant),
             multi_tenant,
@@ -412,31 +414,46 @@ fn machine_credentials_do_not_gain_read_admission() {
     }
 }
 
-#[test]
-fn archive_selection_requires_the_same_tenant() {
+#[tokio::test]
+async fn archive_selection_requires_the_same_tenant() {
     let principal = identity("read", None, true).principal;
     let tenant = Uuid::new_v4();
-    assert!(sse::may_select_archive(
-        &principal,
-        Some(tenant),
-        Some(tenant),
-        Some(("synthetic", "archive_synthetic")),
-        false
-    ));
-    assert!(!sse::may_select_archive(
-        &principal,
-        Some(tenant),
-        Some(Uuid::new_v4()),
-        Some(("synthetic", "archive_synthetic")),
-        false
-    ));
-    assert!(!sse::may_select_archive(
-        &principal,
-        Some(tenant),
-        None,
-        Some(("synthetic", "archive_synthetic")),
-        false
-    ));
+    assert!(
+        sse::may_select_archive(
+            &RoleBasedPolicy,
+            None,
+            &principal,
+            Some(tenant),
+            Some(tenant),
+            Some(("synthetic", "archive_synthetic")),
+            false
+        )
+        .await
+    );
+    assert!(
+        !sse::may_select_archive(
+            &RoleBasedPolicy,
+            None,
+            &principal,
+            Some(tenant),
+            Some(Uuid::new_v4()),
+            Some(("synthetic", "archive_synthetic")),
+            false
+        )
+        .await
+    );
+    assert!(
+        !sse::may_select_archive(
+            &RoleBasedPolicy,
+            None,
+            &principal,
+            Some(tenant),
+            None,
+            Some(("synthetic", "archive_synthetic")),
+            false
+        )
+        .await
+    );
 }
 
 fn middleware_router(state: AppState) -> Router {
@@ -1519,6 +1536,7 @@ async fn webhook_payload_preserves_named_single_tenant_archive_memory() {
     let dispatcher = tokio::spawn(webhook_dispatcher(
         state.event_bus.clone(),
         state.db.clone(),
+        state.authorization_policy.clone(),
     ));
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
         while state.event_bus.subscriber_count() == 0 {

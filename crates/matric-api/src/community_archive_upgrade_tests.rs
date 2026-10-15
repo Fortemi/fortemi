@@ -137,3 +137,251 @@ async fn community_startup_clones_release_archives_without_copying_shared_identi
     db.pool.close().await;
     local.close().await;
 }
+
+/// #1201 keeps the local AllowAllPolicy management surface unauthenticated.
+#[sqlx::test(migrations = false)]
+async fn community_archive_management_without_authentication(admin: sqlx::PgPool) {
+    sqlx::query("CREATE EXTENSION IF NOT EXISTS postgis")
+        .execute(&admin)
+        .await
+        .unwrap();
+    let url = admin.connect_options().to_url_lossy();
+    let db = startup::database(url.as_str(), None, startup::Tenancy::Community)
+        .await
+        .unwrap();
+    let state = super::super::tests::build_call_api_test_state(db, "local-management-1201").await;
+    assert!(!state.require_auth && !state.multi_tenant);
+    assert_eq!(state.authorization_policy.policy_id(), "allow_all");
+    let app = super::production_router(state, None);
+    for (method, path, body, expected) in [
+        (
+            Method::POST,
+            "/api/v1/archives",
+            serde_json::json!({"name":"local_management"}),
+            StatusCode::CREATED,
+        ),
+        (
+            Method::PATCH,
+            "/api/v1/archives/local_management",
+            serde_json::json!({"description":"local owner"}),
+            StatusCode::NO_CONTENT,
+        ),
+        (
+            Method::POST,
+            "/api/v1/archives/local_management/clone",
+            serde_json::json!({"new_name":"local_clone"}),
+            StatusCode::CREATED,
+        ),
+        (
+            Method::POST,
+            "/api/v1/archives/local_management/set-default",
+            serde_json::Value::Null,
+            StatusCode::NO_CONTENT,
+        ),
+        (
+            Method::POST,
+            "/api/v1/archives/public/set-default",
+            serde_json::Value::Null,
+            StatusCode::NO_CONTENT,
+        ),
+        (
+            Method::DELETE,
+            "/api/v1/archives/local_management",
+            serde_json::Value::Null,
+            StatusCode::NO_CONTENT,
+        ),
+        (
+            Method::DELETE,
+            "/api/v1/archives/local_clone",
+            serde_json::Value::Null,
+            StatusCode::NO_CONTENT,
+        ),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(http_request(method, path, body, false))
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        assert_eq!(status, expected, "{}", String::from_utf8_lossy(&body));
+    }
+}
+
+/// A broad operator subscription must consult grants for each live/replay event.
+#[sqlx::test(migrations = false)]
+async fn archive_policy_filters_broad_sse_live_and_replay(admin: sqlx::PgPool) {
+    use matric_core::{Action, AuthzContext, AuthzError, Resource};
+    struct Policy {
+        default: Arc<dyn AuthorizationPolicy>,
+        denied_schema: String,
+        denied_calls: Arc<AtomicUsize>,
+    }
+    #[async_trait::async_trait]
+    impl AuthorizationPolicy for Policy {
+        async fn authorize(
+            &self,
+            principal: &AuthPrincipal,
+            action: &Action,
+            resource: &Resource,
+            ctx: &AuthzContext,
+        ) -> Result<Decision, AuthzError> {
+            self.default
+                .authorize(principal, action, resource, ctx)
+                .await
+        }
+        async fn may_select_archive(
+            &self,
+            _: &AuthPrincipal,
+            archive: &Resource,
+            _: &AuthzContext,
+        ) -> Result<bool, AuthzError> {
+            let allowed = archive.attrs["archive_schema"] != self.denied_schema;
+            if !allowed {
+                self.denied_calls.fetch_add(1, Ordering::Relaxed);
+            }
+            Ok(allowed)
+        }
+        fn policy_id(&self) -> &'static str {
+            "test_broad_archive_grants"
+        }
+        fn policy_version(&self) -> &'static str {
+            "1201"
+        }
+    }
+    sqlx::query("CREATE EXTENSION IF NOT EXISTS postgis")
+        .execute(&admin)
+        .await
+        .unwrap();
+    let url = admin.connect_options().to_url_lossy();
+    let db = startup::database(url.as_str(), None, startup::Tenancy::Community)
+        .await
+        .unwrap();
+    let mut state = super::super::tests::build_call_api_test_state(db, "broad-sse-1201").await;
+    let a = state
+        .db
+        .archives
+        .create_archive_schema("broad_a", None)
+        .await
+        .unwrap();
+    let b = state
+        .db
+        .archives
+        .create_archive_schema("broad_b", None)
+        .await
+        .unwrap();
+    // A request-name collision must not relabel an event's canonical schema.
+    state
+        .db
+        .archives
+        .create_archive_schema(&b.schema_name, None)
+        .await
+        .unwrap();
+    let key = state
+        .db
+        .oauth
+        .create_api_key(
+            serde_json::from_value(
+                serde_json::json!({"name":"Broad archive policy fixture","scope":"admin"}),
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let denied_calls = Arc::new(AtomicUsize::new(0));
+    let calls = denied_calls.clone();
+    let denied_schema = b.schema_name.clone();
+    state.authorization_policy = matric_api::authorization_policy::select_policy_with(
+        matric_api::authorization_policy::PolicyMode {
+            multi_tenant: false,
+            external_oidc: false,
+        },
+        Some(&move |_, default| {
+            Arc::new(Policy {
+                default,
+                denied_schema: denied_schema.clone(),
+                denied_calls: calls.clone(),
+            })
+        }),
+    );
+    let app = super::production_router(state.clone(), None);
+    let mut events = state.event_bus.subscribe();
+    let emit = |archive: &matric_core::ArchiveInfo, id| {
+        state.event_bus.emit_with_context(
+            ServerEvent::NoteDeleted { note_id: id },
+            EventContext {
+                memory: Some(archive.name.clone()),
+                archive_name: Some(archive.name.clone()),
+                archive_schema: Some(archive.schema_name.clone()),
+                tenant_id: Some(Uuid::nil().to_string()),
+                ..Default::default()
+            },
+        )
+    };
+    let emit_schema_only_b = || {
+        state.event_bus.emit_with_context(
+            ServerEvent::NoteDeleted {
+                note_id: Uuid::new_v4(),
+            },
+            EventContext {
+                memory: Some(b.schema_name.clone()),
+                tenant_id: Some(Uuid::nil().to_string()),
+                ..Default::default()
+            },
+        )
+    };
+    let emit_global = || {
+        state.event_bus.emit_with_context(
+            ServerEvent::JobsPaused {
+                scope: "global".into(),
+            },
+            EventContext::default(),
+        )
+    };
+    emit(&a, Uuid::new_v4());
+    let cursor = events.recv().await.unwrap().event_id;
+    let replay = Uuid::new_v4();
+    emit(&b, Uuid::new_v4());
+    emit_schema_only_b();
+    emit_global();
+    emit(&a, replay);
+    let response = app
+        .oneshot(
+            axum::http::Request::builder()
+                .uri("/api/v1/events?types=note.deleted,jobs.paused")
+                .header(header::AUTHORIZATION, format!("Bearer {}", key.api_key))
+                .header("last-event-id", cursor.to_string())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut stream = response.into_body().into_data_stream();
+    assert_eq!(
+        crate::sse_tests::next_frame(&mut stream).await["payload"]["note_id"],
+        replay.to_string()
+    );
+    let live = Uuid::new_v4();
+    emit(&b, Uuid::new_v4());
+    emit_schema_only_b();
+    emit_global();
+    emit(&a, live);
+    assert_eq!(
+        crate::sse_tests::next_frame(&mut stream).await["payload"]["note_id"],
+        live.to_string()
+    );
+    assert_eq!(
+        denied_calls.load(Ordering::Relaxed),
+        6,
+        "both paths must check named B, schema-only B, and global inventory frames"
+    );
+    assert!(tokio::time::timeout(
+        std::time::Duration::from_millis(150),
+        futures::StreamExt::next(&mut stream)
+    )
+    .await
+    .is_err());
+}

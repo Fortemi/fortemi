@@ -156,6 +156,10 @@ jobs:
           FORTEMI_CI_DISPOSABLE_DATABASE=1 cargo run --locked -p matric-db \
             --features migrations --example ci_database_bootstrap
 
+      - name: Install locked MCP test dependencies
+        working-directory: mcp-server
+        run: npm ci --ignore-scripts --no-fund --no-audit
+
       - name: Run fast tests
         run: |
           set -euo pipefail
@@ -290,7 +294,7 @@ jobs:
           # Worker tests require serial execution due to shared database state
           # (tests share job queue, workers can claim jobs from other tests)
           # Run these FIRST on a clean database before other tests create data
-          cargo test --package matric-jobs --test worker_integration_test -- --test-threads=1
+          cargo test --package matric-jobs --test worker_integration_test --test archive_input_isolation_test -- --test-threads=1
         timeout-minutes: 10
 
       - name: Run ADR-090 tenant isolation and role catalog gate
@@ -406,7 +410,7 @@ jobs:
           mkdir -p target/coverage
 
           # Run worker tests first with serial execution (they share job queue state)
-          cargo llvm-cov --all-features --package matric-jobs --test worker_integration_test -- --test-threads=1
+          cargo llvm-cov --all-features --package matric-jobs --test worker_integration_test --test archive_input_isolation_test -- --test-threads=1
         timeout-minutes: 15
 
       - name: Generate coverage (matric-jobs lib tests)

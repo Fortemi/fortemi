@@ -27,6 +27,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: Public
       security: []
   /.well-known/oauth-protected-resource:
     get:
@@ -42,6 +43,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: Public
       security: []
   /.well-known/oauth-protected-resource/{resource_path}:
     get:
@@ -67,6 +69,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: Public
       security: []
   /api/v1/admin/tokens:
     get:
@@ -90,6 +93,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/admin/tokens/{id}:
@@ -118,6 +128,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/admin/users:
@@ -140,6 +157,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/admin/users/{id}/disable:
@@ -168,6 +192,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/admin/users/{id}/enable:
@@ -196,6 +227,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/api-keys:
@@ -213,6 +251,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -235,6 +280,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/api-keys/{id}:
@@ -262,6 +314,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/archives:
@@ -286,27 +345,14 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CatalogFiltered
       security:
       - bearerAuth: []
     post:
       tags:
       - Archives
       summary: Create a new archive.
-      description: |-
-        Creates a new PostgreSQL schema with complete table structure for isolated
-        memory storage. Each archive maintains its own notes, embeddings, collections,
-        and tags.
-
-        # Request Body
-        JSON object with archive configuration:
-        - `name`: Unique archive name (required)
-        - `description`: Optional description
-
-        # Returns
-        - 201 Created with `{ "id": "<uuid>", "schema_name": "..." }` on success
-        - 400 Bad Request if validation fails
-        - 409 Conflict if archive name already exists
-        - 500 Internal Server Error if schema creation fails
+      description: Requires admin in external-OIDC mode. Creating a name in the shared archive namespace also requires complete-catalog access.
       operationId: create_archive
       requestBody:
         content:
@@ -317,12 +363,17 @@ paths:
       responses:
         '201':
           description: Created
+        '403':
+          description: Insufficient scope, external-OIDC admin required, or complete-catalog access required
+        '404':
+          description: Archive not found or not selectable
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/archives/{name}:
@@ -355,23 +406,14 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CatalogFiltered
       security:
       - bearerAuth: []
     delete:
       tags:
       - Archives
       summary: Delete an archive.
-      description: |-
-        WARNING: This permanently deletes the entire archive schema including all
-        notes, embeddings, collections, tags, and links. This operation cannot be undone.
-
-        # Path Parameters
-        - `name`: Archive name to delete
-
-        # Returns
-        - 204 No Content on success
-        - 404 Not Found if archive doesn't exist
-        - 500 Internal Server Error if schema deletion fails
+      description: Requires admin in external-OIDC mode.
       operationId: delete_archive
       parameters:
       - name: name
@@ -383,34 +425,24 @@ paths:
       responses:
         '204':
           description: No Content
+        '403':
+          description: Insufficient scope or external-OIDC admin required
+        '404':
+          description: Archive not found or not selectable
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CatalogFiltered
       security:
       - bearerAuth: []
     patch:
       tags:
       - Archives
       summary: Update archive metadata.
-      description: |-
-        Currently supports updating the archive description. The archive name
-        and schema cannot be modified after creation.
-
-        # Path Parameters
-        - `name`: Archive name to update
-
-        # Request Body
-        JSON object with fields to update:
-        - `description`: New description (or null to clear)
-
-        # Returns
-        - 204 No Content on success
-        - 400 Bad Request if validation fails
-        - 404 Not Found if archive doesn't exist
-        - 500 Internal Server Error if database update fails
+      description: Requires admin in external-OIDC mode.
       operationId: update_archive
       parameters:
       - name: name
@@ -428,12 +460,17 @@ paths:
       responses:
         '204':
           description: No Content
+        '403':
+          description: Insufficient scope or external-OIDC admin required
+        '404':
+          description: Archive not found or not selectable
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CatalogFiltered
       security:
       - bearerAuth: []
   /api/v1/archives/{name}/clone:
@@ -441,24 +478,7 @@ paths:
       tags:
       - Archives
       summary: Clone an archive (deep copy with data).
-      description: |-
-        Creates a new archive that is a complete copy of the source, including all
-        notes, embeddings, collections, tags, and links. The schema structure is
-        cloned first, then all data is bulk-copied with FK checks deferred.
-
-        # Path Parameters
-        - `name`: Source archive name to clone from
-
-        # Request Body
-        JSON object with:
-        - `new_name`: Name for the cloned archive (required)
-        - `description`: Optional description
-
-        # Returns
-        - 201 Created with new archive information
-        - 400 Bad Request if validation fails or target name already exists
-        - 404 Not Found if source archive doesn't exist
-        - 500 Internal Server Error if cloning fails
+      description: Requires admin in external-OIDC mode. Creating a name in the shared archive namespace also requires complete-catalog access.
       operationId: clone_archive
       parameters:
       - name: name
@@ -476,12 +496,17 @@ paths:
       responses:
         '201':
           description: Created
+        '403':
+          description: Insufficient scope, external-OIDC admin required, or complete-catalog access required
+        '404':
+          description: Archive not found or not selectable
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/archives/{name}/set-default:
@@ -489,18 +514,7 @@ paths:
       tags:
       - Archives
       summary: Set an archive as the default.
-      description: |-
-        The default archive is used when no specific archive is specified in operations.
-        Only one archive can be default at a time. Setting a new default will unset
-        the previous default.
-
-        # Path Parameters
-        - `name`: Archive name to set as default
-
-        # Returns
-        - 204 No Content on success
-        - 404 Not Found if archive doesn't exist
-        - 500 Internal Server Error if database update fails
+      description: Requires admin in external-OIDC mode.
       operationId: set_default_archive
       parameters:
       - name: name
@@ -512,12 +526,17 @@ paths:
       responses:
         '204':
           description: No Content
+        '403':
+          description: Insufficient scope or external-OIDC admin required
+        '404':
+          description: Archive not found or not selectable
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/archives/{name}/stats:
@@ -553,6 +572,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CatalogFiltered
       security:
       - bearerAuth: []
   /api/v1/attachments:
@@ -609,6 +629,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/attachments/{attachment_id}:
@@ -634,6 +661,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     delete:
@@ -658,6 +692,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/attachments/{attachment_id}/download:
@@ -696,6 +737,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/attachments/{attachment_id}/sprites/{sprite_index}:
@@ -734,6 +782,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/attachments/{attachment_id}/subtitles:
@@ -772,6 +827,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/attachments/{attachment_id}/thumbnail:
@@ -803,6 +865,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/attachments/{attachment_id}/thumbnails.vtt:
@@ -835,6 +904,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/audio/transcribe:
@@ -865,6 +941,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/backup/database:
@@ -875,12 +958,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Insufficient scope or complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/backup/database/restore:
@@ -891,6 +977,8 @@ paths:
         Restore from a database backup file.
         Creates a pre-restore snapshot first (unless skip_snapshot=true).
         The API will attempt to reconnect after restore.
+        All restores require complete-catalog access: even a named memory restore
+        executes arbitrary SQL from the dump and is not schema-confined.
       operationId: database_backup_restore
       requestBody:
         content:
@@ -901,12 +989,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Insufficient scope or complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/backup/database/snapshot:
@@ -924,12 +1015,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Insufficient scope or complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/backup/database/upload:
@@ -947,12 +1041,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Insufficient scope or complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/backup/download:
@@ -972,6 +1069,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/backup/export:
@@ -991,6 +1095,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/backup/import:
@@ -1016,6 +1127,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/backup/knowledge-archive:
@@ -1033,6 +1151,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/backup/knowledge-archive/{filename}:
@@ -1059,6 +1184,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/backup/knowledge-shard:
@@ -1103,6 +1235,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/backup/knowledge-shard/import:
@@ -1128,6 +1267,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/backup/knowledge-shard/upload:
@@ -1178,6 +1324,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/backup/list:
@@ -1192,12 +1345,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Insufficient scope or complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/backup/list/{filename}:
@@ -1216,12 +1372,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Insufficient scope or complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/backup/memory/{name}:
@@ -1245,12 +1404,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: SQL export of public or any schema containing shared control tables requires complete-catalog archive access
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CatalogFiltered
       security:
       - bearerAuth: []
   /api/v1/backup/metadata/{filename}:
@@ -1269,12 +1431,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Insufficient scope or complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     put:
@@ -1298,12 +1463,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Insufficient scope or complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/backup/status:
@@ -1315,12 +1483,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Insufficient scope or complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/backup/swap:
@@ -1340,12 +1511,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Insufficient scope or complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/backup/trigger:
@@ -1367,12 +1541,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Insufficient scope or complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/calls/{id}:
@@ -1419,6 +1596,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/chat:
@@ -1452,6 +1636,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/chat/models:
@@ -1475,6 +1666,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/chat/stream:
@@ -1516,6 +1714,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/collections:
@@ -1532,6 +1737,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -1553,6 +1765,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/collections/{id}:
@@ -1576,6 +1795,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     delete:
@@ -1606,6 +1832,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     patch:
@@ -1634,6 +1867,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/collections/{id}/export:
@@ -1658,6 +1898,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/collections/{id}/notes:
@@ -1681,6 +1928,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/concepts:
@@ -1697,6 +1951,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -1718,6 +1979,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/concepts/autocomplete:
@@ -1734,6 +2002,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/concepts/collections:
@@ -1750,6 +2025,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -1771,6 +2053,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/concepts/collections/{id}:
@@ -1794,6 +2083,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     delete:
@@ -1816,6 +2112,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     patch:
@@ -1844,6 +2147,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/concepts/collections/{id}/members:
@@ -1874,6 +2184,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/concepts/collections/{id}/members/{concept_id}:
@@ -1910,6 +2227,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     delete:
@@ -1940,6 +2264,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/concepts/governance:
@@ -1956,6 +2287,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/concepts/schemes:
@@ -1972,6 +2310,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -1993,6 +2338,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/concepts/schemes/export/turtle:
@@ -2010,6 +2362,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/concepts/schemes/{id}:
@@ -2033,6 +2392,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     delete:
@@ -2055,6 +2421,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     patch:
@@ -2083,6 +2456,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/concepts/schemes/{id}/export/turtle:
@@ -2107,6 +2487,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/concepts/schemes/{id}/top-concepts:
@@ -2130,6 +2517,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/concepts/{id}:
@@ -2153,6 +2547,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     delete:
@@ -2175,6 +2576,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     patch:
@@ -2203,6 +2611,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/concepts/{id}/ancestors:
@@ -2226,6 +2641,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/concepts/{id}/broader:
@@ -2249,6 +2671,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -2277,6 +2706,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/concepts/{id}/broader/{target_id}:
@@ -2306,6 +2742,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/concepts/{id}/descendants:
@@ -2329,6 +2772,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/concepts/{id}/full:
@@ -2352,6 +2802,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/concepts/{id}/narrower:
@@ -2375,6 +2832,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -2403,6 +2867,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/concepts/{id}/narrower/{target_id}:
@@ -2432,6 +2903,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/concepts/{id}/related:
@@ -2455,6 +2933,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -2483,6 +2968,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/concepts/{id}/related/{target_id}:
@@ -2512,6 +3004,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/document-types:
@@ -2536,6 +3035,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -2567,6 +3073,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/document-types/detect:
@@ -2602,6 +3115,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/document-types/{name}:
@@ -2634,6 +3154,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     delete:
@@ -2669,6 +3196,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     patch:
@@ -2711,6 +3245,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/embedding-configs:
@@ -2722,12 +3263,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -2744,12 +3288,15 @@ paths:
       responses:
         '201':
           description: Success
+        '403':
+          description: Complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/embedding-configs/default:
@@ -2761,12 +3308,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/embedding-configs/{id}:
@@ -2786,12 +3336,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     delete:
@@ -2810,12 +3363,15 @@ paths:
       responses:
         '204':
           description: Success
+        '403':
+          description: Complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     patch:
@@ -2840,12 +3396,15 @@ paths:
       responses:
         '204':
           description: Success
+        '403':
+          description: Complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/embedding-sets:
@@ -2863,6 +3422,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -2885,6 +3451,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/embedding-sets/{slug}:
@@ -2909,6 +3482,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     delete:
@@ -2932,6 +3512,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     patch:
@@ -2961,6 +3548,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/embedding-sets/{slug}/build-index:
@@ -2985,6 +3579,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/embedding-sets/{slug}/index-health:
@@ -3020,8 +3621,15 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
       security:
       - bearerAuth: []
+      x-fortemi-archive-isolation: CompleteCatalog
   /api/v1/embedding-sets/{slug}/members:
     get:
       tags:
@@ -3044,6 +3652,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -3073,6 +3688,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/embedding-sets/{slug}/members/{note_id}:
@@ -3104,6 +3726,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/embedding-sets/{slug}/refresh:
@@ -3128,6 +3757,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/embedding-sets/{slug}/runs:
@@ -3157,6 +3793,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -3189,6 +3832,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/embedding-sets/{slug}/runs/{run_id}:
@@ -3222,6 +3872,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/entities/similar:
@@ -3337,6 +3994,7 @@ paths:
           description: Global request rate limit exceeded
       security:
       - bearerAuth: []
+      x-fortemi-archive-isolation: CompleteCatalog
   /api/v1/events:
     get:
       tags:
@@ -3427,9 +4085,9 @@ paths:
         '401':
           description: Authentication required, invalid stream token, or minting user/parent credential no longer active with the required scopes. Query-token access is revalidated before admission and replay.
         '403':
-          description: Insufficient scope or archive selection denied
+          description: Insufficient scope or stream token bound to another archive
         '404':
-          description: Archive not found
+          description: Archive not found or not selectable
         '503':
           description: Authorization audit or tenant scope unavailable
         '429':
@@ -3441,6 +4099,7 @@ paths:
       security:
       - bearerAuth: []
       - eventStreamToken: []
+      x-fortemi-archive-isolation: CatalogFiltered
       x-fortemi-anonymous-access:
         i_understand_no_auth: true
         mode: anonymous-local
@@ -3470,6 +4129,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CatalogFiltered
       security:
       - bearerAuth: []
   /api/v1/events/tokens/{token_id}:
@@ -3498,6 +4158,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/extraction/stats:
@@ -3514,12 +4181,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Insufficient scope or complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/graph/cold-spots:
@@ -3566,6 +4236,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/graph/community/coarse:
@@ -3592,6 +4269,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/graph/diagnostics:
@@ -3618,6 +4302,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/graph/diagnostics/compare:
@@ -3653,6 +4344,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/graph/diagnostics/history:
@@ -3679,6 +4377,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/graph/diagnostics/snapshot:
@@ -3714,6 +4419,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/graph/maintenance:
@@ -3742,6 +4454,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/graph/pfnet/sparsify:
@@ -3779,6 +4498,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/graph/snn/recompute:
@@ -3837,6 +4563,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/graph/topology/stats:
@@ -3861,6 +4594,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/graph/{id}:
@@ -3885,6 +4625,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/health/access-frequency:
@@ -3934,6 +4681,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security: []
   /api/v1/health/knowledge:
     get:
@@ -3950,6 +4704,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security: []
   /api/v1/health/orphan-tags:
     get:
@@ -3966,6 +4727,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security: []
   /api/v1/health/stale-notes:
     get:
@@ -3982,6 +4750,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security: []
   /api/v1/health/streaming:
     get:
@@ -3997,6 +4772,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security: []
   /api/v1/health/tag-cooccurrence:
     get:
@@ -4013,6 +4795,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security: []
   /api/v1/health/unlinked-notes:
     get:
@@ -4029,6 +4818,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security: []
   /api/v1/inbound-sources:
     get:
@@ -4044,6 +4840,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -4067,6 +4870,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/inbound-sources/{name}:
@@ -4092,6 +4902,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/inference/complete:
@@ -4126,6 +4943,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/inference/config:
@@ -4148,6 +4972,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -4178,6 +5009,8 @@ paths:
           description: Config applied
         '400':
           description: Validation error
+        '403':
+          description: Complete-catalog access required for global config mutation
         '500':
           description: Database or backend error
         '429':
@@ -4186,6 +5019,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     delete:
@@ -4199,6 +5033,8 @@ paths:
       responses:
         '200':
           description: Config reset to env/defaults
+        '403':
+          description: Complete-catalog access required for global config mutation
         '500':
           description: Database or backend error
         '429':
@@ -4207,6 +5043,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/inference/config/audit:
@@ -4241,6 +5078,8 @@ paths:
       responses:
         '200':
           description: Audit entries
+        '403':
+          description: Complete-catalog access required for shared audit history
         '500':
           description: Database error
         '429':
@@ -4249,6 +5088,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/inference/providers:
@@ -4277,6 +5117,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/inference/stream:
@@ -4312,6 +5159,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/inference/test-connection:
@@ -4346,6 +5200,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/ingest/tokens:
@@ -4380,6 +5241,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/ingest/tokens/{token_id}:
@@ -4411,6 +5279,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/jobs:
@@ -4420,13 +5295,14 @@ paths:
       operationId: list_jobs
       responses:
         '200':
-          description: Success
+          description: Only jobs in selectable archives; unscoped jobs require complete-catalog access. Counts and pagination use the same visible set.
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CatalogFiltered
       security:
       - bearerAuth: []
     post:
@@ -4442,12 +5318,17 @@ paths:
       responses:
         '201':
           description: Success
+        '400':
+          description: Invalid job type or reserved internal payload key (keys beginning with underscore)
+        '404':
+          description: Payload-selected worker archive not found or not selectable
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CatalogFiltered
       security:
       - bearerAuth: []
   /api/v1/jobs/pause:
@@ -4459,12 +5340,15 @@ paths:
       responses:
         '200':
           description: Jobs paused globally
+        '403':
+          description: Insufficient scope or complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/jobs/pause/{archive}:
@@ -4489,6 +5373,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CatalogFiltered
       security:
       - bearerAuth: []
   /api/v1/jobs/pending:
@@ -4499,12 +5384,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Insufficient scope or complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/jobs/resume:
@@ -4516,12 +5404,15 @@ paths:
       responses:
         '200':
           description: Jobs resumed globally
+        '403':
+          description: Insufficient scope or complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/jobs/resume/{archive}:
@@ -4546,6 +5437,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CatalogFiltered
       security:
       - bearerAuth: []
   /api/v1/jobs/stats:
@@ -4556,12 +5448,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Insufficient scope or complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/jobs/status:
@@ -4573,12 +5468,15 @@ paths:
       responses:
         '200':
           description: Current pause state
+        '403':
+          description: Insufficient scope or complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/jobs/{id}:
@@ -4597,12 +5495,15 @@ paths:
       responses:
         '200':
           description: Success
+        '404':
+          description: Job not found or not visible to the caller
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CatalogFiltered
       security:
       - bearerAuth: []
   /api/v1/lifecycle-purge:
@@ -4629,6 +5530,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/lifecycle-purge/preview:
@@ -4655,6 +5563,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/lifecycle-purge/{operation_id}:
@@ -4684,6 +5599,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/lifecycle-purge/{operation_id}/resume:
@@ -4713,6 +5635,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/me:
@@ -4739,6 +5668,7 @@ paths:
           description: Global request rate limit exceeded
       security:
       - bearerAuth: []
+      x-fortemi-archive-isolation: Public
   /api/v1/me/tokens:
     get:
       tags:
@@ -4761,6 +5691,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: Public
       security:
       - bearerAuth: []
     post:
@@ -4788,6 +5719,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: Public
       security:
       - bearerAuth: []
   /api/v1/me/tokens/{id}:
@@ -4816,6 +5748,54 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: Public
+      security:
+      - bearerAuth: []
+  /api/v1/memories/available:
+    get:
+      tags:
+      - Archives
+      summary: List only memories the current principal may select, including public fallback.
+      operationId: available_memories
+      responses:
+        '200':
+          description: Selectable memories, without statistics
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+              description: no-store
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AvailableMemory'
+        '401':
+          description: Authentication required
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '403':
+          description: Read scope required
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '503':
+          description: Authentication or tenant dependency unavailable
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+        '429':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CatalogFiltered
       security:
       - bearerAuth: []
   /api/v1/memories/overview:
@@ -4824,19 +5804,25 @@ paths:
       - System
       summary: GET /api/v1/memories/overview
       description: |-
-        Returns aggregate stats across all running memories, showing total capacity
-        usage, remaining slots, and per-memory breakdown. This is the primary
-        tool for users/agents to understand system overhead and plan memory allocation.
+        Statistics over selectable memories, with visible totals and per-memory breakdown.
+        External-OIDC deployments require admin; readers use /memories/available.
       operationId: memories_overview
       responses:
         '200':
           description: Success
+        '403':
+          description: External-OIDC inventory requires admin
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CatalogFiltered
       security:
       - bearerAuth: []
   /api/v1/memories/search:
@@ -4859,6 +5845,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/memory/context:
@@ -4938,6 +5931,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: ArchiveScoped
       security:
       - bearerAuth: []
   /api/v1/memory/export:
@@ -4971,6 +5965,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/memory/info:
@@ -4984,12 +5985,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Insufficient scope or complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/models:
@@ -5016,6 +6020,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes:
@@ -5032,6 +6043,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -5055,6 +6073,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/activity:
@@ -5072,6 +6097,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/bulk:
@@ -5096,6 +6128,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/reprocess:
@@ -5124,6 +6163,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/source-upsert:
@@ -5152,6 +6198,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
       x-fortemi-authorization:
@@ -5181,6 +6234,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/{id}:
@@ -5207,6 +6267,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: ArchiveScoped
       security:
       - bearerAuth: []
     delete:
@@ -5232,6 +6293,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: ArchiveScoped
       security:
       - bearerAuth: []
     patch:
@@ -5265,6 +6327,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: ArchiveScoped
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/attachments:
@@ -5290,6 +6353,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -5320,6 +6390,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/attachments/tus:
@@ -5372,6 +6449,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     options:
@@ -5400,6 +6484,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/attachments/tus/{upload_id}:
@@ -5437,6 +6528,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     head:
@@ -5474,6 +6572,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     patch:
@@ -5537,6 +6642,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/attachments/upload:
@@ -5566,6 +6678,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/backlinks:
@@ -5591,6 +6710,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/concepts:
@@ -5614,6 +6740,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -5642,6 +6775,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/concepts/{concept_id}:
@@ -5671,6 +6811,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/export:
@@ -5695,6 +6842,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/full:
@@ -5728,6 +6882,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/links:
@@ -5756,6 +6917,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -5832,6 +7000,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
       x-fortemi-authorization:
@@ -5873,6 +7042,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/move:
@@ -5902,6 +7078,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/provenance:
@@ -5931,6 +7114,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/purge:
@@ -5960,6 +7150,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/related:
@@ -6009,6 +7206,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/reprocess:
@@ -6046,6 +7250,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/restore:
@@ -6072,6 +7283,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/similar:
@@ -6182,6 +7400,7 @@ paths:
           description: Global request rate limit exceeded
       security:
       - bearerAuth: []
+      x-fortemi-archive-isolation: CompleteCatalog
   /api/v1/notes/{id}/status:
     patch:
       tags:
@@ -6212,6 +7431,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: ArchiveScoped
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/tags:
@@ -6236,6 +7456,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     put:
@@ -6265,6 +7492,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/versions:
@@ -6290,6 +7524,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/versions/diff:
@@ -6315,6 +7556,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/versions/{version}:
@@ -6347,6 +7595,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     delete:
@@ -6378,6 +7633,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/notes/{id}/versions/{version}/restore:
@@ -6415,6 +7677,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/pke/address:
@@ -6439,6 +7708,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/pke/decrypt:
@@ -6463,6 +7739,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/pke/encrypt:
@@ -6487,6 +7770,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/pke/keygen:
@@ -6511,6 +7801,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/pke/keysets:
@@ -6529,6 +7826,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -6552,6 +7856,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/pke/keysets/active:
@@ -6570,6 +7881,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/pke/keysets/import:
@@ -6594,6 +7912,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/pke/keysets/{name_or_id}:
@@ -6619,6 +7944,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/pke/keysets/{name_or_id}/active:
@@ -6644,6 +7976,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/pke/keysets/{name_or_id}/export:
@@ -6669,6 +8008,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/pke/recipients:
@@ -6693,6 +8039,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/pke/verify/{address}:
@@ -6718,6 +8071,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/provenance/devices:
@@ -6742,6 +8102,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/provenance/files:
@@ -6766,6 +8133,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/provenance/locations:
@@ -6790,6 +8164,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/provenance/named-locations:
@@ -6814,6 +8195,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/provenance/notes:
@@ -6838,6 +8226,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/rate-limit/status:
@@ -6855,6 +8250,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/search:
@@ -6875,6 +8277,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
       parameters:
@@ -7014,6 +8423,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
       parameters:
@@ -7060,6 +8476,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CatalogFiltered
       security:
       - bearerAuth: []
   /api/v1/system/compatibility:
@@ -7080,6 +8497,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: Public
       security: []
   /api/v1/tags:
     get:
@@ -7095,6 +8513,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/templates:
@@ -7111,6 +8536,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -7132,6 +8564,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/templates/{id}:
@@ -7156,6 +8595,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     delete:
@@ -7179,6 +8625,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     patch:
@@ -7208,6 +8661,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/templates/{id}/instantiate:
@@ -7238,6 +8698,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/vision/describe:
@@ -7268,6 +8735,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/webhooks:
@@ -7278,12 +8752,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -7299,12 +8776,15 @@ paths:
       responses:
         '201':
           description: Created
+        '403':
+          description: Complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/webhooks/incoming:
@@ -7321,6 +8801,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     post:
@@ -7342,6 +8829,13 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+        '403':
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetails'
+          description: Complete-catalog archive access required (in addition to route scopes)
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/webhooks/{id}:
@@ -7360,12 +8854,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     delete:
@@ -7383,12 +8880,15 @@ paths:
       responses:
         '204':
           description: No Content
+        '403':
+          description: Complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
     patch:
@@ -7412,12 +8912,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/webhooks/{id}/deliveries:
@@ -7436,12 +8939,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/webhooks/{id}/test:
@@ -7460,12 +8966,15 @@ paths:
       responses:
         '200':
           description: Success
+        '403':
+          description: Complete-catalog access required
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /health:
@@ -7475,13 +8984,14 @@ paths:
       operationId: health_check
       responses:
         '200':
-          description: Success
+          description: Coarse status for restricted callers; detailed diagnostics with complete-catalog access
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CatalogFiltered
       security: []
   /health/live:
     get:
@@ -7498,6 +9008,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: Public
       security: []
   /livez:
     get:
@@ -7513,6 +9024,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: Public
       security: []
   /oauth/authorize:
     get:
@@ -7539,6 +9051,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: Public
       security: []
     post:
       tags:
@@ -7566,6 +9079,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: Public
       security: []
   /oauth/introspect:
     post:
@@ -7588,6 +9102,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: Public
       security: []
   /oauth/register:
     post:
@@ -7613,6 +9128,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: Public
       security: []
   /oauth/revoke:
     post:
@@ -7635,6 +9151,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: Public
       security: []
   /oauth/token:
     post:
@@ -7657,6 +9174,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: Public
       security: []
   /readyz:
     get:
@@ -7674,6 +9192,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: Public
       security: []
   /api/v1/memories:
     get:
@@ -7697,27 +9216,14 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CatalogFiltered
       security:
       - bearerAuth: []
     post:
       tags:
       - Archives
       summary: Create a new archive.
-      description: |-
-        Creates a new PostgreSQL schema with complete table structure for isolated
-        memory storage. Each archive maintains its own notes, embeddings, collections,
-        and tags.
-
-        # Request Body
-        JSON object with archive configuration:
-        - `name`: Unique archive name (required)
-        - `description`: Optional description
-
-        # Returns
-        - 201 Created with `{ "id": "<uuid>", "schema_name": "..." }` on success
-        - 400 Bad Request if validation fails
-        - 409 Conflict if archive name already exists
-        - 500 Internal Server Error if schema creation fails
+      description: Requires admin in external-OIDC mode. Creating a name in the shared archive namespace also requires complete-catalog access.
       operationId: create_archive_memory_alias
       requestBody:
         content:
@@ -7728,12 +9234,17 @@ paths:
       responses:
         '201':
           description: Created
+        '403':
+          description: Insufficient scope, external-OIDC admin required, or complete-catalog access required
+        '404':
+          description: Archive not found or not selectable
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/memories/{name}:
@@ -7766,23 +9277,14 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CatalogFiltered
       security:
       - bearerAuth: []
     delete:
       tags:
       - Archives
       summary: Delete an archive.
-      description: |-
-        WARNING: This permanently deletes the entire archive schema including all
-        notes, embeddings, collections, tags, and links. This operation cannot be undone.
-
-        # Path Parameters
-        - `name`: Archive name to delete
-
-        # Returns
-        - 204 No Content on success
-        - 404 Not Found if archive doesn't exist
-        - 500 Internal Server Error if schema deletion fails
+      description: Requires admin in external-OIDC mode.
       operationId: delete_archive_memory_alias
       parameters:
       - name: name
@@ -7794,34 +9296,24 @@ paths:
       responses:
         '204':
           description: No Content
+        '403':
+          description: Insufficient scope or external-OIDC admin required
+        '404':
+          description: Archive not found or not selectable
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CatalogFiltered
       security:
       - bearerAuth: []
     patch:
       tags:
       - Archives
       summary: Update archive metadata.
-      description: |-
-        Currently supports updating the archive description. The archive name
-        and schema cannot be modified after creation.
-
-        # Path Parameters
-        - `name`: Archive name to update
-
-        # Request Body
-        JSON object with fields to update:
-        - `description`: New description (or null to clear)
-
-        # Returns
-        - 204 No Content on success
-        - 400 Bad Request if validation fails
-        - 404 Not Found if archive doesn't exist
-        - 500 Internal Server Error if database update fails
+      description: Requires admin in external-OIDC mode.
       operationId: update_archive_memory_alias
       parameters:
       - name: name
@@ -7839,12 +9331,17 @@ paths:
       responses:
         '204':
           description: No Content
+        '403':
+          description: Insufficient scope or external-OIDC admin required
+        '404':
+          description: Archive not found or not selectable
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CatalogFiltered
       security:
       - bearerAuth: []
   /api/v1/memories/{name}/clone:
@@ -7852,24 +9349,7 @@ paths:
       tags:
       - Archives
       summary: Clone an archive (deep copy with data).
-      description: |-
-        Creates a new archive that is a complete copy of the source, including all
-        notes, embeddings, collections, tags, and links. The schema structure is
-        cloned first, then all data is bulk-copied with FK checks deferred.
-
-        # Path Parameters
-        - `name`: Source archive name to clone from
-
-        # Request Body
-        JSON object with:
-        - `new_name`: Name for the cloned archive (required)
-        - `description`: Optional description
-
-        # Returns
-        - 201 Created with new archive information
-        - 400 Bad Request if validation fails or target name already exists
-        - 404 Not Found if source archive doesn't exist
-        - 500 Internal Server Error if cloning fails
+      description: Requires admin in external-OIDC mode. Creating a name in the shared archive namespace also requires complete-catalog access.
       operationId: clone_archive_memory_alias
       parameters:
       - name: name
@@ -7887,12 +9367,17 @@ paths:
       responses:
         '201':
           description: Created
+        '403':
+          description: Insufficient scope, external-OIDC admin required, or complete-catalog access required
+        '404':
+          description: Archive not found or not selectable
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/memories/{name}/set-default:
@@ -7900,18 +9385,7 @@ paths:
       tags:
       - Archives
       summary: Set an archive as the default.
-      description: |-
-        The default archive is used when no specific archive is specified in operations.
-        Only one archive can be default at a time. Setting a new default will unset
-        the previous default.
-
-        # Path Parameters
-        - `name`: Archive name to set as default
-
-        # Returns
-        - 204 No Content on success
-        - 404 Not Found if archive doesn't exist
-        - 500 Internal Server Error if database update fails
+      description: Requires admin in external-OIDC mode.
       operationId: set_default_archive_memory_alias
       parameters:
       - name: name
@@ -7923,12 +9397,17 @@ paths:
       responses:
         '204':
           description: No Content
+        '403':
+          description: Insufficient scope or external-OIDC admin required
+        '404':
+          description: Archive not found or not selectable
         '429':
           content:
             application/problem+json:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CompleteCatalog
       security:
       - bearerAuth: []
   /api/v1/memories/{name}/stats:
@@ -7964,6 +9443,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/ProblemDetails'
           description: Global request rate limit exceeded
+      x-fortemi-archive-isolation: CatalogFiltered
       security:
       - bearerAuth: []
 components:
@@ -8508,6 +9988,17 @@ components:
           - 'null'
           format: float
           description: Re-embed if content changed more than this percentage (0.0-1.0)
+    AvailableMemory:
+      type: object
+      description: Minimal archive picker entry. No physical schema, counts, or storage details.
+      required:
+      - name
+      - is_default
+      properties:
+        is_default:
+          type: boolean
+        name:
+          type: string
     BackofficeCompatibility:
       type: object
       required:
