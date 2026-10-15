@@ -6,6 +6,7 @@
 //! Configuration precedence (highest → lowest):
 //!   db_override → env → default
 
+use crate::event_scope::RequestEvents;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -1371,6 +1372,7 @@ fn merge_archive_over_global(global: Option<&Value>, archive: &Value) -> Value {
 pub async fn update_inference_config(
     auth: Auth,
     State(state): State<AppState>,
+    events: RequestEvents,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Query(params): Query<UpdateConfigQuery>,
     Json(req): Json<UpdateInferenceConfigRequest>,
@@ -2157,13 +2159,14 @@ pub async fn update_inference_config(
                 .embedding_backend
                 .as_ref()
                 .map(|sv| sv.value.clone());
-            // Note: the event payload doesn't carry the schema today; per-
-            // archive event scoping is filed as a future enhancement on #655.
-            state.event_bus.emit(ServerEvent::InferenceConfigChanged {
-                default_backend: current_typed.default_backend.clone(),
-                embedding_backend,
-                changed_fields: changed_fields.clone(),
-            });
+            events.publish(
+                &state.event_bus,
+                ServerEvent::InferenceConfigChanged {
+                    default_backend: current_typed.default_backend.clone(),
+                    embedding_backend,
+                    changed_fields: changed_fields.clone(),
+                },
+            );
         }
 
         write_audit_row(
@@ -2363,11 +2366,17 @@ pub async fn update_inference_config(
             .embedding_backend
             .as_ref()
             .map(|sv| sv.value.clone());
-        state.event_bus.emit(ServerEvent::InferenceConfigChanged {
-            default_backend: current_typed.default_backend.clone(),
-            embedding_backend,
-            changed_fields: changed_fields.clone(),
-        });
+        events
+            .publish_all(
+                &state.db,
+                &state.event_bus,
+                ServerEvent::InferenceConfigChanged {
+                    default_backend: current_typed.default_backend.clone(),
+                    embedding_backend,
+                    changed_fields: changed_fields.clone(),
+                },
+            )
+            .await;
     }
 
     // Audit log entry (#656). Best-effort — a failed insert is logged but
@@ -2411,6 +2420,7 @@ pub async fn update_inference_config(
 pub async fn delete_inference_config(
     auth: Auth,
     State(state): State<AppState>,
+    events: RequestEvents,
     Extension(archive_ctx): Extension<ArchiveContext>,
 ) -> impl IntoResponse {
     // #655: archive-scoped DELETE clears just the per-archive override row;
@@ -2456,11 +2466,14 @@ pub async fn delete_inference_config(
             .embedding_backend
             .as_ref()
             .map(|sv| sv.value.clone());
-        state.event_bus.emit(ServerEvent::InferenceConfigChanged {
-            default_backend: effective_typed.default_backend.clone(),
-            embedding_backend,
-            changed_fields: vec!["__reset_archive__".to_string()],
-        });
+        events.publish(
+            &state.event_bus,
+            ServerEvent::InferenceConfigChanged {
+                default_backend: effective_typed.default_backend.clone(),
+                embedding_backend,
+                changed_fields: vec!["__reset_archive__".to_string()],
+            },
+        );
 
         write_audit_row(
             &state.db.pool,
@@ -2537,11 +2550,17 @@ pub async fn delete_inference_config(
         .embedding_backend
         .as_ref()
         .map(|sv| sv.value.clone());
-    state.event_bus.emit(ServerEvent::InferenceConfigChanged {
-        default_backend: effective_typed.default_backend.clone(),
-        embedding_backend,
-        changed_fields: vec!["__reset__".to_string()],
-    });
+    events
+        .publish_all(
+            &state.db,
+            &state.event_bus,
+            ServerEvent::InferenceConfigChanged {
+                default_backend: effective_typed.default_backend.clone(),
+                embedding_backend,
+                changed_fields: vec!["__reset__".to_string()],
+            },
+        )
+        .await;
 
     // Audit log entry (#656). Best-effort.
     write_audit_row(

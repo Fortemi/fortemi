@@ -671,6 +671,7 @@ impl PgNoteRepository {
         req: CreateNoteRequest,
         all_tags: Vec<String>,
     ) -> Result<Uuid> {
+        crate::PgDocumentTypeRepository::validate_assignment_tx(tx, req.document_type_id).await?;
         let now = Utc::now();
         let hash = Self::hash_content(&req.content);
 
@@ -788,6 +789,8 @@ impl PgNoteRepository {
         let now = Utc::now();
 
         for req in notes {
+            crate::PgDocumentTypeRepository::validate_assignment_tx(tx, req.document_type_id)
+                .await?;
             let note_id = new_v7();
             let hash = Self::hash_content(&req.content);
 

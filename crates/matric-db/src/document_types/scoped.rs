@@ -16,7 +16,8 @@ impl PgDocumentTypeRepository {
     ) -> Result<Value> {
         let note = sqlx::query(
             "SELECT document_type_id, metadata FROM note
-             WHERE id=$1 AND deleted_at IS NULL FOR UPDATE",
+             WHERE id=$1 AND tenant_id = current_setting('app.current_tenant')::uuid
+               AND deleted_at IS NULL FOR UPDATE",
         )
         .bind(note_id)
         .fetch_optional(scope.executor())
@@ -84,7 +85,7 @@ impl PgDocumentTypeRepository {
                     // The selected shared configuration must remain active and
                     // visible until commit, even if an operator edits it in flight.
                     let active: Option<Uuid> = sqlx::query_scalar(
-                        "SELECT id FROM public.document_type WHERE id=$1 AND is_active FOR SHARE",
+                        "SELECT id FROM public.document_type WHERE id=$1 AND tenant_id = current_setting('app.current_tenant')::uuid AND is_active FOR SHARE",
                     )
                     .bind(detection.document_type.id)
                     .fetch_optional(scope.executor())
@@ -96,7 +97,8 @@ impl PgDocumentTypeRepository {
                     }
                     let changed = sqlx::query(
                         "UPDATE note SET document_type_id=$1
-                         WHERE id=$2 AND document_type_id IS NULL AND deleted_at IS NULL",
+                         WHERE id=$2 AND tenant_id = current_setting('app.current_tenant')::uuid
+                           AND document_type_id IS NULL AND deleted_at IS NULL",
                     )
                     .bind(detection.document_type.id)
                     .bind(note_id)

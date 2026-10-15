@@ -576,10 +576,21 @@ pub async fn build_vector_indexes(
     pool: &Pool<Postgres>,
     payload: VectorIndexJobPayload,
 ) -> Result<()> {
-    let shape = VectorIndexShape::from_payload(payload)?;
+    let shape = VectorIndexShape::from_payload(payload.clone())?;
     set_shape_status(pool, &shape, "building").await?;
+    let result = maintain_vector_indexes(pool, payload).await;
+    set_shape_status(pool, &shape, if result.is_ok() { "ready" } else { "stale" }).await?;
+    result
+}
+
+/// DDL only. Runtime callers update status through their restricted connection.
+pub(crate) async fn maintain_vector_indexes(
+    pool: &Pool<Postgres>,
+    payload: VectorIndexJobPayload,
+) -> Result<()> {
+    let shape = VectorIndexShape::from_payload(payload)?;
     let result = build_vector_indexes_once(pool, &shape).await;
-    let result = match result {
+    match result {
         Ok(()) => Ok(()),
         Err(error) => {
             drop_invalid_index(pool, &shape, &shape.embedding_index_name()).await?;
@@ -590,16 +601,6 @@ pub async fn build_vector_indexes(
                 "Retrying vector index build after dropping invalid index"
             );
             build_vector_indexes_once(pool, &shape).await
-        }
-    };
-    match result {
-        Ok(()) => {
-            set_shape_status(pool, &shape, "ready").await?;
-            Ok(())
-        }
-        Err(error) => {
-            set_shape_status(pool, &shape, "stale").await?;
-            Err(error)
         }
     }
 }
@@ -780,7 +781,7 @@ async fn drop_invalid_swap_indexes(pool: &Pool<Postgres>, shape: &VectorIndexSha
     Ok(())
 }
 
-async fn set_shape_status(
+pub async fn set_shape_status(
     pool: &Pool<Postgres>,
     shape: &VectorIndexShape,
     status: &str,
@@ -791,6 +792,8 @@ async fn set_shape_status(
              last_indexed_at = CASE WHEN $1 = 'ready' THEN NOW() ELSE last_indexed_at END
          FROM public.embedding_config ec
          WHERE ec.id = es.embedding_config_id
+           AND es.tenant_id = current_setting('app.current_tenant')::uuid
+           AND ec.tenant_id = es.tenant_id
            AND ec.dimension = $2
            AND ec.vector_type = $3
            AND COALESCE(es.defer_index_build, FALSE) IS FALSE
@@ -804,5 +807,29 @@ async fn set_shape_status(
         .execute(pool)
         .await
         .map_err(Error::Database)?;
+    Ok(())
+}
+
+pub async fn set_shape_status_scoped(
+    scope: &mut crate::TenantScopedConn<'_>,
+    shape: &VectorIndexShape,
+    status: &str,
+) -> Result<()> {
+    crate::validate_schema_name(&shape.schema)?;
+    sqlx::query(&format!(
+        "UPDATE {}.embedding_set es SET index_status=$1::public.embedding_index_status,
+         last_indexed_at=CASE WHEN $1='ready' THEN now() ELSE last_indexed_at END
+         FROM public.embedding_config ec WHERE ec.id=es.embedding_config_id
+         AND es.tenant_id=$4 AND ec.tenant_id=$4 AND ec.dimension=$2 AND ec.vector_type=$3
+         AND COALESCE(es.defer_index_build,FALSE) IS FALSE
+         AND es.index_status IS DISTINCT FROM $1::public.embedding_index_status",
+        shape.schema
+    ))
+    .bind(status)
+    .bind(shape.dimension)
+    .bind(shape.vector_type.to_string())
+    .bind(scope.tenant_id())
+    .execute(scope.executor())
+    .await?;
     Ok(())
 }

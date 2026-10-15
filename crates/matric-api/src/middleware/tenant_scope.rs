@@ -4,7 +4,9 @@
 //! runs. The middleware owns the transaction and gives handlers a cloneable
 //! [`TenantRequestScope`] that can execute work only through the bound
 //! connection. Streaming responses are rejected because their body can outlive
-//! the request transaction.
+//! the request transaction. Route-specific release markers allow streams whose
+//! database work is complete. Read-only admission transactions can be released
+//! before auditing/maintenance and reopened for handler resource revalidation.
 
 use std::{any::Any, future::Future, pin::Pin};
 
@@ -76,9 +78,12 @@ type ConnectionOperation = Box<
         + Send,
 >;
 
-struct ConnectionCommand {
-    operation: ConnectionOperation,
-    result: oneshot::Sender<Result<ErasedValue>>,
+enum ConnectionCommand {
+    Execute {
+        operation: ConnectionOperation,
+        result: oneshot::Sender<Result<ErasedValue>>,
+    },
+    Release(oneshot::Sender<Result<()>>),
 }
 
 /// Cloneable request extension for work on the bound tenant transaction.
@@ -104,6 +109,20 @@ impl std::fmt::Debug for TenantRequestScope {
 }
 
 impl TenantRequestScope {
+    /// Release a read-only admission transaction before pool-backed auditing or
+    /// administrative DDL. The next scoped operation establishes a fresh tenant
+    /// transaction; handlers must revalidate resources on that connection.
+    pub async fn release_preliminary(&self) -> Result<()> {
+        let (completed_tx, completed_rx) = oneshot::channel();
+        self.commands
+            .send(ConnectionCommand::Release(completed_tx))
+            .await
+            .map_err(|_| Error::Internal("tenant request scope is unavailable".into()))?;
+        completed_rx
+            .await
+            .map_err(|_| Error::Internal("tenant scope release was canceled".into()))?
+    }
+
     /// Publish external effects only after the request transaction commits.
     pub fn after_commit(&self, action: impl FnOnce() + Send + 'static) {
         self.after_commit
@@ -142,7 +161,7 @@ impl TenantRequestScope {
         let (result_tx, result_rx) = oneshot::channel();
 
         self.commands
-            .send(ConnectionCommand {
+            .send(ConnectionCommand::Execute {
                 operation,
                 result: result_tx,
             })
@@ -282,32 +301,72 @@ where
     }
 }
 
-async fn run_transaction_owner<T>(
-    mut transaction: T,
+async fn run_transaction_owner<T, F, Fut>(
+    transaction: T,
     mut commands: mpsc::Receiver<ConnectionCommand>,
     mut finish: oneshot::Receiver<FinishAction>,
     completed: oneshot::Sender<Result<()>>,
+    begin: F,
 ) where
     T: ScopedTransaction,
+    F: Fn() -> Fut,
+    Fut: Future<Output = Result<T>>,
 {
+    let mut transaction = Some(transaction);
     loop {
         tokio::select! {
             biased;
             action = &mut finish => {
                 let action = action.unwrap_or(FinishAction::Rollback);
-                let _ = completed.send(finish_transaction(transaction, action).await);
+                let result = match transaction {
+                    Some(transaction) => finish_transaction(transaction, action).await,
+                    None => Ok(()),
+                };
+                let _ = completed.send(result);
                 return;
             }
             command = commands.recv() => {
                 let Some(command) = command else {
                     let action = finish.await.unwrap_or(FinishAction::Rollback);
-                    let _ = completed
-                        .send(finish_transaction(transaction, action).await);
+                    let result = match transaction {
+                        Some(transaction) => finish_transaction(transaction, action).await,
+                        None => Ok(()),
+                    };
+                    let _ = completed.send(result);
                     return;
                 };
 
+                let (operation, result) = match command {
+                    ConnectionCommand::Release(completed) => {
+                        let result = match transaction.take() {
+                            Some(transaction) => transaction.rollback().await,
+                            None => Ok(()),
+                        };
+                        let _ = completed.send(result);
+                        continue;
+                    }
+                    ConnectionCommand::Execute { operation, result } => (operation, result),
+                };
+                if transaction.is_none() {
+                    let started = tokio::select! {
+                        biased;
+                        _ = &mut finish => {
+                            let _ = completed.send(Ok(()));
+                            return;
+                        }
+                        started = begin() => started,
+                    };
+                    match started {
+                        Ok(started) => transaction = Some(started),
+                        Err(error) => {
+                            let _ = result.send(Err(error));
+                            continue;
+                        }
+                    }
+                }
+
                 let outcome = {
-                    let operation = (command.operation)(transaction.executor());
+                    let operation = operation(transaction.as_mut().unwrap().executor());
                     tokio::pin!(operation);
                     tokio::select! {
                         biased;
@@ -316,11 +375,11 @@ async fn run_transaction_owner<T>(
                     }
                 };
                 match outcome {
-                    Ok(result) => {
-                        let _ = command.result.send(result);
+                    Ok(value) => {
+                        let _ = result.send(value);
                     }
                     Err(action) => {
-                        let _ = completed.send(finish_transaction(transaction, action).await);
+                        let _ = completed.send(finish_transaction(transaction.take().unwrap(), action).await);
                         return;
                     }
                 }
@@ -408,7 +467,10 @@ pub async fn tenant_scope_middleware(
             let _ = transaction.rollback().await;
             return;
         }
-        run_transaction_owner(transaction, commands_rx, finish_rx, completed_tx).await;
+        run_transaction_owner(transaction, commands_rx, finish_rx, completed_tx, || {
+            TenantScopedConn::begin(&pool, tenant_id)
+        })
+        .await;
     });
 
     match ready_rx.await {
@@ -678,6 +740,7 @@ mod tests {
             commands_rx,
             finish_rx,
             completed_tx,
+            || async { panic!("mock transaction must not restart") },
         ));
 
         let commands_guard = if close_commands_before_finish {
@@ -868,6 +931,34 @@ mod tests {
             owner_action(Some(FinishAction::Commit), true).await,
             ["commit"]
         );
+    }
+
+    #[tokio::test]
+    async fn released_admission_does_not_retain_or_restart_a_transaction_at_finish() {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let (commands, commands_rx) = mpsc::channel(COMMAND_CAPACITY);
+        let (finish, finish_rx) = oneshot::channel();
+        let (completed, completed_rx) = oneshot::channel();
+        let owner = tokio::spawn(run_transaction_owner(
+            MockTransaction {
+                events: events.clone(),
+            },
+            commands_rx,
+            finish_rx,
+            completed,
+            || async { panic!("a released request must not restart without scoped DB work") },
+        ));
+        let (released, released_rx) = oneshot::channel();
+        commands
+            .send(ConnectionCommand::Release(released))
+            .await
+            .unwrap();
+        released_rx.await.unwrap().unwrap();
+        assert_eq!(*events.lock().unwrap(), ["rollback"]);
+        finish.send(FinishAction::Commit).unwrap();
+        completed_rx.await.unwrap().unwrap();
+        owner.await.unwrap();
+        assert_eq!(*events.lock().unwrap(), ["rollback"]);
     }
 
     #[test]

@@ -320,6 +320,11 @@ pub async fn ensure_default_tenant(pool: &PgPool, tenant_id: Uuid) -> anyhow::Re
     .await
     .context("external OIDC default tenant lookup failed")?;
     if exists {
+        crate::admin_bootstrap::document_types::backfill_empty(pool, tenant_id)
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!("external OIDC document type backfill failed: {error}")
+            })?;
         return Ok(());
     }
 

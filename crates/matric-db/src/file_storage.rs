@@ -2030,17 +2030,15 @@ impl PgFileStorageRepository {
         document_type_id: Uuid,
         extraction_strategy: Option<ExtractionStrategy>,
     ) -> Result<()> {
-        sqlx::query(
-            r#"UPDATE attachment
-               SET document_type_id = $2, extraction_strategy = COALESCE($3::extraction_strategy, extraction_strategy), updated_at = NOW()
-               WHERE id = $1"#,
+        let mut tx = self.pool.begin().await?;
+        self.set_document_type_tx(
+            &mut tx,
+            attachment_id,
+            document_type_id,
+            extraction_strategy,
         )
-        .bind(attachment_id)
-        .bind(document_type_id)
-        .bind(extraction_strategy.map(|s| s.to_string()))
-        .execute(&self.pool)
         .await?;
-
+        tx.commit().await?;
         Ok(())
     }
 
@@ -2075,39 +2073,17 @@ impl PgFileStorageRepository {
         method: &str,
         auto_promote: bool,
     ) -> Result<()> {
-        if auto_promote {
-            sqlx::query(
-                r#"UPDATE attachment
-                   SET detected_document_type_id = $2,
-                       detection_confidence = $3,
-                       detection_method = $4,
-                       document_type_id = $2,
-                       updated_at = NOW()
-                   WHERE id = $1"#,
-            )
-            .bind(attachment_id)
-            .bind(detected_id)
-            .bind(confidence)
-            .bind(method)
-            .execute(&self.pool)
-            .await?;
-        } else {
-            sqlx::query(
-                r#"UPDATE attachment
-                   SET detected_document_type_id = $2,
-                       detection_confidence = $3,
-                       detection_method = $4,
-                       updated_at = NOW()
-                   WHERE id = $1"#,
-            )
-            .bind(attachment_id)
-            .bind(detected_id)
-            .bind(confidence)
-            .bind(method)
-            .execute(&self.pool)
-            .await?;
-        }
-
+        let mut tx = self.pool.begin().await?;
+        self.set_detected_document_type_tx(
+            &mut tx,
+            attachment_id,
+            detected_id,
+            confidence,
+            method,
+            auto_promote,
+        )
+        .await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -2993,6 +2969,27 @@ impl PgFileStorageRepository {
         Ok(row.0)
     }
 
+    async fn validate_attachment_document_type_tx(
+        tx: &mut Transaction<'_, Postgres>,
+        attachment_id: Uuid,
+        document_type_id: Uuid,
+    ) -> Result<()> {
+        let valid: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM attachment a
+             JOIN public.document_type d ON d.tenant_id = a.tenant_id
+             WHERE a.id = $1 AND d.id = $2
+               AND a.tenant_id = current_setting('app.current_tenant')::uuid)",
+        )
+        .bind(attachment_id)
+        .bind(document_type_id)
+        .fetch_one(&mut **tx)
+        .await?;
+        if !valid {
+            return Err(Error::InvalidInput("Unknown document type".into()));
+        }
+        Ok(())
+    }
+
     /// Transaction-aware variant of set_detected_document_type.
     pub async fn set_detected_document_type_tx(
         &self,
@@ -3003,6 +3000,7 @@ impl PgFileStorageRepository {
         method: &str,
         auto_promote: bool,
     ) -> Result<()> {
+        Self::validate_attachment_document_type_tx(tx, attachment_id, detected_id).await?;
         if auto_promote {
             sqlx::query(
                 r#"UPDATE attachment
@@ -3047,6 +3045,7 @@ impl PgFileStorageRepository {
         document_type_id: Uuid,
         extraction_strategy: Option<ExtractionStrategy>,
     ) -> Result<()> {
+        Self::validate_attachment_document_type_tx(tx, attachment_id, document_type_id).await?;
         sqlx::query(
             r#"UPDATE attachment
                SET document_type_id = $2, extraction_strategy = COALESCE($3::extraction_strategy, extraction_strategy), updated_at = NOW()

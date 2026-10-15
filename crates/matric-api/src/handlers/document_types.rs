@@ -7,13 +7,15 @@
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    Json,
+    Extension, Json,
 };
 use serde::Deserialize;
 use std::fmt;
 
-use crate::{document_type_not_found, telemetry_text_len, ApiError, AppState};
-use matric_core::DocumentTypeRepository;
+use crate::{
+    document_type_not_found, telemetry_text_len, with_request_schema, ApiError, AppState,
+    TenantRequestScope,
+};
 
 // NOTE: These types must be defined in matric-core before handlers will compile.
 // See ADR-025 for the complete specification.
@@ -97,13 +99,24 @@ impl fmt::Debug for DetectDocumentTypeRequest {
     responses((status = 200, description = "Success")))]
 pub async fn list_document_types(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Query(query): Query<ListDocumentTypesQuery>,
 ) -> Result<Json<Vec<matric_core::DocumentTypeSummary>>, ApiError> {
-    let types = if let Some(category) = query.category {
-        state.db.document_types.list_by_category(&category).await?
-    } else {
-        state.db.document_types.list().await?
-    };
+    let types = with_request_schema(
+        &state,
+        scope.map(|Extension(s)| s),
+        "public".into(),
+        move |conn| {
+            Box::pin(async move {
+                if let Some(category) = query.category {
+                    matric_db::PgDocumentTypeRepository::list_by_category_tx(conn, &category).await
+                } else {
+                    matric_db::PgDocumentTypeRepository::list_tx(conn).await
+                }
+            })
+        },
+    )
+    .await?;
     Ok(Json(types))
 }
 
@@ -121,14 +134,21 @@ pub async fn list_document_types(
     responses((status = 200, description = "Success")))]
 pub async fn get_document_type(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Path(name): Path<String>,
 ) -> Result<Json<matric_core::DocumentType>, ApiError> {
-    let doc_type = state
-        .db
-        .document_types
-        .get_by_name(&name)
-        .await?
-        .ok_or_else(document_type_not_found)?;
+    let doc_type = with_request_schema(
+        &state,
+        scope.map(|Extension(s)| s),
+        "public".into(),
+        move |conn| {
+            Box::pin(async move {
+                matric_db::PgDocumentTypeRepository::get_by_name_tx(conn, &name).await
+            })
+        },
+    )
+    .await?
+    .ok_or_else(document_type_not_found)?;
     Ok(Json(doc_type))
 }
 
@@ -146,9 +166,18 @@ pub async fn get_document_type(
     responses((status = 201, description = "Created")))]
 pub async fn create_document_type(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Json(req): Json<matric_core::CreateDocumentTypeRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
-    let id = state.db.document_types.create(req).await?;
+    let id = with_request_schema(
+        &state,
+        scope.map(|Extension(s)| s),
+        "public".into(),
+        move |conn| {
+            Box::pin(async move { matric_db::PgDocumentTypeRepository::create_tx(conn, req).await })
+        },
+    )
+    .await?;
     Ok((StatusCode::CREATED, Json(serde_json::json!({ "id": id }))))
 }
 
@@ -171,10 +200,21 @@ pub async fn create_document_type(
     responses((status = 204, description = "No Content")))]
 pub async fn update_document_type(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Path(name): Path<String>,
     Json(req): Json<matric_core::UpdateDocumentTypeRequest>,
 ) -> Result<StatusCode, ApiError> {
-    state.db.document_types.update(&name, req).await?;
+    with_request_schema(
+        &state,
+        scope.map(|Extension(s)| s),
+        "public".into(),
+        move |conn| {
+            Box::pin(async move {
+                matric_db::PgDocumentTypeRepository::update_tx(conn, &name, req).await
+            })
+        },
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -196,9 +236,20 @@ pub async fn update_document_type(
     responses((status = 204, description = "No Content")))]
 pub async fn delete_document_type(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Path(name): Path<String>,
 ) -> Result<StatusCode, ApiError> {
-    state.db.document_types.delete(&name).await?;
+    with_request_schema(
+        &state,
+        scope.map(|Extension(s)| s),
+        "public".into(),
+        move |conn| {
+            Box::pin(
+                async move { matric_db::PgDocumentTypeRepository::delete_tx(conn, &name).await },
+            )
+        },
+    )
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -217,9 +268,10 @@ pub async fn delete_document_type(
 /// - 500 Internal Server Error if detection fails
 #[utoipa::path(post, path = "/api/v1/document-types/detect", tag = "DocumentTypes",
     request_body = DetectDocumentTypeRequest,
-    responses((status = 200, description = "Success")))]
+    responses((status = 200, description = "Tenant-visible detection result, or null when the tenant has no matching type")))]
 pub async fn detect_document_type(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Json(req): Json<DetectDocumentTypeRequest>,
 ) -> Result<Json<Option<matric_core::DetectDocumentTypeResult>>, ApiError> {
     // Validate that at least one detection input is provided
@@ -229,15 +281,23 @@ pub async fn detect_document_type(
         ));
     }
 
-    let result = state
-        .db
-        .document_types
-        .detect(
-            req.filename.as_deref(),
-            req.content.as_deref(),
-            req.mime_type.as_deref(),
-        )
-        .await?;
+    let result = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        "public".to_string(),
+        move |connection| {
+            Box::pin(async move {
+                matric_db::PgDocumentTypeRepository::detect_tx(
+                    connection,
+                    req.filename.as_deref(),
+                    req.content.as_deref(),
+                    req.mime_type.as_deref(),
+                )
+                .await
+            })
+        },
+    )
+    .await?;
 
     Ok(Json(result))
 }

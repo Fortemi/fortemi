@@ -2595,7 +2595,7 @@ paths:
         required: true
       responses:
         '200':
-          description: Success
+          description: Tenant-visible detection result, or null when the tenant has no matching type
         '429':
           content:
             application/problem+json:
@@ -3417,7 +3417,7 @@ paths:
           format: uuid
       responses:
         '200':
-          description: SSE EventEnvelope frames. Human read (including write) or mcp admission; service credentials require mcp. Live and replay share tenant/archive/type/entity filters. memory retains the single-tenant request name or multi-tenant schema; archive_name and archive_schema identify the archive. tenant_id is verified in external-OIDC single-tenant and multi-tenant streams, absent for unbound local streams. Streams end at validated credential expiry. Anonymous access requires acknowledged anonymous-local mode; hosted streams require bearer authentication. See /api/v1/asyncapi.yaml.
+          description: SSE EventEnvelope frames. Human read (including write) or mcp admission; service credentials require mcp. Live and replay share tenant/archive/type/entity filters. memory retains the single-tenant request name or multi-tenant schema; archive_name and archive_schema identify the archive. tenant_id is verified in external-OIDC single-tenant and multi-tenant streams, the reserved local owner for scoped community publishers, and absent for unbound local publishers. Streams end at validated credential expiry. Anonymous access requires acknowledged anonymous-local mode; hosted streams require bearer authentication. See /api/v1/asyncapi.yaml.
           content:
             text/event-stream:
               schema:
@@ -5042,9 +5042,9 @@ paths:
         required: true
       responses:
         '201':
-          description: Created
+          description: Created with an optional document type from the note's tenant
         '400':
-          description: Bad request
+          description: Bad request, including a document type unavailable to the note's tenant
         '429':
           content:
             application/problem+json:
@@ -5522,7 +5522,7 @@ paths:
         '204':
           description: Chunk appended. Upload in progress. Upload-Offset and Upload-Expires headers reflect new state.
         '400':
-          description: Bad request (missing Tus-Resumable or Upload-Offset headers, wrong Content-Type, or chunk exceeds total size)
+          description: Bad request (missing Tus-Resumable or Upload-Offset headers, wrong Content-Type, chunk exceeds total size, or document type unavailable to the attachment tenant)
         '404':
           description: Upload not found or has expired
         '409':

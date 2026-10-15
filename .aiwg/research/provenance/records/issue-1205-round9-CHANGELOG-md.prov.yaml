@@ -1,0 +1,46 @@
+metadata:
+  schema_version: 1.0.0
+  created_at: '2026-10-14T23:07:00Z'
+  issue: Fortemi/fortemi#1205
+  review: /home/roctinam/.cache/claude-work/fortemi-srvfix/audit-1205h.md
+entity:
+  id: urn:aiwg:artifact:CHANGELOG.md
+  type: document
+  created_at: '2026-10-14T23:07:00Z'
+  updated_at: '2026-10-14T23:13:00Z'
+  checksum: sha256:33b7034a71d1d1c86bba31f3a59be4b489f6e9adf5436ac791ed36cc0a2dba04
+  size_bytes: 230388
+activity:
+  id: urn:aiwg:activity:modification:issue-1205-round9:1
+  type: modification
+  started_at: '2026-10-14T23:06:59Z'
+  ended_at: '2026-10-14T23:13:00Z'
+  description: Resolve owned archive pause aliases to canonical worker schema keys;
+    deliver community queue summaries to every owned memory; retain ready and supported
+    queue eligibility within tenant/archive fences; regress live/replay, worker claims,
+    persisted pauses, foreign rejection and external-OIDC operator authorization
+agent:
+  id: urn:aiwg:agent:codex-gpt-6
+  type: ai_assistant
+  name: Codex
+  version: GPT-6
+relationships:
+  wasGeneratedBy:
+    entity: urn:aiwg:artifact:CHANGELOG.md
+    activity: urn:aiwg:activity:modification:issue-1205-round9:1
+    time: '2026-10-14T23:13:00Z'
+  wasAssociatedWith:
+    activity: urn:aiwg:activity:modification:issue-1205-round9:1
+    agent: urn:aiwg:agent:codex-gpt-6
+  wasAttributedTo:
+    entity: urn:aiwg:artifact:CHANGELOG.md
+    agent: urn:aiwg:agent:codex-gpt-6
+  wasDerivedFrom:
+  - entity: urn:aiwg:artifact:CHANGELOG.md
+    source: urn:aiwg:review:issue-1205:audit-1205h
+    derivation_type: implements
+    activity: urn:aiwg:activity:modification:issue-1205-round9:1
+  used:
+  - activity: urn:aiwg:activity:modification:issue-1205-round9:1
+    entity: urn:aiwg:review:issue-1205:audit-1205h
+    role: audit_findings

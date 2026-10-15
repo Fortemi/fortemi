@@ -12,14 +12,13 @@
 //! system set protection, so it doesn't require creating new sets.
 
 use matric_db::Database;
-use sqlx::PgPool;
 
 /// Helper to create a test database connection.
 async fn setup_test_db() -> Database {
     let database_url = std::env::var("DATABASE_URL")
         .unwrap_or_else(|_| "postgres://matric:matric@localhost/matric".to_string());
 
-    let pool = PgPool::connect(&database_url)
+    let pool = matric_db::create_pool(&database_url)
         .await
         .expect("Failed to connect to test database");
 

@@ -1,0 +1,34 @@
+metadata:
+  schema_version: 1.0.0
+  created_at: '2026-10-14T17:48:19Z'
+  issue: Fortemi/fortemi#1205
+  review: /home/roctinam/.cache/claude-work/fortemi-srvfix/audit-1205c.md
+entity:
+  id: urn:aiwg:artifact:docs/content/authentication.md
+  type: document
+  created_at: '2026-10-14T17:48:19Z'
+  checksum: sha256:307de0d5c8a782e8fb5b0ce7bd2bfc53036e237c87b11494a1f18339f30921e4
+  size_bytes: 65051
+activity:
+  id: urn:aiwg:activity:modification:issue-1205-round4:1
+  type: modification
+  started_at: '2026-10-14T17:48:19Z'
+  ended_at: '2026-10-14T17:48:19Z'
+  description: 'Address all six independent review findings: runtime RLS role enforcement, baseline configuration
+    semantics, transactional bulk/source authors, shared startup/router acceptance and upgrade documentation'
+agent:
+  id: urn:aiwg:agent:codex-gpt-6
+  type: ai_assistant
+  name: Codex
+  version: GPT-6
+relationships:
+  wasGeneratedBy:
+    entity: urn:aiwg:artifact:docs/content/authentication.md
+    activity: urn:aiwg:activity:modification:issue-1205-round4:1
+    time: '2026-10-14T17:48:19Z'
+  wasAssociatedWith:
+    activity: urn:aiwg:activity:modification:issue-1205-round4:1
+    agent: urn:aiwg:agent:codex-gpt-6
+  wasAttributedTo:
+    entity: urn:aiwg:artifact:docs/content/authentication.md
+    agent: urn:aiwg:agent:codex-gpt-6

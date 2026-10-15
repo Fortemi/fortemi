@@ -678,43 +678,33 @@ async fn hosted_creation_postgres_atomicity_and_tenant_isolation() {
     {
         // Exercise actual hosted producers in a non-default archive: its request
         // name differs from the schema consumed by current hosted clients.
-        let archives = matric_db::PgArchiveRepository::new(admin.clone());
+        let catalog_before = embedding_fixture_catalog(&admin).await;
+        let bootstrap = matric_api::admin_bootstrap::BootstrapRequest::new(
+            &format!("create-test-{a}"),
+            Some(a),
+            None,
+            false,
+        )
+        .unwrap();
+        matric_api::admin_bootstrap::bootstrap_tenant(
+            &admin,
+            &bootstrap,
+            false,
+            "fortemi:tenant_id",
+        )
+        .await
+        .unwrap();
+        let archives =
+            matric_db::administrative::AdministrativeExecutor::new(admin.clone(), &runtime)
+                .await
+                .unwrap();
         let selected = archives
-            .create_archive_schema(&format!("ssehosted_{}", Uuid::new_v4().simple()), None)
+            .create_archive(a, &format!("ssehosted_{}", Uuid::new_v4().simple()), None)
             .await
             .unwrap();
         assert_ne!(selected.name, selected.schema_name);
-        sqlx::query("UPDATE archive_registry SET tenant_id=$1 WHERE id=$2")
-            .bind(a)
-            .bind(selected.id)
-            .execute(&admin)
-            .await
-            .unwrap();
-        for grant in [
-            format!("GRANT USAGE ON SCHEMA {} TO {role}", selected.schema_name),
-            format!(
-                "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA {} TO {role}",
-                selected.schema_name
-            ),
-            format!(
-                "GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA {} TO {role}",
-                selected.schema_name
-            ),
-        ] {
-            sqlx::query(&grant).execute(&admin).await.unwrap();
-        }
-        sqlx::query(&format!("INSERT INTO {}.skos_concept_scheme(id,notation,title,is_system,tenant_id) VALUES($1,'default','Test',true,$2)", selected.schema_name))
-            .bind(Uuid::new_v4()).bind(a).execute(&admin).await.unwrap();
-        // The archive factory currently clones app_user; seed the fixture's
-        // existing principal there so the archive's attribution FKs are valid.
-        sqlx::query(&format!(
-            "INSERT INTO {}.app_user SELECT * FROM public.app_user WHERE tenant_id=$1",
-            selected.schema_name
-        ))
-        .bind(a)
-        .execute(&admin)
-        .await
-        .unwrap();
+        // Provision under the tenant with runtime grants and shared public
+        // principal references, matching the canonical archive factory.
         let app = hosted_router(state.clone(), runtime.clone(), a);
         let stream_request = |cursor: Option<String>, machine: bool| {
             let mut request = http_request(
@@ -838,7 +828,9 @@ async fn hosted_creation_postgres_atomicity_and_tenant_isolation() {
         assert_eq!(resumed["event_type"], "note.created");
         assert_eq!(resumed["memory"], selected.schema_name);
         drop(replay);
-        archives.drop_archive_schema(&selected.name).await.unwrap();
+        archives.drop_archive(a, &selected.name).await.unwrap();
+        cleanup_bootstrap_embedding_fixture(&admin, a).await;
+        assert_eq!(embedding_fixture_catalog(&admin).await, catalog_before);
     }
     // The database is disposable. Remove this test's role and all grants;
     // rows remain available for failure diagnosis until the fixture is removed.
@@ -862,3 +854,17 @@ mod bootstrap_request;
 
 #[path = "hosted_collection_export_tests.rs"]
 mod collection_export;
+
+#[path = "community_archive_upgrade_tests.rs"]
+mod community_archive_upgrade;
+
+#[path = "fixtures/archive_v2026_10_5.rs"]
+mod legacy_archive;
+
+#[cfg(feature = "hosted-auth")]
+#[path = "external_oidc_note_tests.rs"]
+mod external_oidc_notes;
+
+#[cfg(feature = "hosted-auth")]
+#[path = "external_oidc_test_issuer.rs"]
+mod external_oidc_test_issuer;

@@ -31,6 +31,7 @@
 //!     Ok(())
 //! }
 //! ```
+pub mod administrative;
 pub mod app_users;
 pub mod archives;
 pub mod audit;
@@ -43,6 +44,7 @@ pub mod embedding_sets;
 mod embedding_storage_contract;
 pub mod embeddings;
 pub mod entity_vectors;
+pub mod external_owner;
 pub mod file_storage;
 pub mod hashtag_extraction;
 pub mod inbound_sources;
@@ -212,6 +214,7 @@ pub use skos_tags::{
 pub struct Database {
     /// The underlying connection pool.
     pub pool: sqlx::Pool<sqlx::Postgres>,
+    administrative: Option<administrative::AdministrativeExecutor>,
     /// Shared notify handle for event-driven job worker wake (Issue #417).
     job_notify: std::sync::Arc<tokio::sync::Notify>,
     /// Note repository for CRUD operations.
@@ -285,6 +288,7 @@ impl Database {
         let skos = PgSkosRepository::new(pool.clone());
         let job_notify = std::sync::Arc::new(tokio::sync::Notify::new());
         Self {
+            administrative: None,
             notes: PgNoteRepository::new(pool.clone()),
             embeddings: PgEmbeddingRepository::new(pool.clone()),
             embedding_sets: PgEmbeddingSetRepository::new(pool.clone()),
@@ -756,6 +760,7 @@ impl Clone for Database {
     fn clone(&self) -> Self {
         let skos = PgSkosRepository::new(self.pool.clone());
         Self {
+            administrative: self.administrative.clone(),
             pool: self.pool.clone(),
             job_notify: self.job_notify.clone(),
             notes: PgNoteRepository::new(self.pool.clone()),

@@ -1,0 +1,56 @@
+metadata:
+  schema_version: 1.0.0
+  created_at: '2026-10-15T00:39:50Z'
+  issue: Fortemi/fortemi#1205
+  source_commits:
+  - urn:aiwg:commit:67bae5e344d6faaf9fdd1ac72d1c8df4888ca73a
+  - urn:aiwg:commit:039e77e726a8fffd0ea52f4f0a263eaeed0697c1
+entity:
+  id: urn:aiwg:artifact:crates/matric-api/src/main.rs
+  type: code
+  created_at: '2026-10-15T00:39:50Z'
+  updated_at: '2026-10-15T00:39:50Z'
+  checksum: sha256:1851971c6835b1c724d6d0f01c3b344455a351858fb19c8babc3d582762c7afa
+  size_bytes: 3401237
+activity:
+  id: urn:aiwg:activity:modification:issue-1205-rebase:4
+  type: modification
+  started_at: '2026-10-15T00:06:03Z'
+  ended_at: '2026-10-15T00:39:50Z'
+  description: 'Resolve the #1205 rebase onto main while preserving #1203 compatibility
+    discovery, #1204 read-scoped archive-filtered SSE and query-token revalidation,
+    #1206 verified token attribution, configured tenant ownership, administrative
+    execution and deferred scoped publishers; enforce both tenant and archive visibility
+    and regenerate OpenAPI with the repository script.'
+agent:
+  id: urn:aiwg:agent:codex-gpt-6
+  type: ai_assistant
+  name: Codex
+  version: GPT-6
+relationships:
+  wasGeneratedBy:
+    entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    activity: urn:aiwg:activity:modification:issue-1205-rebase:4
+    time: '2026-10-15T00:39:50Z'
+  wasAssociatedWith:
+    activity: urn:aiwg:activity:modification:issue-1205-rebase:4
+    agent: urn:aiwg:agent:codex-gpt-6
+  wasAttributedTo:
+    entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    agent: urn:aiwg:agent:codex-gpt-6
+  wasDerivedFrom:
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    source: urn:aiwg:commit:67bae5e344d6faaf9fdd1ac72d1c8df4888ca73a
+    derivation_type: derives_from
+    activity: urn:aiwg:activity:modification:issue-1205-rebase:4
+  - entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+    source: urn:aiwg:commit:039e77e726a8fffd0ea52f4f0a263eaeed0697c1
+    derivation_type: derives_from
+    activity: urn:aiwg:activity:modification:issue-1205-rebase:4
+  used:
+  - activity: urn:aiwg:activity:modification:issue-1205-rebase:4
+    entity: urn:aiwg:commit:67bae5e344d6faaf9fdd1ac72d1c8df4888ca73a
+    role: merge_parent
+  - activity: urn:aiwg:activity:modification:issue-1205-rebase:4
+    entity: urn:aiwg:commit:039e77e726a8fffd0ea52f4f0a263eaeed0697c1
+    role: merge_parent

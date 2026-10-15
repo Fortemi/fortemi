@@ -243,6 +243,12 @@ async fn single_tenant_external_oidc_mcp_and_read_are_admitted_and_audited() {
             "stream and archive decisions must be durably audited"
         );
         emit(&state.event_bus, Some(&selected.0), None, Uuid::new_v4());
+        emit(
+            &state.event_bus,
+            Some(&selected.0),
+            Some(tenant),
+            Uuid::new_v4(),
+        );
         let frame = next_frame(&mut response.into_body().into_data_stream()).await;
         assert_eq!(frame["tenant_id"], tenant.to_string());
         assert_eq!(frame["memory"], selected.0);
@@ -258,10 +264,16 @@ async fn single_tenant_external_oidc_mcp_and_read_are_admitted_and_audited() {
         emit(
             &state.event_bus,
             Some("other-archive"),
-            None,
+            Some(tenant),
             Uuid::new_v4(),
         );
         emit(&state.event_bus, Some(&selected.0), None, Uuid::new_v4());
+        emit(
+            &state.event_bus,
+            Some(&selected.0),
+            Some(tenant),
+            Uuid::new_v4(),
+        );
         let replay = app
             .oneshot(request(&selected.0, Some(cursor)))
             .await
@@ -333,7 +345,7 @@ async fn single_and_multi_tenant_live_and_replay_envelopes_are_consistent() {
                 } else {
                     selected.0.clone()
                 }),
-                tenant_id: multi_tenant.then(|| tenant.to_string()),
+                tenant_id: Some(tenant.to_string()),
                 ..Default::default()
             },
         );
@@ -364,11 +376,15 @@ async fn single_and_multi_tenant_live_and_replay_envelopes_are_consistent() {
         let mut foreign = envelope.clone();
         foreign.tenant_id = Some(Uuid::new_v4().to_string());
         assert!(subscription.prepare(&state.db, foreign).await.is_none());
-        if multi_tenant {
-            let mut unscoped = envelope;
-            unscoped.tenant_id = None;
-            assert!(subscription.prepare(&state.db, unscoped).await.is_none());
-        }
+        let mut other_archive = envelope.clone();
+        other_archive.archive_schema = Some("archive_other".into());
+        assert!(subscription
+            .prepare(&state.db, other_archive)
+            .await
+            .is_none());
+        let mut unscoped = envelope;
+        unscoped.tenant_id = None;
+        assert!(subscription.prepare(&state.db, unscoped).await.is_none());
     }
 }
 
@@ -500,16 +516,17 @@ async fn assert_stream_expires(
     response: Response,
     selected: &(String, String),
     expiry: DateTime<Utc>,
+    tenant: Option<Uuid>,
 ) {
     assert_eq!(response.status(), StatusCode::OK);
     let mut stream = response.into_body().into_data_stream();
-    emit(&state.event_bus, Some(&selected.0), None, Uuid::new_v4());
+    emit(&state.event_bus, Some(&selected.0), tenant, Uuid::new_v4());
     assert_eq!(next_frame(&mut stream).await["archive_schema"], selected.1);
     tokio::time::sleep(
         (expiry - Utc::now()).to_std().unwrap_or_default() + std::time::Duration::from_millis(20),
     )
     .await;
-    emit(&state.event_bus, Some(&selected.0), None, Uuid::new_v4());
+    emit(&state.event_bus, Some(&selected.0), tenant, Uuid::new_v4());
     assert!(
         tokio::time::timeout(std::time::Duration::from_secs(1), stream.next())
             .await
@@ -537,7 +554,7 @@ async fn local_oauth_and_expiring_api_key_delivery_stops_at_validated_expiry() {
         .unwrap()
         .unwrap()
         .expires_at;
-    assert_stream_expires(&state, response, &selected, expiry).await;
+    assert_stream_expires(&state, response, &selected, expiry, None).await;
 
     let key = state
         .db
@@ -561,7 +578,7 @@ async fn local_oauth_and_expiring_api_key_delivery_stops_at_validated_expiry() {
         .oneshot(bearer_request(&selected.0, &key.api_key, None))
         .await
         .unwrap();
-    assert_stream_expires(&state, response, &selected, expiry).await;
+    assert_stream_expires(&state, response, &selected, expiry, None).await;
     remove_archive_fixture(&state, &selected).await;
 }
 
@@ -614,7 +631,7 @@ async fn oidc_and_pat_delivery_stops_at_validated_expiry() {
         .oneshot(bearer_request(&selected.0, "synthetic-oidc", None))
         .await
         .unwrap();
-    assert_stream_expires(&state, response, &selected, expiry).await;
+    assert_stream_expires(&state, response, &selected, expiry, Some(tenant)).await;
 
     let user = state
         .app_users
@@ -649,7 +666,7 @@ async fn oidc_and_pat_delivery_stops_at_validated_expiry() {
         .oneshot(bearer_request(&selected.0, &pat.token, None))
         .await
         .unwrap();
-    assert_stream_expires(&state, response, &selected, expiry).await;
+    assert_stream_expires(&state, response, &selected, expiry, Some(tenant)).await;
     remove_archive_fixture(&state, &selected).await;
 }
 
@@ -718,7 +735,14 @@ async fn query_token_restores_oidc_identity_for_postgres_audit_and_expires() {
         count, 2,
         "query stream and archive decisions must be durably audited under the minting principal"
     );
-    assert_stream_expires(&state, response, &selected, stored.expires_at.unwrap()).await;
+    assert_stream_expires(
+        &state,
+        response,
+        &selected,
+        stored.expires_at.unwrap(),
+        Some(tenant),
+    )
+    .await;
     let expired = app
         .oneshot(
             axum::http::Request::builder()
@@ -798,9 +822,9 @@ async fn worker_archive_events_reach_scoped_live_replay_and_admin_monitoring() {
     let broad = app.clone().oneshot(broad_request).await.unwrap();
     assert_eq!(broad.status(), StatusCode::OK);
     let mut broad = broad.into_body().into_data_stream();
-    worker_events::emit_job_event(
-        &state.event_bus,
+    event_scope::publish_job(
         &state.db,
+        &state.event_bus,
         job_id,
         ServerEvent::JobQueued {
             job_id,
@@ -1034,7 +1058,7 @@ async fn query_token_cannot_outlive_local_oauth_minting_credential() {
         )
         .await
         .unwrap();
-    assert_stream_expires(&state, response, &selected, parent_expiry).await;
+    assert_stream_expires(&state, response, &selected, parent_expiry, None).await;
     remove_archive_fixture(&state, &selected).await;
 }
 
@@ -1083,12 +1107,17 @@ async fn query_replay_cursor(
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+    let tenant = validate_event_stream_query_principal(state, token)
+        .await
+        .unwrap()
+        .0
+        .tenant_id;
     let mut stream = response.into_body().into_data_stream();
-    emit(&state.event_bus, Some(&selected.0), None, Uuid::new_v4());
+    emit(&state.event_bus, Some(&selected.0), tenant, Uuid::new_v4());
     let frame = next_frame(&mut stream).await;
     let cursor = Uuid::parse_str(frame["event_id"].as_str().unwrap()).unwrap();
     drop(stream);
-    emit(&state.event_bus, Some(&selected.0), None, Uuid::new_v4());
+    emit(&state.event_bus, Some(&selected.0), tenant, Uuid::new_v4());
     cursor
 }
 
@@ -1272,7 +1301,12 @@ async fn changed_oidc_query_access(change: &str, pat: bool) {
             .is_none(),
         "a replay admitted before {change} must revalidate before releasing its frames"
     );
-    emit(&state.event_bus, Some(&selected.0), None, Uuid::new_v4());
+    emit(
+        &state.event_bus,
+        Some(&selected.0),
+        Some(tenant),
+        Uuid::new_v4(),
+    );
     assert!(
         tokio::time::timeout(std::time::Duration::from_secs(1), active.next())
             .await
@@ -1360,11 +1394,15 @@ async fn webhook_payload_preserves_named_single_tenant_archive_memory() {
     let note = Uuid::new_v4();
     state.event_bus.emit_with_context(
         ServerEvent::NoteDeleted { note_id: note },
-        event_context_for(&ArchiveContext {
-            name: Some("research".into()),
-            schema: "archive_research".into(),
-            is_default: false,
-        }),
+        event_context_for(
+            &ArchiveContext {
+                name: Some("research".into()),
+                schema: "archive_research".into(),
+                is_default: false,
+            },
+            Uuid::nil(),
+            false,
+        ),
     );
     let payload = tokio::time::timeout(std::time::Duration::from_secs(2), receiver.recv())
         .await

@@ -80,6 +80,14 @@ async fn bootstrap_is_idempotent_and_dry_run_writes_nothing() {
         (0, 0, 0, 0, 0, 0)
     );
 
+    let dry_run_types: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM document_type WHERE tenant_id=$1")
+            .bind(request.tenant_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(dry_run_types, 0);
+
     let first = bootstrap_tenant(&pool, &request, false, CLAIM)
         .await
         .unwrap();
@@ -91,6 +99,24 @@ async fn bootstrap_is_idempotent_and_dry_run_writes_nothing() {
         (1, 1, 1, 1, 1, 1)
     );
 
+    let seeded_types: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM document_type WHERE tenant_id=$1")
+            .bind(request.tenant_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let template_types: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM document_type WHERE tenant_id=$1")
+            .bind(Uuid::nil())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(seeded_types, template_types);
+    assert!(seeded_types > 0);
+    // Existing tenant definitions retain both their identity and configuration.
+    let customized: Uuid = sqlx::query_scalar("UPDATE document_type SET description='Synthetic customization' WHERE tenant_id=$1 AND name='markdown' RETURNING id")
+        .bind(request.tenant_id).fetch_one(&pool).await.unwrap();
+
     let second = bootstrap_tenant(&pool, &request, false, CLAIM)
         .await
         .unwrap();
@@ -100,6 +126,12 @@ async fn bootstrap_is_idempotent_and_dry_run_writes_nothing() {
         tenant_counts(&pool, request.tenant_id).await,
         (1, 1, 1, 1, 1, 1)
     );
+    let preserved: Uuid = sqlx::query_scalar("SELECT id FROM document_type WHERE tenant_id=$1 AND name='markdown' AND description='Synthetic customization'")
+        .bind(request.tenant_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(customized, preserved);
+    let foreign_recommendations: i64 = sqlx::query_scalar("SELECT count(*) FROM document_type d JOIN embedding_config c ON c.id=d.recommended_config_id WHERE d.tenant_id=$1 AND c.tenant_id<>d.tenant_id")
+        .bind(request.tenant_id).fetch_one(&pool).await.unwrap();
+    assert_eq!(foreign_recommendations, 0);
     // Seeding another tenant never touches the local tenant's rows.
     assert_eq!(tenant_counts(&pool, Uuid::nil()).await, local_before);
 

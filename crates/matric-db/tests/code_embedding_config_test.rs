@@ -150,8 +150,10 @@ async fn test_document_type_config_links() {
         "SELECT dt.name, ec.name as config_name
          FROM document_type dt
          LEFT JOIN embedding_config ec ON dt.recommended_config_id = ec.id
-         WHERE dt.category = 'code' AND dt.is_system = TRUE",
+         WHERE dt.tenant_id = $1
+           AND dt.category = 'code' AND dt.is_system = TRUE",
     )
+    .bind(uuid::Uuid::nil())
     .fetch_all(&pool)
     .await
     .expect("Failed to query code document types");

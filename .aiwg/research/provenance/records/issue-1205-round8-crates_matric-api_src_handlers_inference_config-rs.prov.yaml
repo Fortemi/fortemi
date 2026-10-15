@@ -1,0 +1,46 @@
+metadata:
+  schema_version: 1.0.0
+  created_at: '2026-10-14T22:28:44Z'
+  issue: Fortemi/fortemi#1205
+  review: /home/roctinam/.cache/claude-work/fortemi-srvfix/audit-1205g.md
+entity:
+  id: urn:aiwg:artifact:crates/matric-api/src/handlers/inference_config.rs
+  type: code
+  created_at: '2026-10-14T22:28:44Z'
+  updated_at: '2026-10-14T22:28:44Z'
+  checksum: sha256:d102328fa15e2bd9824d7a6eb34926a38f5be96917f11fdf83921e2a099cbd01
+  size_bytes: 157116
+activity:
+  id: urn:aiwg:activity:modification:issue-1205-round8:5
+  type: modification
+  started_at: '2026-10-14T22:28:43Z'
+  ended_at: '2026-10-14T22:28:44Z'
+  description: Attach verified request or persisted job/deployment tenant and archive
+    ownership to every event publisher; publish scoped mutations after commit; qualify
+    signed external-OIDC live/replay status, content, tags and worker completion across
+    public/named memories with foreign-tenant and rollback rejection
+agent:
+  id: urn:aiwg:agent:codex-gpt-6
+  type: ai_assistant
+  name: Codex
+  version: GPT-6
+relationships:
+  wasGeneratedBy:
+    entity: urn:aiwg:artifact:crates/matric-api/src/handlers/inference_config.rs
+    activity: urn:aiwg:activity:modification:issue-1205-round8:5
+    time: '2026-10-14T22:28:44Z'
+  wasAssociatedWith:
+    activity: urn:aiwg:activity:modification:issue-1205-round8:5
+    agent: urn:aiwg:agent:codex-gpt-6
+  wasAttributedTo:
+    entity: urn:aiwg:artifact:crates/matric-api/src/handlers/inference_config.rs
+    agent: urn:aiwg:agent:codex-gpt-6
+  wasDerivedFrom:
+  - entity: urn:aiwg:artifact:crates/matric-api/src/handlers/inference_config.rs
+    source: urn:aiwg:review:issue-1205:audit-1205g
+    derivation_type: implements
+    activity: urn:aiwg:activity:modification:issue-1205-round8:5
+  used:
+  - activity: urn:aiwg:activity:modification:issue-1205-round8:5
+    entity: urn:aiwg:review:issue-1205:audit-1205g
+    role: audit_findings

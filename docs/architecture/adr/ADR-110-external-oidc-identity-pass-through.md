@@ -40,7 +40,10 @@ On the CLI side, device authorization (RFC 8628) and loopback PKCE are the accep
    - A new *external OIDC* mode validates IdP access tokens in single-tenant deployments, not only hosted multi-tenant ones. It checks issuer, audience, signature (RS256), lifetime and token type, and rejects ID tokens.
    - IdP groups or client roles map to Fortemi scopes through the existing claim policy, which becomes required, and are filtered to `read|write|admin|mcp`.
    - Scopes are **enforced** by the role-based policy. Startup refuses external OIDC combined with the allow-all policy.
-   - In single-tenant deployments a configured default tenant replaces the tenant claim.
+   - In single-tenant deployments the configured default tenant is the canonical
+     owner of all identities, content, archive catalogs/defaults and jobs. A
+     matching claim or an absent tenant claim selects this owner; a foreign claim
+     is rejected. Requests and background sessions bind the same owner.
 2. **API and MCP accept one user token; each has an exact resource identifier.**
    - RFC 9728 requires protected-resource metadata `resource` to match the URL the client calls, including any path.
    - The MCP resource is therefore `https://<host>/mcp`, and the API resource is `https://<host>`.
@@ -71,6 +74,11 @@ On the CLI side, device authorization (RFC 8628) and loopback PKCE are the accep
 6. **The local authorization server fails closed.**
    - When an external IdP is configured, Fortemi's own dynamic registration, identity-free consent and `mm_at_` issuance are disabled. They return only through an explicit opt-in with a real owner-authentication method.
    - Legacy `mm_at_`/`mm_key_` tokens are refused unless explicitly allowed, and then carry a scope ceiling.
+     After authentication and ceiling checks, accepted legacy credentials bind
+     to the startup-established `FORTEMI_AUTH_DEFAULT_TENANT` owner, including
+     administrative archive create/clone/delete, synchronization and index work.
+     Route authorization still enforces their effective scopes; legacy credentials
+     remain service principals without a provisioned user identity.
    - Redirect URIs are validated with a URL parser.
 7. **Client onboarding is documented and reproducible:**
    - **Browsers:** authorization code with PKCE at the IdP. A future first-party UI uses a backend-for-frontend, per the OAuth browser-based apps BCP (RFC 10017), rather than holding tokens in the browser.
@@ -101,3 +109,39 @@ On the CLI side, device authorization (RFC 8628) and loopback PKCE are the accep
 - **Hosted multi-tenant mode for every IdP deployment:** rejected for single-tenant use. It brings forced row-level security, Redis and KMS requirements, and excludes routes that single-tenant deployments need.
 - **MCP as a separate resource with token exchange by default:** kept as a documented option. It is unnecessary when the API accepts both resource audiences.
 - **Bare-origin single resource** (MCP at `/mcp` sharing the origin's identifier): rejected. Protected-resource metadata must match the called URL including its path, and client implementations enforce this.
+
+## Canonical owner and upgrade (#1205, 2026-10-14)
+
+The operator selected **A: canonical owner E**, where E is
+`FORTEMI_AUTH_DEFAULT_TENANT`. Archive selection changes memory context, never
+identity ownership. Public `app_user` and `personal_access_token` identities are
+shared by every archive, with tenant-qualified author guards. Note creation,
+author attribution, tags and initial jobs commit atomically. Document types and
+default selection use explicit owner predicates even with privileged connections.
+Shared embedding-configuration export also selects only the current owner;
+the existing Knowledge Shard schemas and profiles retain their versions.
+
+Alternatives were retaining the built-in nil tenant as canonical storage owner
+and an explicit E-to-local alias. Both were rejected because the configured
+tenant must have one meaning across authentication, storage, routing and workers.
+A runtime pool switch alone was rejected because it strands legacy L content.
+
+External startup therefore adopts the complete L ownership graph into E in one
+deployment-scoped transaction under the archive DDL advisory lock before serving
+or starting workers. It preserves UUIDs, credential state, attachment bytes and
+custom configurations, drops/transforms/recreates/validates restrictive tenant
+FKs, restores triggers, synchronizes old archive schemas, provisions archive
+baselines, and records an immutable completion receipt. Conflicting customizations
+or identity collisions abort and roll back. Community and hosted startup do not
+call this procedure. Operators stop all old writers before upgrading; startup
+uses separate migration credentials and must reconnect with a non-bypass,
+non-owner runtime role. Startup rejects superuser/BYPASSRLS runtime logins and
+checks forced RLS before exposing requests or workers.
+Migration credentials are retained behind a narrow administrative executor:
+authorized archive creation/clone/sync and claimed index DDL bind the verified
+tenant explicitly. Runtime repositories and job status/settlement keep DML-only
+credentials. Hosted mode shares this executor, retaining its HTTP route gates.
+Legacy archive user/PAT clones are preserved in public, their references
+redirected, and the clones retired inside the external ownership transaction
+(or a hosted startup transaction without ownership adoption).
+See [the upgrade procedure](../../content/external-oidc-upgrade.md).

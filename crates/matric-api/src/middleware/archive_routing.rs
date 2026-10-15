@@ -48,6 +48,16 @@ impl Default for ArchiveContext {
     }
 }
 
+impl From<&matric_core::ArchiveInfo> for ArchiveContext {
+    fn from(archive: &matric_core::ArchiveInfo) -> Self {
+        Self {
+            schema: archive.schema_name.clone(),
+            name: Some(archive.name.clone()),
+            is_default: archive.is_default,
+        }
+    }
+}
+
 /// Cached default archive with TTL expiration.
 ///
 /// Stores the default archive context and refreshes from the database only
@@ -281,6 +291,66 @@ pub(crate) async fn resolve_hosted_archive(
     }
 }
 
+/// External deployment catalogs and content have the same canonical owner.
+/// Resolve on the request connection. Administrative synchronization runs only
+/// after request authorization, using the separate owner pool.
+#[cfg(feature = "hosted-auth")]
+async fn resolve_external_archive(
+    pool: &sqlx::PgPool,
+    scope: Option<&super::tenant_scope::TenantRequestScope>,
+    tenant_id: uuid::Uuid,
+    name: Option<&str>,
+) -> matric_core::Result<ArchiveContext> {
+    if let Some(scope) = scope {
+        let name = name.map(str::to_owned);
+        return scope
+            .with_connection(move |connection| {
+                Box::pin(async move {
+                    resolve_external_archive_tx(connection, tenant_id, name.as_deref()).await
+                })
+            })
+            .await;
+    }
+    let mut transaction = matric_db::TenantScopedConn::begin(pool, tenant_id).await?;
+    let context = resolve_external_archive_tx(transaction.executor(), tenant_id, name).await?;
+    transaction.commit().await?;
+    Ok(context)
+}
+
+#[cfg(feature = "hosted-auth")]
+async fn resolve_external_archive_tx(
+    connection: &mut sqlx::PgConnection,
+    tenant_id: uuid::Uuid,
+    name: Option<&str>,
+) -> matric_core::Result<ArchiveContext> {
+    sqlx::query("SELECT set_config('app.current_tenant', $1, true)")
+        .bind(tenant_id.to_string())
+        .execute(&mut *connection)
+        .await?;
+    let selected = sqlx::query_as::<_, (String, String, bool)>(
+        "SELECT name, schema_name, is_default FROM public.archive_registry
+         WHERE tenant_id=$2 AND (($1::text IS NULL AND is_default) OR name=$1)",
+    )
+    .bind(name)
+    .bind(tenant_id)
+    .fetch_optional(&mut *connection)
+    .await?;
+    match selected {
+        Some((name, schema, is_default)) => {
+            matric_db::validate_schema_name(&schema)?;
+            Ok(ArchiveContext {
+                schema,
+                name: Some(name),
+                is_default,
+            })
+        }
+        None if name.is_none() => Ok(ArchiveContext::default()),
+        None => Err(matric_core::Error::NotFound(
+            "Requested memory is not present or not visible to the caller.".into(),
+        )),
+    }
+}
+
 /// Archive routing middleware function.
 ///
 /// Injects an ArchiveContext into request extensions based on:
@@ -317,6 +387,41 @@ pub async fn archive_routing_middleware(
             None => None,
         };
         match resolve_hosted_archive(scope, name).await {
+            Ok(context) => {
+                req.extensions_mut().insert(context);
+                return next.run(req).await;
+            }
+            Err(error) => return crate::ApiError::from(error).into_response(),
+        }
+    }
+
+    #[cfg(feature = "hosted-auth")]
+    if let Some(config) = state
+        .external_oidc
+        .as_ref()
+        .filter(|_| state.auth_mode.external_oidc())
+    {
+        let name = match req.headers().get(MEMORY_HEADER).map(|v| v.to_str()) {
+            Some(Err(_)) => {
+                return archive_problem_response(
+                    axum::http::StatusCode::BAD_REQUEST,
+                    "validation-error",
+                    "Bad Request",
+                    "Invalid memory selection header.",
+                )
+            }
+            Some(Ok(name)) => Some(name),
+            None => None,
+        };
+        match resolve_external_archive(
+            &state.db.pool,
+            req.extensions()
+                .get::<super::tenant_scope::TenantRequestScope>(),
+            config.default_tenant_id,
+            name,
+        )
+        .await
+        {
             Ok(context) => {
                 req.extensions_mut().insert(context);
                 return next.run(req).await;

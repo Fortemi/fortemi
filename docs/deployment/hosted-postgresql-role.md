@@ -25,6 +25,8 @@ CREATE ROLE fortemi_runtime
   LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION;
 
 GRANT CONNECT ON DATABASE fortemi TO fortemi_migrator, fortemi_runtime;
+GRANT CREATE ON DATABASE fortemi TO fortemi_migrator;
+GRANT USAGE, CREATE ON SCHEMA public TO fortemi_migrator;
 GRANT USAGE ON SCHEMA public TO fortemi_runtime;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO fortemi_runtime;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO fortemi_runtime;
@@ -72,10 +74,22 @@ MIGRATION_DATABASE_URL=<MIGRATION_DATABASE_URL>
 DATABASE_URL=<DATABASE_URL>
 ```
 
-Startup runs migrations with `MIGRATION_DATABASE_URL`, closes that pool, then
-opens `DATABASE_URL` in unscoped mode. It aborts when the runtime role is a
+The migration role must own all existing application objects and have grant
+authority over application schemas; BYPASSRLS alone cannot perform archive or
+index DDL. Startup runs migrations with `MIGRATION_DATABASE_URL`, retains it
+behind a narrow administrative executor, and opens `DATABASE_URL` in unscoped
+mode. It aborts when the runtime role is a
 superuser, has `BYPASSRLS`, owns a tenant table, or the public/archive tenant
 catalog is incomplete.
+
+Authorized archive synchronization/provisioning and claimed vector-index DDL
+use the administrative executor with an explicit tenant and archive-ownership
+check. Hosted HTTP archive-management routes remain gated until qualified.
+Hosted index jobs use the fenced claim for runtime status/settlement, and the
+owner credential for concurrent index creation, drops and renames. Use a direct
+or session-pooled administrative connection; session tenant binding and
+`CREATE INDEX CONCURRENTLY` require it. Legacy identity clones are preserved in
+public, their FKs redirected, and their archive tables retired transactionally.
 
 ## Pooling invariant
 

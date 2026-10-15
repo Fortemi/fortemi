@@ -2,6 +2,18 @@
 
 This guide covers working with document types in Fortémi - from auto-detection to custom types to optimizing chunking strategies.
 
+Document-type detection and assignment use the note's tenant registry. Explicit
+IDs must belong to that tenant, and names resolve within that tenant. If the
+tenant has no types, detection returns no match and notes can be stored without
+a document type. Hosted bootstrap copies system definitions into the tenant's
+registry with new tenant-owned IDs. External-OIDC startup adopts the existing
+local registry, preserving IDs, custom definitions and note references. List,
+get, create, update and delete operate on the verified tenant's registry,
+including requests forwarded by MCP. Different tenants may use the same name
+with different IDs, prompts and chunk settings. Revision, contextual revision,
+embedding and linking use the owning note's configuration; explicit attachment
+types must belong to the owning tenant, including multipart and TUS uploads.
+
 ## Overview
 
 Document types determine how content is:

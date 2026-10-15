@@ -14,6 +14,8 @@ use serde::Serialize;
 use sqlx::{PgConnection, PgPool, Row};
 use uuid::Uuid;
 
+pub mod document_types;
+
 /// Fixed UUIDv5 namespace for slug-derived tenant ids. Never change it: doing so
 /// would map existing slugs to new tenant ids and break issued IdP claims.
 pub const TENANT_SLUG_NAMESPACE: Uuid = Uuid::from_u128(0x6f0b_6c2e_4f1d_5a8e_9c3b_2d7e_1a4f_0c59);
@@ -180,6 +182,10 @@ pub async fn bootstrap_tenant(
     steps.push(BootstrapStep {
         resource: "embedding_config:default",
         action: ensure_default_embedding_config(&mut tx, request.tenant_id).await?,
+    });
+    steps.push(BootstrapStep {
+        resource: "document_type:system",
+        action: document_types::seed(&mut tx, request.tenant_id).await?,
     });
     // The set and scheme are created under the target tenant's scope.
     set_tenant(&mut tx, request.tenant_id).await?;

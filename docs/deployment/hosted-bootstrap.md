@@ -10,7 +10,8 @@ configured tenant claim (`FORTEMI_AUTH_TENANT_CLAIM`, default
 1. creates or updates that `tenant_registry` row (status `active`);
 2. seeds the tenant's default memory baseline under the tenant's own scope:
    the default embedding configuration (copied from the deployment's local
-   template when present), the `default` embedding set and the `default` SKOS
+   template when present), the system document-type registry, the `default`
+   embedding set and the `default` SKOS
    concept scheme, with the same bootstrap custody records the migrations use;
 3. prints the tenant id to configure as the identity provider's tenant claim.
 
@@ -30,7 +31,7 @@ runtime role. By default it applies pending migrations first.
 |------|-------|
 | Binary | `/app/matric-api` in the Fortemi image (`ghcr.io/fortemi/fortemi`) |
 | Database role | migration/owner role from [hosted-postgresql-role.md](hosted-postgresql-role.md) |
-| Tables written | `tenant_registry`, `embedding_config`, `embedding_set`, `skos_concept_scheme`, `shard_embedding_set_bootstrap`, `shard_skos_scheme_bootstrap` |
+| Tables written | `tenant_registry`, `embedding_config`, `document_type`, `embedding_set`, `skos_concept_scheme`, `shard_embedding_set_bootstrap`, `shard_skos_scheme_bootstrap` |
 | Concurrency | serialized by a transaction advisory lock; safe to run from several replicas |
 
 ## Procedure
@@ -76,6 +77,7 @@ renamed: a run whose slug and id disagree with the existing row is refused.
      default memory: public
      tenant_registry              create
      embedding_config:default     create
+     document_type:system         create
      embedding_set:default        create
      skos_concept_scheme:default  create
    Result: changed
@@ -103,6 +105,7 @@ renamed: a run whose slug and id disagree with the existing row is refused.
   "steps": [
     { "resource": "tenant_registry", "action": "none" },
     { "resource": "embedding_config:default", "action": "none" },
+    { "resource": "document_type:system", "action": "none" },
     { "resource": "embedding_set:default", "action": "none" },
     { "resource": "skos_concept_scheme:default", "action": "none" }
   ],
@@ -207,6 +210,11 @@ Re-running the hook on every upgrade is safe; it reports `unchanged`.
 - DON'T pass `--reactivate` unless the operator asked to end a suspension.
 - DON'T change the slug namespace; derived ids would change.
 
+Bootstrap copies document types from the local tenant's system registry with
+new tenant-owned IDs. Existing definitions are preserved; embedding
+recommendations resolve by configuration name in the target tenant, or remain
+unset when that configuration is unavailable.
+
 ## What NOT to fix
 
 - The tenant's default memory is `public`; bootstrap intentionally creates no
@@ -214,8 +222,6 @@ Re-running the hook on every upgrade is safe; it reports `unchanged`.
   provisioning, which the archive repository does not yet provide under the
   `BYPASSRLS` migration role, and archive names are currently unique across the
   whole deployment.
-- Document types are not seeded; hosted document-type inference works without
-  them, and tenant-specific types are created through the API.
 - The tenant's default SKOS scheme has no URI because scheme URIs are unique
   deployment-wide.
 

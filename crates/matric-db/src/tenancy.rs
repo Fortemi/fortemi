@@ -23,6 +23,7 @@ pub const LOCAL_TENANT_ID: &str = "00000000-0000-0000-0000-000000000000";
 pub const EXEMPT_PUBLIC_TABLES: &[&str] = &[
     "spatial_ref_sys",
     "system_config",
+    "external_oidc_ownership",
     "tenant_registry",
     "usage_sink",
 ];
@@ -364,9 +365,13 @@ pub async fn assert_hosted_runtime_role(pool: &PgPool) -> Result<()> {
 
     let report = inspect_tenant_catalog(pool).await?;
     if !report.is_clean() {
-        return Err(Error::Config(
-            "hosted database tenant catalog assertion failed".to_string(),
-        ));
+        // Error::Config's Display deliberately redacts credential-like words
+        // (including personal_access_token). Startup operators still need the
+        // actual offending catalog relations to repair this deployment.
+        tracing::error!(catalog_violations = ?report, "Hosted database tenant catalog assertion failed");
+        return Err(Error::Config(format!(
+            "hosted database tenant catalog assertion failed: {report:?}"
+        )));
     }
 
     tracing::info!(

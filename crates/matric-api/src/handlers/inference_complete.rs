@@ -1267,7 +1267,7 @@ pub async fn stream(
     let mut response = Sse::new(event_stream)
         .keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
         .into_response();
-    if state.inference_destination_policy.is_hosted() {
+    if scope.is_some() {
         response
             .extensions_mut()
             .insert(TenantScopeReleasedBeforeStreaming);

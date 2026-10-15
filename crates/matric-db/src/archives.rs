@@ -5,9 +5,11 @@
 
 use async_trait::async_trait;
 use chrono::Utc;
-use sqlx::{Pool, Postgres, Row};
+use sqlx::{Connection, PgConnection, Pool, Postgres, Row};
 use std::fmt;
 use uuid::Uuid;
+
+mod user_principals;
 
 use crate::vector_index;
 use matric_core::{new_v7, ArchiveInfo, ArchiveRepository, Error, Result};
@@ -135,6 +137,7 @@ const FTS_FIX_DEFINITIONS: &[FtsFixDefinition] = &[
 pub(crate) const SHARED_TABLES: &[&str] = &[
     "_sqlx_migrations",
     "api_key",
+    "app_user",
     "archive_registry",
     "archive_inference_override",
     "audit_event",
@@ -142,6 +145,7 @@ pub(crate) const SHARED_TABLES: &[&str] = &[
     "document_type",
     "embedding_config",
     "event_outbox",
+    "external_oidc_ownership",
     "file_upload_audit",
     "inbound_dlq",
     "inbound_source",
@@ -153,6 +157,7 @@ pub(crate) const SHARED_TABLES: &[&str] = &[
     "oauth_authorization_code",
     "oauth_client",
     "oauth_token",
+    "personal_access_token",
     "pke_public_keys",
     "realtime_media_stream_attempt",
     "system_config",
@@ -210,15 +215,33 @@ impl PgArchiveRepository {
         Self { pool }
     }
 
+    /// Resolve an owned archive for queue controls, accepting display names
+    /// and the schema keys persisted by legacy pause clients. An exact schema
+    /// key takes precedence over a colliding display name; the other archive
+    /// remains addressable by its own schema key.
+    pub async fn get_archive_by_name_or_schema(&self, key: &str) -> Result<Option<ArchiveInfo>> {
+        Ok(sqlx::query_as::<_, ArchiveInfo>(
+            "SELECT id, name, schema_name, description, created_at, last_accessed,
+                    note_count, size_bytes, is_default, schema_version
+             FROM public.archive_registry
+             WHERE tenant_id=current_setting('app.current_tenant')::uuid
+               AND (name=$1 OR schema_name=$1)
+             ORDER BY (schema_name=$1) DESC LIMIT 1",
+        )
+        .bind(key)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
     /// Serialize archive schema DDL across processes and repository instances.
     ///
     /// PostgreSQL can deadlock when concurrent archive operations clone, alter,
     /// or drop the same set of public-schema dependencies in different orders.
     /// A transaction-scoped advisory lock keeps the lock and the protected DDL
     /// on the same connection, so it is always released on commit or rollback.
-    async fn lock_archive_ddl(tx: &mut sqlx::Transaction<'_, Postgres>) -> Result<()> {
+    async fn lock_archive_ddl(tx: &mut PgConnection) -> Result<()> {
         sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('fortemi.archive-ddl', 0))")
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
@@ -248,10 +271,7 @@ impl PgArchiveRepository {
     ///
     /// This method drops and recreates the affected columns/indexes with explicitly
     /// qualified config names. Must be called within the same transaction as `LIKE`.
-    async fn fix_fts_schema_qualification(
-        tx: &mut sqlx::Transaction<'_, Postgres>,
-        schema_name: &str,
-    ) -> Result<()> {
+    async fn fix_fts_schema_qualification(tx: &mut PgConnection, schema_name: &str) -> Result<()> {
         for def in FTS_FIX_DEFINITIONS {
             // Check if the table exists in this schema
             let exists: bool = sqlx::query_scalar(
@@ -264,7 +284,7 @@ impl PgArchiveRepository {
             )
             .bind(schema_name)
             .bind(def.table)
-            .fetch_one(&mut **tx)
+            .fetch_one(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
@@ -279,7 +299,7 @@ impl PgArchiveRepository {
                     "ALTER TABLE {}.{} DROP COLUMN IF EXISTS {}",
                     schema_name, def.table, gen_col.column_name
                 ))
-                .execute(&mut **tx)
+                .execute(&mut *tx)
                 .await
                 .map_err(Error::Database)?;
 
@@ -287,7 +307,7 @@ impl PgArchiveRepository {
                     "ALTER TABLE {}.{} ADD COLUMN {} tsvector GENERATED ALWAYS AS ({}) STORED",
                     schema_name, def.table, gen_col.column_name, gen_col.expression
                 ))
-                .execute(&mut **tx)
+                .execute(&mut *tx)
                 .await
                 .map_err(Error::Database)?;
 
@@ -296,7 +316,7 @@ impl PgArchiveRepository {
                     "CREATE INDEX {} ON {}.{} USING gin ({})",
                     gen_col.gin_index_name, schema_name, def.table, gen_col.column_name
                 ))
-                .execute(&mut **tx)
+                .execute(&mut *tx)
                 .await
                 .map_err(Error::Database)?;
             }
@@ -307,7 +327,7 @@ impl PgArchiveRepository {
                     "DROP INDEX IF EXISTS {}.{}",
                     schema_name, idx.index_name
                 ))
-                .execute(&mut **tx)
+                .execute(&mut *tx)
                 .await
                 .map_err(Error::Database)?;
 
@@ -315,7 +335,7 @@ impl PgArchiveRepository {
                     "CREATE INDEX {} ON {}.{} {}",
                     idx.index_name, schema_name, def.table, idx.definition
                 ))
-                .execute(&mut **tx)
+                .execute(&mut *tx)
                 .await
                 .map_err(Error::Database)?;
             }
@@ -329,7 +349,7 @@ impl PgArchiveRepository {
     /// PostgreSQL `LIKE ... INCLUDING ALL` does not copy row-security state or
     /// policies, so every archive clone must be hardened explicitly.
     async fn apply_tenant_rls(
-        tx: &mut sqlx::Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         schema_name: &str,
         tables: &[String],
     ) -> Result<()> {
@@ -338,7 +358,7 @@ impl PgArchiveRepository {
                 "ALTER TABLE {}.{} ENABLE ROW LEVEL SECURITY",
                 schema_name, table
             ))
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
@@ -346,7 +366,7 @@ impl PgArchiveRepository {
                 "ALTER TABLE {}.{} FORCE ROW LEVEL SECURITY",
                 schema_name, table
             ))
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
@@ -354,7 +374,7 @@ impl PgArchiveRepository {
                 "DROP POLICY IF EXISTS tenant_isolation ON {}.{}",
                 schema_name, table
             ))
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
@@ -364,7 +384,7 @@ impl PgArchiveRepository {
                  WITH CHECK (tenant_id = current_setting('app.current_tenant')::uuid)",
                 schema_name, table
             ))
-            .execute(&mut **tx)
+            .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
         }
@@ -568,7 +588,7 @@ impl PgArchiveRepository {
             CREATE OR REPLACE FUNCTION {}.get_default_embedding_set_id()
             RETURNS UUID AS $$
                 SELECT id FROM {}.embedding_set
-                WHERE slug = 'default' AND is_active = TRUE
+                WHERE tenant_id = current_setting('app.current_tenant')::uuid AND slug = 'default' AND is_active = TRUE
                 LIMIT 1;
             $$ LANGUAGE SQL STABLE
             "#,
@@ -582,7 +602,7 @@ impl PgArchiveRepository {
         // This is required for store_tx() to work correctly when creating embeddings.
         let default_set_id = new_v7();
         let default_config_id: Uuid =
-            sqlx::query_scalar("SELECT id FROM embedding_config WHERE is_default = TRUE LIMIT 1")
+            sqlx::query_scalar("SELECT id FROM public.embedding_config WHERE tenant_id=current_setting('app.current_tenant')::uuid AND is_default = TRUE LIMIT 1")
                 .fetch_one(&mut *tx)
                 .await
                 .map_err(Error::Database)?;
@@ -621,7 +641,7 @@ impl PgArchiveRepository {
 
         sqlx::query(&format!(
             "INSERT INTO {}.shard_embedding_set_bootstrap (tenant_id, set_id)
-             SELECT tenant_id, id FROM {}.embedding_set WHERE id = $1",
+             SELECT tenant_id, id FROM {}.embedding_set WHERE tenant_id=current_setting('app.current_tenant')::uuid AND id = $1",
             schema_name, schema_name
         ))
         .bind(default_set_id)
@@ -693,12 +713,39 @@ impl PgArchiveRepository {
     /// and creates them using `LIKE ... INCLUDING ALL` plus FKs and triggers.
     /// This handles archives created before recent migrations added new tables.
     pub async fn sync_archive_schema(&self, archive_name: &str) -> Result<()> {
-        let archive = self
-            .get_archive_by_name(archive_name)
-            .await?
-            .ok_or_else(|| archive_not_found_error(archive_name))?;
+        let mut tx = self.pool.begin().await?;
+        Self::sync_archive_schema_on(&mut tx, archive_name).await?;
+        tx.commit().await?;
+        Ok(())
+    }
 
-        let current_version = self.current_schema_version().await?;
+    /// Synchronize using the owning transaction, including startup upgrades and
+    /// one-connection request pools. Schema changes never escape that transaction.
+    pub async fn sync_archive_schema_on(tx: &mut PgConnection, archive_name: &str) -> Result<()> {
+        // Even current archives repair shared-user constraints. Keep that DDL
+        // and the caller's runtime grants serialized until the owner commits.
+        Self::lock_archive_ddl(tx).await?;
+        let archive = sqlx::query_as::<_, ArchiveInfo>(
+            "SELECT id,name,schema_name,description,created_at,last_accessed,note_count,size_bytes,is_default,schema_version
+             FROM public.archive_registry WHERE name=$1 AND tenant_id=current_setting('app.current_tenant')::uuid",
+        ).bind(archive_name).fetch_optional(&mut *tx).await?
+            .ok_or_else(|| archive_not_found_error(archive_name))?;
+        crate::schema_validation::validate_schema_name(&archive.schema_name)?;
+        let shared: Vec<String> = SHARED_TABLES.iter().map(|s| s.to_string()).collect();
+        let current_version: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_attribute a JOIN pg_class c ON a.attrelid=c.oid
+             JOIN pg_namespace n ON c.relnamespace=n.oid WHERE n.nspname='public' AND c.relkind='r'
+             AND c.relname!=ALL($1) AND a.attnum>0 AND NOT a.attisdropped
+             AND NOT EXISTS(SELECT 1 FROM pg_depend d WHERE d.objid=c.oid AND d.deptype='e')",
+        )
+        .bind(&shared)
+        .fetch_one(&mut *tx)
+        .await?;
+        let current_version = current_version as i32;
+        if archive.schema_name == "public" {
+            return Ok(());
+        }
+        user_principals::repair(tx, &archive.schema_name).await?;
         if archive.schema_version >= current_version {
             return Ok(()); // Already up to date
         }
@@ -731,7 +778,7 @@ impl PgArchiveRepository {
         )
         .bind(&shared)
         .bind(schema_name)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -749,7 +796,7 @@ impl PgArchiveRepository {
         )
         .bind(schema_name)
         .bind(&shared)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -788,7 +835,7 @@ impl PgArchiveRepository {
             )
             .bind(&all_existing_tables)
             .bind(schema_name)
-            .fetch_all(&self.pool)
+            .fetch_all(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
@@ -805,10 +852,10 @@ impl PgArchiveRepository {
 
         if missing_tables.is_empty() && missing_columns.is_empty() {
             // Schema fully matches — just update the version
-            sqlx::query("UPDATE archive_registry SET schema_version = $1 WHERE name = $2")
+            sqlx::query("UPDATE archive_registry SET schema_version = $1 WHERE tenant_id=current_setting('app.current_tenant')::uuid AND name = $2")
                 .bind(current_version)
                 .bind(archive_name)
-                .execute(&self.pool)
+                .execute(&mut *tx)
                 .await
                 .map_err(Error::Database)?;
             return Ok(());
@@ -831,12 +878,11 @@ impl PgArchiveRepository {
             "#,
         )
         .bind(&shared)
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
-        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
-        Self::lock_archive_ddl(&mut tx).await?;
+        Self::lock_archive_ddl(tx).await?;
 
         // Create missing tables
         for table in &missing_tables {
@@ -851,7 +897,7 @@ impl PgArchiveRepository {
 
         // Fix FTS generated columns and functional indexes for newly created tables.
         // LIKE ... INCLUDING ALL strips the 'public.' qualifier (Issue #412).
-        Self::fix_fts_schema_qualification(&mut tx, schema_name).await?;
+        Self::fix_fts_schema_qualification(tx, schema_name).await?;
 
         // Add FKs for the new tables only
         let fk_rows = sqlx::query(
@@ -981,7 +1027,7 @@ impl PgArchiveRepository {
                 .map_err(Error::Database)?;
         }
 
-        Self::apply_tenant_rls(&mut tx, schema_name, &all_per_memory).await?;
+        Self::apply_tenant_rls(tx, schema_name, &all_per_memory).await?;
 
         // Drop any archive-local text search configs that may exist from prior versions.
         // All FTS queries use public.-qualified config names, so archive-local copies are
@@ -1015,7 +1061,7 @@ impl PgArchiveRepository {
             CREATE OR REPLACE FUNCTION {}.get_default_embedding_set_id()
             RETURNS UUID AS $$
                 SELECT id FROM {}.embedding_set
-                WHERE slug = 'default' AND is_active = TRUE
+                WHERE tenant_id = current_setting('app.current_tenant')::uuid AND slug = 'default' AND is_active = TRUE
                 LIMIT 1;
             $$ LANGUAGE SQL STABLE
             "#,
@@ -1027,7 +1073,7 @@ impl PgArchiveRepository {
 
         // Seed default embedding set if it doesn't exist (for archives created before embedding_set migration)
         let has_default_set: bool = sqlx::query_scalar(&format!(
-            "SELECT EXISTS(SELECT 1 FROM {}.embedding_set WHERE slug = 'default')",
+            "SELECT EXISTS(SELECT 1 FROM {}.embedding_set WHERE tenant_id=current_setting('app.current_tenant')::uuid AND slug = 'default')",
             schema_name
         ))
         .fetch_one(&mut *tx)
@@ -1037,7 +1083,7 @@ impl PgArchiveRepository {
         if !has_default_set {
             let default_set_id = new_v7();
             let default_config_id: Uuid = sqlx::query_scalar(
-                "SELECT id FROM embedding_config WHERE is_default = TRUE LIMIT 1",
+                "SELECT id FROM public.embedding_config WHERE tenant_id=current_setting('app.current_tenant')::uuid AND is_default = TRUE LIMIT 1",
             )
             .fetch_one(&mut *tx)
             .await
@@ -1066,18 +1112,20 @@ impl PgArchiveRepository {
             .await
             .map_err(Error::Database)?;
 
+            let mut index_tx = tx.begin().await?;
             vector_index::enqueue_build_for_config_tx(
-                &mut tx,
+                &mut index_tx,
                 schema_name,
                 default_config_id,
                 false,
                 "archive_default_set_created",
             )
             .await?;
+            index_tx.commit().await?;
 
             sqlx::query(&format!(
                 "INSERT INTO {}.shard_embedding_set_bootstrap (tenant_id, set_id)
-                 SELECT tenant_id, id FROM {}.embedding_set WHERE id = $1",
+                 SELECT tenant_id, id FROM {}.embedding_set WHERE tenant_id=current_setting('app.current_tenant')::uuid AND id = $1",
                 schema_name, schema_name
             ))
             .bind(default_set_id)
@@ -1115,14 +1163,13 @@ impl PgArchiveRepository {
         }
 
         // Update version to current
-        sqlx::query("UPDATE archive_registry SET schema_version = $1 WHERE name = $2")
+        sqlx::query("UPDATE archive_registry SET schema_version = $1 WHERE tenant_id=current_setting('app.current_tenant')::uuid AND name = $2")
             .bind(current_version)
             .bind(archive_name)
             .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
-        tx.commit().await.map_err(Error::Database)?;
         Ok(())
     }
 }
@@ -1144,8 +1191,8 @@ impl ArchiveRepository for PgArchiveRepository {
         // Create the archive registry entry first
         sqlx::query(
             r#"
-            INSERT INTO archive_registry (id, name, schema_name, description, created_at, note_count, size_bytes, is_default, schema_version)
-            VALUES ($1, $2, $3, $4, $5, 0, 0, false, $6)
+            INSERT INTO archive_registry (tenant_id, id, name, schema_name, description, created_at, note_count, size_bytes, is_default, schema_version)
+            VALUES (current_setting('app.current_tenant')::uuid, $1, $2, $3, $4, $5, 0, 0, false, $6)
             "#
         )
         .bind(id)
@@ -1161,11 +1208,10 @@ impl ArchiveRepository for PgArchiveRepository {
         // Create the PostgreSQL schema and all of its tables atomically under
         // the archive DDL advisory lock.
         if let Err(e) = self.create_archive_tables(&schema_name).await {
-            // Rollback: drop the schema and registry entry
-            let _ = sqlx::query(&format!("DROP SCHEMA IF EXISTS {} CASCADE", schema_name))
-                .execute(&self.pool)
-                .await;
-            let _ = sqlx::query("DELETE FROM archive_registry WHERE id = $1")
+            // Table/schema DDL already rolled back as one transaction. Never
+            // drop a schema here: CREATE may have failed because a different
+            // archive already owns the same sanitized physical name.
+            let _ = sqlx::query("DELETE FROM archive_registry WHERE tenant_id=current_setting('app.current_tenant')::uuid AND id = $1")
                 .bind(id)
                 .execute(&self.pool)
                 .await;
@@ -1207,9 +1253,10 @@ impl ArchiveRepository for PgArchiveRepository {
         // Job queue, attempts, and history are shared tables not affected by DROP SCHEMA CASCADE.
         // Delete jobs referencing notes in this archive to prevent queue pollution.
         sqlx::query(&format!(
-            "DELETE FROM job_queue WHERE note_id IN (SELECT id FROM {}.note)",
+            "DELETE FROM public.job_queue WHERE tenant_id=current_setting('app.current_tenant')::uuid AND (payload->>'schema'=$1 OR note_id IN (SELECT id FROM {}.note WHERE tenant_id=current_setting('app.current_tenant')::uuid))",
             archive.schema_name
         ))
+        .bind(&archive.schema_name)
         .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
@@ -1224,7 +1271,7 @@ impl ArchiveRepository for PgArchiveRepository {
         .map_err(Error::Database)?;
 
         // Remove the registry entry
-        sqlx::query("DELETE FROM archive_registry WHERE name = $1")
+        sqlx::query("DELETE FROM archive_registry WHERE tenant_id=current_setting('app.current_tenant')::uuid AND name = $1")
             .bind(name)
             .execute(&mut *tx)
             .await
@@ -1241,6 +1288,7 @@ impl ArchiveRepository for PgArchiveRepository {
             SELECT id, name, schema_name, description, created_at, last_accessed,
                    note_count, size_bytes, is_default, schema_version
             FROM archive_registry
+            WHERE tenant_id=current_setting('app.current_tenant')::uuid
             ORDER BY created_at DESC
             "#,
         )
@@ -1255,7 +1303,7 @@ impl ArchiveRepository for PgArchiveRepository {
             let schema = &archive.schema_name;
 
             if let Ok(count) = sqlx::query_scalar::<_, i64>(&format!(
-                "SELECT COUNT(*) FROM {}.note WHERE deleted_at IS NULL",
+                "SELECT COUNT(*) FROM {}.note WHERE tenant_id=current_setting('app.current_tenant')::uuid AND deleted_at IS NULL",
                 schema
             ))
             .fetch_one(&self.pool)
@@ -1285,7 +1333,7 @@ impl ArchiveRepository for PgArchiveRepository {
             SELECT id, name, schema_name, description, created_at, last_accessed,
                    note_count, size_bytes, is_default, schema_version
             FROM archive_registry
-            WHERE name = $1
+            WHERE tenant_id=current_setting('app.current_tenant')::uuid AND name = $1
             "#,
         )
         .bind(name)
@@ -1302,7 +1350,7 @@ impl ArchiveRepository for PgArchiveRepository {
             SELECT id, name, schema_name, description, created_at, last_accessed,
                    note_count, size_bytes, is_default, schema_version
             FROM archive_registry
-            WHERE id = $1
+            WHERE tenant_id=current_setting('app.current_tenant')::uuid AND id = $1
             "#,
         )
         .bind(id)
@@ -1319,7 +1367,7 @@ impl ArchiveRepository for PgArchiveRepository {
             SELECT id, name, schema_name, description, created_at, last_accessed,
                    note_count, size_bytes, is_default, schema_version
             FROM archive_registry
-            WHERE is_default = true
+            WHERE tenant_id=current_setting('app.current_tenant')::uuid AND is_default = true
             LIMIT 1
             "#,
         )
@@ -1334,13 +1382,13 @@ impl ArchiveRepository for PgArchiveRepository {
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
 
         // Unset all defaults first
-        sqlx::query("UPDATE archive_registry SET is_default = false WHERE is_default = true")
+        sqlx::query("UPDATE archive_registry SET is_default = false WHERE tenant_id=current_setting('app.current_tenant')::uuid AND is_default = true")
             .execute(&mut *tx)
             .await
             .map_err(Error::Database)?;
 
         // Set the new default
-        let result = sqlx::query("UPDATE archive_registry SET is_default = true WHERE name = $1")
+        let result = sqlx::query("UPDATE archive_registry SET is_default = true WHERE tenant_id=current_setting('app.current_tenant')::uuid AND name = $1")
             .bind(name)
             .execute(&mut *tx)
             .await
@@ -1355,7 +1403,7 @@ impl ArchiveRepository for PgArchiveRepository {
     }
 
     async fn update_archive_metadata(&self, name: &str, description: Option<&str>) -> Result<()> {
-        let result = sqlx::query("UPDATE archive_registry SET description = $1 WHERE name = $2")
+        let result = sqlx::query("UPDATE archive_registry SET description = $1 WHERE tenant_id=current_setting('app.current_tenant')::uuid AND name = $2")
             .bind(description)
             .bind(name)
             .execute(&self.pool)
@@ -1378,7 +1426,7 @@ impl ArchiveRepository for PgArchiveRepository {
 
         // Count notes in the archive schema
         let note_count: i64 = sqlx::query_scalar(&format!(
-            "SELECT COUNT(*) FROM {}.note WHERE deleted_at IS NULL",
+            "SELECT COUNT(*) FROM {}.note WHERE tenant_id=current_setting('app.current_tenant')::uuid AND deleted_at IS NULL",
             archive.schema_name
         ))
         .fetch_one(&self.pool)
@@ -1397,7 +1445,7 @@ impl ArchiveRepository for PgArchiveRepository {
 
         // Update registry
         sqlx::query(
-            "UPDATE archive_registry SET note_count = $1, size_bytes = $2, last_accessed = NOW() WHERE name = $3"
+            "UPDATE archive_registry SET note_count = $1, size_bytes = $2, last_accessed = NOW() WHERE tenant_id=current_setting('app.current_tenant')::uuid AND name = $3"
         )
         .bind(note_count as i32)
         .bind(size_bytes)
@@ -1435,7 +1483,11 @@ impl ArchiveRepository for PgArchiveRepository {
         let new_archive = self.create_archive_schema(new_name, description).await?;
 
         let copy_result: Result<()> = async {
-            // Copy every ordinary table. The archive graph contains self-references
+            // Copy ordinary content tables, excluding tables promoted to shared
+            // storage since the source was created. Keep legacy identity clones
+            // intact in community mode rather than risking data loss by retiring
+            // them merely to clone content.
+            // The archive graph contains self-references
             // and may gain cycles over time, so a recursive topological query can
             // silently omit tables. Foreign keys are deferred only for this copy
             // transaction and restored to their original immediate posture below.
@@ -1445,10 +1497,12 @@ impl ArchiveRepository for PgArchiveRepository {
                 FROM pg_class c
                 JOIN pg_namespace n ON n.oid = c.relnamespace
                 WHERE n.nspname = $1 AND c.relkind = 'r'
+                    AND c.relname != ALL($2)
                 ORDER BY c.relname
                 "#,
             )
             .bind(&source.schema_name)
+            .bind(SHARED_TABLES)
             .fetch_all(&self.pool)
             .await
             .map_err(Error::Database)?;
@@ -1501,7 +1555,7 @@ impl ArchiveRepository for PgArchiveRepository {
             // gets copied instead. Cloned concepts reference source scheme UUIDs via FK, so we
             // must preserve the source's IDs rather than using the freshly-seeded ones.
             sqlx::query(&format!(
-                "DELETE FROM {}.skos_concept_scheme WHERE is_system = TRUE AND notation = 'default'",
+                "DELETE FROM {}.skos_concept_scheme WHERE tenant_id=current_setting('app.current_tenant')::uuid AND is_system = TRUE AND notation = 'default'",
                 new_archive.schema_name
             ))
             .execute(&mut *tx)
@@ -1512,7 +1566,7 @@ impl ArchiveRepository for PgArchiveRepository {
             // copy the source sets verbatim so embedding_set_member foreign keys remain
             // valid and custom sets are preserved.
             sqlx::query(&format!(
-                "DELETE FROM {}.embedding_set WHERE is_system = TRUE AND slug = 'default'",
+                "DELETE FROM {}.embedding_set WHERE tenant_id=current_setting('app.current_tenant')::uuid AND is_system = TRUE AND slug = 'default'",
                 new_archive.schema_name
             ))
             .execute(&mut *tx)
@@ -1555,7 +1609,7 @@ impl ArchiveRepository for PgArchiveRepository {
                     ""
                 };
                 sqlx::query(&format!(
-                    "INSERT INTO {}.{} ({}) SELECT {} FROM {}.{}{conflict}",
+                    "INSERT INTO {}.{} ({}) SELECT {} FROM {}.{} WHERE tenant_id=current_setting('app.current_tenant')::uuid{conflict}",
                     new_archive.schema_name, table, col_list, col_list, source.schema_name, table
                 ))
                 .execute(&mut *tx)

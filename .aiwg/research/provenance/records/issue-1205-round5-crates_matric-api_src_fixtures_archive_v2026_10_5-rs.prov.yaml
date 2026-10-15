@@ -1,0 +1,39 @@
+metadata:
+  schema_version: 1.0.0
+  created_at: '2026-10-14T18:35:17Z'
+  issue: Fortemi/fortemi#1205
+  review: /home/roctinam/.cache/claude-work/fortemi-srvfix/audit-1205d.md
+entity:
+  id: urn:aiwg:artifact:crates/matric-api/src/fixtures/archive_v2026_10_5.rs
+  type: code
+  created_at: '2026-10-14T18:35:17Z'
+  checksum: sha256:62a1690f6201f21de6af58e277deb338b3594c3eedb3642a605d449fa0894d53
+  size_bytes: 27753
+activity:
+  id: urn:aiwg:activity:modification:issue-1205-round5:9
+  type: generation
+  started_at: '2026-10-14T18:35:17Z'
+  ended_at: '2026-10-14T18:35:17Z'
+  description: Retire real release archive identity clones transactionally; isolate
+    authorized archive/index DDL behind migration credentials; qualify external and
+    hosted startup/jobs and executable role setup
+agent:
+  id: urn:aiwg:agent:codex-gpt-6
+  type: ai_assistant
+  name: Codex
+  version: GPT-6
+relationships:
+  wasGeneratedBy:
+    entity: urn:aiwg:artifact:crates/matric-api/src/fixtures/archive_v2026_10_5.rs
+    activity: urn:aiwg:activity:modification:issue-1205-round5:9
+    time: '2026-10-14T18:35:17Z'
+  wasAssociatedWith:
+    activity: urn:aiwg:activity:modification:issue-1205-round5:9
+    agent: urn:aiwg:agent:codex-gpt-6
+  wasAttributedTo:
+    entity: urn:aiwg:artifact:crates/matric-api/src/fixtures/archive_v2026_10_5.rs
+    agent: urn:aiwg:agent:codex-gpt-6
+  wasDerivedFrom:
+    entity: urn:aiwg:artifact:crates/matric-api/src/fixtures/archive_v2026_10_5.rs
+    used_entity: urn:aiwg:review:issue-1205:audit-1205d
+    activity: urn:aiwg:activity:modification:issue-1205-round5:9

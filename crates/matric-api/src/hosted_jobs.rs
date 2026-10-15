@@ -1,4 +1,5 @@
-//! Pool-free production handlers for the explicit hosted worker contract.
+//! Production handlers for the explicit hosted worker contract.
+//! Runtime DML uses fenced claims; index DDL uses a narrow administrative capability.
 //! Only explicitly migrated handlers are registered in hosted mode.
 
 use async_trait::async_trait;
@@ -8,6 +9,73 @@ use matric_jobs::handler::hosted_database_failure;
 use matric_jobs::{HostedJobContext, HostedJobHandler, JobResult};
 
 pub struct HostedDocumentTypeInferenceHandler;
+
+pub struct HostedBuildVectorIndexHandler {
+    administrative: matric_db::administrative::AdministrativeExecutor,
+}
+
+impl HostedBuildVectorIndexHandler {
+    pub fn new(administrative: matric_db::administrative::AdministrativeExecutor) -> Self {
+        Self { administrative }
+    }
+}
+
+#[async_trait]
+impl HostedJobHandler for HostedBuildVectorIndexHandler {
+    fn job_type(&self) -> JobType {
+        JobType::BuildSetIndex
+    }
+
+    async fn execute(&self, ctx: HostedJobContext) -> JobResult {
+        let Some(payload) = ctx.payload().cloned().and_then(|value| {
+            serde_json::from_value::<matric_db::vector_index::VectorIndexJobPayload>(value).ok()
+        }) else {
+            return JobResult::Failed("Invalid vector index job payload".into());
+        };
+        if payload.schema != ctx.archive_schema() {
+            return JobResult::Failed("Index job archive differs from its authorized claim".into());
+        }
+        let shape = match matric_db::vector_index::VectorIndexShape::from_payload(payload.clone()) {
+            Ok(shape) => shape,
+            Err(error) => return hosted_database_failure(&error),
+        };
+        let building = shape.clone();
+        match ctx
+            .with_content(move |scope| {
+                Box::pin(async move {
+                    matric_db::vector_index::set_shape_status_scoped(scope, &building, "building")
+                        .await
+                })
+            })
+            .await
+        {
+            Ok(Some(())) => {}
+            Ok(None) => return JobResult::Failed("Vector index claim unavailable".into()),
+            Err(error) => return hosted_database_failure(&error),
+        }
+        let result = self
+            .administrative
+            .maintain_vector_indexes(ctx.tenant_id(), payload)
+            .await;
+        let status = if result.is_ok() { "ready" } else { "stale" };
+        match ctx
+            .with_content(move |scope| {
+                Box::pin(async move {
+                    matric_db::vector_index::set_shape_status_scoped(scope, &shape, status).await
+                })
+            })
+            .await
+        {
+            Ok(Some(())) => {}
+            Ok(None) => return JobResult::Failed("Vector index claim unavailable".into()),
+            Err(error) => return hosted_database_failure(&error),
+        }
+        match result {
+            Ok(()) => JobResult::Success(Some(serde_json::json!({"schema":ctx.archive_schema()}))),
+            Err(error) => hosted_database_failure(&error),
+        }
+    }
+}
 
 #[async_trait]
 impl HostedJobHandler for HostedDocumentTypeInferenceHandler {

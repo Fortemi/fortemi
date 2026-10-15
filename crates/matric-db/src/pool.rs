@@ -23,11 +23,14 @@ pub const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 600;
 /// Personal mode binds the reserved local tenant for compatibility with the
 /// desktop/community edition. Hosted mode intentionally leaves the custom GUC
 /// unset so tenant tables fail closed until [`crate::TenantScopedConn`] binds a
-/// verified request tenant inside a transaction.
+/// verified request tenant inside a transaction. External-OIDC single-tenant
+/// mode binds its configured deployment tenant for legacy repositories.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TenantPoolMode {
     PersonalSynthetic,
     HostedUnscoped,
+    /// The sole configured tenant of an external-OIDC deployment.
+    SingleTenant(uuid::Uuid),
 }
 
 /// Pool configuration options.
@@ -96,6 +99,13 @@ impl PoolConfig {
         self
     }
 
+    /// Bind all legacy repositories and background writes to the deployment's
+    /// sole tenant. Multi-tenant pools must continue using hosted_unscoped.
+    pub fn single_tenant(mut self, tenant_id: uuid::Uuid) -> Self {
+        self.tenant_mode = TenantPoolMode::SingleTenant(tenant_id);
+        self
+    }
+
     /// Leave new sessions unscoped until a verified hosted request opens a
     /// transaction-local tenant scope.
     pub fn hosted_unscoped(mut self) -> Self {
@@ -138,9 +148,13 @@ pub async fn create_pool_with_config(database_url: &str, config: PoolConfig) -> 
     let tenant_mode = config.tenant_mode;
     options = options.after_connect(move |connection, _metadata| {
         Box::pin(async move {
-            if tenant_mode == TenantPoolMode::PersonalSynthetic {
+            if let Some(tenant_id) = match tenant_mode {
+                TenantPoolMode::PersonalSynthetic => Some(LOCAL_TENANT_ID.to_string()),
+                TenantPoolMode::SingleTenant(id) => Some(id.to_string()),
+                TenantPoolMode::HostedUnscoped => None,
+            } {
                 sqlx::query("SELECT set_config('app.current_tenant', $1, false)")
-                    .bind(LOCAL_TENANT_ID)
+                    .bind(tenant_id)
                     .execute(connection)
                     .await?;
             }
@@ -232,9 +246,13 @@ pub async fn create_pool_for_schema(
 
     pool_options = pool_options.after_connect(move |connection, _metadata| {
         Box::pin(async move {
-            if tenant_mode == TenantPoolMode::PersonalSynthetic {
+            if let Some(tenant_id) = match tenant_mode {
+                TenantPoolMode::PersonalSynthetic => Some(LOCAL_TENANT_ID.to_string()),
+                TenantPoolMode::SingleTenant(id) => Some(id.to_string()),
+                TenantPoolMode::HostedUnscoped => None,
+            } {
                 sqlx::query("SELECT set_config('app.current_tenant', $1, false)")
-                    .bind(LOCAL_TENANT_ID)
+                    .bind(tenant_id)
                     .execute(connection)
                     .await?;
             }

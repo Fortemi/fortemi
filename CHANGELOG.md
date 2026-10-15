@@ -39,6 +39,46 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   webhook envelopes. Provision disposable Redis for CI token tests and clean
   up tenant bootstrap embedding fixtures shared with shard tests (#1204).
 
+- External-OIDC single-tenant deployments now use the configured tenant as canonical
+  content, identity, memory and job owner. Startup performs an atomic, idempotent
+  local-to-configured ownership upgrade; stop all old writers and follow
+  `docs/content/external-oidc-upgrade.md`. Legacy archive author guards and baselines
+  are repaired before serving. Separate migration credentials and a non-bypass,
+  non-owner runtime role are required. Baseline comparisons resolve referenced
+  configurations while preserving derived index state. Bulk note authors/tags/jobs
+  and source-upsert authors/receipts commit atomically (#1205).
+  Retire v2026.10.5 archive identity clones transactionally after preserving
+  identities and redirecting references. Authorized external-OIDC archive
+  provisioning/sync and external-OIDC/hosted vector-index maintenance now use
+  a narrow administrative executor while runtime DML stays restricted. Release
+  authorization lookup locks before archive synchronization, then revalidate
+  handler access. Hosted reads perform no administrative maintenance. Community
+  clones exclude promoted shared tables while preserving legacy identity data.
+
+- Preserve schema-key precedence when archive pause/resume aliases collide, without
+  changing a second archive. Enabled, authenticated external-OIDC legacy credentials
+  bind to the configured owner for archive administration under their scope ceiling (#1205).
+- Resolve archive pause/resume names and legacy schema keys to the owning archive's
+  canonical worker key. Deliver community queue summaries to named memories and
+  count only supported, ready jobs as pending in scoped queue events (#1205).
+- Attach verified request or persisted job ownership to all event publishers,
+  and publish scoped mutations after commit. External-OIDC live streams and
+  replay now deliver note status, content, tag and worker updates across public
+  and named memories while excluding foreign tenants (#1205).
+- Release preliminary tenant connections before external-OIDC authorization,
+  auditing and archive synchronization, then revalidate on the handler connection.
+  Release scoped inference and event-stream transactions before SSE delivery;
+  qualify concurrent archive reads and large exports with a one-connection pool (#1205).
+- Seed document types during hosted provisioning and adopt the existing local
+  registry into the configured external-OIDC owner at startup, retaining UUIDs.
+  Scope detection and note/attachment assignments to the owning tenant so
+  default-archive note creation succeeds after upgrades. Bind
+  external-OIDC single-tenant writes to the configured tenant, create notes and
+  attribute authors atomically, and use tenant-owned catalog, job and attachment
+  configurations across default and named archives. Keep archive authors linked
+  to shared application users and preserve existing archive discovery and
+  selection under RLS (#1205).
+
 ## [2026.10.5] - 2026-10-12
 
 Makes the shipped Keycloak reference realm and claim policy work as shipped,

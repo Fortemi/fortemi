@@ -1,0 +1,44 @@
+metadata:
+  schema_version: 1.0.0
+  created_at: '2026-10-14T22:30:00Z'
+  issue: Fortemi/fortemi#1205
+  review: /home/roctinam/.cache/claude-work/fortemi-srvfix/audit-1205g.md
+entity:
+  id: urn:aiwg:artifact:crates/matric-api/src/external_oidc_pool_tests.rs
+  type: test
+  created_at: '2026-10-14T22:30:00Z'
+  updated_at: '2026-10-14T22:30:00Z'
+  checksum: sha256:edb8c5b4a19ca420236018ba79882d87e28d55e2d8b4b99b366ff031e224a1c5
+  size_bytes: 11028
+activity:
+  id: urn:aiwg:activity:modification:issue-1205-round8:9
+  type: modification
+  started_at: '2026-10-14T22:28:43Z'
+  ended_at: '2026-10-14T22:30:00Z'
+  description: Keep the one-connection streaming/export regression focused on note.created
+    now that correctly owned collection.created events are also delivered
+agent:
+  id: urn:aiwg:agent:codex-gpt-6
+  type: ai_assistant
+  name: Codex
+  version: GPT-6
+relationships:
+  wasGeneratedBy:
+    entity: urn:aiwg:artifact:crates/matric-api/src/external_oidc_pool_tests.rs
+    activity: urn:aiwg:activity:modification:issue-1205-round8:9
+    time: '2026-10-14T22:28:44Z'
+  wasAssociatedWith:
+    activity: urn:aiwg:activity:modification:issue-1205-round8:9
+    agent: urn:aiwg:agent:codex-gpt-6
+  wasAttributedTo:
+    entity: urn:aiwg:artifact:crates/matric-api/src/external_oidc_pool_tests.rs
+    agent: urn:aiwg:agent:codex-gpt-6
+  wasDerivedFrom:
+  - entity: urn:aiwg:artifact:crates/matric-api/src/external_oidc_pool_tests.rs
+    source: urn:aiwg:review:issue-1205:audit-1205g
+    derivation_type: tests
+    activity: urn:aiwg:activity:modification:issue-1205-round8:9
+  used:
+  - activity: urn:aiwg:activity:modification:issue-1205-round8:9
+    entity: urn:aiwg:review:issue-1205:audit-1205g
+    role: audit_findings

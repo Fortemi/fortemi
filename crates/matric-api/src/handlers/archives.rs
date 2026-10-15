@@ -15,18 +15,10 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+use crate::event_scope::RequestEvents;
 use crate::middleware::{archive_routing::ArchiveContext, tenant_scope::TenantRequestScope};
 use crate::{telemetry_text_len, ApiError, AppState, ProblemDetails};
-use matric_core::{ArchiveInfo, ArchiveRepository, EventContext, ServerEvent};
-
-fn archive_event_context(archive: &ArchiveInfo) -> EventContext {
-    EventContext {
-        memory: Some(archive.schema_name.clone()),
-        archive_name: Some(archive.name.clone()),
-        archive_schema: Some(archive.schema_name.clone()),
-        ..Default::default()
-    }
-}
+use matric_core::{ArchiveInfo, ArchiveRepository, ServerEvent};
 
 const ARCHIVE_ALREADY_EXISTS_MESSAGE: &str = "Archive already exists.";
 const ARCHIVE_NOT_FOUND_MESSAGE: &str = "Archive not found.";
@@ -278,6 +270,8 @@ pub async fn get_archive(
     responses((status = 201, description = "Created")))]
 pub async fn create_archive(
     State(state): State<AppState>,
+    events: RequestEvents,
+    tenant: Option<Extension<crate::VerifiedRequestTenant>>,
     Json(req): Json<CreateArchiveRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     // Validate archive name
@@ -307,19 +301,29 @@ pub async fn create_archive(
         ));
     }
 
-    let archive = state
-        .db
-        .archives
-        .create_archive_schema(&req.name, req.description.as_deref())
-        .await?;
+    let archive = if let Some(admin) = state.db.administrative() {
+        let tenant = tenant.ok_or_else(|| {
+            ApiError::Forbidden("Verified tenant required for archive provisioning".into())
+        })?;
+        admin
+            .create_archive(tenant.tenant_id(), &req.name, req.description.as_deref())
+            .await?
+    } else {
+        state
+            .db
+            .archives
+            .create_archive_schema(&req.name, req.description.as_deref())
+            .await?
+    };
 
     // Emit ArchiveCreated event (Issue #455)
-    state.event_bus.emit_with_context(
+    events.publish_in(
+        &state.event_bus,
         ServerEvent::ArchiveCreated {
             name: archive.name.clone(),
             archive_id: Some(archive.id),
         },
-        archive_event_context(&archive),
+        &ArchiveContext::from(&archive),
     );
 
     Ok((
@@ -355,6 +359,7 @@ pub async fn create_archive(
     responses((status = 204, description = "No Content")))]
 pub async fn update_archive(
     State(state): State<AppState>,
+    events: RequestEvents,
     Path(name): Path<String>,
     Json(req): Json<UpdateArchiveRequest>,
 ) -> Result<StatusCode, ApiError> {
@@ -363,7 +368,7 @@ pub async fn update_archive(
         .archives
         .get_archive_by_name(&name)
         .await?
-        .ok_or_else(|| ApiError::NotFound(ARCHIVE_NOT_FOUND_MESSAGE.to_string()))?;
+        .ok_or_else(|| ApiError::NotFound(ARCHIVE_NOT_FOUND_MESSAGE.into()))?;
     state
         .db
         .archives
@@ -371,9 +376,10 @@ pub async fn update_archive(
         .await?;
 
     // Emit ArchiveUpdated event (Issue #455)
-    state.event_bus.emit_with_context(
+    events.publish_in(
+        &state.event_bus,
         ServerEvent::ArchiveUpdated { name: name.clone() },
-        archive_event_context(&archive),
+        &ArchiveContext::from(&archive),
     );
 
     Ok(StatusCode::NO_CONTENT)
@@ -396,6 +402,8 @@ pub async fn update_archive(
     responses((status = 204, description = "No Content")))]
 pub async fn delete_archive(
     State(state): State<AppState>,
+    events: RequestEvents,
+    tenant: Option<Extension<crate::VerifiedRequestTenant>>,
     Path(name): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     // Guard: cannot delete the default archive (fixes #240)
@@ -412,12 +420,20 @@ pub async fn delete_archive(
         ));
     }
 
-    state.db.archives.drop_archive_schema(&name).await?;
+    if let Some(admin) = state.db.administrative() {
+        let tenant = tenant.ok_or_else(|| {
+            ApiError::Forbidden("Verified tenant required for archive provisioning".into())
+        })?;
+        admin.drop_archive(tenant.tenant_id(), &name).await?;
+    } else {
+        state.db.archives.drop_archive_schema(&name).await?;
+    }
 
     // Emit ArchiveDeleted event (Issue #455)
-    state.event_bus.emit_with_context(
+    events.publish_in(
+        &state.event_bus,
         ServerEvent::ArchiveDeleted { name: name.clone() },
-        archive_event_context(&archive),
+        &ArchiveContext::from(&archive),
     );
 
     Ok(StatusCode::NO_CONTENT)
@@ -441,6 +457,7 @@ pub async fn delete_archive(
     responses((status = 204, description = "No Content")))]
 pub async fn set_default_archive(
     State(state): State<AppState>,
+    events: RequestEvents,
     Path(name): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     let archive = state
@@ -448,16 +465,17 @@ pub async fn set_default_archive(
         .archives
         .get_archive_by_name(&name)
         .await?
-        .ok_or_else(|| ApiError::NotFound(ARCHIVE_NOT_FOUND_MESSAGE.to_string()))?;
+        .ok_or_else(|| ApiError::NotFound(ARCHIVE_NOT_FOUND_MESSAGE.into()))?;
     state.db.archives.set_default_archive(&name).await?;
 
     // Invalidate default archive cache to force refresh on next request (Issue #107)
     state.default_archive_cache.write().await.invalidate();
 
     // Emit ArchiveDefaultChanged event (Issue #455)
-    state.event_bus.emit_with_context(
+    events.publish_in(
+        &state.event_bus,
         ServerEvent::ArchiveDefaultChanged { name: name.clone() },
-        archive_event_context(&archive),
+        &ArchiveContext::from(&archive),
     );
 
     Ok(StatusCode::NO_CONTENT)
@@ -526,6 +544,7 @@ pub async fn get_archive_stats(
     responses((status = 201, description = "Created")))]
 pub async fn clone_archive(
     State(state): State<AppState>,
+    tenant: Option<Extension<crate::VerifiedRequestTenant>>,
     Path(name): Path<String>,
     Json(req): Json<CloneArchiveRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
@@ -541,11 +560,25 @@ pub async fn clone_archive(
         return Err(live_memory_limit_reached());
     }
 
-    let archive = state
-        .db
-        .archives
-        .clone_archive_schema(&name, &req.new_name, req.description.as_deref())
-        .await?;
+    let archive = if let Some(admin) = state.db.administrative() {
+        let tenant = tenant.ok_or_else(|| {
+            ApiError::Forbidden("Verified tenant required for archive provisioning".into())
+        })?;
+        admin
+            .clone_archive(
+                tenant.tenant_id(),
+                &name,
+                &req.new_name,
+                req.description.as_deref(),
+            )
+            .await?
+    } else {
+        state
+            .db
+            .archives
+            .clone_archive_schema(&name, &req.new_name, req.description.as_deref())
+            .await?
+    };
 
     Ok((
         StatusCode::CREATED,

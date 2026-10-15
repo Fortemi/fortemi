@@ -313,7 +313,7 @@ impl PgSkosRepository {
     /// Get the default scheme ID from the database.
     pub async fn get_default_scheme_id(&self) -> Result<Uuid> {
         let row = sqlx::query(
-            "SELECT id FROM skos_concept_scheme WHERE is_system = TRUE AND notation = 'default'",
+            "SELECT id FROM skos_concept_scheme WHERE tenant_id=current_setting('app.current_tenant')::uuid AND is_system = TRUE AND notation = 'default'",
         )
         .fetch_optional(&self.pool)
         .await

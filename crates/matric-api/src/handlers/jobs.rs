@@ -14,11 +14,11 @@ use tracing::{debug, info, instrument, warn};
 use matric_core::{
     embedding_chunk_hash, embedding_doc_hash, AttachmentStatus, CreateFileProvenanceRequest,
     CreateProvDeviceRequest, CreateProvLocationRequest, CreateSemanticRelationRequest,
-    DocumentTypeRepository, EmbeddingConfigProfile, EmbeddingContract, EmbeddingRepository,
-    GenerationBackend, JobType, LinkRepository, MeteringError, NoteRepository, ProvRelation,
-    RevisionMode, SkosSemanticRelation, UsageAttributes, UsageClass, UsageCorrelation,
-    UsageDimension, UsageEvent, UsageMeasurement, UsageMeter, UsageOutcome, UsageProducer,
-    UsageQuantity, UsageSource, UsageSubject,
+    EmbeddingConfigProfile, EmbeddingContract, EmbeddingRepository, GenerationBackend, JobType,
+    LinkRepository, MeteringError, NoteRepository, ProvRelation, RevisionMode,
+    SkosSemanticRelation, UsageAttributes, UsageClass, UsageCorrelation, UsageDimension,
+    UsageEvent, UsageMeasurement, UsageMeter, UsageOutcome, UsageProducer, UsageQuantity,
+    UsageSource, UsageSubject,
 };
 use matric_db::{
     Chunker, ChunkerConfig, Database, SchemaContext, SemanticChunker, SkosRelationRepository,
@@ -29,6 +29,9 @@ use matric_jobs::adapters::exif::{
 };
 use matric_jobs::{job_correlation_token, JobContext, JobHandler, JobResult};
 use sqlx::{self, Row};
+
+mod document_types;
+use document_types::note_document_type;
 
 #[cfg(test)]
 use matric_core::EmbeddingBackend;
@@ -1519,26 +1522,15 @@ impl JobHandler for AiRevisionHandler {
         // Look up document type for type-aware prompt building.
         // Primary: use the note's assigned document_type_id.
         // Fallback: heuristic detection from content (first 1000 chars).
-        let doc_type = if let Some(dt_id) = note.note.document_type_id {
-            self.db.document_types.get(dt_id).await.ok().flatten()
-        } else {
-            let preview: String = original_content.chars().take(1000).collect();
-            match self
-                .db
-                .document_types
-                .detect(None, Some(&preview), None)
-                .await
-            {
-                Ok(Some(result)) => self
-                    .db
-                    .document_types
-                    .get(result.document_type.id)
-                    .await
-                    .ok()
-                    .flatten(),
-                _ => None,
-            }
-        };
+        let doc_type = note_document_type(
+            &schema_ctx,
+            note_id,
+            note.note.document_type_id,
+            Some(original_content.chars().take(1000).collect()),
+        )
+        .await
+        .ok()
+        .flatten();
 
         // Start provenance activity
         let activity_id = start_job_provenance(
@@ -2140,17 +2132,18 @@ impl JobHandler for AiRevisionContextualHandler {
 
         let schema = extract_schema(&ctx);
         let model_override = extract_model_override(&ctx);
-        // Read content type hint from Phase 1 payload, preferring id-based payloads.
-        // Legacy queued jobs may still carry raw `content_type`.
+        let schema_ctx = match schema_context(&self.db, schema) {
+            Ok(ctx) => ctx,
+            Err(e) => return e,
+        };
+        // Resolve id-based hints through the owning note's tenant registry.
         let content_type_name: Option<String> = if let Some(id) = ctx
             .payload()
             .and_then(|p| p.get("content_type_id"))
             .and_then(|v| v.as_str())
             .and_then(|s| uuid::Uuid::parse_str(s).ok())
         {
-            self.db
-                .document_types
-                .get(id)
+            note_document_type(&schema_ctx, note_id, Some(id), None)
                 .await
                 .ok()
                 .flatten()
@@ -2159,11 +2152,7 @@ impl JobHandler for AiRevisionContextualHandler {
             ctx.payload()
                 .and_then(|p| p.get("content_type"))
                 .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-        };
-        let schema_ctx = match schema_context(&self.db, schema) {
-            Ok(ctx) => ctx,
-            Err(e) => return e,
+                .map(str::to_string)
         };
 
         // Resolve model override via provider registry
@@ -2706,7 +2695,7 @@ impl EmbeddingHandler {
     }
 
     #[cfg(test)]
-    fn with_backend_override(mut self, backend: Arc<dyn EmbeddingBackend>) -> Self {
+    pub(crate) fn with_backend_override(mut self, backend: Arc<dyn EmbeddingBackend>) -> Self {
         self.backend_override = Some(backend);
         self
     }
@@ -3154,7 +3143,9 @@ impl JobHandler for EmbeddingHandler {
         // 2. Resolved embedding config (from set or default)
         // 3. ChunkerConfig::default() (hardcoded fallback)
         let chunker_config = if let Some(doc_type_id) = note.note.document_type_id {
-            if let Ok(Some(doc_type)) = self.db.document_types.get(doc_type_id).await {
+            if let Ok(Some(doc_type)) =
+                note_document_type(&schema_ctx, note_id, Some(doc_type_id), None).await
+            {
                 let max = doc_type.chunk_size_default as usize;
                 ChunkerConfig {
                     max_chunk_size: max,
@@ -4295,7 +4286,7 @@ impl JobHandler for LinkingHandler {
 
         // Determine content-type-aware similarity threshold (for threshold strategy).
         let link_threshold = if let Some(dt_id) = note.note.document_type_id {
-            match self.db.document_types.get(dt_id).await {
+            match note_document_type(&schema_ctx, note_id, Some(dt_id), None).await {
                 Ok(Some(dt)) => matric_core::defaults::semantic_link_threshold_for(dt.category),
                 _ => matric_core::defaults::SEMANTIC_LINK_THRESHOLD,
             }
@@ -7476,14 +7467,26 @@ impl JobHandler for DocumentTypeInferenceHandler {
 
         // Use the document type detection system
         let content_preview: String = content.chars().take(1000).collect();
-        let detection = self
-            .db
-            .document_types
-            .detect(
-                filename_hint.as_deref(),
-                Some(&content_preview),
-                None, // no MIME type for notes
-            )
+        let detection = schema_ctx
+            .execute(move |tx| {
+                Box::pin(async move {
+                    // Bind detection to the note even on a privileged legacy pool.
+                    sqlx::query(
+                        "SELECT set_config('app.current_tenant', tenant_id::text, true)
+                         FROM note WHERE id = $1",
+                    )
+                    .bind(note_id)
+                    .execute(&mut **tx)
+                    .await?;
+                    matric_db::PgDocumentTypeRepository::detect_tx(
+                        tx,
+                        filename_hint.as_deref(),
+                        Some(&content_preview),
+                        None,
+                    )
+                    .await
+                })
+            })
             .await;
 
         let (doc_type_id, detection_method, confidence) = match detection {
@@ -7524,11 +7527,15 @@ impl JobHandler for DocumentTypeInferenceHandler {
             Ok(t) => t,
             Err(e) => return document_type_inference_job_failure(e, "assign_begin_tx"),
         };
-        if let Err(e) = sqlx::query("UPDATE note SET document_type_id = $1 WHERE id = $2")
-            .bind(doc_type_id)
-            .bind(note_id)
-            .execute(&mut *tx)
-            .await
+        if let Err(e) = sqlx::query(
+            "UPDATE note n SET document_type_id = $1 WHERE n.id = $2
+             AND EXISTS (SELECT 1 FROM public.document_type d
+                         WHERE d.id = $1 AND d.tenant_id = n.tenant_id)",
+        )
+        .bind(doc_type_id)
+        .bind(note_id)
+        .execute(&mut *tx)
+        .await
         {
             return document_type_inference_job_failure(e, "assign_document_type");
         }
@@ -7992,19 +7999,6 @@ async fn vector_index_set_row_counts(
     Ok(counts)
 }
 
-async fn analyze_embedding_table(
-    db: &Database,
-    payload: &matric_db::index_maintenance::AnalyzeEmbeddingJobPayload,
-) -> matric_core::Result<()> {
-    matric_db::validate_schema_name(&payload.schema)?;
-    let sql = format!("ANALYZE {}.embedding", payload.schema);
-    sqlx::query(&sql)
-        .execute(&db.pool)
-        .await
-        .map_err(matric_core::Error::Database)?;
-    Ok(())
-}
-
 #[async_trait]
 impl JobHandler for BuildVectorIndexHandler {
     fn job_type(&self) -> JobType {
@@ -8025,7 +8019,7 @@ impl JobHandler for BuildVectorIndexHandler {
         };
         let result_payload = payload.clone();
         ctx.report_progress(20, Some("Building HNSW indexes concurrently..."));
-        match matric_db::vector_index::build_vector_indexes(&self.db.pool, payload).await {
+        match self.db.build_vector_index_job(ctx.job.id, payload).await {
             Ok(()) => {
                 let set_row_counts =
                     match vector_index_set_row_counts(&self.db, &result_payload).await {
@@ -8079,7 +8073,11 @@ impl JobHandler for AnalyzeEmbeddingHandler {
             None => return JobResult::Failed(ANALYZE_EMBEDDING_JOB_FAILURE.to_string()),
         };
         ctx.report_progress(50, Some("Running ANALYZE embedding..."));
-        match analyze_embedding_table(&self.db, &payload).await {
+        match self
+            .db
+            .analyze_embedding_job(ctx.job.id, &payload.schema)
+            .await
+        {
             Ok(()) => {
                 ctx.report_progress(100, Some("Embedding table analyze complete"));
                 JobResult::Success(Some(analyze_embedding_job_result(

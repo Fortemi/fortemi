@@ -250,12 +250,47 @@ FORTEMI_AUTH_DEFAULT_TENANT=8e7a9ab6-08e0-4b3a-8dc2-e2be91a8f7ef
 | `FORTEMI_AUTH_ISSUER` | yes | Exact external IdP issuer. It must differ from Fortemi's own `ISSUER_URL` when both are explicit. |
 | `FORTEMI_AUTH_AUDIENCES` | yes | Comma-separated exact `https` resource URIs. Include the API origin and MCP path when both are used. Values must not equal claim-policy client ids. |
 | `FORTEMI_AUTH_CLAIM_POLICY_FILE` | yes | JSON policy mapping IdP roles/groups to `read`, `write`, `admin`, and `mcp`. |
-| `FORTEMI_AUTH_DEFAULT_TENANT` | yes | UUID of the single tenant. Fortemi creates the active tenant row and default memory at startup when missing. |
+| `FORTEMI_AUTH_DEFAULT_TENANT` | yes | Canonical owner UUID. Startup adopts the local deployment graph into this tenant before serving requests. |
 | `FORTEMI_AUTH_ALLOW_MULTI_AUDIENCE` | no | Defaults to `false`; when enabled, multi-audience JWTs also require an allowed `azp`. |
 | `FORTEMI_AUTH_ALLOW_TOKEN_SCOPES` | no | Defaults to `false`; required before `scope_source=token` or `scope_source=union` is accepted. |
 | `FORTEMI_AUTH_MAX_TOKEN_LIFETIME_SECONDS` | no | Defaults to `3600`, maximum `86400`; tokens with a longer `exp - iat` are rejected. |
 | `FORTEMI_AUTH_ALLOW_LEGACY_TOKENS` | no | Defaults to `false`; permits existing `mm_at_` and `mm_key_` tokens only during migration. |
 | `FORTEMI_AUTH_LEGACY_SCOPE_CEILING` | no | Defaults to `read mcp`; caps legacy-token effective scopes when legacy tokens are enabled. |
+
+#### Configured tenant ownership
+
+The configured default tenant E owns identities, content, memories, defaults
+and queued jobs in external-OIDC single-tenant mode (ADR-110). Before starting
+workers or opening HTTP, startup migrates the schema and atomically adopts the
+reserved local tenant L's ownership graph into E. It preserves UUIDs,
+configuration references, attachment bytes, user status, PAT hashes and pending
+work. Existing E content stays owned by E; unrelated tenants remain untouched.
+This applies to fresh installations and upgrades, including v2026.10.5.
+
+Back up the database and attachment directory and stop **all** old API instances
+and workers before upgrading. Set `MIGRATION_DATABASE_URL` to the table-owner
+migration login with BYPASSRLS (or a superuser), and `DATABASE_URL` to a separate
+`NOSUPERUSER NOBYPASSRLS` runtime login that owns no tenant tables. Both URLs are
+required. Startup verifies the runtime role and forced-RLS catalog, then uses an
+E-bound runtime pool for requests and workers. Privileged runtime credentials
+are rejected because a tenant setting alone cannot enforce isolation.
+
+Equivalent duplicate bootstrap defaults retain both UUIDs: L's name remains
+canonical, and E's duplicate becomes `external-previous-<UUID>`. Equivalence
+compares configuration values, including referenced embedding configurations;
+index timestamps, sizes, coverage and counters are preserved or recomputed and
+do not cause conflicts. Customized differences abort the complete adoption
+transaction. A completion receipt makes repeated startup under E a no-op;
+changing E after adoption fails startup.
+
+Archive selection uses the adopted deployment default or `X-Fortemi-Memory`.
+Single and bulk note creation commit notes, authors, tags and jobs in one
+verified request transaction. Source-upsert commits notes, authors, source
+identities and import receipts together; its contract does not run a pipeline.
+Hosted multi-tenant provisioning remains a separate bootstrap operation that
+copies tenant baselines to new UUIDs; it never adopts L. Community startup
+keeps L. See the [upgrade procedure](external-oidc-upgrade.md) for role setup,
+preview bundle configuration, validation and backup-based rollback.
 
 #### Compatibility discovery
 
@@ -1716,3 +1751,13 @@ On-prem hosted deployments use the separately compiled OpenBao Transit provider.
 See [OpenBao KMS](#/security-openbao-kms) for provider selection, independent TLS
 trust, scoped token-file delivery, runtime policy, startup checks and rotation.
 OIDC CA support alone does not supply the KMS backend.
+
+### Canonical external tenant and upgrades
+
+`FORTEMI_AUTH_DEFAULT_TENANT` owns content, users, archive defaults and jobs in
+external-OIDC single-tenant mode. Before upgrading a 2026.10.5 deployment, stop
+all old writers and follow the [ownership upgrade procedure](external-oidc-upgrade.md).
+Startup atomically adopts local-owned data and synchronizes legacy archives before
+serving. `MIGRATION_DATABASE_URL` is required for owner credentials;
+`DATABASE_URL` must use a separate non-bypass runtime login that owns no tenant
+tables. Community and hosted deployments do not run this adoption.

@@ -82,7 +82,7 @@ impl PgEmbeddingSetRepository {
 
     /// Get the default embedding config ID from the database.
     pub async fn get_default_config_id(&self) -> Result<Uuid> {
-        let row = sqlx::query("SELECT id FROM embedding_config WHERE is_default = TRUE")
+        let row = sqlx::query("SELECT id FROM embedding_config WHERE tenant_id = current_setting('app.current_tenant')::uuid AND is_default = TRUE ORDER BY created_at,id LIMIT 1")
             .fetch_optional(&self.pool)
             .await
             .map_err(Error::Database)?;
@@ -199,7 +199,7 @@ impl PgEmbeddingSetRepository {
                 es.agent_metadata, es.created_at, es.updated_at, es.created_by
             FROM embedding_set es
             LEFT JOIN embedding_config ec ON es.embedding_config_id = ec.id
-            WHERE es.slug = $1
+            WHERE es.tenant_id = current_setting('app.current_tenant')::uuid AND es.slug = $1
             "#,
         )
         .bind(slug)
@@ -722,7 +722,7 @@ impl PgEmbeddingSetRepository {
                    supports_mrl, matryoshka_dims, default_truncate_dim,
                    provider::text, provider_config, content_types, document_composition, space_contract, space_id
             FROM embedding_config
-            WHERE is_default = TRUE
+            WHERE tenant_id = current_setting('app.current_tenant')::uuid AND is_default = TRUE
             LIMIT 1
             "#,
         )
@@ -1745,7 +1745,7 @@ impl PgEmbeddingSetRepository {
         &self,
         tx: &mut Transaction<'_, Postgres>,
     ) -> Result<Uuid> {
-        let row = sqlx::query("SELECT id FROM embedding_config WHERE is_default = TRUE")
+        let row = sqlx::query("SELECT id FROM embedding_config WHERE tenant_id = current_setting('app.current_tenant')::uuid AND is_default = TRUE ORDER BY created_at,id LIMIT 1")
             .fetch_optional(&mut **tx)
             .await
             .map_err(Error::Database)?;
@@ -1876,7 +1876,7 @@ impl PgEmbeddingSetRepository {
                 es.agent_metadata, es.created_at, es.updated_at, es.created_by
             FROM embedding_set es
             LEFT JOIN embedding_config ec ON es.embedding_config_id = ec.id
-            WHERE es.slug = $1
+            WHERE es.tenant_id = current_setting('app.current_tenant')::uuid AND es.slug = $1
             "#,
         )
         .bind(slug)
@@ -2605,7 +2605,7 @@ impl PgEmbeddingSetRepository {
                    supports_mrl, matryoshka_dims, default_truncate_dim,
                    provider::text, provider_config, content_types, document_composition, space_contract, space_id
             FROM embedding_config
-            WHERE is_default = TRUE
+            WHERE tenant_id = current_setting('app.current_tenant')::uuid AND is_default = TRUE
             LIMIT 1
             "#,
         )

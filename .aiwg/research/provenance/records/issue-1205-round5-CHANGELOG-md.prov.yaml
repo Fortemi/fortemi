@@ -1,0 +1,39 @@
+metadata:
+  schema_version: 1.0.0
+  created_at: '2026-10-14T18:35:17Z'
+  issue: Fortemi/fortemi#1205
+  review: /home/roctinam/.cache/claude-work/fortemi-srvfix/audit-1205d.md
+entity:
+  id: urn:aiwg:artifact:CHANGELOG.md
+  type: documentation
+  created_at: '2026-10-14T18:35:17Z'
+  checksum: sha256:7c31404c39604bada8d1010e4c26582aca9a7dc063ee77c5341923e3e5df4858
+  size_bytes: 229289
+activity:
+  id: urn:aiwg:activity:modification:issue-1205-round5:0
+  type: modification
+  started_at: '2026-10-14T18:35:17Z'
+  ended_at: '2026-10-14T18:35:17Z'
+  description: Retire real release archive identity clones transactionally; isolate
+    authorized archive/index DDL behind migration credentials; qualify external and
+    hosted startup/jobs and executable role setup
+agent:
+  id: urn:aiwg:agent:codex-gpt-6
+  type: ai_assistant
+  name: Codex
+  version: GPT-6
+relationships:
+  wasGeneratedBy:
+    entity: urn:aiwg:artifact:CHANGELOG.md
+    activity: urn:aiwg:activity:modification:issue-1205-round5:0
+    time: '2026-10-14T18:35:17Z'
+  wasAssociatedWith:
+    activity: urn:aiwg:activity:modification:issue-1205-round5:0
+    agent: urn:aiwg:agent:codex-gpt-6
+  wasAttributedTo:
+    entity: urn:aiwg:artifact:CHANGELOG.md
+    agent: urn:aiwg:agent:codex-gpt-6
+  wasDerivedFrom:
+    entity: urn:aiwg:artifact:CHANGELOG.md
+    used_entity: urn:aiwg:review:issue-1205:audit-1205d
+    activity: urn:aiwg:activity:modification:issue-1205-round5:0

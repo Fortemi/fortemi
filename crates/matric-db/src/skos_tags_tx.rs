@@ -330,7 +330,7 @@ impl PgSkosRepository {
         tx: &mut Transaction<'_, Postgres>,
     ) -> Result<Uuid> {
         let row = sqlx::query(
-            "SELECT id FROM skos_concept_scheme WHERE is_system = TRUE AND notation = 'default'",
+            "SELECT id FROM skos_concept_scheme WHERE tenant_id=current_setting('app.current_tenant')::uuid AND is_system = TRUE AND notation = 'default'",
         )
         .fetch_optional(&mut **tx)
         .await

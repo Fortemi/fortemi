@@ -2015,6 +2015,7 @@ fn resource_id_for_policy(
     params: &HashMap<&'static str, &str>,
 ) -> Option<ResourceIdCandidate> {
     let preferred_param = match policy.action_family {
+        "attachment" if policy.path.starts_with("/api/v1/notes/") => "id",
         "attachment" => "attachment_id",
         "collection"
         | "credential_management"

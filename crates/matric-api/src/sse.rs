@@ -252,7 +252,10 @@ pub(super) fn may_select_archive(
     archive: Option<(&str, &str)>,
     multi_tenant: bool,
 ) -> bool {
-    principal_tenant == archive_tenant
+    // Community subscribers can receive the reserved local owner's events;
+    // authenticated tenant subscribers still require an exact ownership match.
+    (principal_tenant == archive_tenant
+        || (!multi_tenant && principal_tenant.is_none() && archive_tenant == Some(Uuid::nil())))
         && match archive {
             Some(_) => true,
             // Global queue/configuration data can reveal activity across archives.
@@ -299,9 +302,8 @@ impl Subscription {
                 return None;
             }
         } else if let Some(tenant) = self.tenant_id {
-            // Personal producers share this server's single tenant. Preserve
-            // attributed foreign events so they are rejected, never relabeled.
-            envelope.tenant_id.get_or_insert_with(|| tenant.to_string());
+            // External single-tenant publishers carry verified request or
+            // persisted job ownership. Missing ownership never grants visibility.
             if !sse_tenant_matches(&envelope, Some(tenant)) {
                 return None;
             }

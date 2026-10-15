@@ -724,6 +724,7 @@ async fn test_schema_drift_detection() {
     let shared_tables: Vec<String> = vec![
         "_sqlx_migrations",
         "api_key",
+        "app_user",
         "archive_registry",
         "archive_inference_override",
         "audit_event",
@@ -731,6 +732,7 @@ async fn test_schema_drift_detection() {
         "document_type",
         "embedding_config",
         "event_outbox",
+        "external_oidc_ownership",
         "file_upload_audit",
         "inbound_dlq",
         "inbound_source",
@@ -742,6 +744,7 @@ async fn test_schema_drift_detection() {
         "oauth_authorization_code",
         "oauth_client",
         "oauth_token",
+        "personal_access_token",
         "pke_public_keys",
         "realtime_media_stream_attempt",
         "system_config",

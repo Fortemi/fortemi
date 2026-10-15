@@ -1,13 +1,17 @@
 //! matric-api - HTTP API server for matric-memory
 
+mod startup;
+
 mod admin_oauth_client;
 mod kms;
 
 mod attachments_job_gate;
 mod attachments_switch;
 mod audit_policy;
+mod event_scope;
 mod evidence_resolution;
 mod handlers;
+use event_scope::{event_context_for, RequestEvents};
 mod hosted_exempt_routes;
 #[cfg(test)]
 mod hosted_exempt_routes_tests;
@@ -39,6 +43,7 @@ mod system_compatibility;
 mod token_attribution_tests;
 mod trusted_proxy;
 mod worker_events;
+use worker_events::bridge_worker_events;
 
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
@@ -99,14 +104,16 @@ use matric_api::services::{
     InferenceBreakerConfig, InferenceCircuitBreakerRegistry, RedisRequestQuotaGate,
     RequestQuotaDecision, RequestQuotaIdentity, RequestQuotaPolicy, UserSecretRewrapWorkerConfig,
 };
+#[cfg(test)]
+use matric_core::EventContext;
 use matric_core::{
     AllowAllPolicy, ArchiveRepository, AttachmentScanStatus, AttachmentStatus,
     AuditAvailabilityPhase, AuditEvent, AuditFailureDisposition, AuditFailurePolicy, AuditOutcome,
     AuditSeverity, AuditSink, AuditSource, AuditVisibilityClass, AuthPrincipal,
     AuthorizationPolicy, AuthorizationServerMetadata, BatchTagNoteRequest,
     ClientRegistrationRequest, CollectionRepository, CreateApiKeyRequest, CreateNoteRequest,
-    Decision, DenyReason, DocumentTypeRepository, EmbeddingConfigProfile, EventBus, EventContext,
-    EventEnvelope, ExtractionAdapter, ExtractionStrategy, Job, JobRepository, JobStatus, JobType,
+    Decision, DenyReason, DocumentTypeRepository, EmbeddingConfigProfile, EventBus, EventEnvelope,
+    ExtractionAdapter, ExtractionStrategy, Job, JobRepository, JobStatus, JobType,
     ListNotesRequest, MeteringError, NoOpMeter, NoteRepository, OAuthError, ResourceKind,
     RevisionMode, RoleBasedPolicy, ServerEvent, StrictTagFilterInput, TagInput, TagRepository,
     TemplateRepository, TokenIntrospectionResponse, TokenRequest, TracingSink,
@@ -193,6 +200,7 @@ async fn inference_reachability_probe(
     flag: Arc<AtomicBool>,
     event_bus: Arc<EventBus>,
     interval_secs: u64,
+    db: Database,
 ) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
     // First tick fires immediately — skip it since startup already probed.
@@ -219,9 +227,14 @@ async fn inference_reachability_probe(
                 warn!("Inference provider became unreachable — chat endpoint disabled");
             }
             // Emit SSE event so clients clear/raise offline banners without polling `/health`.
-            event_bus.emit(ServerEvent::InferenceAvailabilityChanged {
-                available: reachable,
-            });
+            event_scope::publish_system(
+                &db,
+                &event_bus,
+                ServerEvent::InferenceAvailabilityChanged {
+                    available: reachable,
+                },
+            )
+            .await;
         }
     }
 }
@@ -277,10 +290,11 @@ async fn queue_extraction_job(
     strategy: ExtractionStrategy,
     filename: &str,
     content_type: &str,
-    event_bus: &EventBus,
+    event_bus: &Arc<EventBus>,
     schema: Option<&str>,
     vision_mode: Option<&str>,
     initiated_by_user_id: Option<Uuid>,
+    request_events: Option<&RequestEvents>,
 ) {
     let payload = extraction_job_payload(
         attachment_id,
@@ -300,6 +314,7 @@ async fn queue_extraction_job(
         payload,
         event_bus,
         initiated_by_user_id,
+        request_events,
     )
     .await;
 }
@@ -342,8 +357,9 @@ async fn queue_extraction_job_payload(
     strategy: ExtractionStrategy,
     filename: &str,
     payload: serde_json::Value,
-    event_bus: &EventBus,
+    event_bus: &Arc<EventBus>,
     initiated_by_user_id: Option<Uuid>,
+    request_events: Option<&RequestEvents>,
 ) {
     // Determine cost tier based on extraction strategy.
     // 3D model extraction uses Open3D renderer (GPU EGL), separated from
@@ -386,17 +402,32 @@ async fn queue_extraction_job_payload(
                 filename_len = telemetry_text_len(filename),
                 "Extraction job queued for attachment"
             );
-            worker_events::emit_job_event(
-                event_bus,
-                db,
-                job_id,
-                ServerEvent::JobQueued {
+            if let Some(request_events) = request_events {
+                request_events
+                    .publish_job(
+                        db,
+                        event_bus,
+                        job_id,
+                        ServerEvent::JobQueued {
+                            job_id,
+                            job_type: format!("{:?}", JobType::Extraction),
+                            note_id: Some(note_id),
+                        },
+                    )
+                    .await;
+            } else {
+                event_scope::publish_job(
+                    db,
+                    event_bus,
                     job_id,
-                    job_type: format!("{:?}", JobType::Extraction),
-                    note_id: Some(note_id),
-                },
-            )
-            .await;
+                    ServerEvent::JobQueued {
+                        job_id,
+                        job_type: format!("{:?}", JobType::Extraction),
+                        note_id: Some(note_id),
+                    },
+                )
+                .await;
+            }
         }
         Err(e) => {
             error!(
@@ -453,9 +484,9 @@ async fn queue_exif_extraction_job(
         .await
     {
         Ok(job_id) => {
-            worker_events::emit_job_event(
-                event_bus,
+            event_scope::publish_job(
                 db,
+                event_bus,
                 job_id,
                 ServerEvent::JobQueued {
                     job_id,
@@ -513,9 +544,9 @@ async fn queue_media_optimize_job(
         .await
     {
         Ok(job_id) => {
-            worker_events::emit_job_event(
-                event_bus,
+            event_scope::publish_job(
                 db,
+                event_bus,
                 job_id,
                 ServerEvent::JobQueued {
                     job_id,
@@ -625,9 +656,9 @@ async fn queue_attachment_scan_job(
             initiated_by_user_id,
         )
         .await?;
-    worker_events::emit_job_event(
-        &state.event_bus,
+    event_scope::publish_job(
         &state.db,
+        &state.event_bus,
         job_id,
         ServerEvent::JobQueued {
             job_id,
@@ -1031,9 +1062,9 @@ async fn queue_nlp_pipeline_inner(
             .await
         {
             Ok(Some(job_id)) => {
-                worker_events::emit_job_event(
-                    event_bus,
+                event_scope::publish_job(
                     db,
+                    event_bus,
                     job_id,
                     ServerEvent::JobQueued {
                         job_id,
@@ -1105,9 +1136,9 @@ async fn queue_nlp_pipeline_inner(
             .await
         {
             Ok(Some(job_id)) => {
-                worker_events::emit_job_event(
-                    event_bus,
+                event_scope::publish_job(
                     db,
+                    event_bus,
                     job_id,
                     ServerEvent::JobQueued {
                         job_id,
@@ -1161,9 +1192,9 @@ async fn queue_nlp_pipeline_inner(
             .await
         {
             Ok(Some(job_id)) => {
-                worker_events::emit_job_event(
-                    event_bus,
+                event_scope::publish_job(
                     db,
+                    event_bus,
                     job_id,
                     ServerEvent::JobQueued {
                         job_id,
@@ -4162,44 +4193,22 @@ async fn main() -> anyhow::Result<()> {
         );
     }
 
-    // Hosted deployments use distinct migration and runtime credentials. The
-    // runtime pool starts unscoped and cannot acquire ambient session tenant
-    // state; request transactions establish the tenant with SET LOCAL.
-    let db = if security_config.multi_tenant {
-        let migration_database_url = std::env::var("MIGRATION_DATABASE_URL").map_err(|_| {
-            anyhow::anyhow!(
-                "FORTEMI_MULTI_TENANT=true requires MIGRATION_DATABASE_URL for the owner/migration role"
-            )
-        })?;
-        if migration_database_url == database_url {
-            anyhow::bail!("MIGRATION_DATABASE_URL and DATABASE_URL must use distinct hosted roles");
-        }
-
-        info!("Running hosted database migrations with the migration role...");
-        let migration_db = Database::connect(&migration_database_url).await?;
-        migration_db.migrate().await?;
-        migration_db.pool.close().await;
-        info!("Hosted database migrations complete");
-
-        info!("Connecting with the hosted runtime database role...");
-        Database::connect_with_config(&database_url, PoolConfig::new().hosted_unscoped()).await?
+    let tenancy = if security_config.multi_tenant {
+        startup::Tenancy::Hosted
     } else {
-        info!("Connecting to database...");
-        let db = Database::connect(&database_url).await?;
-        info!("Running database migrations...");
-        db.migrate().await?;
-        info!("Database migrations complete");
-        db
+        #[cfg(feature = "hosted-auth")]
+        if let Some(config) = &external_oidc {
+            startup::Tenancy::External(config.default_tenant_id)
+        } else {
+            startup::Tenancy::Community
+        }
+        #[cfg(not(feature = "hosted-auth"))]
+        {
+            startup::Tenancy::Community
+        }
     };
-    info!("Database connected");
-
-    if security_config.multi_tenant {
-        assert_hosted_runtime_role(&db.pool).await?;
-    }
-    #[cfg(feature = "hosted-auth")]
-    if let Some(config) = &external_oidc {
-        external_oidc::ensure_default_tenant(&db.pool, config.default_tenant_id).await?;
-    }
+    let migration_url = std::env::var("MIGRATION_DATABASE_URL").ok();
+    let db = startup::database(&database_url, migration_url.as_deref(), tenancy).await?;
     let audit_sink = audit_sink_for_mode(&db, security_config.multi_tenant, {
         #[cfg(feature = "hosted-auth")]
         {
@@ -4701,9 +4710,14 @@ async fn main() -> anyhow::Result<()> {
 
         if security_config.multi_tenant {
             worker = worker
-                .with_hosted_handlers(vec![Arc::new(
-                    matric_api::hosted_jobs::HostedDocumentTypeInferenceHandler,
-                )])
+                .with_hosted_handlers(vec![
+                    Arc::new(matric_api::hosted_jobs::HostedDocumentTypeInferenceHandler),
+                    Arc::new(matric_api::hosted_jobs::HostedBuildVectorIndexHandler::new(
+                        db.administrative()
+                            .expect("hosted startup provides administrative executor")
+                            .clone(),
+                    )),
+                ])
                 .await?;
         }
 
@@ -4975,7 +4989,7 @@ async fn main() -> anyhow::Result<()> {
         let bridge_bus = event_bus.clone();
         let bridge_db = db.clone();
         tokio::spawn(async move {
-            worker_events::bridge_worker_events(bridge_rx, bridge_bus, bridge_db).await;
+            bridge_worker_events(bridge_rx, bridge_bus, bridge_db).await;
         });
 
         // Periodic QueueStatus emission (Issue #40)
@@ -5322,15 +5336,47 @@ async fn main() -> anyhow::Result<()> {
         let runtime = state.inference_runtime.clone();
         let flag = inference_available.clone();
         let bus = state.event_bus.clone();
+        let probe_db = state.db.clone();
         info!(
             interval_secs = probe_interval_secs,
             "Starting periodic inference reachability probe (#630)"
         );
         tokio::spawn(async move {
-            inference_reachability_probe(runtime, flag, bus, probe_interval_secs).await;
+            inference_reachability_probe(runtime, flag, bus, probe_interval_secs, probe_db).await;
         });
     }
 
+    let app = production_router(state, otel_runtime.http_state());
+
+    // Start server
+    let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
+    let bind_meta = startup_bind_telemetry(addr);
+    info!(
+        bind_host_len = bind_meta.host_len,
+        bind_port = bind_meta.port,
+        "Starting server"
+    );
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    lifecycle.mark_ready();
+    info!(
+        shutdown_grace_secs = shutdown_config.grace_secs,
+        "Server ready"
+    );
+    serve_api(
+        listener,
+        app,
+        lifecycle,
+        worker_handle,
+        shutdown_config.grace_secs,
+    )
+    .await?;
+
+    Ok(())
+}
+
+/// The complete production route inventory and middleware stack, also used by
+/// external-OIDC acceptance tests.
+fn production_router(state: AppState, http_telemetry: otel::HttpTelemetryState) -> Router {
     // Read max body size from env var with fallback
     let max_body_size = std::env::var("MATRIC_MAX_BODY_SIZE_BYTES")
         .ok()
@@ -5344,7 +5390,7 @@ async fn main() -> anyhow::Result<()> {
     let shard_max_base64_bytes = shard_base64_size_limit(shard_max_compressed_bytes);
 
     // Build router
-    let app = Router::new()
+    Router::new()
         // Health check
         .route("/health", get(health_check))
         .route("/health/live", get(health_check_live))
@@ -6031,7 +6077,7 @@ async fn main() -> anyhow::Result<()> {
         ))
         .layer(TraceLayer::new_for_http())
         .layer(axum::middleware::from_fn_with_state(
-            otel_runtime.http_state(),
+            http_telemetry,
             otel::http_middleware,
         ))
         .layer(PropagateRequestIdLayer::x_request_id())
@@ -6044,32 +6090,7 @@ async fn main() -> anyhow::Result<()> {
         })
         // Allow up to 2GB uploads for database backups and knowledge shards
         .layer(RequestBodyLimitLayer::new(max_body_size)) // 2 GB
-        .with_state(state);
-
-    // Start server
-    let addr: SocketAddr = format!("{}:{}", host, port).parse()?;
-    let bind_meta = startup_bind_telemetry(addr);
-    info!(
-        bind_host_len = bind_meta.host_len,
-        bind_port = bind_meta.port,
-        "Starting server"
-    );
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    lifecycle.mark_ready();
-    info!(
-        shutdown_grace_secs = shutdown_config.grace_secs,
-        "Server ready"
-    );
-    serve_api(
-        listener,
-        app,
-        lifecycle,
-        worker_handle,
-        shutdown_config.grace_secs,
-    )
-    .await?;
-
-    Ok(())
+        .with_state(state)
 }
 
 // =============================================================================
@@ -6195,7 +6216,6 @@ fn job_kind_usage_label(job_type: &str) -> Option<&'static str> {
 
 /// Periodically emit QueueStatus events.
 async fn emit_periodic_queue_status(event_bus: Arc<EventBus>, db: Database) {
-    use matric_core::JobRepository;
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
     loop {
         interval.tick().await;
@@ -6203,13 +6223,7 @@ async fn emit_periodic_queue_status(event_bus: Arc<EventBus>, db: Database) {
         if event_bus.subscriber_count() == 0 {
             continue;
         }
-        if let Ok(stats) = db.jobs.queue_stats().await {
-            event_bus.emit(ServerEvent::QueueStatus {
-                total_jobs: stats.total,
-                running: stats.processing,
-                pending: stats.pending,
-            });
-        }
+        event_scope::publish_queue_status(&db, &event_bus).await;
     }
 }
 
@@ -6996,18 +7010,11 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState) {
     let event_bus = state.event_bus.clone();
     let db = state.db.clone();
     let recv_task = tokio::spawn(async move {
-        use matric_core::JobRepository;
         while let Some(Ok(msg)) = receiver.next().await {
             match msg {
                 Message::Text(ref text) if text.as_str() == "refresh" => {
                     // Send immediate queue status
-                    if let Ok(stats) = db.jobs.queue_stats().await {
-                        event_bus.emit(ServerEvent::QueueStatus {
-                            total_jobs: stats.total,
-                            running: stats.processing,
-                            pending: stats.pending,
-                        });
-                    }
+                    event_scope::publish_queue_status(&db, &event_bus).await;
                 }
                 Message::Close(_) => break,
                 _ => {}
@@ -7022,18 +7029,6 @@ async fn handle_ws_connection(socket: WebSocket, state: AppState) {
     }
     let count = state.ws_connections.fetch_sub(1, Ordering::Relaxed) - 1;
     tracing::info!(active = count, "WebSocket connection closed");
-}
-
-/// Build an [`EventContext`] from the current request's archive context.
-///
-/// Used by handlers to attach memory scope to emitted events (Issue #452).
-fn event_context_for(archive_ctx: &ArchiveContext) -> EventContext {
-    EventContext {
-        memory: archive_ctx.name.clone(),
-        archive_name: Some(archive_ctx.name.clone().unwrap_or_else(|| "public".into())),
-        archive_schema: Some(archive_ctx.schema.clone()),
-        ..Default::default()
-    }
 }
 
 /// Wrapper stream that increments the disconnect counter when dropped (Issue #459).
@@ -7193,7 +7188,7 @@ impl fmt::Debug for SseQuery {
         ("Last-Event-ID" = Option<Uuid>, Header, description = "Replay cursor for the bounded in-memory buffer; expired cursors emit resync_required.")
     ),
     responses(
-        (status = 200, description = "SSE EventEnvelope frames. Human read (including write) or mcp admission; service credentials require mcp. Live and replay share tenant/archive/type/entity filters. memory retains the single-tenant request name or multi-tenant schema; archive_name and archive_schema identify the archive. tenant_id is verified in external-OIDC single-tenant and multi-tenant streams, absent for unbound local streams. Streams end at validated credential expiry. Anonymous access requires acknowledged anonymous-local mode; hosted streams require bearer authentication. See /api/v1/asyncapi.yaml.", body = String, content_type = "text/event-stream"),
+        (status = 200, description = "SSE EventEnvelope frames. Human read (including write) or mcp admission; service credentials require mcp. Live and replay share tenant/archive/type/entity filters. memory retains the single-tenant request name or multi-tenant schema; archive_name and archive_schema identify the archive. tenant_id is verified in external-OIDC single-tenant and multi-tenant streams, the reserved local owner for scoped community publishers, and absent for unbound local publishers. Streams end at validated credential expiry. Anonymous access requires acknowledged anonymous-local mode; hosted streams require bearer authentication. See /api/v1/asyncapi.yaml.", body = String, content_type = "text/event-stream"),
         (status = 400, description = "Invalid filter"),
         (status = 401, description = "Authentication required, invalid stream token, or minting user/parent credential no longer active with the required scopes. Query-token access is revalidated before admission and replay."),
         (status = 403, description = "Insufficient scope or archive selection denied"),
@@ -7259,10 +7254,10 @@ async fn sse_events(
     let tenant_text = tenant_id.map(|tenant| tenant.to_string());
     let human = identity.as_ref().is_some_and(sse::identity_is_human);
     let expires_at = identity.as_ref().and_then(|identity| identity.expires_at);
-    let principal = if state.multi_tenant {
+    let principal = if state.multi_tenant || scope.is_some() {
         if params.token.is_some() {
             return Err(ApiError::Unauthorized(
-                "Hosted streams require a bearer token.".into(),
+                "Tenant-scoped streams require a bearer token.".into(),
             ));
         }
         let identity = identity
@@ -7316,6 +7311,9 @@ async fn sse_events(
             .insert("archive_schema".into(), serde_json::json!(context.schema));
         input.action = sse::authorization_input(&principal, human, tenant_id).action;
         input = apply_verified_tenant_to_policy_input(input, Some(scope.tenant()));
+        // All scoped stream reads are complete. Release the connection before
+        // the configured authorization sink performs its durable write.
+        scope.release_preliminary().await?;
         authorize_policy_input(
             state.authorization_policy.as_ref(),
             state.audit_sink.as_ref(),
@@ -7361,7 +7359,7 @@ async fn sse_events(
         ));
     }
 
-    if principal.is_authenticated() && !state.multi_tenant {
+    if principal.is_authenticated() && !state.multi_tenant && scope.is_none() {
         let auth = Auth {
             principal: principal.clone(),
         };
@@ -7686,7 +7684,7 @@ async fn sse_events(
                 .text("keepalive"),
         )
         .into_response();
-    if state.multi_tenant {
+    if scope.is_some() {
         response
             .extensions_mut()
             .insert(TenantScopeReleasedBeforeStreaming);
@@ -9389,9 +9387,9 @@ async fn queue_twilio_recording_transcription(
         .await?;
 
     if let Some(job_id) = job_id {
-        worker_events::emit_job_event(
-            &state.event_bus,
+        event_scope::publish_job(
             &state.db,
+            &state.event_bus,
             job_id,
             ServerEvent::JobQueued {
                 job_id,
@@ -10561,6 +10559,8 @@ fn is_download_or_media_response(path: &str, response: &axum::response::Response
             content_type.starts_with("audio/")
                 || content_type.starts_with("video/")
                 || content_type.starts_with("image/")
+                || content_type.starts_with("text/event-stream")
+                || content_type.starts_with("multipart/x-mixed-replace")
                 || content_type == "text/vtt"
         })
 }
@@ -10580,6 +10580,47 @@ struct ValidatedBearerIdentity {
     request_principal: Option<RequestPrincipal>,
     #[cfg(feature = "hosted-auth")]
     canonical_context: Option<fortemi_auth_core::AuthContext>,
+}
+
+impl ValidatedBearerIdentity {
+    /// Called only after legacy credential validation and scope ceiling checks.
+    fn legacy(
+        state: &AppState,
+        principal: AuthPrincipal,
+        expires_at: Option<DateTime<Utc>>,
+        parent_credential: matric_api::services::ingest_token_store::EventStreamParent,
+    ) -> Self {
+        #[cfg(feature = "hosted-auth")]
+        let tenant_id = state
+            .external_oidc
+            .as_ref()
+            .filter(|_| state.auth_mode.external_oidc())
+            .map(|config| config.default_tenant_id);
+        #[cfg(not(feature = "hosted-auth"))]
+        let tenant_id = {
+            let _ = state;
+            None
+        };
+        #[cfg(feature = "hosted-auth")]
+        let request_principal = tenant_id.map(|tenant_id| {
+            // Startup established this deployment owner before admitting traffic.
+            // Legacy credentials remain service principals without a user identity.
+            let mut request_principal = RequestPrincipal::legacy(&principal);
+            request_principal.tenant_id = Some(tenant_id);
+            request_principal
+        });
+        Self {
+            principal,
+            tenant_id,
+            expires_at,
+            parent_credential: Some(parent_credential),
+            stream_identity: None,
+            #[cfg(feature = "hosted-auth")]
+            request_principal,
+            #[cfg(feature = "hosted-auth")]
+            canonical_context: None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -10657,7 +10698,6 @@ async fn auth_middleware(
     let hosted_bearer =
         state.multi_tenant && hosted_exempt_routes::hosted_requires_bearer(&method, &path);
     let requires_bearer = route_requires_bearer(state.require_auth, &path) || hosted_bearer;
-
     // Public routes and CORS preflights bypass all auth.
     if is_auth_exempt(&method, &path)
         && !hosted_bearer
@@ -10739,6 +10779,15 @@ async fn auth_middleware(
                         None,
                     );
                 }
+                request.extensions_mut().insert(TenantScopeRequired);
+            }
+            #[cfg(feature = "hosted-auth")]
+            if state.auth_mode.external_oidc()
+                && identity.tenant_id.is_some()
+                && (route_policy::hosted_tenant_transaction_ready(&method, &path)
+                    || path.starts_with("/api/v1/document-types")
+                    || (method == Method::POST && path == "/api/v1/notes/bulk"))
+            {
                 request.extensions_mut().insert(TenantScopeRequired);
             }
             #[cfg(feature = "hosted-auth")]
@@ -10904,26 +10953,14 @@ async fn validate_bearer_identity(
                     scope,
                     user_id: oauth_token.user_id,
                 };
-                #[cfg(feature = "hosted-auth")]
-                let request_principal = state
-                    .auth_mode
-                    .external_oidc()
-                    .then(|| RequestPrincipal::legacy(&principal));
-                Ok(ValidatedBearerIdentity {
+                Ok(ValidatedBearerIdentity::legacy(
+                    state,
                     principal,
-                    tenant_id: None,
-                    expires_at: Some(expires_at),
-                    parent_credential: Some(
-                        matric_api::services::ingest_token_store::EventStreamParent::OAuthToken(
-                            oauth_token.id,
-                        ),
+                    Some(expires_at),
+                    matric_api::services::ingest_token_store::EventStreamParent::OAuthToken(
+                        oauth_token.id,
                     ),
-                    stream_identity: None,
-                    #[cfg(feature = "hosted-auth")]
-                    request_principal,
-                    #[cfg(feature = "hosted-auth")]
-                    canonical_context: None,
-                })
+                ))
             }
             _ => Err(BearerValidationFailure::unauthorized()),
         }
@@ -11022,26 +11059,12 @@ async fn validate_bearer_identity(
                     key_id: api_key.id,
                     scope,
                 };
-                #[cfg(feature = "hosted-auth")]
-                let request_principal = state
-                    .auth_mode
-                    .external_oidc()
-                    .then(|| RequestPrincipal::legacy(&principal));
-                Ok(ValidatedBearerIdentity {
+                Ok(ValidatedBearerIdentity::legacy(
+                    state,
                     principal,
-                    tenant_id: None,
-                    expires_at: api_key.expires_at,
-                    parent_credential: Some(
-                        matric_api::services::ingest_token_store::EventStreamParent::ApiKey(
-                            api_key.id,
-                        ),
-                    ),
-                    stream_identity: None,
-                    #[cfg(feature = "hosted-auth")]
-                    request_principal,
-                    #[cfg(feature = "hosted-auth")]
-                    canonical_context: None,
-                })
+                    api_key.expires_at,
+                    matric_api::services::ingest_token_store::EventStreamParent::ApiKey(api_key.id),
+                ))
             }
             _ => Err(BearerValidationFailure::unauthorized()),
         }
@@ -11200,7 +11223,7 @@ async fn validate_event_stream_query_principal(
 
 async fn authorize_middleware(
     State(state): State<AppState>,
-    request: axum::http::Request<axum::body::Body>,
+    mut request: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     let Some(auth) = request.extensions().get::<Auth>().cloned() else {
@@ -11216,7 +11239,7 @@ async fn authorize_middleware(
 
     let archive_ctx = request.extensions().get::<ArchiveContext>().cloned();
     let tenant = request.extensions().get::<VerifiedRequestTenant>().copied();
-    let scope = request.extensions().get::<TenantRequestScope>();
+    let scope = request.extensions().get::<TenantRequestScope>().cloned();
     let input = apply_verified_tenant_to_policy_input(input, tenant);
     #[cfg(feature = "hosted-auth")]
     let input = apply_claim_policy_audit_context(
@@ -11232,37 +11255,183 @@ async fn authorize_middleware(
             .get::<ValidatedBearerIdentity>()
             .is_some_and(sse::identity_is_human),
     );
-    let input =
-        normalize_route_policy_input_for_authorization(&state, input, archive_ctx.as_ref(), scope)
-            .await;
+    #[cfg(feature = "hosted-auth")]
+    let external_oidc = state.auth_mode.external_oidc();
+    #[cfg(not(feature = "hosted-auth"))]
+    let external_oidc = false;
+    let synchronization = if external_oidc {
+        state
+            .db
+            .administrative()
+            .zip(tenant)
+            .zip(archive_ctx.as_ref())
+            .filter(|(_, archive)| archive.schema != "public")
+            .and_then(|((admin, tenant), archive)| {
+                archive.name.as_deref().map(|name| (admin, tenant, name))
+            })
+    } else {
+        None
+    };
+    // External single-tenant lookups use short transactions after releasing
+    // archive routing's preliminary connection. Hosted lookups need the verified
+    // tenant connection because their pool deliberately has no ambient tenant.
+    if external_oidc {
+        if let Some(scope) = &scope {
+            if let Err(error) = scope.release_preliminary().await {
+                return ApiError::from(error).into_response();
+            }
+        }
+    }
+    let lookup_scope = if external_oidc { None } else { scope.as_ref() };
+    let original_input = input;
+    let input = normalize_route_policy_input_for_authorization(
+        &state,
+        original_input.clone(),
+        archive_ctx.as_ref(),
+        lookup_scope,
+    )
+    .await;
+
+    // Policy audit sinks may use this same pool. No request connection may be
+    // retained while the durable admission decision is written.
+    if let Some(scope) = &scope {
+        if let Err(error) = scope.release_preliminary().await {
+            return ApiError::from(error).into_response();
+        }
+    }
 
     tracing::debug!(stage = "normalized", "Request admission stage");
 
-    let decision = if route_policy::is_operator_docs_route(input.policy.path) {
+    if let Err(response) = authorize_request_policy_input(&state, &auth, &input).await {
+        return response;
+    }
+
+    if let Some((admin, tenant, name)) = synchronization {
+        if let Err(error) = admin.sync_archive(tenant.tenant_id(), name).await {
+            return ApiError::from(error).into_response();
+        }
+    }
+    if scope.is_some() || synchronization.is_some() {
+        // Admission and maintenance leave a gap. Establish the handler transaction
+        // and re-resolve the archive and resource on that same connection.
+        let archive = if let Some(scope) = &scope {
+            match middleware::archive_routing::resolve_hosted_archive(
+                scope,
+                archive_ctx
+                    .as_ref()
+                    .and_then(|archive| archive.name.clone()),
+            )
+            .await
+            {
+                Ok(archive) => archive,
+                Err(error) => return ApiError::from(error).into_response(),
+            }
+        } else {
+            let name = synchronization.unwrap().2;
+            match state.db.archives.get_archive_by_name(name).await {
+                Ok(Some(archive)) => ArchiveContext {
+                    schema: archive.schema_name,
+                    name: Some(archive.name),
+                    is_default: archive.is_default,
+                },
+                Ok(None) => {
+                    return ApiError::from(matric_core::Error::NotFound(
+                        "Requested memory is not present or not visible to the caller.".into(),
+                    ))
+                    .into_response()
+                }
+                Err(error) => return ApiError::from(error).into_response(),
+            }
+        };
+        let input = normalize_route_policy_input_for_authorization(
+            &state,
+            original_input,
+            Some(&archive),
+            scope.as_ref(),
+        )
+        .await;
+        // The admission allow is already durably audited. Rechecking it must not
+        // check out another connection while holding the handler transaction.
+        // If revalidation denies access, release that transaction before writing
+        // the changed decision to the configured audit sink.
+        let audit = RevalidationAudit::default();
+        if let Err(response) =
+            authorize_request_policy_input_with_sink(&state, &auth, &input, &audit).await
+        {
+            if let Some(scope) = &scope {
+                if let Err(error) = scope.release_preliminary().await {
+                    return ApiError::from(error).into_response();
+                }
+            }
+            for event in audit.into_events() {
+                let _ = emit_auth_decision_audit_event(state.audit_sink.as_ref(), event).await;
+            }
+            return response;
+        }
+        request.extensions_mut().insert(archive);
+    }
+    next.run(request).await
+}
+
+#[allow(clippy::result_large_err)]
+async fn authorize_request_policy_input(
+    state: &AppState,
+    auth: &Auth,
+    input: &route_policy::RoutePolicyInput,
+) -> Result<(), axum::response::Response> {
+    authorize_request_policy_input_with_sink(state, auth, input, state.audit_sink.as_ref()).await
+}
+
+/// Revalidation follows an already audited admission; only a changed denial
+/// needs another durable event, after releasing the handler connection.
+#[derive(Default)]
+struct RevalidationAudit(Mutex<Vec<AuditEvent>>);
+
+impl RevalidationAudit {
+    fn into_events(self) -> Vec<AuditEvent> {
+        self.0.into_inner().expect("revalidation audit lock")
+    }
+}
+
+#[async_trait::async_trait]
+impl AuditSink for RevalidationAudit {
+    async fn emit(&self, event: AuditEvent) -> Result<(), matric_core::AuditError> {
+        self.0.lock().expect("revalidation audit lock").push(event);
+        Ok(())
+    }
+
+    async fn flush(&self) -> Result<(), matric_core::AuditError> {
+        Ok(())
+    }
+}
+
+#[allow(clippy::result_large_err)]
+async fn authorize_request_policy_input_with_sink(
+    state: &AppState,
+    auth: &Auth,
+    input: &route_policy::RoutePolicyInput,
+    audit_sink: &dyn AuditSink,
+) -> Result<(), axum::response::Response> {
+    if route_policy::is_operator_docs_route(input.policy.path) {
         // Generated API inventory is operator-only even when personal mode uses
         // AllowAllPolicy for the rest of the application.
         authorize_policy_input_with_challenge(
             &RoleBasedPolicy,
-            state.audit_sink.as_ref(),
-            &auth,
-            &input,
+            audit_sink,
+            auth,
+            input,
             Some(&state.issuer),
         )
         .await
     } else {
         authorize_policy_input_with_challenge(
             state.authorization_policy.as_ref(),
-            state.audit_sink.as_ref(),
-            &auth,
-            &input,
+            audit_sink,
+            auth,
+            input,
             Some(&state.issuer),
         )
         .await
-    };
-
-    match decision {
-        Ok(()) => next.run(request).await,
-        Err(response) => response,
     }
 }
 
@@ -11294,12 +11463,14 @@ async fn normalize_route_policy_input_for_authorization(
 ) -> route_policy::RoutePolicyInput {
     let input = apply_archive_context_to_policy_input(input, archive_ctx);
     let input = normalize_note_route_policy_input(input, |note_id| async move {
-        let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
         let schema = archive_ctx
             .map(|context| context.schema.clone())
             .unwrap_or_else(|| "public".to_string());
         with_request_schema(state, scope.cloned(), schema, move |connection| {
-            Box::pin(async move { notes.exists_tx(connection, note_id).await })
+            Box::pin(async move {
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM note WHERE id=$1 AND tenant_id=current_setting('app.current_tenant')::uuid)")
+                    .bind(note_id).fetch_one(connection).await.map_err(matric_core::Error::Database)
+            })
         })
         .await
     })
@@ -11309,17 +11480,21 @@ async fn normalize_route_policy_input_for_authorization(
     })
     .await;
     let input = normalize_attachment_route_policy_input(input, |attachment_id| async move {
-        let Some(file_storage) = state.db.file_storage.as_ref() else {
+        if state.db.file_storage.is_none() {
             return Err(matric_core::Error::Config(
                 "file storage not configured".to_string(),
             ));
-        };
-
-        match file_storage.get(attachment_id).await {
-            Ok(attachment) => Ok(Some(attachment.note_id)),
-            Err(matric_core::Error::NotFound(_)) => Ok(None),
-            Err(err) => Err(err),
         }
+        let schema = archive_ctx
+            .map(|context| context.schema.clone())
+            .unwrap_or_else(|| "public".to_string());
+        with_request_schema(state, scope.cloned(), schema, move |connection| {
+            Box::pin(async move {
+                sqlx::query_scalar("SELECT note_id FROM attachment WHERE id=$1 AND tenant_id=current_setting('app.current_tenant')::uuid")
+                    .bind(attachment_id).fetch_optional(connection).await.map_err(matric_core::Error::Database)
+            })
+        })
+        .await
     })
     .await;
     let input = normalize_archive_route_policy_input(input, |archive_name| async move {
@@ -11352,12 +11527,17 @@ async fn normalize_route_policy_input_for_authorization(
     .await;
     let input =
         normalize_document_type_route_policy_input(input, |document_type_name| async move {
-            state
-                .db
-                .document_types
-                .get_by_name(&document_type_name)
-                .await
-                .map(|document_type| document_type.map(DocumentTypeResourceMetadata::from))
+            with_request_schema(state, scope.cloned(), "public".into(), move |connection| {
+                Box::pin(async move {
+                    matric_db::PgDocumentTypeRepository::get_by_name_tx(
+                        connection,
+                        &document_type_name,
+                    )
+                    .await
+                    .map(|document_type| document_type.map(DocumentTypeResourceMetadata::from))
+                })
+            })
+            .await
         })
         .await;
     let input = normalize_job_route_policy_input(input, |job_id| state.db.jobs.get(job_id)).await;
@@ -11610,7 +11790,9 @@ where
     F: FnOnce(Uuid) -> Fut,
     Fut: std::future::Future<Output = matric_core::Result<bool>>,
 {
-    if input.resource.kind != ResourceKind::Note
+    let note_owned_attachment = input.resource.kind == ResourceKind::Attachment
+        && input.policy.path.starts_with("/api/v1/notes/");
+    if (input.resource.kind != ResourceKind::Note && !note_owned_attachment)
         || !input
             .resource
             .attrs
@@ -11636,7 +11818,19 @@ where
     };
 
     match note_exists(note_id).await {
-        Ok(true) => route_policy::mark_resource_id_normalized(&mut input),
+        Ok(true) => {
+            route_policy::mark_resource_id_normalized(&mut input);
+            if note_owned_attachment {
+                input
+                    .resource
+                    .attrs
+                    .insert("parent_resource_kind".into(), serde_json::json!("Note"));
+                input
+                    .resource
+                    .attrs
+                    .insert("parent_note_id".into(), serde_json::json!(note_id));
+            }
+        }
         Ok(false) => {
             tracing::warn!("authorization resource normalization skipped: note does not exist");
         }
@@ -15126,14 +15320,34 @@ async fn source_upsert_notes(
     State(state): State<AppState>,
     scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Json(request): Json<matric_core::SourceUpsertRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    #[cfg(feature = "hosted-auth")]
+    let author = principal.and_then(|Extension(principal)| principal.user_id);
+    #[cfg(not(feature = "hosted-auth"))]
+    let author: Option<Uuid> = None;
     let repository = matric_db::PgSourceUpsertRepository::new(state.db.pool.clone());
     let response = with_request_schema(
         &state,
         scope.clone().map(|Extension(scope)| scope),
         archive_ctx.schema.clone(),
-        move |connection| Box::pin(async move { repository.upsert_tx(connection, request).await }),
+        move |connection| Box::pin(async move {
+            let response = repository.upsert_tx(connection, request).await?;
+            if !response.dry_run {
+                if let Some(author) = author {
+                    use matric_core::SourceUpsertItemOutcome::{Inserted, Replaced, Versioned};
+                    for item in &response.items {
+                        if let (Some(id), Inserted | Replaced | Versioned) = (item.note_id, item.outcome) {
+                            sqlx::query("UPDATE note SET created_by_user_id=CASE WHEN $3 THEN $2 ELSE created_by_user_id END, updated_by_user_id=$2 WHERE id=$1")
+                                .bind(id).bind(author).bind(item.outcome == Inserted)
+                                .execute(&mut *connection).await?;
+                        }
+                    }
+                }
+            }
+            Ok(response)
+        }),
     )
     .await?;
 
@@ -15314,13 +15528,14 @@ impl fmt::Debug for CreateNoteBody {
     tag = "Notes",
     request_body = CreateNoteBody,
     responses(
-        (status = 201, description = "Created"),
-        (status = 400, description = "Bad request"),
+        (status = 201, description = "Created with an optional document type from the note's tenant"),
+        (status = 400, description = "Bad request, including a document type unavailable to the note's tenant"),
     )
 )]
 async fn create_note(
     _auth: Auth,
     State(state): State<AppState>,
+    events: RequestEvents,
     scope: Option<Extension<TenantRequestScope>>,
     #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
@@ -15506,13 +15721,13 @@ async fn create_note(
         .get_for_note(note_id)
         .await
         .unwrap_or_default();
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::NoteCreated {
             note_id,
             title: None, // Title not yet generated
             tags: tags_for_event,
         },
-        event_context_for(&archive_ctx),
     );
 
     // Invalidate search cache so new note appears in search results (#341)
@@ -15565,9 +15780,10 @@ async fn create_note_hosted(
                 let mut skip_title_gen = body.title.as_deref().is_some_and(|s| !s.is_empty());
                 let resolved_doc_type_id = if body.document_type.is_some() || body.document_type_id.is_some() {
                     let document_type: Option<(Uuid, serde_json::Value)> = sqlx::query_as(
-                        "SELECT id, COALESCE(agentic_config, '{}'::jsonb) FROM document_type
-                         WHERE ($1::text IS NOT NULL AND name = $1)
-                            OR ($1::text IS NULL AND id = $2)",
+                        "SELECT id, COALESCE(agentic_config, '{}'::jsonb) FROM public.document_type
+                         WHERE tenant_id = current_setting('app.current_tenant')::uuid
+                           AND (($1::text IS NOT NULL AND name = $1)
+                             OR ($1::text IS NULL AND id = $2))",
                     )
                     .bind(body.document_type.as_deref())
                     .bind(body.document_type_id)
@@ -15655,8 +15871,7 @@ async fn create_note_hosted(
             })
         })
         .await?;
-    let mut context = event_context_for(&archive_ctx);
-    context.tenant_id = Some(tenant_id.to_string());
+    let context = event_context_for(&archive_ctx, tenant_id, state.multi_tenant);
     let event_bus = state.event_bus.clone();
     let search_cache = state.search_cache.clone();
     let notify = state.db.jobs.job_notify();
@@ -15693,6 +15908,11 @@ async fn create_note_hosted(
 #[cfg(test)]
 #[path = "hosted_create_note_tests.rs"]
 mod hosted_create_note_tests;
+
+#[cfg(test)]
+mod job_queue_tests;
+
+mod scoped_bulk;
 
 fn hosted_create_note_jobs(
     body: &CreateNoteBody,
@@ -15849,6 +16069,7 @@ async fn bulk_create_notes(
     State(state): State<AppState>,
     scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
+    #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Json(body): Json<BulkCreateNotesBody>,
 ) -> Result<impl IntoResponse, ApiError> {
     if body.notes.is_empty() {
@@ -15880,16 +16101,48 @@ async fn bulk_create_notes(
         }
     }
 
-    // Resolve document_type slugs to UUIDs (batch lookup)
-    let mut resolved_doc_type_ids: Vec<Option<Uuid>> = Vec::with_capacity(body.notes.len());
+    if let Some(Extension(scope)) = scope.as_ref() {
+        return scoped_bulk::create(
+            &state,
+            scope.clone(),
+            archive_ctx,
+            body,
+            #[cfg(feature = "hosted-auth")]
+            principal.map(|Extension(principal)| principal),
+        )
+        .await;
+    }
+
+    // Resolve slugs on the same tenant scope as the bulk insert.
+    let type_requests: Vec<_> = body
+        .notes
+        .iter()
+        .map(|note| (note.document_type.clone(), note.document_type_id))
+        .collect();
+    let resolved_doc_type_ids = with_request_schema(
+        &state,
+        scope.as_ref().map(|Extension(scope)| scope.clone()),
+        archive_ctx.schema.clone(),
+        move |connection| {
+            Box::pin(async move {
+                let mut ids = Vec::with_capacity(type_requests.len());
+                for (slug, id) in type_requests {
+                    ids.push(if let Some(slug) = slug {
+                        matric_db::PgDocumentTypeRepository::get_by_name_tx(connection, &slug)
+                            .await?
+                            .map(|doc_type| doc_type.id)
+                    } else {
+                        id
+                    });
+                }
+                Ok(ids)
+            })
+        },
+    )
+    .await?;
     for (i, note) in body.notes.iter().enumerate() {
-        if let Some(ref slug) = note.document_type {
-            match state.db.document_types.get_by_name(slug).await? {
-                Some(dt) => resolved_doc_type_ids.push(Some(dt.id)),
-                None => return Err(unknown_document_type(Some(i))),
-            }
-        } else {
-            resolved_doc_type_ids.push(note.document_type_id);
+        if note.document_type.is_some() && resolved_doc_type_ids[i].is_none() {
+            return Err(unknown_document_type(Some(i)));
         }
     }
 
@@ -16119,9 +16372,11 @@ impl fmt::Debug for UpdateNoteBody {
         (status = 400, description = "Bad request"),
     )
 )]
+#[allow(clippy::too_many_arguments)] // Axum extracts each request context separately.
 async fn update_note(
     _auth: Auth,
     State(state): State<AppState>,
+    events: RequestEvents,
     scope: Option<Extension<TenantRequestScope>>,
     #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
@@ -16234,20 +16489,47 @@ async fn update_note(
         } else {
             None
         };
-        queue_nlp_pipeline_inner(
-            &state.db,
-            id,
-            revision_mode,
-            &state.event_bus,
-            schema_for_jobs,
-            body.model.as_deref(),
-            false,
-            body.chunk_max_chars,
-            body.chunk_overlap,
-            None,
-            updated_by_user_id,
-        )
-        .await;
+        if events.is_scoped() {
+            let db = state.db.clone();
+            let bus = state.event_bus.clone();
+            let schema = archive_ctx.schema.clone();
+            let model = body.model.clone();
+            let chunk_max_chars = body.chunk_max_chars;
+            let chunk_overlap = body.chunk_overlap;
+            events.after_commit(move || {
+                tokio::spawn(async move {
+                    queue_nlp_pipeline_inner(
+                        &db,
+                        id,
+                        revision_mode,
+                        &bus,
+                        Some(&schema),
+                        model.as_deref(),
+                        false,
+                        chunk_max_chars,
+                        chunk_overlap,
+                        None,
+                        updated_by_user_id,
+                    )
+                    .await;
+                });
+            });
+        } else {
+            queue_nlp_pipeline_inner(
+                &state.db,
+                id,
+                revision_mode,
+                &state.event_bus,
+                schema_for_jobs,
+                body.model.as_deref(),
+                false,
+                body.chunk_max_chars,
+                body.chunk_overlap,
+                None,
+                updated_by_user_id,
+            )
+            .await;
+        }
     }
 
     if let Some(user_id) = updated_by_user_id {
@@ -16281,7 +16563,8 @@ async fn update_note(
     .await?;
 
     // Emit NoteUpdated event (Issue #41, scoped via #452)
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::NoteUpdated {
             note_id: id,
             title: note.note.title.clone(),
@@ -16289,7 +16572,6 @@ async fn update_note(
             has_ai_content: note.revised.ai_generated_at.is_some(),
             has_links: !note.links.is_empty(),
         },
-        event_context_for(&archive_ctx),
     );
 
     // Invalidate search cache so updated content appears in search results (#341)
@@ -16313,6 +16595,7 @@ async fn update_note(
 async fn delete_note(
     _auth: Auth,
     State(state): State<AppState>,
+    events: RequestEvents,
     scope: Option<Extension<TenantRequestScope>>,
     #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
@@ -16345,17 +16628,8 @@ async fn delete_note(
     )
     .await?;
 
-    // Emit NoteDeleted event (Issue #453, scoped via #452)
-    let mut context = event_context_for(&archive_ctx);
-    let event_bus = state.event_bus.clone();
-    if let Some(Extension(scope)) = scope {
-        context.tenant_id = Some(scope.tenant().tenant_id().to_string());
-        scope.after_commit(move || {
-            event_bus.emit_with_context(ServerEvent::NoteDeleted { note_id: id }, context)
-        });
-    } else {
-        event_bus.emit_with_context(ServerEvent::NoteDeleted { note_id: id }, context);
-    }
+    // Publish only after the request transaction commits.
+    events.publish(&state.event_bus, ServerEvent::NoteDeleted { note_id: id });
 
     // Invalidate search cache so deleted notes don't appear in results (#247)
     state.search_cache.invalidate_all().await;
@@ -16596,6 +16870,7 @@ async fn lifecycle_purge_resume(
 async fn purge_note(
     _auth: Auth,
     State(state): State<AppState>,
+    events: RequestEvents,
     scope: Option<Extension<TenantRequestScope>>,
     #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
@@ -16638,17 +16913,18 @@ async fn purge_note(
         )
         .await?;
 
-    worker_events::emit_job_event(
-        &state.event_bus,
-        &state.db,
-        job_id,
-        ServerEvent::JobQueued {
+    events
+        .publish_job(
+            &state.db,
+            &state.event_bus,
             job_id,
-            job_type: format!("{:?}", JobType::PurgeNote),
-            note_id: Some(id),
-        },
-    )
-    .await;
+            ServerEvent::JobQueued {
+                job_id,
+                job_type: format!("{:?}", JobType::PurgeNote),
+                note_id: Some(id),
+            },
+        )
+        .await;
 
     // Invalidate search cache (#247)
     state.search_cache.invalidate_all().await;
@@ -16676,6 +16952,7 @@ struct UpdateStatusBody {
 )]
 async fn update_note_status(
     State(state): State<AppState>,
+    events: RequestEvents,
     scope: Option<Extension<TenantRequestScope>>,
     #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
@@ -16724,15 +17001,10 @@ async fn update_note_status(
         .await?;
     }
 
-    // Emit archive/restore events (Issue #453, scoped via #452)
-    let evt_ctx = event_context_for(&archive_ctx);
+    // Publish only after the request transaction commits.
     match archived_value {
-        Some(true) => state
-            .event_bus
-            .emit_with_context(ServerEvent::NoteArchived { note_id: id }, evt_ctx),
-        Some(false) => state
-            .event_bus
-            .emit_with_context(ServerEvent::NoteRestored { note_id: id }, evt_ctx),
+        Some(true) => events.publish(&state.event_bus, ServerEvent::NoteArchived { note_id: id }),
+        Some(false) => events.publish(&state.event_bus, ServerEvent::NoteRestored { note_id: id }),
         None => {}
     }
 
@@ -16768,6 +17040,7 @@ impl fmt::Debug for RestoreNoteQuery {
 )]
 async fn restore_note(
     State(state): State<AppState>,
+    events: RequestEvents,
     scope: Option<Extension<TenantRequestScope>>,
     #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
@@ -16790,10 +17063,7 @@ async fn restore_note(
     .await?;
 
     // Emit NoteRestored event (Issue #453, scoped via #452)
-    state.event_bus.emit_with_context(
-        ServerEvent::NoteRestored { note_id: id },
-        event_context_for(&archive_ctx),
-    );
+    events.publish(&state.event_bus, ServerEvent::NoteRestored { note_id: id });
 
     // Parse revision mode (default to Light)
     let revision_mode = match query.revision_mode.as_deref() {
@@ -16812,16 +17082,36 @@ async fn restore_note(
     };
 
     // Re-run NLP pipeline to ensure note is properly indexed
-    queue_nlp_pipeline(
-        &state.db,
-        id,
-        revision_mode,
-        &state.event_bus,
-        schema_for_jobs,
-        None,
-        initiated_by_user_id,
-    )
-    .await;
+    if events.is_scoped() {
+        let db = state.db.clone();
+        let bus = state.event_bus.clone();
+        let schema = archive_ctx.schema.clone();
+        events.after_commit(move || {
+            tokio::spawn(async move {
+                queue_nlp_pipeline(
+                    &db,
+                    id,
+                    revision_mode,
+                    &bus,
+                    Some(&schema),
+                    None,
+                    initiated_by_user_id,
+                )
+                .await;
+            });
+        });
+    } else {
+        queue_nlp_pipeline(
+            &state.db,
+            id,
+            revision_mode,
+            &state.event_bus,
+            schema_for_jobs,
+            None,
+            initiated_by_user_id,
+        )
+        .await;
+    }
 
     // Invalidate search cache so restored note appears in results (#247)
     state.search_cache.invalidate_all().await;
@@ -16883,6 +17173,7 @@ impl fmt::Debug for ReprocessNoteBody {
 )]
 async fn reprocess_note(
     State(state): State<AppState>,
+    events: RequestEvents,
     scope: Option<Extension<TenantRequestScope>>,
     #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
@@ -16961,17 +17252,18 @@ async fn reprocess_note(
             )
             .await
         {
-            worker_events::emit_job_event(
-                &state.event_bus,
-                &state.db,
-                job_id,
-                ServerEvent::JobQueued {
+            events
+                .publish_job(
+                    &state.db,
+                    &state.event_bus,
                     job_id,
-                    job_type: format!("{:?}", JobType::AiRevision),
-                    note_id: Some(id),
-                },
-            )
-            .await;
+                    ServerEvent::JobQueued {
+                        job_id,
+                        job_type: format!("{:?}", JobType::AiRevision),
+                        note_id: Some(id),
+                    },
+                )
+                .await;
             jobs_queued.push("ai_revision");
         }
     }
@@ -17016,17 +17308,18 @@ async fn reprocess_note(
                 )
                 .await
             {
-                worker_events::emit_job_event(
-                    &state.event_bus,
-                    &state.db,
-                    job_id,
-                    ServerEvent::JobQueued {
+                events
+                    .publish_job(
+                        &state.db,
+                        &state.event_bus,
                         job_id,
-                        job_type: format!("{:?}", job_type),
-                        note_id: Some(id),
-                    },
-                )
-                .await;
+                        ServerEvent::JobQueued {
+                            job_id,
+                            job_type: format!("{:?}", job_type),
+                            note_id: Some(id),
+                        },
+                    )
+                    .await;
                 jobs_queued.push(step_name);
             }
         }
@@ -17100,6 +17393,7 @@ impl fmt::Debug for BulkReprocessBody {
 )]
 async fn bulk_reprocess_notes(
     State(state): State<AppState>,
+    events: RequestEvents,
     scope: Option<Extension<TenantRequestScope>>,
     #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
@@ -17304,17 +17598,18 @@ async fn bulk_reprocess_notes(
     let mut jobs_queued: usize = 0;
     for (spec, result) in job_specs.iter().zip(results.iter()) {
         if let Ok(Some(job_id)) = result {
-            worker_events::emit_job_event(
-                &state.event_bus,
-                &state.db,
-                *job_id,
-                ServerEvent::JobQueued {
-                    job_id: *job_id,
-                    job_type: format!("{:?}", spec.1),
-                    note_id: Some(spec.0),
-                },
-            )
-            .await;
+            events
+                .publish_job(
+                    &state.db,
+                    &state.event_bus,
+                    *job_id,
+                    ServerEvent::JobQueued {
+                        job_id: *job_id,
+                        job_type: format!("{:?}", spec.1),
+                        note_id: Some(spec.0),
+                    },
+                )
+                .await;
             jobs_queued += 1;
         }
     }
@@ -17341,6 +17636,7 @@ async fn bulk_reprocess_notes(
                             Some(&archive_ctx.schema),
                             None,
                             initiated_by_user_id,
+                            Some(&events),
                         )
                         .await;
                         jobs_queued += 1;
@@ -17369,17 +17665,18 @@ async fn bulk_reprocess_notes(
             )
             .await
         {
-            worker_events::emit_job_event(
-                &state.event_bus,
-                &state.db,
-                job_id,
-                ServerEvent::JobQueued {
+            events
+                .publish_job(
+                    &state.db,
+                    &state.event_bus,
                     job_id,
-                    job_type: "GraphMaintenance".to_string(),
-                    note_id: None,
-                },
-            )
-            .await;
+                    ServerEvent::JobQueued {
+                        job_id,
+                        job_type: "GraphMaintenance".to_string(),
+                        note_id: None,
+                    },
+                )
+                .await;
             jobs_queued += 1;
         }
     }
@@ -17445,6 +17742,7 @@ impl fmt::Debug for SetTagsBody {
 )]
 async fn set_note_tags(
     State(state): State<AppState>,
+    events: RequestEvents,
     scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
@@ -17464,12 +17762,12 @@ async fn set_note_tags(
     .await?;
 
     // Emit NoteTagsUpdated event (Issue #463)
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::NoteTagsUpdated {
             note_id: id,
             tags: tags_clone,
         },
-        event_context_for(&archive_ctx),
     );
 
     // Invalidate search cache so tag changes are reflected in filtered searches (#341)
@@ -17522,6 +17820,7 @@ async fn list_concept_schemes(
     responses((status = 201, description = "Success")))]
 async fn create_concept_scheme(
     State(state): State<AppState>,
+    events: RequestEvents,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<matric_core::CreateConceptSchemeRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -17532,9 +17831,9 @@ async fn create_concept_scheme(
         .execute(move |tx| Box::pin(async move { skos.create_scheme_tx(tx, body).await }))
         .await?;
 
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::ConceptSchemeCreated { scheme_id: id },
-        event_context_for(&archive_ctx),
     );
     emit_taxonomy_audit_event(taxonomy_audit_event(
         "scheme_create",
@@ -17572,6 +17871,7 @@ async fn get_concept_scheme(
     responses((status = 204, description = "Success")))]
 async fn update_concept_scheme(
     State(state): State<AppState>,
+    events: RequestEvents,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<matric_core::UpdateConceptSchemeRequest>,
@@ -17582,9 +17882,9 @@ async fn update_concept_scheme(
     ctx.execute(move |tx| Box::pin(async move { skos.update_scheme_tx(tx, id, body).await }))
         .await?;
 
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::ConceptSchemeUpdated { scheme_id: id },
-        event_context_for(&archive_ctx),
     );
     emit_taxonomy_audit_event(taxonomy_audit_event(
         "scheme_update",
@@ -17609,6 +17909,7 @@ struct DeleteSchemeQuery {
     responses((status = 204, description = "Success")))]
 async fn delete_concept_scheme(
     State(state): State<AppState>,
+    events: RequestEvents,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Query(query): Query<DeleteSchemeQuery>,
@@ -17619,9 +17920,9 @@ async fn delete_concept_scheme(
     ctx.execute(move |tx| Box::pin(async move { skos.delete_scheme_tx(tx, id, force).await }))
         .await?;
 
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::ConceptSchemeDeleted { scheme_id: id },
-        event_context_for(&archive_ctx),
     );
     emit_taxonomy_audit_event(taxonomy_audit_event(
         "scheme_delete",
@@ -17719,6 +18020,7 @@ async fn search_concepts(
     responses((status = 201, description = "Success")))]
 async fn create_concept(
     State(state): State<AppState>,
+    events: RequestEvents,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<matric_core::CreateConceptRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -17730,12 +18032,12 @@ async fn create_concept(
         .execute(move |tx| Box::pin(async move { skos.create_concept_tx(tx, body).await }))
         .await?;
 
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::ConceptCreated {
             concept_id: id,
             scheme_id: Some(scheme_id),
         },
-        event_context_for(&archive_ctx),
     );
     emit_taxonomy_audit_event(taxonomy_audit_event(
         "concept_create",
@@ -17826,6 +18128,7 @@ async fn get_concept_full(
     responses((status = 200, description = "Success")))]
 async fn update_concept(
     State(state): State<AppState>,
+    events: RequestEvents,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<matric_core::UpdateConceptRequest>,
@@ -17845,9 +18148,9 @@ async fn update_concept(
         })
         .await?;
 
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::ConceptUpdated { concept_id: id },
-        event_context_for(&archive_ctx),
     );
     emit_taxonomy_audit_event(taxonomy_audit_event(
         "concept_update",
@@ -17873,6 +18176,7 @@ fn concept_not_found_after_update_error(_id: Uuid) -> matric_core::Error {
     responses((status = 204, description = "Success")))]
 async fn delete_concept(
     State(state): State<AppState>,
+    events: RequestEvents,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -17881,9 +18185,9 @@ async fn delete_concept(
     ctx.execute(move |tx| Box::pin(async move { skos.delete_concept_tx(tx, id).await }))
         .await?;
 
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::ConceptDeleted { concept_id: id },
-        event_context_for(&archive_ctx),
     );
     emit_taxonomy_audit_event(taxonomy_audit_event(
         "concept_delete",
@@ -18302,6 +18606,7 @@ impl fmt::Debug for AddRelationBody {
     responses((status = 201, description = "Success")))]
 async fn add_broader(
     State(state): State<AppState>,
+    events: RequestEvents,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<AddRelationBody>,
@@ -18319,12 +18624,12 @@ async fn add_broader(
     ctx.execute(move |tx| Box::pin(async move { skos.create_semantic_relation_tx(tx, req).await }))
         .await?;
 
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::ConceptRelationsUpdated {
             concept_id: id,
             relation_type: "broader".to_string(),
         },
-        event_context_for(&archive_ctx),
     );
 
     Ok((
@@ -18338,6 +18643,7 @@ async fn add_broader(
     responses((status = 201, description = "Success")))]
 async fn add_narrower(
     State(state): State<AppState>,
+    events: RequestEvents,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<AddRelationBody>,
@@ -18355,12 +18661,12 @@ async fn add_narrower(
     ctx.execute(move |tx| Box::pin(async move { skos.create_semantic_relation_tx(tx, req).await }))
         .await?;
 
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::ConceptRelationsUpdated {
             concept_id: id,
             relation_type: "narrower".to_string(),
         },
-        event_context_for(&archive_ctx),
     );
 
     Ok((
@@ -18374,6 +18680,7 @@ async fn add_narrower(
     responses((status = 201, description = "Success")))]
 async fn add_related(
     State(state): State<AppState>,
+    events: RequestEvents,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Json(body): Json<AddRelationBody>,
@@ -18391,12 +18698,12 @@ async fn add_related(
     ctx.execute(move |tx| Box::pin(async move { skos.create_semantic_relation_tx(tx, req).await }))
         .await?;
 
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::ConceptRelationsUpdated {
             concept_id: id,
             relation_type: "related".to_string(),
         },
-        event_context_for(&archive_ctx),
     );
 
     Ok((
@@ -18410,6 +18717,7 @@ async fn add_related(
     responses((status = 204, description = "Success")))]
 async fn remove_broader(
     State(state): State<AppState>,
+    events: RequestEvents,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path((id, target_id)): Path<(Uuid, Uuid)>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -18428,12 +18736,12 @@ async fn remove_broader(
     })
     .await?;
 
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::ConceptRelationsUpdated {
             concept_id: id,
             relation_type: "broader".to_string(),
         },
-        event_context_for(&archive_ctx),
     );
 
     Ok(StatusCode::NO_CONTENT)
@@ -18444,6 +18752,7 @@ async fn remove_broader(
     responses((status = 204, description = "Success")))]
 async fn remove_narrower(
     State(state): State<AppState>,
+    events: RequestEvents,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path((id, target_id)): Path<(Uuid, Uuid)>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -18462,12 +18771,12 @@ async fn remove_narrower(
     })
     .await?;
 
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::ConceptRelationsUpdated {
             concept_id: id,
             relation_type: "narrower".to_string(),
         },
-        event_context_for(&archive_ctx),
     );
 
     Ok(StatusCode::NO_CONTENT)
@@ -18478,6 +18787,7 @@ async fn remove_narrower(
     responses((status = 204, description = "Success")))]
 async fn remove_related(
     State(state): State<AppState>,
+    events: RequestEvents,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path((id, target_id)): Path<(Uuid, Uuid)>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -18496,12 +18806,12 @@ async fn remove_related(
     })
     .await?;
 
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::ConceptRelationsUpdated {
             concept_id: id,
             relation_type: "related".to_string(),
         },
-        event_context_for(&archive_ctx),
     );
 
     Ok(StatusCode::NO_CONTENT)
@@ -19007,6 +19317,7 @@ struct AddMemberBody {
 )]
 async fn add_skos_collection_member(
     State(state): State<AppState>,
+    events: RequestEvents,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path((collection_id, concept_id)): Path<(Uuid, Uuid)>,
     body: Option<Json<AddMemberBody>>,
@@ -19022,12 +19333,12 @@ async fn add_skos_collection_member(
     })
     .await?;
 
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::ConceptCollectionMembershipChanged {
             concept_id,
             collection_id: Some(collection_id),
         },
-        event_context_for(&archive_ctx),
     );
     emit_taxonomy_audit_event(taxonomy_audit_event(
         "collection_member_add",
@@ -19054,6 +19365,7 @@ async fn add_skos_collection_member(
 )]
 async fn remove_skos_collection_member(
     State(state): State<AppState>,
+    events: RequestEvents,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path((collection_id, concept_id)): Path<(Uuid, Uuid)>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -19067,12 +19379,12 @@ async fn remove_skos_collection_member(
     })
     .await?;
 
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::ConceptCollectionMembershipChanged {
             concept_id,
             collection_id: Some(collection_id),
         },
-        event_context_for(&archive_ctx),
     );
     emit_taxonomy_audit_event(taxonomy_audit_event(
         "collection_member_remove",
@@ -19148,6 +19460,7 @@ impl fmt::Debug for CreateCollectionBody {
     responses((status = 201, description = "Success")))]
 async fn create_collection(
     State(state): State<AppState>,
+    events: RequestEvents,
     scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<CreateCollectionBody>,
@@ -19176,12 +19489,12 @@ async fn create_collection(
     .await?;
 
     // Emit CollectionCreated event (Issue #454, scoped via #452)
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::CollectionCreated {
             collection_id: collection.id,
             name: collection.name.clone(),
         },
-        event_context_for(&archive_ctx),
     );
 
     Ok((StatusCode::CREATED, Json(collection)))
@@ -19231,6 +19544,7 @@ impl fmt::Debug for UpdateCollectionBody {
     responses((status = 204, description = "Success")))]
 async fn update_collection(
     State(state): State<AppState>,
+    events: RequestEvents,
     scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
@@ -19252,12 +19566,12 @@ async fn update_collection(
     .await?;
 
     // Emit CollectionUpdated event (Issue #454, scoped via #452)
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::CollectionUpdated {
             collection_id: id,
             name: collection_name,
         },
-        event_context_for(&archive_ctx),
     );
 
     Ok(StatusCode::NO_CONTENT)
@@ -19272,6 +19586,7 @@ async fn update_collection(
 )]
 async fn delete_collection(
     State(state): State<AppState>,
+    events: RequestEvents,
     scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
@@ -19304,9 +19619,9 @@ async fn delete_collection(
     })?;
 
     // Emit CollectionDeleted event (Issue #454, scoped via #452)
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::CollectionDeleted { collection_id: id },
-        event_context_for(&archive_ctx),
     );
 
     Ok(StatusCode::NO_CONTENT)
@@ -19466,6 +19781,7 @@ impl fmt::Debug for MoveNoteBody {
     responses((status = 204, description = "Success")))]
 async fn move_note_to_collection(
     State(state): State<AppState>,
+    events: RequestEvents,
     scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(note_id): Path<Uuid>,
@@ -19484,12 +19800,12 @@ async fn move_note_to_collection(
     .await?;
 
     // Emit CollectionMembershipChanged event (Issue #454, scoped via #452)
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::CollectionMembershipChanged {
             collection_id,
             note_id,
         },
-        event_context_for(&archive_ctx),
     );
 
     Ok(StatusCode::NO_CONTENT)
@@ -19928,6 +20244,7 @@ struct CoarseCommunityBody {
 )]
 async fn trigger_graph_maintenance(
     State(state): State<AppState>,
+    events: RequestEvents,
     #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     body: Option<Json<GraphMaintenanceBody>>,
@@ -19966,17 +20283,18 @@ async fn trigger_graph_maintenance(
 
     match maybe_id {
         Some(job_id) => {
-            worker_events::emit_job_event(
-                &state.event_bus,
-                &state.db,
-                job_id,
-                ServerEvent::JobQueued {
+            events
+                .publish_job(
+                    &state.db,
+                    &state.event_bus,
                     job_id,
-                    job_type: "GraphMaintenance".to_string(),
-                    note_id: None,
-                },
-            )
-            .await;
+                    ServerEvent::JobQueued {
+                        job_id,
+                        job_type: "GraphMaintenance".to_string(),
+                        note_id: None,
+                    },
+                )
+                .await;
             Ok((
                 StatusCode::CREATED,
                 Json(serde_json::json!({
@@ -24194,6 +24512,7 @@ fn looks_sensitive_job_string(value: &str) -> bool {
     responses((status = 201, description = "Success")))]
 async fn create_job(
     State(state): State<AppState>,
+    events: RequestEvents,
     #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Json(body): Json<CreateJobBody>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -24262,17 +24581,18 @@ async fn create_job(
 
         match maybe_id {
             Some(job_id) => {
-                worker_events::emit_job_event(
-                    &state.event_bus,
-                    &state.db,
-                    job_id,
-                    ServerEvent::JobQueued {
+                events
+                    .publish_job(
+                        &state.db,
+                        &state.event_bus,
                         job_id,
-                        job_type: format!("{:?}", job_type),
-                        note_id: body.note_id,
-                    },
-                )
-                .await;
+                        ServerEvent::JobQueued {
+                            job_id,
+                            job_type: format!("{:?}", job_type),
+                            note_id: body.note_id,
+                        },
+                    )
+                    .await;
                 Ok((
                     StatusCode::CREATED,
                     Json(serde_json::json!({
@@ -24303,17 +24623,18 @@ async fn create_job(
             )
             .await?;
 
-        worker_events::emit_job_event(
-            &state.event_bus,
-            &state.db,
-            job_id,
-            ServerEvent::JobQueued {
+        events
+            .publish_job(
+                &state.db,
+                &state.event_bus,
                 job_id,
-                job_type: format!("{:?}", job_type),
-                note_id: body.note_id,
-            },
-        )
-        .await;
+                ServerEvent::JobQueued {
+                    job_id,
+                    job_type: format!("{:?}", job_type),
+                    note_id: body.note_id,
+                },
+            )
+            .await;
 
         Ok((
             StatusCode::CREATED,
@@ -24458,6 +24779,7 @@ async fn get_job_pause_status(
 async fn pause_jobs_global(
     auth: Auth,
     State(state): State<AppState>,
+    events: RequestEvents,
 ) -> Result<impl IntoResponse, ApiError> {
     let ps = state
         .pause_state
@@ -24466,9 +24788,15 @@ async fn pause_jobs_global(
 
     ps.pause_global().await.map_err(ApiError::Database)?;
 
-    state.event_bus.emit(ServerEvent::JobsPaused {
-        scope: "global".to_string(),
-    });
+    events
+        .publish_all(
+            &state.db,
+            &state.event_bus,
+            ServerEvent::JobsPaused {
+                scope: "global".to_string(),
+            },
+        )
+        .await;
     emit_job_queue_control_audit_event(job_queue_control_audit_event(
         &auth,
         "pause_global",
@@ -24490,6 +24818,7 @@ async fn pause_jobs_global(
 async fn resume_jobs_global(
     auth: Auth,
     State(state): State<AppState>,
+    events: RequestEvents,
 ) -> Result<impl IntoResponse, ApiError> {
     let ps = state
         .pause_state
@@ -24498,9 +24827,15 @@ async fn resume_jobs_global(
 
     ps.resume_global().await.map_err(ApiError::Database)?;
 
-    state.event_bus.emit(ServerEvent::JobsResumed {
-        scope: "global".to_string(),
-    });
+    events
+        .publish_all(
+            &state.db,
+            &state.event_bus,
+            ServerEvent::JobsResumed {
+                scope: "global".to_string(),
+            },
+        )
+        .await;
     emit_job_queue_control_audit_event(job_queue_control_audit_event(
         &auth,
         "resume_global",
@@ -24523,6 +24858,7 @@ async fn resume_jobs_global(
 async fn pause_jobs_archive(
     auth: Auth,
     State(state): State<AppState>,
+    events: RequestEvents,
     Path(archive): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let ps = state
@@ -24530,13 +24866,23 @@ async fn pause_jobs_archive(
         .as_ref()
         .ok_or_else(|| ApiError::ServiceUnavailable("Pause state not available".into()))?;
 
-    ps.pause_archive(&archive)
+    let target = state
+        .db
+        .archives
+        .get_archive_by_name_or_schema(&archive)
+        .await?
+        .ok_or_else(memory_not_found)?;
+    ps.pause_archive(&target.schema_name)
         .await
         .map_err(ApiError::Database)?;
 
-    state.event_bus.emit(ServerEvent::JobsPaused {
-        scope: job_queue_event_scope("archive", Some(&archive)),
-    });
+    events.publish_in(
+        &state.event_bus,
+        ServerEvent::JobsPaused {
+            scope: job_queue_event_scope("archive", Some(&archive)),
+        },
+        &ArchiveContext::from(&target),
+    );
     emit_job_queue_control_audit_event(job_queue_control_audit_event(
         &auth,
         "pause_archive",
@@ -24560,6 +24906,7 @@ async fn pause_jobs_archive(
 async fn resume_jobs_archive(
     auth: Auth,
     State(state): State<AppState>,
+    events: RequestEvents,
     Path(archive): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
     let ps = state
@@ -24567,13 +24914,23 @@ async fn resume_jobs_archive(
         .as_ref()
         .ok_or_else(|| ApiError::ServiceUnavailable("Pause state not available".into()))?;
 
-    ps.resume_archive(&archive)
+    let target = state
+        .db
+        .archives
+        .get_archive_by_name_or_schema(&archive)
+        .await?
+        .ok_or_else(memory_not_found)?;
+    ps.resume_archive(&target.schema_name)
         .await
         .map_err(ApiError::Database)?;
 
-    state.event_bus.emit(ServerEvent::JobsResumed {
-        scope: job_queue_event_scope("archive", Some(&archive)),
-    });
+    events.publish_in(
+        &state.event_bus,
+        ServerEvent::JobsResumed {
+            scope: job_queue_event_scope("archive", Some(&archive)),
+        },
+        &ArchiveContext::from(&target),
+    );
     emit_job_queue_control_audit_event(job_queue_control_audit_event(
         &auth,
         "resume_archive",
@@ -33169,7 +33526,8 @@ async fn knowledge_shard(
                     is_available, document_composition, space_contract, space_id,
                     created_at, updated_at
                 FROM embedding_config ec
-                WHERE (
+                WHERE ec.tenant_id = current_setting('app.current_tenant')::uuid
+                AND (
                     $1
                     OR EXISTS (
                         SELECT 1 FROM shard_embedding_config_declaration declaration
@@ -34192,6 +34550,7 @@ async fn list_all_attachments(
 #[allow(clippy::too_many_arguments)]
 async fn upload_attachment(
     State(state): State<AppState>,
+    events: RequestEvents,
     auth: Auth,
     headers: HeaderMap,
     Extension(archive_ctx): Extension<ArchiveContext>,
@@ -34281,7 +34640,10 @@ async fn upload_attachment(
     // Query parameter takes priority over body field (issue #334)
     let effective_doc_type_id = att_query.document_type_id.or(body.document_type_id);
     if let Some(doc_type_id) = effective_doc_type_id {
-        if state.db.document_types.get(doc_type_id).await?.is_some() {
+        if matric_db::PgDocumentTypeRepository::get_tx(&mut tx, doc_type_id)
+            .await?
+            .is_some()
+        {
             file_storage
                 .set_document_type_tx(&mut tx, attachment.id, doc_type_id, None)
                 .await?;
@@ -34307,13 +34669,13 @@ async fn upload_attachment(
     .await;
 
     // Emit AttachmentCreated event (Issue #454, scoped via #452)
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::AttachmentCreated {
             attachment_id: attachment.id,
             note_id: id,
             filename: Some(body.filename.clone()),
         },
-        event_context_for(&archive_ctx),
     );
     emit_attachment_upload_audit_event(attachment_upload_audit_event(
         id,
@@ -34367,6 +34729,7 @@ async fn upload_attachment(
             Some(&archive_ctx.schema),
             vision_mode,
             initiated_by_user_id,
+            None,
         )
         .await;
         queue_exif_extraction_job(
@@ -34407,6 +34770,7 @@ async fn upload_attachment(
 #[allow(clippy::too_many_arguments)]
 async fn upload_attachment_multipart(
     State(state): State<AppState>,
+    events: RequestEvents,
     auth: Auth,
     headers: HeaderMap,
     Extension(archive_ctx): Extension<ArchiveContext>,
@@ -34533,7 +34897,10 @@ async fn upload_attachment_multipart(
     // Query parameter takes priority over form field (issue #334)
     let effective_doc_type_id = att_query.document_type_id.or(document_type_id);
     if let Some(doc_type_id) = effective_doc_type_id {
-        if state.db.document_types.get(doc_type_id).await?.is_some() {
+        if matric_db::PgDocumentTypeRepository::get_tx(&mut tx, doc_type_id)
+            .await?
+            .is_some()
+        {
             file_storage
                 .set_document_type_tx(&mut tx, attachment.id, doc_type_id, None)
                 .await?;
@@ -34558,13 +34925,13 @@ async fn upload_attachment_multipart(
     .await;
 
     // Emit AttachmentCreated event (Issue #454, scoped via #452)
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::AttachmentCreated {
             attachment_id: attachment.id,
             note_id: id,
             filename: Some(filename.clone()),
         },
-        event_context_for(&archive_ctx),
     );
     emit_attachment_upload_audit_event(attachment_upload_audit_event(
         id,
@@ -34611,6 +34978,7 @@ async fn upload_attachment_multipart(
             Some(&archive_ctx.schema),
             att_query.vision_mode.as_deref(),
             initiated_by_user_id,
+            None,
         )
         .await;
         queue_exif_extraction_job(
@@ -35584,6 +35952,7 @@ fn parse_byte_range(range: &str, total_size: usize) -> Result<(usize, usize), ()
     responses((status = 204, description = "No Content")))]
 async fn delete_attachment(
     State(state): State<AppState>,
+    events: RequestEvents,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(attachment_id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
@@ -35601,12 +35970,12 @@ async fn delete_attachment(
         .map_err(|e| attachment_media_operation_failed("Attachment delete", "commit delete", e))?;
 
     // Emit AttachmentDeleted event (Issue #454, scoped via #452)
-    state.event_bus.emit_with_context(
+    events.publish(
+        &state.event_bus,
         ServerEvent::AttachmentDeleted {
             attachment_id,
             note_id: None,
         },
-        event_context_for(&archive_ctx),
     );
 
     Ok(Json(serde_json::json!({
@@ -36062,12 +36431,13 @@ async fn tus_head_upload(
     responses(
         (status = 204, description = "Chunk appended. Upload in progress. Upload-Offset and Upload-Expires headers reflect new state."),
         (status = 200, description = "Final chunk accepted, upload complete and attachment finalized", body = matric_core::TusUpload),
-        (status = 400, description = "Bad request (missing Tus-Resumable or Upload-Offset headers, wrong Content-Type, or chunk exceeds total size)"),
+        (status = 400, description = "Bad request (missing Tus-Resumable or Upload-Offset headers, wrong Content-Type, chunk exceeds total size, or document type unavailable to the attachment tenant)"),
         (status = 404, description = "Upload not found or has expired"),
         (status = 409, description = "Upload-Offset mismatch between client and server"),
     ))]
 async fn tus_patch_upload(
     State(state): State<AppState>,
+    events: RequestEvents,
     Extension(archive_ctx): Extension<ArchiveContext>,
     #[cfg(feature = "hosted-auth")] principal: Option<Extension<RequestPrincipal>>,
     Path((note_id, upload_id)): Path<(Uuid, Uuid)>,
@@ -36265,10 +36635,16 @@ async fn tus_patch_upload(
             .and_then(|v| v.as_str())
             .and_then(|s| s.parse::<Uuid>().ok());
         if let Some(doc_type_id) = doc_type_id {
-            if state.db.document_types.get(doc_type_id).await?.is_some() {
+            if matric_db::PgDocumentTypeRepository::get_tx(&mut tx2, doc_type_id)
+                .await?
+                .is_some()
+            {
                 file_storage
                     .set_document_type_tx(&mut tx2, attachment.id, doc_type_id, None)
                     .await?;
+                attachment.document_type_id = Some(doc_type_id);
+            } else {
+                return Err(invalid_attachment_document_type_id());
             }
         }
         apply_attachment_scan_policy_with_hash_tx(&state, &mut tx2, &mut attachment, &content_hash)
@@ -36289,13 +36665,13 @@ async fn tus_patch_upload(
         let _ = tokio::fs::remove_file(&upload.storage_path).await;
 
         // Emit event and queue extraction
-        state.event_bus.emit_with_context(
+        events.publish(
+            &state.event_bus,
             ServerEvent::AttachmentCreated {
                 attachment_id: attachment.id,
                 note_id,
                 filename: Some(upload.filename.clone()),
             },
-            event_context_for(&archive_ctx),
         );
         emit_attachment_upload_audit_event(attachment_upload_audit_event(
             note_id,
@@ -36353,6 +36729,7 @@ async fn tus_patch_upload(
                 Some(&archive_ctx.schema),
                 tus_vision_mode.as_deref(),
                 initiated_by_user_id,
+                None,
             )
             .await;
             queue_exif_extraction_job(
@@ -64233,6 +64610,14 @@ not-json
         )
         .await;
 
+        // Privileged exports must exclude another tenant's same-name configuration.
+        let foreign_tenant = Uuid::new_v4();
+        let foreign_config_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO public.tenant_registry(id,slug,display_name,status) VALUES($1,$2,'Synthetic foreign shard owner','active')")
+            .bind(foreign_tenant).bind(foreign_tenant.to_string()).execute(&db.pool).await.unwrap();
+        sqlx::query("INSERT INTO public.embedding_config(id,tenant_id,name,model,dimension,chunk_size,chunk_overlap,shard_export_present) VALUES($1,$2,'vector-1024 config','foreign-synthetic-model',1024,512,64,true)")
+            .bind(foreign_config_id).bind(foreign_tenant).execute(&db.pool).await.unwrap();
+
         let exported = export_full_v1_auto(&state, &source.schema_name).await;
         let exported_files = read_shard_archive(&exported, ShardArchiveLimits::default()).unwrap();
         let exported_manifest =
@@ -64240,6 +64625,12 @@ not-json
         assert_eq!(exported_manifest.version, SHARD_SCHEMA_2_1_VERSION);
         let exported_configs: Vec<serde_json::Value> =
             serde_json::from_slice(&exported_files["embedding_configs.json"]).unwrap();
+        assert!(
+            !exported_configs
+                .iter()
+                .any(|config| config["id"] == foreign_config_id.to_string()),
+            "full-v1 export included another tenant's embedding configuration"
+        );
         assert!(exported_configs.iter().any(|config| {
             config["id"] == vector_config_id.to_string()
                 && config["dimension"] == 1024
@@ -64385,6 +64776,14 @@ not-json
             parse_and_validate_shard_manifest(&legacy_files["manifest.json"]).unwrap();
         assert_eq!(legacy_manifest.version, SHARD_SCHEMA_2_VERSION);
 
+        let foreign_owner: Uuid =
+            sqlx::query_scalar("SELECT tenant_id FROM public.embedding_config WHERE id=$1")
+                .bind(foreign_config_id)
+                .fetch_one(&db.pool)
+                .await
+                .unwrap();
+        assert_eq!(foreign_owner, foreign_tenant);
+
         for archive_name in [source_name, clean_name, legacy_name] {
             db.archives
                 .drop_archive_schema(&archive_name)
@@ -64392,10 +64791,20 @@ not-json
                 .unwrap();
         }
         sqlx::query("DELETE FROM public.embedding_config WHERE id = ANY($1::uuid[])")
-            .bind(vec![vector_config_id, half_config_id, legacy_config_id])
+            .bind(vec![
+                vector_config_id,
+                half_config_id,
+                legacy_config_id,
+                foreign_config_id,
+            ])
             .execute(&db.pool)
             .await
             .expect("delete shared variable embedding configs");
+        sqlx::query("DELETE FROM public.tenant_registry WHERE id=$1")
+            .bind(foreign_tenant)
+            .execute(&db.pool)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]
@@ -80680,7 +81089,7 @@ not-json
 
         let bus_clone = event_bus.clone();
         tokio::spawn(async move {
-            worker_events::bridge_worker_events(worker_rx, bus_clone, db).await;
+            bridge_worker_events(worker_rx, bus_clone, db).await;
         });
 
         // Small delay to ensure the bridge task is running
@@ -80869,7 +81278,7 @@ not-json
         let bridge_bus = event_bus.clone();
         let bridge_db = Database::connect(&database_url).await.unwrap();
         tokio::spawn(async move {
-            worker_events::bridge_worker_events(worker_rx, bridge_bus, bridge_db).await;
+            bridge_worker_events(worker_rx, bridge_bus, bridge_db).await;
         });
 
         // Start periodic queue status emitter

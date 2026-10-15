@@ -2,6 +2,19 @@
 
 This guide covers the complete process for building, deploying, and managing database migrations for Fortémi.
 
+## Upgrade note: external OIDC ownership (#1205)
+
+External-OIDC single-tenant startup adopts the local ownership graph into
+`FORTEMI_AUTH_DEFAULT_TENANT` before opening the listener or starting workers.
+Stop every old API and worker before the first upgraded start; this boundary
+requires an offline upgrade. Supply owner credentials through
+`MIGRATION_DATABASE_URL` and a separate non-bypass, non-owner runtime login
+through `DATABASE_URL`; both are required in external-OIDC mode. Conflicts
+abort atomically; successful repeats are no-ops. Keep the PAT pepper and storage
+paths. See the [complete upgrade procedure](external-oidc-upgrade.md), including
+failure recovery and the deployment completion receipt. Community localhost and
+hosted multi-tenant startup do not run this ownership adoption.
+
 ## Upgrade note: direct SQL after ADR-090
 
 The forced-RLS migration `20260824010000` requires `app.current_tenant` for
