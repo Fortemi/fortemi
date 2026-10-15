@@ -9,6 +9,9 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Fixed
 
+- Sort the `x-fortemi-attachments` extension's keys in the attachments-disabled
+  OpenAPI spec, so it no longer differs between builds with and without
+  serde_json's `preserve_order` feature (#1216).
 - Require `admin` for archive updates, deletion, cloning, default changes and
   `/memories/overview` in external-OIDC mode, including memory aliases (#1201).
   Add the read-scoped `/memories/available` picker and a startup policy-selection

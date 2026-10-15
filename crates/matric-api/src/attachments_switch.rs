@@ -137,10 +137,12 @@ pub fn strip_attachment_paths_from_openapi(yaml: &str) -> String {
     }
     root.insert(
         serde_yaml::Value::String("x-fortemi-attachments".to_string()),
-        serde_yaml::to_value(serde_json::json!({
+        // Sorted keys, so the served spec does not depend on serde_json's
+        // preserve_order feature in the build (#1216).
+        serde_yaml::to_value(crate::canonicalize_json_value(serde_json::json!({
             "enabled": false,
             "disabled_code": ATTACHMENTS_DISABLED_CODE,
-        }))
+        })))
         .expect("attachments extension must serialize"),
     );
     serde_yaml::to_string(&value).unwrap_or_else(|_| yaml.to_string())
@@ -331,5 +333,26 @@ mod tests {
         assert!(!stripped.contains("/api/v1/attachments"));
         assert!(!stripped.contains("attachments/tus"));
         assert!(stripped.contains("x-fortemi-attachments"));
+    }
+
+    #[test]
+    fn openapi_strip_orders_attachments_extension_keys() {
+        let stripped = strip_attachment_paths_from_openapi("openapi: 3.1.0\npaths: {}\n");
+        let value: serde_yaml::Value = serde_yaml::from_str(&stripped).unwrap();
+        let extension = value
+            .get("x-fortemi-attachments")
+            .and_then(serde_yaml::Value::as_mapping)
+            .expect("attachments extension must be a mapping");
+        let keys = extension
+            .keys()
+            .map(|key| key.as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(keys, ["disabled_code", "enabled"]);
+        assert_eq!(
+            extension
+                .get("enabled")
+                .and_then(serde_yaml::Value::as_bool),
+            Some(false)
+        );
     }
 }
