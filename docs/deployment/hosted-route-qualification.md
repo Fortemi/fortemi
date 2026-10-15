@@ -88,12 +88,12 @@ is qualified.
 | `attachments` | no | excluded | 0 | 0 | 17 | 0 |
 | `provenance` | no | excluded | 0 | 0 | 7 | 0 |
 | `templates` | no | excluded | 0 | 0 | 6 | 0 |
-| `account` | no | partial | 4 | 0 | 8 | 0 |
+| `account` | no | partial | 5 | 0 | 7 | 0 |
 | `voice_calls` | no | excluded | 0 | 0 | 1 | 1 |
 | `knowledge_health` | no | excluded | 0 | 0 | 6 | 0 |
 | `operator` | no | excluded | 0 | 0 | 63 | 2 |
 | `public_protocol` | no | public | 0 | 0 | 0 | 19 |
-| **total** | | | 37 | 90 | 153 | 22 |
+| **total** | | | 38 | 90 | 152 | 22 |
 
 ```json
 {
@@ -298,7 +298,7 @@ is qualified.
     {"method":"PATCH","path":"/api/v1/templates/{id}","class":"templates","status":"excluded","enforcement":"hosted_503"},
     {"method":"POST","path":"/api/v1/templates/{id}/instantiate","class":"templates","status":"excluded","enforcement":"hosted_503"},
     {"method":"GET","path":"/api/v1/auth/token-info","class":"account","status":"qualified","enforcement":"tenant_transaction"},
-    {"method":"GET","path":"/api/v1/me","class":"account","status":"excluded","enforcement":"hosted_503"},
+    {"method":"GET","path":"/api/v1/me","class":"account","status":"qualified","enforcement":"tenant_transaction"},
     {"method":"POST","path":"/api/v1/pke/address","class":"account","status":"excluded","enforcement":"hosted_503"},
     {"method":"POST","path":"/api/v1/pke/decrypt","class":"account","status":"excluded","enforcement":"hosted_503"},
     {"method":"POST","path":"/api/v1/pke/encrypt","class":"account","status":"excluded","enforcement":"hosted_503"},
@@ -427,6 +427,12 @@ secret storage, and the matrix check itself).
 | `realtime_mcp` | `GET /api/v1/events` (SSE, bearer + `mcp` scope) | `hosted_create_note_tests::hosted_creation_postgres_atomicity_and_tenant_isolation` (replay/live tenant filtering, transaction released before streaming); unit `hosted_sse_filters_foreign_and_unattributed_live_and_replay_events` |
 | `inference` | catalog, providers, complete, stream, embed | unit `handlers::inference_complete::tests::hosted_model_policy_is_profile_and_capability_specific`; outside the graph/knowledge workload |
 | `account` | token info, user secrets | unit `handlers::token_info::tests::hosted_contexts_report_hosted_class_expiry_and_tenant_binding`; `route_policy::tests::hosted_user_secret_routes_are_hidden_tenant_objects_without_enumeration_lookup`; `tests/user_secret_storage_test.rs` |
+
+`me_tenant_tests` uses the production router and an unscoped restricted hosted
+runtime role to check PAT authentication on `/api/v1/me` and `/api/v1/events`.
+It checks `/me` tenant equality with live and replayed SSE envelopes, isolation
+between two tenants' PAT streams, identical `401` responses for unknown,
+revoked and expired PATs, and the narrow tenant lookup's execute permissions.
 
 `route_policy::tests::hosted_tenant_transaction_gate_admits_only_migrated_methods`
 proves representative unready operations are refused by the gate, and the

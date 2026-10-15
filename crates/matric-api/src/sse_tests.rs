@@ -441,6 +441,7 @@ fn archive_selection_requires_the_same_tenant() {
 
 fn middleware_router(state: AppState) -> Router {
     Router::new()
+        .route("/api/v1/me", get(handlers::user_principal::me))
         .route("/api/v1/events", get(sse_events))
         .route(
             "/api/v1/events/tokens",
@@ -459,6 +460,141 @@ fn middleware_router(state: AppState) -> Router {
             auth_middleware,
         ))
         .with_state(state)
+}
+
+/// Exercise the production HTTP publisher and both SSE delivery paths using
+/// the same bearer as `/me`. Foreign events must never supply its tenant id.
+pub(super) async fn assert_me_tenant_matches_events(
+    app: &Router,
+    bus: &EventBus,
+    bearer: &str,
+    tenant: Uuid,
+) -> serde_json::Value {
+    let foreign = Uuid::new_v4();
+    let response = app
+        .clone()
+        .oneshot(
+            axum::http::Request::builder()
+                .uri(format!("/api/v1/me?tenant_id={foreign}"))
+                .header(header::AUTHORIZATION, format!("Bearer {bearer}"))
+                .header("X-Tenant-ID", foreign.to_string())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let body: serde_json::Value = serde_json::from_slice(
+        &axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["tenant_id"], tenant.to_string());
+
+    let stream_request = |cursor: Option<&str>| {
+        let mut request = axum::http::Request::builder()
+            .uri("/api/v1/events?memory=public&types=note.created")
+            .header(header::AUTHORIZATION, format!("Bearer {bearer}"));
+        if let Some(cursor) = cursor {
+            request = request.header("Last-Event-ID", cursor);
+        }
+        request.body(Body::empty()).unwrap()
+    };
+    let response = app.clone().oneshot(stream_request(None)).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut live = response.into_body().into_data_stream();
+    let mut frames = Vec::new();
+    for _ in 0..2 {
+        bus.emit_with_context(
+            ServerEvent::NoteCreated {
+                note_id: Uuid::new_v4(),
+                title: None,
+                tags: vec![],
+            },
+            event_context_for(&ArchiveContext::default(), foreign, false),
+        );
+        let response = app.clone().oneshot(
+            axum::http::Request::builder()
+                .method(Method::POST).uri("/api/v1/notes")
+                .header(header::AUTHORIZATION, format!("Bearer {bearer}"))
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(r#"{"content":"Tenant attribution fixture","revision_mode":"none","pipeline":[]}"#)).unwrap()
+        ).await.unwrap();
+        let status = response.status();
+        let created: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(status, StatusCode::CREATED, "{created}");
+        let frame = next_frame(&mut live).await;
+        assert_eq!(frame["payload"]["note_id"], created["id"]);
+        assert_eq!(
+            frame["tenant_id"].as_str().unwrap().as_bytes(),
+            body["tenant_id"].as_str().unwrap().as_bytes()
+        );
+        frames.push(frame);
+    }
+    drop(live);
+    let response = app
+        .clone()
+        .oneshot(stream_request(frames[0]["event_id"].as_str()))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut replay = response.into_body().into_data_stream();
+    let replayed = next_frame(&mut replay).await;
+    assert_eq!(replayed, frames[1]);
+    assert_eq!(
+        replayed["tenant_id"].as_str().unwrap().as_bytes(),
+        body["tenant_id"].as_str().unwrap().as_bytes()
+    );
+    body
+}
+
+#[tokio::test]
+async fn me_community_tenant_matches_live_and_replay_for_oauth_and_api_key() {
+    let state = state().await;
+    let oauth = local_token(&state, "admin", true).await;
+    let key = state
+        .db
+        .oauth
+        .create_api_key(
+            serde_json::from_value(
+                serde_json::json!({"name":"Tenant attribution fixture","scope":"admin"}),
+            )
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let app = production_router(state.clone(), None);
+    for bearer in [&oauth, &key.api_key] {
+        let body =
+            assert_me_tenant_matches_events(&app, &state.event_bus, bearer, Uuid::nil()).await;
+        assert_eq!(body["credential_class"], "legacy");
+    }
+}
+
+#[tokio::test]
+async fn me_unauthenticated_is_401_even_when_local_anonymous_access_is_enabled() {
+    let mut state = state().await;
+    state.require_auth = false;
+    let app = production_router(state, None);
+    for authorization in [None, Some("Bearer invalid-token")] {
+        let mut request = axum::http::Request::builder().uri("/api/v1/me");
+        if let Some(authorization) = authorization {
+            request = request.header(header::AUTHORIZATION, authorization);
+        }
+        let response = app
+            .clone()
+            .oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
 }
 
 async fn local_token(state: &AppState, scopes: &str, human: bool) -> String {

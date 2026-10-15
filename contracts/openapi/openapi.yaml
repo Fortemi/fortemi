@@ -4722,11 +4722,15 @@ paths:
       operationId: me
       responses:
         '200':
-          description: Current principal
+          description: Current principal and verified tenant shared with SSE attribution
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/MeResponse'
+        '401':
+          description: Authentication required or invalid credential
+        '403':
+          description: Principal, tenant or scopes not admitted
         '429':
           content:
             application/problem+json:
@@ -12186,6 +12190,7 @@ components:
     MeResponse:
       type: object
       required:
+      - tenant_id
       - iss
       - sub
       - kind
@@ -12228,6 +12233,12 @@ components:
             type: string
         sub:
           type: string
+        tenant_id:
+          type: string
+          format: uuid
+          description: |-
+            Verified principal's tenant, byte-identical to its attributed SSE envelopes.
+            Configured owner in external-OIDC, verified hosted tenant, or reserved local owner.
         user_id:
           type:
           - string

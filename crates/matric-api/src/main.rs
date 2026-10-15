@@ -10570,7 +10570,7 @@ fn is_download_or_media_response(path: &str, response: &axum::response::Response
 // =============================================================================
 
 #[derive(Clone)]
-struct ValidatedBearerIdentity {
+pub(crate) struct ValidatedBearerIdentity {
     principal: AuthPrincipal,
     tenant_id: Option<Uuid>,
     expires_at: Option<DateTime<Utc>>,
@@ -10583,6 +10583,12 @@ struct ValidatedBearerIdentity {
 }
 
 impl ValidatedBearerIdentity {
+    /// Canonical owner for `/me` and request-published SSE envelopes (including
+    /// replay). Community credentials belong to the reserved local tenant.
+    fn event_tenant_id(&self) -> Uuid {
+        self.tenant_id.unwrap_or_else(Uuid::nil)
+    }
+
     /// Called only after legacy credential validation and scope ceiling checks.
     fn legacy(
         state: &AppState,
@@ -11436,7 +11442,7 @@ async fn authorize_request_policy_input_with_sink(
 }
 
 fn route_requires_bearer(require_auth: bool, path: &str) -> bool {
-    require_auth || route_policy::is_operator_docs_route(path)
+    require_auth || path == "/api/v1/me" || route_policy::is_operator_docs_route(path)
 }
 
 /// Bind policy and audit context to the identity admitted by authentication.

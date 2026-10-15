@@ -47,5 +47,15 @@ pub(super) async fn database(
     // Forced RLS is the isolation boundary for legacy repositories and workers.
     // A tenant GUC alone cannot constrain a superuser or a BYPASSRLS role.
     assert_hosted_runtime_role(&runtime.pool).await?;
+    // Migrations revoke PUBLIC access. Admit only this verified runtime role
+    // to the minimal pre-tenant PAT lookup, never the owner pool to auth DML.
+    let runtime_role: String = sqlx::query_scalar("SELECT quote_ident(current_user::text)")
+        .fetch_one(&runtime.pool)
+        .await?;
+    sqlx::query(&format!(
+        "GRANT EXECUTE ON FUNCTION public.resolve_pat_tenant(text) TO {runtime_role}"
+    ))
+    .execute(&migration_db.pool)
+    .await?;
     Ok(runtime.with_administrative_pool(migration_db.pool).await?)
 }

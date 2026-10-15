@@ -1,6 +1,6 @@
 metadata:
   schema_version: 1.0.0
-  updated_at: '2026-10-15T00:39:50Z'
+  updated_at: '2026-10-15T02:19:02Z'
 records:
 - entity: urn:aiwg:artifact:crates/matric-db/src/external_owner/reconcile.sql
   record: records/issue-1205-round4-crates_matric-db_src_external_owner_reconcile-sql.prov.yaml
@@ -2042,3 +2042,49 @@ records:
   record: records/issue-1205-rebase-docs_content_authentication-md.prov.yaml
 - entity: urn:aiwg:artifact:crates/matric-api/src/hosted_create_note_tests.rs
   record: records/issue-1205-rebase-crates_matric-api_src_hosted_create_note_tests-rs.prov.yaml
+- entity: urn:aiwg:artifact:CHANGELOG.md
+  record: records/issue-1207-me-verified-tenant.prov.yaml
+- entity: urn:aiwg:artifact:contracts/openapi/openapi.sha256
+  record: records/issue-1207-me-verified-tenant.prov.yaml
+- entity: urn:aiwg:artifact:contracts/openapi/openapi.yaml
+  record: records/issue-1207-me-verified-tenant.prov.yaml
+- entity: urn:aiwg:artifact:crates/matric-api/src/event_scope.rs
+  record: records/issue-1207-me-verified-tenant.prov.yaml
+- entity: urn:aiwg:artifact:crates/matric-api/src/external_oidc_note_tests.rs
+  record: records/issue-1207-me-verified-tenant.prov.yaml
+- entity: urn:aiwg:artifact:crates/matric-api/src/handlers/user_principal.rs
+  record: records/issue-1207-me-verified-tenant.prov.yaml
+- entity: urn:aiwg:artifact:crates/matric-api/src/main.rs
+  record: records/issue-1207-me-verified-tenant.prov.yaml
+- entity: urn:aiwg:artifact:crates/matric-api/src/me_tenant_tests.rs
+  record: records/issue-1207-me-verified-tenant.prov.yaml
+- entity: urn:aiwg:artifact:crates/matric-api/src/route_policy.rs
+  record: records/issue-1207-me-verified-tenant.prov.yaml
+- entity: urn:aiwg:artifact:crates/matric-api/src/sse_tests.rs
+  record: records/issue-1207-me-verified-tenant.prov.yaml
+- entity: urn:aiwg:artifact:crates/matric-api/src/token_attribution_tests.rs
+  record: records/issue-1207-me-verified-tenant.prov.yaml
+- entity: urn:aiwg:artifact:docs/content/authentication.md
+  record: records/issue-1207-me-verified-tenant.prov.yaml
+- entity: urn:aiwg:artifact:docs/deployment/hosted-route-qualification.md
+  record: records/issue-1207-me-verified-tenant.prov.yaml
+- entity: urn:aiwg:artifact:docs/content/external-oidc-upgrade.md
+  record: records/issue-1207-me-verified-tenant.prov.yaml
+- entity: urn:aiwg:artifact:CHANGELOG.md
+  record: records/issue-1207-hosted-pat-rls.prov.yaml
+- entity: urn:aiwg:artifact:crates/matric-api/src/me_tenant_tests.rs
+  record: records/issue-1207-hosted-pat-rls.prov.yaml
+- entity: urn:aiwg:artifact:crates/matric-api/src/startup.rs
+  record: records/issue-1207-hosted-pat-rls.prov.yaml
+- entity: urn:aiwg:artifact:crates/matric-db/src/personal_access_tokens.rs
+  record: records/issue-1207-hosted-pat-rls.prov.yaml
+- entity: urn:aiwg:artifact:migrations/20261014050000_pat_tenant_lookup.sql
+  record: records/issue-1207-hosted-pat-rls.prov.yaml
+- entity: urn:aiwg:artifact:docs/content/authentication.md
+  record: records/issue-1207-hosted-pat-rls.prov.yaml
+- entity: urn:aiwg:artifact:docs/content/external-oidc-upgrade.md
+  record: records/issue-1207-hosted-pat-rls.prov.yaml
+- entity: urn:aiwg:artifact:docs/deployment/hosted-postgresql-role.md
+  record: records/issue-1207-hosted-pat-rls.prov.yaml
+- entity: urn:aiwg:artifact:docs/deployment/hosted-route-qualification.md
+  record: records/issue-1207-hosted-pat-rls.prov.yaml

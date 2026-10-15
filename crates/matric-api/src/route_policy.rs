@@ -1747,6 +1747,7 @@ pub fn hosted_tenant_transaction_ready(method: &Method, path: &str) -> bool {
     matches!(
         (method, policy.path),
         (&Method::GET, "/api/v1/events")
+            | (&Method::GET, "/api/v1/me")
             | (&Method::GET, "/api/v1/memory/context")
             | (&Method::POST, "/api/v1/memory/export")
             | (&Method::GET, "/api/v1/search")
@@ -2669,6 +2670,7 @@ mod tests {
     #[test]
     fn hosted_tenant_transaction_gate_admits_only_migrated_methods() {
         for (method, path) in [
+            (Method::GET, "/api/v1/me"),
             (Method::GET, "/api/v1/notes"),
             (
                 Method::DELETE,

@@ -50,9 +50,22 @@ fn app_user_with_attribution() -> matric_db::AppUser {
 }
 
 async fn me_body(principal: RequestPrincipal) -> serde_json::Value {
+    let identity = ValidatedBearerIdentity {
+        principal: AuthPrincipal::OAuthClient {
+            client_id: "attribution-test".into(),
+            user_id: Some(principal.sub.clone()),
+            scope: principal.scopes.join(" "),
+        },
+        tenant_id: principal.tenant_id,
+        expires_at: None,
+        parent_credential: None,
+        stream_identity: None,
+        request_principal: Some(principal),
+        canonical_context: None,
+    };
     let response = Router::new()
         .route("/api/v1/me", get(handlers::user_principal::me))
-        .layer(Extension(principal))
+        .layer(Extension(identity))
         .oneshot(
             axum::http::Request::builder()
                 .uri("/api/v1/me")

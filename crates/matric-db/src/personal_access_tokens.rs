@@ -330,9 +330,27 @@ impl PgPersonalAccessTokenRepository {
         }
         let token_hash = self.crypto.token_hmac_hex(token);
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
-        if let Some(tenant_id) = tenant_hint {
-            bind_tenant(&mut tx, tenant_id).await?;
-        }
+        // Hosted pools have no tenant bound. Resolve only opaque ownership via
+        // the narrow definer function, then read PAT/user data through RLS.
+        let tenant_id = match tenant_hint {
+            Some(tenant_id) => tenant_id,
+            None => {
+                let owner: Option<(Uuid, bool)> =
+                    sqlx::query_as("SELECT tenant_id, active FROM public.resolve_pat_tenant($1)")
+                        .bind(&token_hash)
+                        .fetch_optional(&mut *tx)
+                        .await
+                        .map_err(Error::Database)?;
+                match owner {
+                    Some((tenant_id, true)) => tenant_id,
+                    _ => {
+                        tx.rollback().await.map_err(Error::Database)?;
+                        return Ok(None);
+                    }
+                }
+            }
+        };
+        bind_tenant(&mut tx, tenant_id).await?;
         let row = sqlx::query(
             "SELECT
                  pat.id AS pat_id, pat.tenant_id, pat.user_id, pat.token_hash, pat.token_prefix,
@@ -344,9 +362,10 @@ impl PgPersonalAccessTokenRepository {
                  au.status AS user_status, au.first_seen_at, au.last_seen_at, au.last_oidc_at
              FROM public.personal_access_token pat
              JOIN public.app_user au ON au.tenant_id = pat.tenant_id AND au.id = pat.user_id
-             WHERE pat.token_hash = $1",
+             WHERE pat.token_hash = $1 AND pat.tenant_id = $2",
         )
         .bind(&token_hash)
+        .bind(tenant_id)
         .fetch_optional(&mut *tx)
         .await
         .map_err(Error::Database)?;
@@ -364,8 +383,6 @@ impl PgPersonalAccessTokenRepository {
         let expires_at: DateTime<Utc> = row.try_get("expires_at").map_err(Error::Database)?;
         let last_oidc_at: DateTime<Utc> = row.try_get("last_oidc_at").map_err(Error::Database)?;
         let now = Utc::now();
-        let tenant_id: Uuid = row.try_get("tenant_id").map_err(Error::Database)?;
-        bind_tenant(&mut tx, tenant_id).await?;
         if user_status != "active" || pat_status != "active" || expires_at <= now {
             tx.rollback().await.map_err(Error::Database)?;
             return Ok(None);

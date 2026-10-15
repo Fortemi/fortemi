@@ -9,6 +9,14 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Fixed
 
+- Return the verified `tenant_id` from `/api/v1/me` using the same admitted
+  identity as SSE event attribution, including live delivery and replay. Cover
+  community, hosted, external-OIDC, PAT and enabled legacy credentials; keep
+  unauthenticated requests at 401 even with anonymous local access (#1207).
+  Resolve hosted PAT ownership with a minimal protected lookup before scoped
+  validation, fixing valid PATs returning 503 under the restricted runtime role.
+  Verify tenant parity and cross-tenant isolation for live and replayed SSE.
+
 - Return verified external OIDC `azp`, optional `email`, and `email_verified`
   from `/api/v1/me`, persist token attribution for application users, and report
   authorized-party presence in decision audits (#1206). Email remains attribution

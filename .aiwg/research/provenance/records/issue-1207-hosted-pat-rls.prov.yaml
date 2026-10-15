@@ -1,0 +1,108 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-10-15T02:19:02Z",
+    "issue": "Fortemi/fortemi#1207",
+    "review": "/home/roctinam/.cache/claude-work/fortemi-srvfix/audit-1207.md",
+    "reproduction": "/home/roctinam/.cache/claude-work/fortemi-srvfix/1207-r2-reproduction.md",
+    "reproduction_result": "Before authentication changes: production hosted router with unscoped NOSUPERUSER NOBYPASSRLS runtime role returned 503 for valid PAT on both /api/v1/me and /api/v1/events."
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:issue-1207-hosted-pat-rls",
+    "type": "artifact_bundle",
+    "created_at": "2026-10-15T02:19:02Z",
+    "checksum": "sha256:094028b1dbaf62cd7c4b5e0a4d1cd1acf238f88a3131ac338b477d0b4e295243",
+    "size_bytes": 422058,
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "CHANGELOG.md",
+          "bytes": 233288,
+          "sha256": "bd9275769048399a0d48904ee4dde047bf8189702cdf33ae9ac26256d7b3cec2"
+        },
+        {
+          "path": "crates/matric-api/src/me_tenant_tests.rs",
+          "bytes": 19556,
+          "sha256": "c09335df467a31bd99f0e98a9925c0f0e868c8438d0db199ff7d8ae7e45b84c6"
+        },
+        {
+          "path": "crates/matric-api/src/startup.rs",
+          "bytes": 2480,
+          "sha256": "8eb2a8e1edcab6c54f867d1a40724a3a6c81691d1fb50604169d7305355c7659"
+        },
+        {
+          "path": "crates/matric-db/src/personal_access_tokens.rs",
+          "bytes": 21704,
+          "sha256": "8f92818b19a38d24ea82f622c2c8dccd63e549136a3c68e7d989ad524b146191"
+        },
+        {
+          "path": "migrations/20261014050000_pat_tenant_lookup.sql",
+          "bytes": 1087,
+          "sha256": "6f8d272f9937e7c2fc62dec383c158d9d0d53692881c4e046218262c3a7b35fc"
+        },
+        {
+          "path": "docs/content/authentication.md",
+          "bytes": 70844,
+          "sha256": "8c1a5a2a587a7fc1eb3602d0bb1d50c26bd9b0957ac658ee813eaebcd1351be7"
+        },
+        {
+          "path": "docs/content/external-oidc-upgrade.md",
+          "bytes": 14502,
+          "sha256": "0644baffb55101718cab911c71a349905b454d19075b4ec849d5caf8eae32113"
+        },
+        {
+          "path": "docs/deployment/hosted-postgresql-role.md",
+          "bytes": 6598,
+          "sha256": "b35a33d5f74586497c1d387c5869b95775c1ecd534f3eb286cc76d94fe39aaa5"
+        },
+        {
+          "path": "docs/deployment/hosted-route-qualification.md",
+          "bytes": 51999,
+          "sha256": "a5694cda428d89a1742229d6c8747e102011096396646e290ad7cbb29c1f32b5"
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:modification:issue-1207-hosted-pat-rls:2",
+    "type": "modification",
+    "started_at": "2026-10-15T02:01:15Z",
+    "ended_at": "2026-10-15T02:19:02Z",
+    "description": "Resolve hosted PAT ownership through a pinned SECURITY DEFINER HMAC lookup exposing only tenant id and active flag, revoke PUBLIC execute and grant only the verified runtime role at startup, then validate PAT/user data in that tenant transaction. Preserve HMAC/constant-time checks and indistinguishable invalid-token responses. Add production-router restricted-role tenant parity, live/replay isolation, invalid credential and function privilege tests; document the migration and permission contract."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex-gpt-6",
+    "type": "ai_assistant",
+    "name": "Codex",
+    "version": "GPT-6"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:issue-1207-hosted-pat-rls",
+      "activity": "urn:aiwg:activity:modification:issue-1207-hosted-pat-rls:2",
+      "time": "2026-10-15T02:19:02Z"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:modification:issue-1207-hosted-pat-rls:2",
+      "agent": "urn:aiwg:agent:codex-gpt-6"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:issue-1207-hosted-pat-rls",
+      "agent": "urn:aiwg:agent:codex-gpt-6"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:issue-1207-hosted-pat-rls",
+        "source": "urn:gitea:Fortemi:fortemi:issue:1207",
+        "derivation_type": "implements",
+        "activity": "urn:aiwg:activity:modification:issue-1207-hosted-pat-rls:2"
+      },
+      {
+        "entity": "urn:aiwg:artifact:issue-1207-hosted-pat-rls",
+        "source": "urn:aiwg:artifact:issue-1207",
+        "derivation_type": "extends",
+        "activity": "urn:aiwg:activity:modification:issue-1207-hosted-pat-rls:2"
+      }
+    ]
+  }
+}

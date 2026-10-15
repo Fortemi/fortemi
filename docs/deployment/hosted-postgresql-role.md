@@ -82,6 +82,20 @@ mode. It aborts when the runtime role is a
 superuser, has `BYPASSRLS`, owns a tenant table, or the public/archive tenant
 catalog is incomplete.
 
+Migration `20261014050000` adds `public.resolve_pat_tenant(text)`, a
+`SECURITY DEFINER` lookup owned by the migration role. It accepts only the
+deployment-keyed PAT HMAC and returns only its tenant UUID and the tenant's
+active flag. Its `search_path` is pinned to `pg_catalog`, its table references
+are schema-qualified, and `PUBLIC` has no execute permission. After verifying
+the restricted runtime role, startup grants that role execute permission on
+this function, including when the role was created after migrations or has a
+custom name. Keep the function owned by the migration role with `BYPASSRLS`.
+
+PAT authentication uses the lookup before binding `app.current_tenant` locally
+in its validation transaction. The full PAT/user read, HMAC comparison, scope
+intersection and usage update then run with the runtime role inside that scope.
+Unknown, revoked and expired credentials all return the same `401` response.
+
 Authorized archive synchronization/provisioning and claimed vector-index DDL
 use the administrative executor with an explicit tenant and archive-ownership
 check. Hosted HTTP archive-management routes remain gated until qualified.

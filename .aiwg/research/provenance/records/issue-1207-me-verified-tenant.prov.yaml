@@ -1,0 +1,141 @@
+{
+  "metadata": {
+    "schema_version": "1.0.0",
+    "created_at": "2026-10-15T01:36:51Z",
+    "issue": "Fortemi/fortemi#1207",
+    "source_commits": [
+      "urn:aiwg:commit:335c2374c4f109de4f0b1870cf72fbedb14ffd91"
+    ]
+  },
+  "entity": {
+    "id": "urn:aiwg:artifact:issue-1207",
+    "type": "artifact_bundle",
+    "created_at": "2026-10-15T01:36:51Z",
+    "updated_at": "2026-10-15T01:36:51Z",
+    "checksum": "sha256:d1f236aa19362604133b8828fe31bedde43c3e631c45162b0b22da5a4e3158d6",
+    "size_bytes": 4442602,
+    "attributes": {
+      "artifacts": [
+        {
+          "path": "CHANGELOG.md",
+          "bytes": 233053,
+          "sha256": "fb9353555393aac750d1be05218ea26f8ed2f61988027ddd2ed66eefad684274"
+        },
+        {
+          "path": "contracts/openapi/openapi.sha256",
+          "bytes": 79,
+          "sha256": "a65adde0082f4bc4aa51b2f64dad134930096a55a9cd6b853adfb48ed5327ee0"
+        },
+        {
+          "path": "contracts/openapi/openapi.yaml",
+          "bytes": 459381,
+          "sha256": "d69844e73917d23d8337dc166147ae7d80ef9492e5d442c755154642e1dcd462"
+        },
+        {
+          "path": "crates/matric-api/src/event_scope.rs",
+          "bytes": 11288,
+          "sha256": "1015e5c0fa135860e543d1857b094531c13f2a487c905f03de4702732d012aed"
+        },
+        {
+          "path": "crates/matric-api/src/external_oidc_note_tests.rs",
+          "bytes": 33389,
+          "sha256": "d633b5c9c3a4ebc5dd442b633177b9a83d5227c70d6ef72c3d8e9a4c21c19092"
+        },
+        {
+          "path": "crates/matric-api/src/handlers/user_principal.rs",
+          "bytes": 12999,
+          "sha256": "8e1f05a5fabff38cda62918c4c82db0fe892440b976f77eabbc3ae123890aa77"
+        },
+        {
+          "path": "crates/matric-api/src/main.rs",
+          "bytes": 3401525,
+          "sha256": "7b9198bcb3311ff18ae7dfcdf967494cb145857f268f49a3a281be830df204fe"
+        },
+        {
+          "path": "crates/matric-api/src/me_tenant_tests.rs",
+          "bytes": 6700,
+          "sha256": "77b2927ad9ff4ec5a951cc1fc11b770849be26b7a88ffa9def68e45ddbe2ce83"
+        },
+        {
+          "path": "crates/matric-api/src/route_policy.rs",
+          "bytes": 86038,
+          "sha256": "6d0f47a2da015abc530916181bc2dd93b949291fae3ac9d95c8fe2028c9017cf"
+        },
+        {
+          "path": "crates/matric-api/src/sse_tests.rs",
+          "bytes": 53256,
+          "sha256": "b100087a897c9d3c8e967871d44f199d567712995700f47e451e460d91d2cb67"
+        },
+        {
+          "path": "crates/matric-api/src/token_attribution_tests.rs",
+          "bytes": 8431,
+          "sha256": "1eb0f386e1e100d73101c1426943df043eac835db4363ff078bc4b01b313d827"
+        },
+        {
+          "path": "docs/content/authentication.md",
+          "bytes": 70352,
+          "sha256": "521ff68e36e8163062a84c0e59a41b8adf2fcdb21d65057abf14df821e69a964"
+        },
+        {
+          "path": "docs/content/external-oidc-upgrade.md",
+          "bytes": 14502,
+          "sha256": "0644baffb55101718cab911c71a349905b454d19075b4ec849d5caf8eae32113"
+        },
+        {
+          "path": "docs/deployment/hosted-route-qualification.md",
+          "bytes": 51609,
+          "sha256": "4437899d3821432918a792f4f6341accb9b0cf3de672f2335559a559c8919267"
+        }
+      ]
+    }
+  },
+  "activity": {
+    "id": "urn:aiwg:activity:modification:issue-1207",
+    "type": "modification",
+    "started_at": "2026-10-15T01:36:51Z",
+    "ended_at": "2026-10-15T01:36:51Z",
+    "description": "Expose the admitted principal tenant on /me through the same source used by request SSE publishers; admit hosted /me through the tenant transaction gate, support community and enabled legacy credentials, retain unauthenticated 401, and verify live/replay parity in community, hosted and external OIDC JWT/PAT modes. Regenerate OpenAPI with the repository script and document the contract."
+  },
+  "agent": {
+    "id": "urn:aiwg:agent:codex-gpt-6",
+    "type": "ai_assistant",
+    "name": "Codex",
+    "version": "GPT-6"
+  },
+  "relationships": {
+    "wasGeneratedBy": {
+      "entity": "urn:aiwg:artifact:issue-1207",
+      "activity": "urn:aiwg:activity:modification:issue-1207",
+      "time": "2026-10-15T01:36:51Z"
+    },
+    "wasAssociatedWith": {
+      "activity": "urn:aiwg:activity:modification:issue-1207",
+      "agent": "urn:aiwg:agent:codex-gpt-6"
+    },
+    "wasAttributedTo": {
+      "entity": "urn:aiwg:artifact:issue-1207",
+      "agent": "urn:aiwg:agent:codex-gpt-6"
+    },
+    "wasDerivedFrom": [
+      {
+        "entity": "urn:aiwg:artifact:issue-1207",
+        "source": "urn:gitea:Fortemi:fortemi:issue:1207",
+        "derivation_type": "implements",
+        "activity": "urn:aiwg:activity:modification:issue-1207"
+      },
+      {
+        "entity": "urn:aiwg:artifact:issue-1207",
+        "source": "urn:aiwg:commit:335c2374c4f109de4f0b1870cf72fbedb14ffd91",
+        "derivation_type": "derives_from",
+        "activity": "urn:aiwg:activity:modification:issue-1207"
+      }
+    ],
+    "used": [
+      {
+        "activity": "urn:aiwg:activity:modification:issue-1207",
+        "entity": "urn:aiwg:commit:335c2374c4f109de4f0b1870cf72fbedb14ffd91",
+        "role": "base_revision"
+      }
+    ]
+  }
+}

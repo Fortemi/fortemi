@@ -357,6 +357,24 @@ modes or verifier contracts must still fail compatibility admission.
 
 #### Current principal and token attribution
 
+`GET /api/v1/me` requires authentication in every mode and returns `401` for
+unauthenticated requests, including when anonymous local access is enabled.
+Its required `tenant_id` comes from the same admitted identity used to attribute
+request-published SSE envelopes, so the UUID string is byte-identical on `/me`,
+live events and replayed events visible to that principal:
+
+| Mode | `/me` and SSE `tenant_id` |
+|---|---|
+| Community | Reserved local tenant `00000000-0000-0000-0000-000000000000` |
+| Hosted | Tenant admitted by verified authentication and active-tenant validation |
+| External OIDC | Configured `FORTEMI_AUTH_DEFAULT_TENANT` |
+
+PATs use their verified tenant binding. Enabled external-OIDC legacy OAuth/API-key
+credentials use the configured tenant under their scope ceiling; community
+OAuth/API-key credentials use the local tenant. Request headers, query parameters,
+and an external token's tenant claim cannot override the configured external-OIDC
+owner. `/me` only reports the calling principal's tenant.
+
 `GET /api/v1/me` returns the verified OIDC token's `azp` (authorized party),
 optional `email`, and `email_verified`. Missing email returns JSON `null`
 without error. Missing or non-boolean verification is reported as `false`;
@@ -395,6 +413,14 @@ must be a subset of the caller's current OIDC scopes. Every PAT use recomputes
 the effective scope as the stored PAT scopes intersected with the user's current
 scopes, so demoting a user removes authority from existing PATs without issuing
 new credentials.
+
+Hosted PAT authentication first resolves the token's tenant through a narrow
+database lookup keyed by its deployment HMAC. It then validates the PAT and
+owning user inside that tenant's RLS scope using the restricted runtime role.
+Request headers and query parameters cannot choose a different tenant.
+Unknown, revoked and expired PATs return the same `401` response.
+See [hosted PostgreSQL roles](../deployment/hosted-postgresql-role.md) for the
+lookup's ownership and execute permissions.
 
 Fortemi checks the owning user's status on every PAT use and revokes active or
 suspended PATs when the user is disabled. If the user has not signed in with

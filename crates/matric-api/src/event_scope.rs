@@ -6,7 +6,9 @@ use matric_db::Database;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::{AppState, ArchiveContext, TenantRequestScope, VerifiedRequestTenant};
+use crate::{
+    AppState, ArchiveContext, TenantRequestScope, ValidatedBearerIdentity, VerifiedRequestTenant,
+};
 
 /// Captures extensions before a handler moves its database scope. Scoped
 /// publications are discarded on rollback and enter live delivery and replay
@@ -28,9 +30,15 @@ impl FromRequestParts<AppState> for RequestEvents {
         let scope = parts.extensions.get::<TenantRequestScope>().cloned();
         let tenant = parts
             .extensions
-            .get::<VerifiedRequestTenant>()
-            .copied()
-            .map(VerifiedRequestTenant::tenant_id)
+            .get::<ValidatedBearerIdentity>()
+            .map(ValidatedBearerIdentity::event_tenant_id)
+            .or_else(|| {
+                parts
+                    .extensions
+                    .get::<VerifiedRequestTenant>()
+                    .copied()
+                    .map(VerifiedRequestTenant::tenant_id)
+            })
             .or_else(|| scope.as_ref().map(|scope| scope.tenant().tenant_id()));
         // Accepted legacy external credentials address the startup-reconciled
         // deployment owner, even though they have no canonical bearer identity.

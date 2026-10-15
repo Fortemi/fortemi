@@ -1,7 +1,6 @@
 use axum::extract::Path;
 #[cfg(feature = "hosted-auth")]
 use axum::extract::State;
-#[cfg(feature = "hosted-auth")]
 use axum::Extension;
 use axum::Json;
 #[cfg(feature = "hosted-auth")]
@@ -11,9 +10,9 @@ use matric_core::audit::{
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::ApiError;
 #[cfg(feature = "hosted-auth")]
 use crate::AppState;
+use crate::{ApiError, ValidatedBearerIdentity};
 #[cfg(feature = "hosted-auth")]
 use fortemi_auth_core::PrincipalKind;
 #[cfg(feature = "hosted-auth")]
@@ -22,6 +21,9 @@ use matric_api::external_oidc::RequestPrincipal;
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct MeResponse {
     pub user_id: Option<Uuid>,
+    /// Verified principal's tenant, byte-identical to its attributed SSE envelopes.
+    /// Configured owner in external-OIDC, verified hosted tenant, or reserved local owner.
+    pub tenant_id: Uuid,
     pub iss: String,
     pub sub: String,
     pub kind: String,
@@ -59,13 +61,56 @@ pub struct AdminUserResponse {
     get,
     path = "/api/v1/me",
     tag = "System",
-    responses((status = 200, description = "Current principal", body = MeResponse))
+    responses(
+        (status = 200, description = "Current principal and verified tenant shared with SSE attribution", body = MeResponse),
+        (status = 401, description = "Authentication required or invalid credential"),
+        (status = 403, description = "Principal, tenant or scopes not admitted")
+    ),
+    security(("bearerAuth" = []))
 )]
+pub async fn me(
+    identity: Option<Extension<ValidatedBearerIdentity>>,
+) -> Result<Json<MeResponse>, ApiError> {
+    let identity = identity
+        .map(|Extension(identity)| identity)
+        .filter(|identity| identity.principal.is_authenticated())
+        .ok_or_else(|| ApiError::Unauthorized("Authentication required".into()))?;
+    let tenant_id = identity.event_tenant_id();
+    #[cfg(feature = "hosted-auth")]
+    if let Some(principal) = identity.request_principal {
+        return Ok(Json(principal_response(principal, tenant_id)));
+    }
+    let (sub, scope) = match identity.principal {
+        matric_core::AuthPrincipal::OAuthClient {
+            client_id,
+            user_id,
+            scope,
+        } => (user_id.unwrap_or(client_id), scope),
+        matric_core::AuthPrincipal::ApiKey { key_id, scope } => (key_id.to_string(), scope),
+        matric_core::AuthPrincipal::Anonymous => unreachable!("authenticated identity required"),
+    };
+    Ok(Json(MeResponse {
+        user_id: None,
+        tenant_id,
+        iss: "fortemi:legacy".into(),
+        sub,
+        kind: "service".into(),
+        azp: None,
+        credential_class: "legacy".into(),
+        scopes: scope.split_whitespace().map(ToOwned::to_owned).collect(),
+        pat_id: None,
+        email: None,
+        email_verified: false,
+        email_unverified: true,
+    }))
+}
+
 #[cfg(feature = "hosted-auth")]
-pub async fn me(Extension(principal): Extension<RequestPrincipal>) -> Json<MeResponse> {
+fn principal_response(principal: RequestPrincipal, tenant_id: Uuid) -> MeResponse {
     let kind = principal.kind_label().to_string();
-    Json(MeResponse {
+    MeResponse {
         user_id: principal.user_id,
+        tenant_id,
         iss: principal.iss,
         sub: principal.sub,
         kind,
@@ -76,20 +121,7 @@ pub async fn me(Extension(principal): Extension<RequestPrincipal>) -> Json<MeRes
         email: principal.email,
         email_verified: principal.email_verified,
         email_unverified: !principal.email_verified,
-    })
-}
-
-#[cfg(not(feature = "hosted-auth"))]
-#[utoipa::path(
-    get,
-    path = "/api/v1/me",
-    tag = "System",
-    responses((status = 200, description = "Current principal", body = MeResponse))
-)]
-pub async fn me() -> Result<Json<MeResponse>, ApiError> {
-    Err(ApiError::ServiceUnavailable(
-        "User principals require the hosted-auth build profile.".into(),
-    ))
+    }
 }
 
 #[utoipa::path(
@@ -318,20 +350,20 @@ mod tests {
 
     #[tokio::test]
     async fn me_reports_oidc_email_verification_state() {
-        let Json(verified) = me(Extension(principal(PrincipalKind::Human, true))).await;
+        let verified = principal_response(principal(PrincipalKind::Human, true), Uuid::new_v4());
         assert_eq!(verified.kind, "user");
         assert_eq!(verified.email.as_deref(), Some("user@example.com"));
         assert!(verified.email_verified);
         assert!(!verified.email_unverified);
 
-        let Json(unverified) = me(Extension(principal(PrincipalKind::Human, false))).await;
+        let unverified = principal_response(principal(PrincipalKind::Human, false), Uuid::new_v4());
         assert!(!unverified.email_verified);
         assert!(unverified.email_unverified);
     }
 
     #[tokio::test]
     async fn me_reports_service_principal_kind() {
-        let Json(body) = me(Extension(principal(PrincipalKind::Service, false))).await;
+        let body = principal_response(principal(PrincipalKind::Service, false), Uuid::new_v4());
 
         assert_eq!(body.kind, "service");
         assert_eq!(body.credential_class, "oidc");
