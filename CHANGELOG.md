@@ -9,6 +9,10 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Fixed
 
+- Keep the MMR diversity order when chain deduplication is enabled (the
+  default): hybrid search no longer re-sorts reranked results by score, so
+  `diversity` now changes result order. Score-sorted deduplication breaks ties
+  by first appearance instead of hash order (#1219).
 - Separate optional provider raw dimensions from capped embedding storage/index dimensions and preserve external ownership in candidate shards. Keep body chunks searchable for every set; search profile rows only for external sets (#1217).
 
 - Apply embedding-set `query_template` instructions on every query provider path,

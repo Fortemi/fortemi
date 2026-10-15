@@ -16,7 +16,10 @@ use uuid::Uuid;
 use matric_core::{EmbeddingRepository, Result, SearchHit, StrictFilter, StrictTagFilter};
 use matric_db::Database;
 
-use crate::deduplication::{deduplicate_search_results, DeduplicationConfig, EnhancedSearchHit};
+use crate::deduplication::{
+    deduplicate_search_results, deduplicate_search_results_in_order, DeduplicationConfig,
+    EnhancedSearchHit,
+};
 use crate::fts_flags::FtsFeatureFlags;
 use crate::mmr::mmr_rerank;
 use crate::rrf::rrf_fuse;
@@ -436,6 +439,7 @@ impl HybridSearchEngine {
             "Fusion complete"
         );
         let diversity = config.diversity.unwrap_or(0.0);
+        let mut mmr_applied = false;
         if diversity > 0.0 {
             if let Some(vector) = query_embedding {
                 let mmr_start = Instant::now();
@@ -457,13 +461,19 @@ impl HybridSearchEngine {
                 let vectors = rows.into_iter().map(|row| Ok((row.try_get("note_id")?, row.try_get("vector")?)))
                     .collect::<std::result::Result<std::collections::HashMap<Uuid, Vector>, sqlx::Error>>()?;
                 results = mmr_rerank(results, &vectors, vector, diversity, limit as usize * 3);
+                mmr_applied = true;
                 debug!(diversity = %diversity, vectors_fetched = vectors.len(), result_count = results.len(), duration_ms = mmr_start.elapsed().as_millis() as u64, "MMR diversity re-ranking complete");
             }
         }
         if config.min_score > 0.0 {
             results.retain(|hit| hit.score >= config.min_score);
         }
-        let mut results = deduplicate_search_results(results, &config.deduplication);
+        // A score re-sort here would discard the MMR ordering (#1219).
+        let mut results = if mmr_applied {
+            deduplicate_search_results_in_order(results, &config.deduplication)
+        } else {
+            deduplicate_search_results(results, &config.deduplication)
+        };
         results.truncate(limit as usize);
         info!(
             fts_hits = fts_count,

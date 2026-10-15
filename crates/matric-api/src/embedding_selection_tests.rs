@@ -248,21 +248,18 @@ async fn body_only_ranking_survives_ownership_flip_on_every_search_route(admin: 
     db.pool.close().await;
 }
 
-async fn diversified(
+async fn diversified_with(
     db: &Database,
     set: Option<Uuid>,
     query: &Vector,
     limit: i64,
     diversity: f32,
+    deduplication: matric_search::DeduplicationConfig,
 ) -> Vec<Uuid> {
     let config = matric_search::HybridSearchConfig {
         embedding_set_id: set,
         diversity: Some(diversity),
-        // Chain dedup re-sorts by score and would mask MMR ordering.
-        deduplication: matric_search::DeduplicationConfig {
-            deduplicate_chains: false,
-            ..Default::default()
-        },
+        deduplication,
         ..Default::default()
     };
     let mut connection = db.pool.acquire().await.unwrap();
@@ -280,6 +277,20 @@ async fn diversified(
         .into_iter()
         .map(|hit| hit.hit.note_id)
         .collect()
+}
+
+async fn diversified(
+    db: &Database,
+    set: Option<Uuid>,
+    query: &Vector,
+    limit: i64,
+    diversity: f32,
+) -> Vec<Uuid> {
+    let raw = matric_search::DeduplicationConfig {
+        deduplicate_chains: false,
+        ..Default::default()
+    };
+    diversified_with(db, set, query, limit, diversity, raw).await
 }
 
 #[sqlx::test(migrations = false)]
@@ -398,6 +409,11 @@ async fn unscoped_mmr_never_borrows_profiles_from_another_external_set(admin: sq
     // Default-set body vectors: `near` duplicates `top`, so diversity prefers `distinct` second.
     assert_eq!(
         diversified(&db, None, &query, 2, 0.9).await,
+        [top, distinct]
+    );
+    // Default chain deduplication must keep the MMR order instead of re-sorting by score (#1219).
+    assert_eq!(
+        diversified_with(&db, None, &query, 2, 0.9, Default::default()).await,
         [top, distinct]
     );
     db.pool.close().await;

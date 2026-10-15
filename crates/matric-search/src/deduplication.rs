@@ -97,7 +97,8 @@ impl Default for DeduplicationConfig {
 /// 1. Groups results by note_id (chain_id)
 /// 2. For each group, keeps only the best-scoring chunk
 /// 3. Adds ChainSearchInfo with metadata about matched chunks
-/// 4. Re-sorts by score after deduplication
+/// 4. Re-sorts by score after deduplication (see
+///    [`deduplicate_search_results_in_order`] to keep the input order)
 ///
 /// # Arguments
 ///
@@ -110,6 +111,23 @@ impl Default for DeduplicationConfig {
 pub fn deduplicate_search_results(
     results: Vec<SearchHit>,
     config: &DeduplicationConfig,
+) -> Vec<EnhancedSearchHit> {
+    deduplicate(results, config, false)
+}
+
+/// Like [`deduplicate_search_results`], but keeps each chain at the position of its
+/// first hit instead of re-sorting by score, so an upstream reranking (MMR) survives.
+pub fn deduplicate_search_results_in_order(
+    results: Vec<SearchHit>,
+    config: &DeduplicationConfig,
+) -> Vec<EnhancedSearchHit> {
+    deduplicate(results, config, true)
+}
+
+fn deduplicate(
+    results: Vec<SearchHit>,
+    config: &DeduplicationConfig,
+    preserve_order: bool,
 ) -> Vec<EnhancedSearchHit> {
     if !config.deduplicate_chains {
         // No deduplication - just wrap results
@@ -124,13 +142,19 @@ pub fn deduplicate_search_results(
 
     // Group results by note_id (chain_id)
     let mut chains: HashMap<Uuid, Vec<SearchHit>> = HashMap::new();
+    let mut first_seen: Vec<Uuid> = Vec::new();
     for hit in results {
-        chains.entry(hit.note_id).or_default().push(hit);
+        let entry = chains.entry(hit.note_id).or_default();
+        if entry.is_empty() {
+            first_seen.push(hit.note_id);
+        }
+        entry.push(hit);
     }
 
-    // Process each chain
-    let mut deduplicated: Vec<EnhancedSearchHit> = chains
+    // Process each chain in first-appearance order
+    let mut deduplicated: Vec<EnhancedSearchHit> = first_seen
         .into_iter()
+        .filter_map(|chain_id| chains.remove(&chain_id).map(|hits| (chain_id, hits)))
         .map(|(chain_id, mut hits)| {
             // Sort hits by score descending to find best chunk
             hits.sort_by(|a, b| {
@@ -165,13 +189,15 @@ pub fn deduplicate_search_results(
         })
         .collect();
 
-    // Re-sort by score after deduplication
-    deduplicated.sort_by(|a, b| {
-        b.hit
-            .score
-            .partial_cmp(&a.hit.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    if !preserve_order {
+        // Re-sort by score after deduplication
+        deduplicated.sort_by(|a, b| {
+            b.hit
+                .score
+                .partial_cmp(&a.hit.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
 
     deduplicated
 }
@@ -215,6 +241,42 @@ mod tests {
             tags: vec![],
             embedding_status: None,
         }
+    }
+
+    #[test]
+    fn in_order_dedup_keeps_reranked_order_and_merges_chunks() {
+        let (a, b, c) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        // MMR-style order: diversity placed lower-scoring `c` ahead of `b`.
+        let results = vec![
+            create_test_hit(a, 0.9, Some("A (Part 1/2)")),
+            create_test_hit(c, 0.5, Some("C")),
+            create_test_hit(b, 0.8, Some("B")),
+            create_test_hit(a, 0.95, Some("A (Part 2/2)")),
+        ];
+        let config = DeduplicationConfig::default();
+        let in_order = deduplicate_search_results_in_order(results.clone(), &config);
+        assert_eq!(
+            in_order.iter().map(|h| h.hit.note_id).collect::<Vec<_>>(),
+            [a, c, b]
+        );
+        assert_eq!(in_order[0].hit.score, 0.95);
+        assert_eq!(in_order[0].chain_info.as_ref().unwrap().chunks_matched, 2);
+        let by_score = deduplicate_search_results(results, &config);
+        assert_eq!(
+            by_score.iter().map(|h| h.hit.note_id).collect::<Vec<_>>(),
+            [a, b, c]
+        );
+    }
+
+    #[test]
+    fn score_sorted_dedup_breaks_ties_by_first_appearance() {
+        let ids: Vec<Uuid> = (0..8).map(|_| Uuid::new_v4()).collect();
+        let results = ids
+            .iter()
+            .map(|id| create_test_hit(*id, 0.5, None))
+            .collect::<Vec<_>>();
+        let out = deduplicate_search_results(results, &DeduplicationConfig::default());
+        assert_eq!(out.iter().map(|h| h.hit.note_id).collect::<Vec<_>>(), ids);
     }
 
     #[test]

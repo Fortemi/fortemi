@@ -52,7 +52,9 @@ pub use matric_core::*;
 pub use adaptive_rrf::{rrf_score, select_k, AdaptiveRrfConfig, QueryCharacteristics};
 pub use adaptive_weights::{select_weights, AdaptiveWeightConfig, FusionWeights};
 pub use colbert::{ColBERTConfig, ColBERTReranker};
-pub use deduplication::{ChainSearchInfo, DeduplicationConfig, EnhancedSearchHit};
+pub use deduplication::{
+    deduplicate_search_results_in_order, ChainSearchInfo, DeduplicationConfig, EnhancedSearchHit,
+};
 pub use fts_flags::FtsFeatureFlags;
 pub use hnsw_tuning::{
     compute_ef, estimated_latency_ms, estimated_recall, HnswTuningConfig, RecallTarget,
