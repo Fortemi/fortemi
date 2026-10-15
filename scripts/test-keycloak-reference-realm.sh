@@ -95,7 +95,8 @@ import json, secrets, sys, uuid
 from pathlib import Path
 work = Path(sys.argv[1])
 c = {key: secrets.token_urlsafe(32) for key in (
-    "admin_password", "tester_password", "admin-tester_password", "client_secret", "db_password")}
+    "admin_password", "tester_password", "admin-tester_password", "client_secret", "db_password",
+    "runtime_db_password")}
 c["admin_username"] = "bootstrap-" + secrets.token_hex(8)
 (work / "credentials.json").write_text(json.dumps(c))
 (work / "keycloak.env").write_text(
@@ -148,13 +149,55 @@ for _ in $(seq 1 60); do
   sleep 1
 done
 docker exec "${DB_CONTAINER}" pg_isready -h 127.0.0.1 -U matric -d matric_keycloak >/dev/null || fail "PostgreSQL not ready"
+# External-OIDC startup requires a non-bypass runtime login and separate
+# migration credentials (docs/content/external-oidc-upgrade.md). Apply the
+# documented pre-start grants so this run also exercises that procedure.
+# Only a client-computed SCRAM-SHA-256 verifier reaches the server (on stdin),
+# so the plaintext cannot appear in process arguments or server logs.
+{ python3 - "${WORK}/credentials.json" <<'PY'
+import base64, hashlib, hmac, json, os, sys
+pw = json.load(open(sys.argv[1]))["runtime_db_password"].encode()
+salt, iters = os.urandom(16), 4096
+salted = hashlib.pbkdf2_hmac("sha256", pw, salt, iters)
+client = hmac.new(salted, b"Client Key", "sha256").digest()
+server = hmac.new(salted, b"Server Key", "sha256").digest()
+b64 = lambda b: base64.b64encode(b).decode()
+print("\\set runtime_verifier 'SCRAM-SHA-256$%d:%s$%s:%s'" % (
+    iters, b64(salt), b64(hashlib.sha256(client).digest()), b64(server)))
+PY
+  cat <<'SQL'
+ALTER ROLE matric BYPASSRLS;
+GRANT CREATE ON DATABASE matric_keycloak TO matric;
+GRANT USAGE,CREATE ON SCHEMA public TO matric;
+CREATE ROLE fortemi_runtime LOGIN NOSUPERUSER NOBYPASSRLS
+    NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD :'runtime_verifier';
+GRANT CONNECT ON DATABASE matric_keycloak TO fortemi_runtime;
+REVOKE CREATE ON DATABASE matric_keycloak FROM fortemi_runtime;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC,fortemi_runtime;
+DO $$
+DECLARE s RECORD;
+BEGIN
+    FOR s IN SELECT nspname FROM pg_namespace
+        WHERE nspname='public' OR nspname LIKE 'archive\_%' ESCAPE '\' LOOP
+        EXECUTE format('GRANT USAGE ON SCHEMA %I TO fortemi_runtime',s.nspname);
+        EXECUTE format('GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA %I TO fortemi_runtime',s.nspname);
+        EXECUTE format('GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA %I TO fortemi_runtime',s.nspname);
+        EXECUTE format('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA %I TO fortemi_runtime',s.nspname);
+        EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE matric IN SCHEMA %I GRANT SELECT,INSERT,UPDATE,DELETE ON TABLES TO fortemi_runtime',s.nspname);
+        EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE matric IN SCHEMA %I GRANT USAGE,SELECT ON SEQUENCES TO fortemi_runtime',s.nspname);
+    END LOOP;
+END $$;
+SQL
+} | docker exec -i "${DB_CONTAINER}" psql -qtA -h 127.0.0.1 -U matric -d matric_keycloak --set=ON_ERROR_STOP=1 >/dev/null \
+  || fail "runtime role setup failed"
 API_PORT="$(free_port)"
 python3 - "${WORK}" "${DB_CONTAINER}" <<'PY'
 import json, sys
 from pathlib import Path
 work = Path(sys.argv[1]); c = json.loads((work / "credentials.json").read_text())
 (work / "api.env").write_text(
-    f"DATABASE_URL=postgres://matric:{c['db_password']}@{sys.argv[2]}:5432/matric_keycloak\n"
+    f"MIGRATION_DATABASE_URL=postgres://matric:{c['db_password']}@{sys.argv[2]}:5432/matric_keycloak\n"
+    f"DATABASE_URL=postgres://fortemi_runtime:{c['runtime_db_password']}@{sys.argv[2]}:5432/matric_keycloak\n"
     f"FORTEMI_AUTH_DEFAULT_TENANT={(work / 'tenant').read_text()}\n")
 PY
 chmod 0600 "${WORK}/api.env"
