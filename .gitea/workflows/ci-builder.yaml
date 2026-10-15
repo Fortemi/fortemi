@@ -713,9 +713,6 @@ jobs:
           DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
           export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
           cargo test -p matric-db --features migrations migration_repair_tests -- --nocapture
-          # Match the bundle's ordinary owner before the superuser bootstrap
-          # below can mask CREATE-time validation of forced-RLS queries.
-          cargo test -p matric-db --features migrations --test community_migration_test -- --nocapture
 
       - name: Setup Redis for SSE token tests
         run: bash scripts/ci/test-redis.sh start "matric-build-redis-${GITHUB_RUN_ID}"
@@ -740,6 +737,13 @@ jobs:
           echo "Verifying database schema..."
           echo "======================================"
           docker exec ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -c "\dt" | head -30
+
+          # Re-run every migration as the bundle's NOSUPERUSER, NOBYPASSRLS
+          # owner in a disposable sqlx test database: the superuser bootstrap
+          # above cannot catch CREATE-time forced-RLS validation. Run it after
+          # the bootstrap because sqlx::test records its databases in a
+          # _sqlx_test table, which the fresh-database check would reject.
+          cargo test -p matric-db --features migrations --test community_migration_test -- --nocapture
 
       - name: Build release
         run: cargo build --release --workspace
