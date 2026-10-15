@@ -186,6 +186,13 @@ mod tests {
     }
 
     #[test]
+    fn cosine_similarity_is_scale_invariant() {
+        let base = cosine_similarity(&[3., 4., 1.], &[1., 2., 3.]);
+        assert!((base - cosine_similarity(&[21., 28., 7.], &[1., 2., 3.])).abs() < 1e-6);
+        assert!((base - cosine_similarity(&[3., 4., 1.], &[11., 22., 33.])).abs() < 1e-6);
+    }
+
+    #[test]
     fn test_cosine_similarity_identical() {
         let a = [1.0, 0.0, 0.0];
         let b = [1.0, 0.0, 0.0];

@@ -254,6 +254,7 @@ pub async fn vector_on_connection(
     let scoped_set_id = scope.embedding_set_id.unwrap_or(contract.embedding_set_id);
     apply_ef_search(connection, Some(scoped_set_id)).await?;
     let distance = contract.distance_expr("e.vector", "$1");
+    // External sets store their searchable vectors as imported entity profiles.
     let (cte, candidate, mut params) = scope.build(2);
     params.push(QueryParam::Uuid(scoped_set_id));
     let set_clause = format!(
@@ -267,7 +268,7 @@ pub async fn vector_on_connection(
     );
     params.extend(evidence_params);
     let sql = format!(
-        "{cte} SELECT ranked.*, {evidence} AS evidence FROM (SELECT DISTINCT ON (n.id) n.id AS note_id, e.id AS evidence_embedding_id, (1.0 - ({distance}))::real AS score, substring(COALESCE(noc.content, nrc.content) for 200) AS snippet, n.title, {TAGS} AS tags FROM note n JOIN embedding e ON e.note_id = n.id AND e.tenant_id = n.tenant_id LEFT JOIN note_original noc ON noc.note_id = n.id AND noc.tenant_id = n.tenant_id LEFT JOIN note_revised_current nrc ON nrc.note_id = n.id AND nrc.tenant_id = n.tenant_id WHERE ({candidate}) AND e.vector_kind = 'body_chunk' AND e.vector IS NOT NULL {set_clause} ORDER BY n.id, {distance}, e.id) ranked JOIN note n ON n.id = ranked.note_id JOIN embedding e ON e.id = ranked.evidence_embedding_id AND e.note_id = n.id AND e.tenant_id = n.tenant_id ORDER BY ranked.score DESC, ranked.note_id LIMIT $2"
+        "{cte} SELECT ranked.*, {evidence} AS evidence FROM (SELECT DISTINCT ON (n.id) n.id AS note_id, e.id AS evidence_embedding_id, (1.0 - ({distance}))::real AS score, substring(COALESCE(noc.content, nrc.content) for 200) AS snippet, n.title, {TAGS} AS tags FROM note n JOIN embedding e ON e.note_id = n.id AND e.tenant_id = n.tenant_id LEFT JOIN note_original noc ON noc.note_id = n.id AND noc.tenant_id = n.tenant_id LEFT JOIN note_revised_current nrc ON nrc.note_id = n.id AND nrc.tenant_id = n.tenant_id WHERE ({candidate}) AND e.vector IS NOT NULL {set_clause} ORDER BY n.id, {distance}, e.id) ranked JOIN note n ON n.id = ranked.note_id JOIN embedding e ON e.id = ranked.evidence_embedding_id AND e.note_id = n.id AND e.tenant_id = n.tenant_id ORDER BY ranked.score DESC, ranked.note_id LIMIT $2"
     );
     hits(
         bind_params(sqlx::query(&sql).bind(vector).bind(limit), params)

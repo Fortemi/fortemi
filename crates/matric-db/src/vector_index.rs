@@ -109,10 +109,12 @@ pub async fn enqueue_build_for_config(
     reason: &str,
 ) -> Result<Option<Uuid>> {
     validate_schema_name(schema)?;
-    let Some(shape) = shape_for_config(pool, schema, config_id).await? else {
-        return Ok(None);
-    };
-    enqueue_shape(pool, &shape, Some(config_id), force, reason).await
+    let mut first_job = None;
+    for shape in shapes_for_config(pool, schema, config_id).await? {
+        let job = enqueue_shape(pool, &shape, Some(config_id), force, reason).await?;
+        first_job = first_job.or(job);
+    }
+    Ok(first_job)
 }
 
 pub async fn enqueue_build_for_config_tx(
@@ -123,10 +125,12 @@ pub async fn enqueue_build_for_config_tx(
     reason: &str,
 ) -> Result<Option<Uuid>> {
     validate_schema_name(schema)?;
-    let Some(shape) = shape_for_config_tx(tx, schema, config_id).await? else {
-        return Ok(None);
-    };
-    enqueue_shape_tx(tx, &shape, Some(config_id), force, reason).await
+    let mut first_job = None;
+    for shape in shapes_for_config_tx(tx, schema, config_id).await? {
+        let job = enqueue_shape_tx(tx, &shape, Some(config_id), force, reason).await?;
+        first_job = first_job.or(job);
+    }
+    Ok(first_job)
 }
 
 /// Queue a background index build for a config's shape without touching any
@@ -140,15 +144,17 @@ pub async fn enqueue_build_job_only_for_config_tx(
     reason: &str,
 ) -> Result<Option<Uuid>> {
     validate_schema_name(schema)?;
-    let Some(shape) = shape_for_config_tx(tx, schema, config_id).await? else {
-        return Ok(None);
-    };
-    if valid_index_exists_tx(tx, &shape, &shape.embedding_index_name()).await?
-        || pending_job_exists_tx(tx, &shape).await?
-    {
-        return Ok(None);
+    let mut first_job = None;
+    for shape in shapes_for_config_tx(tx, schema, config_id).await? {
+        if valid_index_exists_tx(tx, &shape, &shape.embedding_index_name()).await?
+            || pending_job_exists_tx(tx, &shape).await?
+        {
+            continue;
+        }
+        let job = insert_job_tx(tx, &shape, false, reason).await?;
+        first_job = first_job.or(job);
     }
-    insert_job_tx(tx, &shape, false, reason).await
+    Ok(first_job)
 }
 
 pub async fn clear_defer_and_enqueue_for_set_tx(
@@ -181,10 +187,23 @@ pub async fn clear_defer_and_enqueue_for_set_tx_with_initiator(
     let Some(config_id) = config_id else {
         return Ok(None);
     };
-    enqueue_build_for_config_tx_with_initiator(
+    let query = format!(
+        "SELECT COALESCE(es.truncate_dim, ec.dimension) AS dimension,
+                ec.vector_type, ec.hnsw_m, ec.hnsw_ef_construction
+         FROM {schema}.embedding_set es
+         JOIN public.embedding_config ec ON ec.id = es.embedding_config_id
+         WHERE es.id = $1"
+    );
+    let row = sqlx::query(&query)
+        .bind(set_id)
+        .fetch_one(&mut **tx)
+        .await
+        .map_err(Error::Database)?;
+    let shape = shape_from_row(schema, row)?;
+    enqueue_shape_tx_with_initiator(
         tx,
-        schema,
-        config_id,
+        &shape,
+        Some(config_id),
         true,
         "manual_build_index",
         initiated_by_user_id,
@@ -201,80 +220,73 @@ pub async fn enqueue_build_for_config_tx_with_initiator(
     initiated_by_user_id: Option<Uuid>,
 ) -> Result<Option<Uuid>> {
     validate_schema_name(schema)?;
-    let Some(shape) = shape_for_config_tx(tx, schema, config_id).await? else {
-        return Ok(None);
-    };
-    enqueue_shape_tx_with_initiator(
-        tx,
-        &shape,
-        Some(config_id),
-        force,
-        reason,
-        initiated_by_user_id,
-    )
-    .await
+    let mut first_job = None;
+    for shape in shapes_for_config_tx(tx, schema, config_id).await? {
+        let job = enqueue_shape_tx_with_initiator(
+            tx,
+            &shape,
+            Some(config_id),
+            force,
+            reason,
+            initiated_by_user_id,
+        )
+        .await?;
+        first_job = first_job.or(job);
+    }
+    Ok(first_job)
 }
 
-async fn shape_for_config(
+// One provider config can back several MRL storage shapes.
+async fn shapes_for_config(
     pool: &Pool<Postgres>,
     schema: &str,
     config_id: Uuid,
-) -> Result<Option<VectorIndexShape>> {
-    let query = format!(
-        "SELECT ec.dimension, ec.vector_type, ec.hnsw_m, ec.hnsw_ef_construction
-         FROM public.embedding_config ec
-         WHERE ec.id = $1
-           AND EXISTS (
-             SELECT 1 FROM {schema}.embedding_set es
-             WHERE es.embedding_config_id = ec.id
-               AND COALESCE(es.defer_index_build, FALSE) IS FALSE
-           )"
-    );
-    let Some(row) = sqlx::query(&query)
+) -> Result<Vec<VectorIndexShape>> {
+    let rows = sqlx::query(&shapes_for_config_query(schema))
         .bind(config_id)
-        .fetch_optional(pool)
+        .fetch_all(pool)
         .await
-        .map_err(Error::Database)?
-    else {
-        return Ok(None);
-    };
-    shape_from_row(schema, row)
+        .map_err(Error::Database)?;
+    rows.into_iter()
+        .map(|row| shape_from_row(schema, row))
+        .collect()
 }
 
-async fn shape_for_config_tx(
+async fn shapes_for_config_tx(
     tx: &mut Transaction<'_, Postgres>,
     schema: &str,
     config_id: Uuid,
-) -> Result<Option<VectorIndexShape>> {
-    let query = format!(
-        "SELECT ec.dimension, ec.vector_type, ec.hnsw_m, ec.hnsw_ef_construction
-         FROM public.embedding_config ec
-         WHERE ec.id = $1
-           AND EXISTS (
-             SELECT 1 FROM {schema}.embedding_set es
-             WHERE es.embedding_config_id = ec.id
-               AND COALESCE(es.defer_index_build, FALSE) IS FALSE
-           )"
-    );
-    let Some(row) = sqlx::query(&query)
+) -> Result<Vec<VectorIndexShape>> {
+    let rows = sqlx::query(&shapes_for_config_query(schema))
         .bind(config_id)
-        .fetch_optional(&mut **tx)
+        .fetch_all(&mut **tx)
         .await
-        .map_err(Error::Database)?
-    else {
-        return Ok(None);
-    };
-    shape_from_row(schema, row)
+        .map_err(Error::Database)?;
+    rows.into_iter()
+        .map(|row| shape_from_row(schema, row))
+        .collect()
 }
 
-fn shape_from_row(schema: &str, row: sqlx::postgres::PgRow) -> Result<Option<VectorIndexShape>> {
+fn shapes_for_config_query(schema: &str) -> String {
+    format!(
+        "SELECT DISTINCT COALESCE(es.truncate_dim, ec.dimension) AS dimension,
+                ec.vector_type, ec.hnsw_m, ec.hnsw_ef_construction
+         FROM public.embedding_config ec
+         JOIN {schema}.embedding_set es ON es.embedding_config_id = ec.id
+         WHERE ec.id = $1
+           AND COALESCE(es.defer_index_build, FALSE) IS FALSE
+         ORDER BY dimension"
+    )
+}
+
+fn shape_from_row(schema: &str, row: sqlx::postgres::PgRow) -> Result<VectorIndexShape> {
     let dimension: i32 = row.get("dimension");
     let vector_type = row
         .get::<String, _>("vector_type")
         .parse::<EmbeddingVectorType>()
         .map_err(|error| Error::InvalidInput(error.to_string()))?;
     validate_shape(dimension, vector_type)?;
-    Ok(Some(VectorIndexShape {
+    Ok(VectorIndexShape {
         schema: schema.to_string(),
         dimension,
         vector_type,
@@ -284,7 +296,7 @@ fn shape_from_row(schema: &str, row: sqlx::postgres::PgRow) -> Result<Option<Vec
         hnsw_ef_construction: row
             .get::<Option<i32>, _>("hnsw_ef_construction")
             .unwrap_or(DEFAULT_HNSW_EF_CONSTRUCTION),
-    }))
+    })
 }
 
 async fn enqueue_shape(
@@ -520,7 +532,7 @@ async fn update_sets_status(
              last_indexed_at = CASE WHEN $1 = 'ready' THEN NOW() ELSE last_indexed_at END
          FROM public.embedding_config ec
          WHERE ec.id = es.embedding_config_id
-           AND ec.dimension = $2
+           AND COALESCE(es.truncate_dim, ec.dimension) = $2
            AND ec.vector_type = $3
            AND COALESCE(es.defer_index_build, FALSE) IS FALSE
            AND ($4::uuid IS NULL OR ec.id = $4)
@@ -552,7 +564,7 @@ async fn update_sets_status_tx(
              last_indexed_at = CASE WHEN $1 = 'ready' THEN NOW() ELSE last_indexed_at END
          FROM public.embedding_config ec
          WHERE ec.id = es.embedding_config_id
-           AND ec.dimension = $2
+           AND COALESCE(es.truncate_dim, ec.dimension) = $2
            AND ec.vector_type = $3
            AND COALESCE(es.defer_index_build, FALSE) IS FALSE
            AND ($4::uuid IS NULL OR ec.id = $4)
@@ -794,7 +806,7 @@ pub async fn set_shape_status(
          WHERE ec.id = es.embedding_config_id
            AND es.tenant_id = current_setting('app.current_tenant')::uuid
            AND ec.tenant_id = es.tenant_id
-           AND ec.dimension = $2
+           AND COALESCE(es.truncate_dim, ec.dimension) = $2
            AND ec.vector_type = $3
            AND COALESCE(es.defer_index_build, FALSE) IS FALSE
            AND es.index_status IS DISTINCT FROM $1::embedding_index_status",
@@ -820,7 +832,7 @@ pub async fn set_shape_status_scoped(
         "UPDATE {}.embedding_set es SET index_status=$1::public.embedding_index_status,
          last_indexed_at=CASE WHEN $1='ready' THEN now() ELSE last_indexed_at END
          FROM public.embedding_config ec WHERE ec.id=es.embedding_config_id
-         AND es.tenant_id=$4 AND ec.tenant_id=$4 AND ec.dimension=$2 AND ec.vector_type=$3
+         AND es.tenant_id=$4 AND ec.tenant_id=$4 AND COALESCE(es.truncate_dim,ec.dimension)=$2 AND ec.vector_type=$3
          AND COALESCE(es.defer_index_build,FALSE) IS FALSE
          AND es.index_status IS DISTINCT FROM $1::public.embedding_index_status",
         shape.schema

@@ -71,6 +71,87 @@ MRL-enabled models encode information hierarchically, allowing embeddings to be 
 
 See `docs/content/embedding-model-selection.md` for detailed guidance.
 
+### Query Templates
+
+Set `query_template` on embedding-set create or update to match the query
+instruction used by an external producer. It must contain exactly one literal
+`{text}` placeholder and be at most 2048 UTF-8 bytes; invalid values return an
+HTTP 400 problem response. The field is returned by the set detail endpoint.
+Omitting it preserves existing query behavior; on update, omission or `null`
+keeps the current value. Use `{text}` for an explicit identity template.
+
+For Qwen3-Embedding served by an OpenAI-compatible Text Embeddings Inference
+server, configure the registered provider and an embedding config with model
+`Qwen/Qwen3-Embedding-8B`, storage `dimension: 1024`, `provider_dimension: 4096`, and the producer's model
+revision `1d8ad4ca9b3dd8059ad90a75d4983776a23d44af`. Create a full set referencing
+that config with (the config ID must reference the configuration just created):
+
+```json
+{
+  "name": "Qwen3 company embeddings",
+  "model": "Qwen/Qwen3-Embedding-8B",
+  "dimension": 1024,
+  "provider_dimension": 4096,
+  "provider": "custom",
+  "provider_config": {"provider_id": "openai"}
+}
+```
+
+Point that registered OpenAI-compatible route at the TEI service, then create the set:
+
+```json
+{
+  "name": "Company profiles",
+  "slug": "company-profiles",
+  "set_type": "full",
+  "embedding_config_id": "uuid-from-config-response",
+  "vector_source": "external",
+  "query_template": "Instruct: Identify the industry, market and business model of the company described in the text\nQuery:{text}"
+}
+```
+
+The template is applied once, before every provider's raw embedding call,
+including OpenAI-compatible, Ollama, and other registry routes. A set template
+supersedes any built-in Ollama query prefix. Documents are not wrapped with the
+query template. Query and internally generated document vectors retain the first
+1024 dimensions and are then L2-normalized, matching the producer's
+`truncate-first-1024-then-l2-normalize` pipeline, including for cosine indexes.
+
+Changing the template changes the non-secret stored embedding contract
+fingerprint; refresh internally managed embeddings after changing it. Existing
+sets without a template retain byte-identical fingerprints. Query preparation
+fails closed: if a stored template cannot be applied, search falls back to FTS
+with `degraded: true`, `degradation.effective_mode: "fts"`, and stable
+`degradation.code: "embedding_query_template_unsupported"`.
+Contextual revision jobs use the same set-aware query preparation for the archive's
+default set. Preparation failures are logged and preserve Phase 1 with an explicit
+skip reason in the job result.
+
+Body chunks remain searchable for every set, including after changing
+`vector_source` to `external`. Profile rows are searchable only for sets with
+`vector_source: "external"`; profiles restored into internal sets retain the
+existing body-only search behavior.
+
+`dimension` is the storage/index dimension and stays capped at 2000 for `vector`
+or 4000 for `halfvec`. Optional nullable `provider_dimension` must be at least
+`dimension` and at most 16384. It explicitly enables raw-output truncation and
+L2 normalization for both queries and generated documents and participates in
+the contract fingerprint. Omission preserves legacy provider-native behavior
+for template-less sets, including fingerprints and refresh decisions. Imported
+external vectors already have the storage dimension. MCP config create/update
+accepts `provider_dimension`, and config read/list returns it.
+
+Stored vectors written before the query-template change are not rewritten.
+L2 rescaling after truncation is ranking-neutral under cosine search.
+
+Full-v1 Knowledge Shards preserve `query_template`, `vector_source` and
+`provider_dimension` using schema `2.2.0` when any extended contract is present.
+Explicit older export versions reject contracts they would discard. Older shards
+restore NULL query templates/raw dimensions and internal write ownership.
+Body chunks stay searchable under either ownership; profile vectors are
+searchable only when `vector_source` is `external`. The new shard
+tuple requires consumer qualification before cross-repository release claims.
+
 ### Auto-Embed Rules
 
 Full embedding sets can automatically manage embedding lifecycle:

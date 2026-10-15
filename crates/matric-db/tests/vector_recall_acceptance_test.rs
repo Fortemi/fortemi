@@ -105,6 +105,7 @@ async fn create_recall_set(db: &Database, unique: &str) -> Uuid {
             description: Some("HNSW recall acceptance fixture".to_string()),
             model: format!("recall-model-{unique}"),
             dimension: DIMENSION as i32,
+            provider_dimension: None,
             vector_type: EmbeddingVectorType::Vector,
             chunk_size: 512,
             chunk_overlap: 0,
@@ -125,6 +126,7 @@ async fn create_recall_set(db: &Database, unique: &str) -> Uuid {
 
     db.embedding_sets
         .create(CreateEmbeddingSetRequest {
+            query_template: None,
             name: format!("Recall Acceptance {unique}"),
             slug: Some(format!("recall-acceptance-{unique}")),
             description: None,

@@ -23052,6 +23052,8 @@ struct SearchEmbeddingContract {
     provider_id: String,
     model: String,
     configured_dimension: usize,
+    raw_dimension: usize,
+    query_template: Option<String>,
     contract_fingerprint: String,
 }
 
@@ -23142,6 +23144,7 @@ fn search_embedding_contract(
     profile: Option<&EmbeddingConfigProfile>,
     truncate_dimension: Option<i32>,
     embedding_set_id: Option<Uuid>,
+    query_template: Option<&str>,
 ) -> Result<SearchEmbeddingContract, SearchEmbeddingFailure> {
     let resolved = if let Some(profile) = profile {
         let configured_dimension = profile.effective_dimension(truncate_dimension);
@@ -23196,8 +23199,35 @@ fn search_embedding_contract(
     let provider_id = resolved.contract.provider_id().to_string();
     let model = resolved.contract.model().to_string();
     let configured_dimension = resolved.contract.dimension();
-    let contract_fingerprint = resolved.contract.fingerprint();
+    let resolved_contract = resolved
+        .contract
+        .with_query_template(query_template.map(str::to_string))
+        .map_err(|error| {
+            SearchEmbeddingFailure::without_contract("embedding_query_template_unsupported", error)
+        })?;
+    let resolved_contract = resolved_contract
+        .with_provider_dimension(
+            profile
+                .and_then(|profile| profile.provider_dimension)
+                .map(|dim| dim as usize),
+        )
+        .map_err(|error| {
+            SearchEmbeddingFailure::without_contract("embedding_contract_invalid", error)
+        })?;
+    let contract_fingerprint = resolved_contract.fingerprint();
     let backend = resolved.backend;
+    let raw_dimension = profile
+        .and_then(|profile| {
+            usize::try_from(
+                if profile.provider_dimension.is_some() || query_template.is_some() {
+                    profile.raw_dimension()
+                } else {
+                    configured_dimension as i32
+                },
+            )
+            .ok()
+        })
+        .unwrap_or(configured_dimension);
 
     if backend.dimension() != configured_dimension {
         return Err(SearchEmbeddingFailure {
@@ -23217,6 +23247,8 @@ fn search_embedding_contract(
         provider_id,
         model,
         configured_dimension,
+        raw_dimension,
+        query_template: query_template.map(str::to_string),
         contract_fingerprint,
     })
 }
@@ -23237,11 +23269,13 @@ fn validate_search_embedding_dimension(
     }
 }
 
+// Shared query preparation for HTTP search and contextual revision retrieval.
 async fn generate_search_query_embedding(
     registry: &matric_inference::ProviderRegistry,
     profile: Option<&EmbeddingConfigProfile>,
     truncate_dimension: Option<i32>,
     embedding_set_id: Option<Uuid>,
+    query_template: Option<&str>,
     query: &str,
 ) -> Result<matric_core::Vector, SearchEmbeddingFailure> {
     if query.trim().is_empty() {
@@ -23251,25 +23285,60 @@ async fn generate_search_query_embedding(
         ));
     }
 
-    let contract =
-        search_embedding_contract(registry, profile, truncate_dimension, embedding_set_id)?;
+    let contract = search_embedding_contract(
+        registry,
+        profile,
+        truncate_dimension,
+        embedding_set_id,
+        query_template,
+    )?;
+    embed_search_query(&contract, query).await
+}
+
+async fn embed_search_query(
+    contract: &SearchEmbeddingContract,
+    query: &str,
+) -> Result<matric_core::Vector, SearchEmbeddingFailure> {
+    let query = matric_core::apply_query_template(contract.query_template.as_deref(), query)
+        .map_err(|error| {
+            SearchEmbeddingFailure::from_contract(
+                "embedding_query_template_unsupported",
+                contract,
+                None,
+                Some(&error),
+            )
+        })?;
     let mut vectors = contract
         .backend
-        .embed_texts(&[query.to_string()])
+        .embed_texts(&[query])
         .await
         .map_err(|error| {
             SearchEmbeddingFailure::from_contract(
                 "embedding_request_failed",
-                &contract,
+                contract,
                 None,
                 Some(&error),
             )
         })?;
     let vector = vectors.pop().ok_or_else(|| {
-        SearchEmbeddingFailure::from_contract("embedding_response_empty", &contract, None, None)
+        SearchEmbeddingFailure::from_contract("embedding_response_empty", contract, None, None)
     })?;
     let actual_dimension = vector.as_slice().len();
-    validate_search_embedding_dimension(&contract, actual_dimension)?;
+    // Cosine search is invariant to L2 scaling; existing stored vectors are not rewritten.
+    let vector = matric_core::postprocess_embedding(
+        vector,
+        contract.configured_dimension,
+        contract.raw_dimension,
+    )
+    .map_err(|error| {
+        SearchEmbeddingFailure::from_contract(
+            "embedding_dimension_mismatch",
+            contract,
+            Some(actual_dimension),
+            Some(&error),
+        )
+    })?;
+    validate_search_embedding_dimension(contract, vector.as_slice().len())?;
 
     Ok(vector)
 }
@@ -23464,8 +23533,7 @@ async fn search_notes(
 
     // Resolve the target set before generating a query vector. Set-scoped
     // searches must use the same model/dimension contract as their stored
-    // embeddings; unscoped searches retain the active global registry route
-    // until archive-aware provider credentials land in #666.
+    // embeddings; unscoped searches use the archive's default set when available.
     let lookup_slug = query
         .embedding_set
         .clone()
@@ -23513,12 +23581,14 @@ async fn search_notes(
     let mut embedding_contract_set_id = None;
     let mut embedding_profile = None;
     let mut embedding_truncate_dimension = None;
+    let mut embedding_query_template = None;
     let mut embedding_contract_failure = None;
     if query.embedding_set.is_some() {
         let set = resolved_set.ok_or_else(embedding_set_not_found)?;
         embedding_set_id = Some(set.id);
         embedding_contract_set_id = Some(set.id);
         embedding_truncate_dimension = set.truncate_dim;
+        embedding_query_template = set.query_template;
 
         let profile = resolved_profile;
         if let Some(profile) = profile {
@@ -23541,6 +23611,7 @@ async fn search_notes(
         if let Some(set) = resolved_set {
             embedding_contract_set_id = Some(set.id);
             embedding_truncate_dimension = set.truncate_dim;
+            embedding_query_template = set.query_template;
             embedding_profile = resolved_profile;
         }
     }
@@ -23561,6 +23632,7 @@ async fn search_notes(
                 embedding_profile.as_ref(),
                 embedding_truncate_dimension,
                 embedding_contract_set_id,
+                embedding_query_template.as_deref(),
                 &query.q,
             )
             .await
@@ -23998,7 +24070,7 @@ async fn list_embedding_sets(
 /// Get an embedding set by slug or ID
 #[utoipa::path(get, path = "/api/v1/embedding-sets/{slug}", tag = "Embeddings",
     params(("slug" = String, Path, description = "Embedding set slug or UUID")),
-    responses((status = 200, description = "Success")))]
+    responses((status = 200, description = "Success", body = matric_core::EmbeddingSet)))]
 async fn get_embedding_set(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
@@ -24020,12 +24092,18 @@ async fn get_embedding_set(
 
 /// Create a new embedding set
 #[utoipa::path(post, path = "/api/v1/embedding-sets", tag = "Embeddings",
-    responses((status = 201, description = "Success")))]
+    request_body = CreateEmbeddingSetRequest,
+    responses((status = 201, description = "Success", body = matric_core::EmbeddingSet),
+        (status = 400, description = "Invalid embedding set")))]
 async fn create_embedding_set(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Json(body): Json<CreateEmbeddingSetRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    if let Some(template) = &body.query_template {
+        matric_core::validate_query_template(template).map_err(ApiError::BadRequest)?;
+    }
+
     // Validate truncate_dim is positive if provided
     if let Some(dim) = body.truncate_dim {
         if dim <= 0 {
@@ -24054,13 +24132,19 @@ async fn create_embedding_set(
 /// Update an embedding set
 #[utoipa::path(patch, path = "/api/v1/embedding-sets/{slug}", tag = "Embeddings",
     params(("slug" = String, Path, description = "Embedding set slug or UUID")),
-    responses((status = 204, description = "Success")))]
+    request_body = UpdateEmbeddingSetRequest,
+    responses((status = 200, description = "Success", body = matric_core::EmbeddingSet),
+        (status = 400, description = "Invalid embedding set")))]
 async fn update_embedding_set(
     State(state): State<AppState>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(slug_or_id): Path<String>,
     Json(body): Json<UpdateEmbeddingSetRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    if let Some(template) = &body.query_template {
+        matric_core::validate_query_template(template).map_err(ApiError::BadRequest)?;
+    }
+
     let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
     // Resolve to actual slug first (needed for update_tx which uses slug)
@@ -28924,6 +29008,10 @@ struct ShardEmbeddingSetRecord {
     criteria: Option<serde_json::Value>,
     embedding_config_id: Option<Uuid>,
     truncate_dim: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    query_template: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    vector_source: Option<String>,
     auto_embed_rules: Option<serde_json::Value>,
     index_status: String,
     index_type: Option<String>,
@@ -28950,6 +29038,8 @@ struct ShardEmbeddingConfigRecord {
     description: Option<String>,
     model: String,
     dimension: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provider_dimension: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     vector_type: Option<String>,
     chunk_size: i32,
@@ -29176,6 +29266,7 @@ const FULL_V1_COUNT_FIELDS: &[&str] = &[
 const DEFAULT_SHARD_PROFILE: &str = "core-v1";
 const SHARD_SCHEMA_2_VERSION: &str = "2.0.0";
 const SHARD_SCHEMA_2_1_VERSION: &str = shard_embedding_contract::SHARD_SCHEMA_2_1_VERSION;
+const SHARD_SCHEMA_2_2_VERSION: &str = shard_embedding_contract::SHARD_SCHEMA_2_2_VERSION;
 const REGISTERED_SHARD_PROFILES: &[&str] = &["core-v1", "full-v1", "record-v1"];
 const DEFAULT_SHARD_EXPORT_COMPONENTS: &str = "notes,collections,tags,templates,links";
 const SHARD_MAX_COMPRESSED_BYTES: usize = matric_core::defaults::MAX_UPLOAD_SIZE_BYTES;
@@ -29903,7 +29994,8 @@ fn validate_shard_json_schema(
             FULL_COMMUNITY_ASSIGNMENT.as_ref().map_err(Clone::clone)?
         }
         _ if schema_json.contains("/knowledge-shard/2.0.0/")
-            || schema_json.contains("/knowledge-shard/2.1.0/") =>
+            || schema_json.contains("/knowledge-shard/2.1.0/")
+            || schema_json.contains("/knowledge-shard/2.2.0/") =>
         {
             dynamic_validator = compile_shard_json_schema(schema_json)?;
             &dynamic_validator
@@ -29919,6 +30011,7 @@ fn validate_shard_json_schema(
 
 fn shard_manifest_schema(version: &str, profile: &str) -> Option<&'static str> {
     match (version, profile) {
+        (SHARD_SCHEMA_2_2_VERSION, _) => shard_embedding_contract::schema_2_2_manifest(profile),
         (SHARD_SCHEMA_2_1_VERSION, _) => shard_embedding_contract::manifest_schema(profile),
         ("2.0.0", "core-v1") => Some(include_str!(
             "../../../contracts/knowledge-shard/2.0.0/core-v1/manifest.schema.json"
@@ -29968,7 +30061,10 @@ fn parse_and_validate_shard_manifest(data: &[u8]) -> Result<ShardManifest, Strin
 }
 
 fn shard_component_schema(version: &str, profile: &str, component: &str) -> Option<&'static str> {
-    if shard_embedding_contract::is_schema_2_1(version) {
+    if version == SHARD_SCHEMA_2_2_VERSION {
+        return shard_embedding_contract::schema_2_2_component(profile, component);
+    }
+    if shard_embedding_contract::supports_variable_embeddings(version) {
         return shard_embedding_contract::component_schema(profile, component);
     }
     if version == SHARD_SCHEMA_2_VERSION {
@@ -32014,7 +32110,9 @@ fn validate_shard_component_inventory(
             validate_shard_community_count(data, manifest.counts.communities)?;
         }
     }
-    if shard_embedding_contract::is_schema_2_1(&manifest.version) && profile == "full-v1" {
+    if shard_embedding_contract::supports_variable_embeddings(&manifest.version)
+        && profile == "full-v1"
+    {
         shard_embedding_contract::validate_schema_2_1_embedding_contract(files)?;
     }
 
@@ -32365,7 +32463,7 @@ async fn load_shard_blob_export_inventory_tx(
     path = "/api/v1/backup/knowledge-shard",
     tag = "Backup",
     params(
-        ("schema_version" = Option<String>, Query, description = "Exact shard schema version; defaults to the stable 1.x reader"),
+        ("schema_version" = Option<String>, Query, description = "Exact shard schema version (1.2.0, 2.0.0, 2.1.0, 2.2.0). Full-v1 automatically selects 2.2.0 for query templates, 2.1.0 for variable dimensions, otherwise 2.0.0; core-v1 defaults to 1.2.0"),
         ("profile" = Option<String>, Query, description = "Conformance profile; defaults to core-v1"),
         ("include" = Option<String>, Query, description = "Comma-separated profile components"),
         ("include_blobs" = Option<bool>, Query, description = "Include verified content-addressed attachment byte sidecars"),
@@ -32393,6 +32491,7 @@ async fn knowledge_shard(
         matric_core::shard::CURRENT_SHARD_VERSION
             | SHARD_SCHEMA_2_VERSION
             | SHARD_SCHEMA_2_1_VERSION
+            | SHARD_SCHEMA_2_2_VERSION
     ) {
         return Err(shard_validation_failed(
             "Knowledge shard export schema version is not supported.",
@@ -32476,6 +32575,36 @@ async fn knowledge_shard(
         } else {
             SHARD_SCHEMA_2_VERSION.to_string()
         };
+    }
+    if profile == "full-v1" {
+        let has_extended_embedding_contract: bool = sqlx::query_scalar(
+            "SELECT EXISTS (SELECT 1 FROM embedding_set
+             WHERE (query_template IS NOT NULL OR vector_source = 'external'
+                 OR EXISTS (SELECT 1 FROM embedding_config ec WHERE ec.id = embedding_config_id
+                            AND ec.provider_dimension IS NOT NULL))
+               AND ($1 OR shard_export_present))
+             OR EXISTS (SELECT 1 FROM embedding_config ec
+                 WHERE ec.provider_dimension IS NOT NULL
+                   AND ec.tenant_id = current_setting('app.current_tenant')::uuid
+                   AND (EXISTS (SELECT 1 FROM shard_embedding_config_declaration declaration
+                                WHERE declaration.config_id=ec.id AND declaration.tenant_id=ec.tenant_id)
+                        OR EXISTS (SELECT 1 FROM embedding_set es WHERE es.embedding_config_id=ec.id
+                                   AND ($1 OR es.shard_export_present))))",
+        )
+        .bind(
+            requested_schema_version.is_none()
+                || !shard_embedding_contract::is_schema_2_family(&schema_version),
+        )
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|error| shard_operation_failed("read shard query contracts", error))?;
+        if has_extended_embedding_contract && requested_schema_version.is_none() {
+            schema_version = SHARD_SCHEMA_2_2_VERSION.to_string();
+        } else if has_extended_embedding_contract && schema_version != SHARD_SCHEMA_2_2_VERSION {
+            return Err(shard_validation_failed(
+                "Embedding query_template, external vector_source or provider_dimension requires Knowledge Shard schema 2.2.0.",
+            ));
+        }
     }
     let include_live_only_component_rows = requested_schema_version.is_none()
         || !shard_embedding_contract::is_schema_2_family(&schema_version);
@@ -33736,7 +33865,7 @@ async fn knowledge_shard(
                 SELECT
                     id, name, slug, description, purpose, usage_hints, keywords,
                     set_type::text AS set_type, mode::text AS mode, criteria,
-                    embedding_config_id, truncate_dim, auto_embed_rules,
+                    embedding_config_id, truncate_dim, query_template, vector_source, auto_embed_rules,
                     index_status::text AS index_status, index_type, last_indexed_at,
                     document_count, embedding_count, embeddings_current, index_size_bytes,
                     is_system, is_active, auto_refresh, refresh_interval::text AS refresh_interval,
@@ -33768,6 +33897,9 @@ async fn knowledge_shard(
                     criteria: row.get("criteria"),
                     embedding_config_id: row.get("embedding_config_id"),
                     truncate_dim: row.get("truncate_dim"),
+                    vector_source: (schema_version == SHARD_SCHEMA_2_2_VERSION)
+                        .then(|| row.get::<String, _>("vector_source")),
+                    query_template: row.get("query_template"),
                     auto_embed_rules: row.get("auto_embed_rules"),
                     index_status: row.get("index_status"),
                     index_type: row.get("index_type"),
@@ -33837,7 +33969,7 @@ async fn knowledge_shard(
             let config_rows = sqlx::query(
                 r#"
                 SELECT
-                    id, name, description, model, dimension, chunk_size, chunk_overlap,
+                    id, name, description, model, dimension, provider_dimension, chunk_size, chunk_overlap,
                     vector_type, hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default,
                     supports_mrl, matryoshka_dims, default_truncate_dim,
                     provider::text AS provider, provider_config, content_types,
@@ -33877,8 +34009,13 @@ async fn knowledge_shard(
                     description: row.get("description"),
                     model: row.get("model"),
                     dimension: row.get("dimension"),
-                    vector_type: shard_embedding_contract::is_schema_2_1(&schema_version)
-                        .then(|| row.get::<String, _>("vector_type")),
+                    provider_dimension: (schema_version == SHARD_SCHEMA_2_2_VERSION)
+                        .then(|| row.get::<Option<i32>, _>("provider_dimension"))
+                        .flatten(),
+                    vector_type: shard_embedding_contract::supports_variable_embeddings(
+                        &schema_version,
+                    )
+                    .then(|| row.get::<String, _>("vector_type")),
                     chunk_size: row.get("chunk_size"),
                     chunk_overlap: row.get("chunk_overlap"),
                     hnsw_m: row.get("hnsw_m"),
@@ -33897,12 +34034,16 @@ async fn knowledge_shard(
                     benchmark_scores: row.get("benchmark_scores"),
                     is_available: row.get("is_available"),
                     document_composition: row.get("document_composition"),
-                    space_contract: shard_embedding_contract::is_schema_2_1(&schema_version)
-                        .then(|| row.get::<Option<serde_json::Value>, _>("space_contract"))
-                        .flatten(),
-                    space_id: shard_embedding_contract::is_schema_2_1(&schema_version)
-                        .then(|| row.get::<Option<String>, _>("space_id"))
-                        .flatten(),
+                    space_contract: shard_embedding_contract::supports_variable_embeddings(
+                        &schema_version,
+                    )
+                    .then(|| row.get::<Option<serde_json::Value>, _>("space_contract"))
+                    .flatten(),
+                    space_id: shard_embedding_contract::supports_variable_embeddings(
+                        &schema_version,
+                    )
+                    .then(|| row.get::<Option<String>, _>("space_id"))
+                    .flatten(),
                     created_at: row.get("created_at"),
                     updated_at: row.get("updated_at"),
                 })
@@ -33943,18 +34084,26 @@ async fn knowledge_shard(
                     text: row.get("text"),
                     vector: vector.map(|value| value.as_slice().to_vec()),
                     model: row.get("model"),
-                    vector_kind: shard_embedding_contract::is_schema_2_1(&schema_version)
-                        .then(|| row.get::<String, _>("vector_kind"))
-                        .filter(|kind| kind != "body_chunk"),
-                    template_version: shard_embedding_contract::is_schema_2_1(&schema_version)
-                        .then(|| row.get::<Option<String>, _>("template_version"))
-                        .flatten(),
-                    profile_hash: shard_embedding_contract::is_schema_2_1(&schema_version)
-                        .then(|| row.get::<Option<String>, _>("profile_hash"))
-                        .flatten(),
-                    profile_text: shard_embedding_contract::is_schema_2_1(&schema_version)
-                        .then(|| row.get::<Option<String>, _>("profile_text"))
-                        .flatten(),
+                    vector_kind: shard_embedding_contract::supports_variable_embeddings(
+                        &schema_version,
+                    )
+                    .then(|| row.get::<String, _>("vector_kind"))
+                    .filter(|kind| kind != "body_chunk"),
+                    template_version: shard_embedding_contract::supports_variable_embeddings(
+                        &schema_version,
+                    )
+                    .then(|| row.get::<Option<String>, _>("template_version"))
+                    .flatten(),
+                    profile_hash: shard_embedding_contract::supports_variable_embeddings(
+                        &schema_version,
+                    )
+                    .then(|| row.get::<Option<String>, _>("profile_hash"))
+                    .flatten(),
+                    profile_text: shard_embedding_contract::supports_variable_embeddings(
+                        &schema_version,
+                    )
+                    .then(|| row.get::<Option<String>, _>("profile_text"))
+                    .flatten(),
                     contract_fingerprint: row.get("contract_fingerprint"),
                     contract_fingerprint_present: row.get("shard_contract_fingerprint_present"),
                     created_at: row.get("created_at"),
@@ -41287,8 +41436,9 @@ async fn guard_shard_shared_config_replacement(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     config: &ShardEmbeddingConfigRecord,
 ) -> Result<(), ApiError> {
-    let incoming = serde_json::to_value(config)
+    let mut incoming = serde_json::to_value(config)
         .map_err(|error| shard_operation_failed("serialize shared config comparison", error))?;
+    incoming["provider_dimension"] = serde_json::json!(config.provider_dimension);
     // Compare PostgreSQL values, so equivalent timestamp offsets and JSON key
     // order do not turn identical shared identity reuse into a conflict. The
     // row lock also serializes competing config writes and new FK references.
@@ -41504,7 +41654,7 @@ async fn apply_shard_embedding_components_tx(
         Some(data) => {
             let manifest = parse_and_validate_shard_manifest(data)
                 .map_err(|_| shard_validation_failed("Invalid knowledge shard manifest."))?;
-            shard_embedding_contract::is_schema_2_1(&manifest.version)
+            shard_embedding_contract::supports_variable_embeddings(&manifest.version)
         }
         None => false,
     };
@@ -41586,20 +41736,21 @@ async fn apply_shard_embedding_components_tx(
                              provider, provider_config, content_types, strengths, limitations,
                              recommended_for, benchmark_scores, is_available,
                              document_composition, space_contract, space_id, created_at, updated_at,
-                             shard_export_present
+                             shard_export_present, provider_dimension
                          ) VALUES (
                              $1, $2, $3, $4, $5, $6, $7,
                              COALESCE($8::text, 'vector'), $9, $10, $11, $12,
                              $13, $14, $15,
                              $16::embedding_provider, $17, $18, $19, $20,
                              $21, $22, $23,
-                             $24, $25, $26, $27, $28, TRUE
+                             $24, $25, $26, $27, $28, TRUE, $29
                          )
                          ON CONFLICT (id) DO UPDATE SET
                              name = EXCLUDED.name,
                              description = EXCLUDED.description,
                              model = EXCLUDED.model,
                              dimension = EXCLUDED.dimension,
+                             provider_dimension = EXCLUDED.provider_dimension,
                              vector_type = EXCLUDED.vector_type,
                              chunk_size = EXCLUDED.chunk_size,
                              chunk_overlap = EXCLUDED.chunk_overlap,
@@ -41633,14 +41784,14 @@ async fn apply_shard_embedding_components_tx(
                              provider, provider_config, content_types, strengths, limitations,
                              recommended_for, benchmark_scores, is_available,
                              document_composition, space_contract, space_id, created_at, updated_at,
-                             shard_export_present
+                             shard_export_present, provider_dimension
                          ) VALUES (
                              $1, $2, $3, $4, $5, $6, $7,
                              COALESCE($8::text, 'vector'), $9, $10, $11, $12,
                              $13, $14, $15,
                              $16::embedding_provider, $17, $18, $19, $20,
                              $21, $22, $23,
-                             $24, $25, $26, $27, $28, TRUE
+                             $24, $25, $26, $27, $28, TRUE, $29
                          )
                          ON CONFLICT (id) DO NOTHING",
                     )
@@ -41673,6 +41824,7 @@ async fn apply_shard_embedding_components_tx(
                 .bind(config.space_id)
                 .bind(config.created_at)
                 .bind(config.updated_at)
+                .bind(config.provider_dimension)
                 .execute(&mut **tx)
                 .await
                 .map_err(|error| shard_operation_failed("apply embedding config import", error))?;
@@ -41723,14 +41875,14 @@ async fn apply_shard_embedding_components_tx(
                              document_count, embedding_count, embeddings_current, index_size_bytes,
                              is_system, is_active, auto_refresh, refresh_interval, last_refresh_at,
                              agent_metadata, created_at, updated_at, created_by,
-                             shard_export_present
+                             shard_export_present, query_template, vector_source
                          ) VALUES (
                              $1, $2, $3, $4, $5, $6, $7,
                              $8::embedding_set_type, $9::embedding_set_mode, $10, $11, $12,
                              $13, $14::embedding_index_status, $15, $16,
                              $17, $18, $19, $20,
                              $21, $22, $23, $24::interval, $25,
-                             $26, $27, $28, $29, TRUE
+                             $26, $27, $28, $29, TRUE, $30, COALESCE($31::text, 'internal')
                          )
                          ON CONFLICT (id) DO UPDATE SET
                              name = EXCLUDED.name,
@@ -41744,6 +41896,8 @@ async fn apply_shard_embedding_components_tx(
                              criteria = EXCLUDED.criteria,
                              embedding_config_id = EXCLUDED.embedding_config_id,
                              truncate_dim = EXCLUDED.truncate_dim,
+                             query_template = EXCLUDED.query_template,
+                             vector_source = EXCLUDED.vector_source,
                              auto_embed_rules = EXCLUDED.auto_embed_rules,
                              index_status = EXCLUDED.index_status,
                              index_type = EXCLUDED.index_type,
@@ -41772,14 +41926,14 @@ async fn apply_shard_embedding_components_tx(
                              document_count, embedding_count, embeddings_current, index_size_bytes,
                              is_system, is_active, auto_refresh, refresh_interval, last_refresh_at,
                              agent_metadata, created_at, updated_at, created_by,
-                             shard_export_present
+                             shard_export_present, query_template, vector_source
                          ) VALUES (
                              $1, $2, $3, $4, $5, $6, $7,
                              $8::embedding_set_type, $9::embedding_set_mode, $10, $11, $12,
                              $13, $14::embedding_index_status, $15, $16,
                              $17, $18, $19, $20,
                              $21, $22, $23, $24::interval, $25,
-                             $26, $27, $28, $29, TRUE
+                             $26, $27, $28, $29, TRUE, $30, COALESCE($31::text, 'internal')
                          )
                          ON CONFLICT (id) DO NOTHING",
                     )
@@ -41813,6 +41967,8 @@ async fn apply_shard_embedding_components_tx(
                 .bind(set.created_at)
                 .bind(set.updated_at)
                 .bind(set.created_by)
+                .bind(set.query_template)
+                .bind(set.vector_source)
                 .execute(&mut **tx)
                 .await
                 .map_err(|error| shard_operation_failed("apply embedding set import", error))?;
@@ -45964,6 +46120,21 @@ fn get_db_size_via_psql(expr: &str) -> Option<i64> {
 // =============================================================================
 
 #[cfg(test)]
+mod contextual_query_tests;
+#[cfg(test)]
+mod embedding_dimension_tests;
+#[cfg(test)]
+mod embedding_migration_tests;
+#[cfg(test)]
+mod embedding_ownership_tests;
+#[cfg(test)]
+mod embedding_selection_tests;
+#[cfg(test)]
+mod query_template_tests;
+#[cfg(test)]
+mod shard_query_template_tests;
+
+#[cfg(test)]
 mod tests {
     include!("bulk_reprocess_tests.rs");
     use super::*;
@@ -46462,6 +46633,7 @@ mod tests {
             description: None,
             model: "private-compatible-model".to_string(),
             dimension: 8,
+            provider_dimension: None,
             vector_type: matric_core::EmbeddingVectorType::Vector,
             chunk_size: 512,
             chunk_overlap: 64,
@@ -46486,7 +46658,8 @@ mod tests {
             space_id: None,
         };
 
-        let contract = search_embedding_contract(&registry, Some(&profile), Some(3), None).unwrap();
+        let contract =
+            search_embedding_contract(&registry, Some(&profile), Some(3), None, None).unwrap();
 
         assert_eq!(contract.provider_id, "llamacpp");
         assert_eq!(contract.model, "private-compatible-model");
@@ -46516,6 +46689,8 @@ mod tests {
             provider_id: "private-provider@example.test".to_string(),
             model: "private-model@example.test".to_string(),
             configured_dimension: 3,
+            raw_dimension: 3,
+            query_template: None,
             contract_fingerprint: search_embedding_model_fingerprint("private-model@example.test"),
         };
 

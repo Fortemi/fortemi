@@ -789,6 +789,7 @@ fn embedding_contract_fingerprint_for_profile(
     profile: &EmbeddingConfigProfile,
     truncate_dimension: Option<i32>,
     embedding_set_id: uuid::Uuid,
+    query_template: Option<&str>,
 ) -> std::result::Result<String, JobResult> {
     let dimension = usize::try_from(profile.effective_dimension(truncate_dimension))
         .ok()
@@ -807,6 +808,10 @@ fn embedding_contract_fingerprint_for_profile(
         dimension,
         Some(embedding_set_id),
     )
+    .and_then(|contract| contract.with_query_template(query_template.map(str::to_string)))
+    .and_then(|contract| {
+        contract.with_provider_dimension(profile.provider_dimension.map(|raw| raw as usize))
+    })
     .map(|contract| contract.fingerprint())
     .map_err(|error| {
         warn!(
@@ -2205,42 +2210,59 @@ impl JobHandler for AiRevisionContextualHandler {
             Some("Embedding Phase 1 revision for context discovery..."),
         );
 
-        let embed_backend = match self.registry.resolve_default_embedding_boxed() {
-            Ok(backend) => backend,
-            Err(e) => {
-                warn!(
-                    error_len = diagnostic_len(&e),
-                    detail = JOB_CONTEXT_DISCOVERY_FAILURE_DETAIL,
-                    "Failed to construct embedding backend for context discovery"
-                );
-                self.update_revision_note(
-                    &schema_ctx,
-                    note_id,
-                    "AI standard revision (contextual enrichment skipped: embedding unavailable)",
-                )
-                .await;
-                self.queue_concept_tagging(&ctx, note_id, schema, &model_override)
-                    .await;
-                return JobResult::Success(Some(ai_contextual_revision_skip_job_result(
-                    "embedding_backend_unavailable",
-                    true,
-                )));
-            }
-        };
-        let chunks = vec![phase1_content
+        let query = phase1_content
             .chars()
             .take(matric_core::defaults::PREVIEW_EMBEDDING)
-            .collect::<String>()];
-        let vectors = match embed_backend.embed_texts(&chunks).await {
-            Ok(v) => v,
-            Err(e) => {
+            .collect::<String>();
+        let preparation = async {
+            let mut tx = schema_ctx.begin_tx().await?;
+            let set = self
+                .db
+                .embedding_sets
+                .get_by_slug_tx(&mut tx, "default")
+                .await?;
+            let profile = match set.as_ref().and_then(|set| set.embedding_config_id) {
+                Some(id) => self.db.embedding_sets.get_config_tx(&mut tx, id).await?,
+                None if set.is_some() => {
+                    self.db
+                        .embedding_sets
+                        .get_default_config_tx(&mut tx)
+                        .await?
+                }
+                None => None,
+            };
+            tx.commit().await?;
+            Ok::<_, matric_core::Error>((set, profile))
+        }
+        .await;
+        let query_vec = match preparation {
+            Ok((set, profile)) => {
+                crate::generate_search_query_embedding(
+                    &self.registry,
+                    profile.as_ref(),
+                    set.as_ref().and_then(|set| set.truncate_dim),
+                    set.as_ref().map(|set| set.id),
+                    set.as_ref().and_then(|set| set.query_template.as_deref()),
+                    &query,
+                )
+                .await
+            }
+            Err(error) => Err(crate::SearchEmbeddingFailure::without_contract(
+                "embedding_contract_unavailable",
+                error,
+            )),
+        };
+        let query_vec = match query_vec {
+            Ok(vector) => vector,
+            Err(failure) => {
                 warn!(
-                    error_len = diagnostic_len(&e),
+                    reason_code = failure.code,
+                    error_len = failure.error_len,
+                    configured_dimension = failure.configured_dimension,
+                    actual_dimension = failure.actual_dimension,
                     detail = JOB_CONTEXT_DISCOVERY_FAILURE_DETAIL,
-                    "Failed to embed Phase 1 content for context discovery"
+                    "Query preparation failed; preserving Phase 1 without contextual enrichment"
                 );
-                // Fall back: skip contextual revision, Phase 1 output stands as final.
-                // Update the revision note so users know contextual enrichment was skipped.
                 self.update_revision_note(
                     &schema_ctx,
                     note_id,
@@ -2249,27 +2271,13 @@ impl JobHandler for AiRevisionContextualHandler {
                 .await;
                 self.queue_concept_tagging(&ctx, note_id, schema, &model_override)
                     .await;
+                let reason = match failure.code {
+                    "embedding_request_failed" => "embedding_failed",
+                    "embedding_response_empty" => "no_embedding_vector",
+                    code => code,
+                };
                 return JobResult::Success(Some(ai_contextual_revision_skip_job_result(
-                    "embedding_failed",
-                    true,
-                )));
-            }
-        };
-
-        let query_vec = match vectors.into_iter().next() {
-            Some(v) => v,
-            None => {
-                self.update_revision_note(
-                    &schema_ctx,
-                    note_id,
-                    "AI standard revision (contextual enrichment skipped: no embedding produced)",
-                )
-                .await;
-                self.queue_concept_tagging(&ctx, note_id, schema, &model_override)
-                    .await;
-                return JobResult::Success(Some(ai_contextual_revision_skip_job_result(
-                    "no_embedding_vector",
-                    true,
+                    reason, true,
                 )));
             }
         };
@@ -3103,7 +3111,7 @@ impl JobHandler for EmbeddingHandler {
         if base_content.trim().is_empty() {
             return JobResult::Success(Some(serde_json::json!({"chunks": 0})));
         }
-        let resolved_backend = match resolve_embedding_job_backend(
+        let mut resolved_backend = match resolve_embedding_job_backend(
             self.registry.as_ref(),
             embed_config.as_ref(),
             embedding_truncate_dimension,
@@ -3111,6 +3119,27 @@ impl JobHandler for EmbeddingHandler {
         ) {
             Ok(resolved) => resolved,
             Err(error) => return error,
+        };
+        resolved_backend.contract = match resolved_backend.contract.with_query_template(
+            target_set
+                .as_ref()
+                .and_then(|set| set.query_template.clone()),
+        ) {
+            Ok(contract) => contract,
+            Err(error) => {
+                return embedding_job_failure_for_job(error, "query_template", &job_correlation)
+            }
+        };
+        resolved_backend.contract = match resolved_backend.contract.with_provider_dimension(
+            embed_config
+                .as_ref()
+                .and_then(|profile| profile.provider_dimension)
+                .map(|dim| dim as usize),
+        ) {
+            Ok(contract) => contract,
+            Err(error) => {
+                return embedding_job_failure_for_job(error, "provider_dimension", &job_correlation)
+            }
         };
         let activity_id = start_job_provenance(
             &self.db,
@@ -3238,6 +3267,49 @@ impl JobHandler for EmbeddingHandler {
             }
         };
         let vector_count = vectors.len();
+        // Cosine search is invariant to L2 scaling; existing stored vectors are not rewritten.
+        let raw_dimension = embed_config
+            .as_ref()
+            .and_then(|profile| {
+                usize::try_from(
+                    if profile.provider_dimension.is_some()
+                        || target_set
+                            .as_ref()
+                            .is_some_and(|set| set.query_template.is_some())
+                    {
+                        profile.raw_dimension()
+                    } else {
+                        resolved_backend.contract.dimension() as i32
+                    },
+                )
+                .ok()
+            })
+            .unwrap_or(resolved_backend.contract.dimension());
+        let vectors = match vectors
+            .into_iter()
+            .map(|vector| {
+                matric_core::postprocess_embedding(
+                    vector,
+                    resolved_backend.contract.dimension(),
+                    raw_dimension,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(vectors) => vectors,
+            Err(error) => {
+                if let Some(usage) = &usage {
+                    usage
+                        .record(Some(vector_count), UsageOutcome::FailedAfterPartialUsage)
+                        .await;
+                }
+                return embedding_job_failure_for_job(
+                    error,
+                    "postprocess_embeddings",
+                    &job_correlation,
+                );
+            }
+        };
         debug!(
             stage = "embed_response",
             job_correlation,
@@ -8013,7 +8085,7 @@ async fn vector_index_set_row_counts(
          FROM {schema}.embedding_set es
          JOIN public.embedding_config ec ON ec.id = es.embedding_config_id
          LEFT JOIN {schema}.embedding e ON e.embedding_set_id = es.id
-         WHERE ec.dimension = $1
+         WHERE COALESCE(es.truncate_dim, ec.dimension) = $1
            AND ec.vector_type = $2
            AND COALESCE(es.defer_index_build, FALSE) IS FALSE
          GROUP BY es.id",
@@ -8245,7 +8317,12 @@ impl JobHandler for RefreshEmbeddingSetHandler {
         };
         let target_contract_fingerprint = match embed_config.as_ref() {
             Some(config) => {
-                match embedding_contract_fingerprint_for_profile(config, set.truncate_dim, set.id) {
+                match embedding_contract_fingerprint_for_profile(
+                    config,
+                    set.truncate_dim,
+                    set.id,
+                    set.query_template.as_deref(),
+                ) {
                     Ok(fingerprint) => Some(fingerprint),
                     Err(error) => return error,
                 }
@@ -9185,6 +9262,7 @@ mod tests {
             description: None,
             model: model.to_string(),
             dimension,
+            provider_dimension: None,
             vector_type: matric_core::EmbeddingVectorType::Vector,
             chunk_size: 512,
             chunk_overlap: 64,
@@ -9488,6 +9566,7 @@ mod tests {
         let set = db
             .embedding_sets
             .create(matric_core::CreateEmbeddingSetRequest {
+                query_template: None,
                 name: format!("External handler refusal {unique}"),
                 slug: Some(format!("external-handler-refusal-{unique}")),
                 description: None,
@@ -9579,6 +9658,7 @@ mod tests {
         let set = db
             .embedding_sets
             .create(matric_core::CreateEmbeddingSetRequest {
+                query_template: None,
                 name: format!("External refresh skip {unique}"),
                 slug: Some(slug.clone()),
                 description: None,
@@ -9701,6 +9781,7 @@ mod tests {
     ) -> matric_core::EmbeddingSet {
         db.embedding_sets
             .create(matric_core::CreateEmbeddingSetRequest {
+                query_template: None,
                 name: format!("{label} {unique}"),
                 slug: Some(format!("{label}-{unique}")),
                 description: None,
@@ -10037,6 +10118,43 @@ mod tests {
             embedding_snapshot(&db, note_id, external_set.id).await,
             external_original
         );
+        let mut previous_fingerprint = embedding_snapshot(&db, note_id, set_x.id).await[0]
+            .7
+            .clone();
+        for template in ["Query:{text}", "Instruct: Find companies\nQuery:{text}"] {
+            db.embedding_sets
+                .update(
+                    &set_x.slug,
+                    matric_core::UpdateEmbeddingSetRequest {
+                        query_template: Some(template.to_string()),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .unwrap();
+            let refresh = running_job(
+                None,
+                JobType::RefreshEmbeddingSet,
+                Some(serde_json::json!({
+                    "set_id":set_x.id.to_string(), "refresh_stale":true
+                })),
+            );
+            let refresh_id = refresh.id;
+            match RefreshEmbeddingSetHandler::new(db.clone())
+                .execute(JobContext::new(refresh))
+                .await
+            {
+                JobResult::Success(Some(result)) => assert_eq!(result["jobs_queued"], 1),
+                other => panic!("template change must queue refresh: {other:?}"),
+            }
+            run_embedding_job(&db, queued_child_job(&db, refresh_id, note_id).await).await;
+            let fingerprint = embedding_snapshot(&db, note_id, set_x.id).await[0]
+                .7
+                .clone();
+            assert!(fingerprint.is_some());
+            assert_ne!(fingerprint, previous_fingerprint);
+            previous_fingerprint = fingerprint;
+        }
     }
 
     #[tokio::test]
@@ -10667,6 +10785,30 @@ Quick note about the meeting discussion and action items."#;
             tags: vec![],
             embedding_status: None,
         }
+    }
+
+    #[test]
+    fn linking_cosine_similarity_is_scale_invariant() {
+        let base =
+            LinkingHandler::cosine_similarity(&make_vec(&[3., 4., 1.]), &make_vec(&[1., 2., 3.]));
+        assert!(
+            (base
+                - LinkingHandler::cosine_similarity(
+                    &make_vec(&[21., 28., 7.]),
+                    &make_vec(&[1., 2., 3.])
+                ))
+            .abs()
+                < 1e-6
+        );
+        assert!(
+            (base
+                - LinkingHandler::cosine_similarity(
+                    &make_vec(&[3., 4., 1.]),
+                    &make_vec(&[11., 22., 33.])
+                ))
+            .abs()
+                < 1e-6
+        );
     }
 
     #[test]

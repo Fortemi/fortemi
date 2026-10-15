@@ -780,7 +780,7 @@ impl PgEmbeddingImportRepository {
         let row = if let Ok(id) = Uuid::parse_str(set_ref) {
             sqlx::query(
                 r#"
-                SELECT es.id, es.vector_source, ec.dimension, ec.space_id, ec.space_contract
+                SELECT es.id, es.vector_source, COALESCE(es.truncate_dim, ec.dimension) AS dimension, ec.space_id, ec.space_contract
                 FROM embedding_set es
                 JOIN embedding_config ec ON ec.id = es.embedding_config_id
                 WHERE es.id = $1
@@ -793,7 +793,7 @@ impl PgEmbeddingImportRepository {
         } else {
             sqlx::query(
                 r#"
-                SELECT es.id, es.vector_source, ec.dimension, ec.space_id, ec.space_contract
+                SELECT es.id, es.vector_source, COALESCE(es.truncate_dim, ec.dimension) AS dimension, ec.space_id, ec.space_contract
                 FROM embedding_set es
                 JOIN embedding_config ec ON ec.id = es.embedding_config_id
                 WHERE es.slug = $1

@@ -1204,7 +1204,7 @@ paths:
       parameters:
       - name: schema_version
         in: query
-        description: Exact shard schema version; defaults to the stable 1.x reader
+        description: Exact shard schema version (1.2.0, 2.0.0, 2.1.0, 2.2.0). Full-v1 automatically selects 2.2.0 for query templates, 2.1.0 for variable dimensions, otherwise 2.0.0; core-v1 defaults to 1.2.0
         required: false
         schema:
           type: string
@@ -3445,6 +3445,12 @@ paths:
       responses:
         '201':
           description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbeddingSet'
+        '400':
+          description: Invalid embedding set
         '429':
           content:
             application/problem+json:
@@ -3476,6 +3482,10 @@ paths:
       responses:
         '200':
           description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbeddingSet'
         '429':
           content:
             application/problem+json:
@@ -3540,8 +3550,14 @@ paths:
               $ref: '#/components/schemas/UpdateEmbeddingSetRequest'
         required: true
       responses:
-        '204':
+        '200':
           description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbeddingSet'
+        '400':
+          description: Invalid embedding set
         '429':
           content:
             application/problem+json:
@@ -11119,6 +11135,12 @@ components:
           $ref: '#/components/schemas/EmbeddingProvider'
         provider_config:
           $ref: '#/components/schemas/Value'
+        provider_dimension:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          description: Optional raw provider output dimension (stored dimension through 16384).
         space_contract:
           oneOf:
           - type: 'null'
@@ -11178,6 +11200,12 @@ components:
           type:
           - string
           - 'null'
+        query_template:
+          type:
+          - string
+          - 'null'
+          description: Optional query wrapper containing exactly one `{text}` (at most 2048 UTF-8 bytes).
+          maxLength: 2048
         set_type:
           $ref: '#/components/schemas/EmbeddingSetType'
           description: 'Set type: filter (default, shares embeddings) or full (own embeddings)'
@@ -12484,6 +12512,12 @@ components:
         provider_config:
           $ref: '#/components/schemas/Value'
           description: Provider-specific configuration (API key env var, base URL, etc.)
+        provider_dimension:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          description: Raw provider output size before truncation; dimension remains the stored size.
         space_contract:
           oneOf:
           - type: 'null'
@@ -12696,6 +12730,12 @@ components:
           type:
           - string
           - 'null'
+        query_template:
+          type:
+          - string
+          - 'null'
+          description: Optional query wrapper containing exactly one `{text}` (at most 2048 UTF-8 bytes).
+          maxLength: 2048
         set_type:
           $ref: '#/components/schemas/EmbeddingSetType'
         slug:
@@ -17248,6 +17288,12 @@ components:
           oneOf:
           - type: 'null'
           - $ref: '#/components/schemas/Value'
+        provider_dimension:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          description: Optional raw provider output dimension (stored dimension through 16384).
         space_contract:
           oneOf:
           - type: 'null'
@@ -17318,6 +17364,12 @@ components:
           type:
           - string
           - 'null'
+        query_template:
+          type:
+          - string
+          - 'null'
+          description: Optional query wrapper containing exactly one `{text}` (at most 2048 UTF-8 bytes).
+          maxLength: 2048
         usage_hints:
           type:
           - string

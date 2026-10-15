@@ -1383,6 +1383,7 @@ function createMcpServer() {
             vector_source: args.vector_source || "internal",
             criteria: args.criteria || {},
             ef_search: args.ef_search,
+            query_template: args.query_template,
           });
           break;
 
@@ -1417,6 +1418,7 @@ function createMcpServer() {
           if (args.mode !== undefined) body.mode = args.mode;
           if (args.vector_source !== undefined) body.vector_source = args.vector_source;
           if (args.ef_search !== undefined) body.ef_search = args.ef_search;
+          if (args.query_template !== undefined) body.query_template = args.query_template;
           result = await apiRequest("PATCH", `/api/v1/embedding-sets/${args.slug}`, body);
           break;
         }
@@ -1904,6 +1906,7 @@ function createMcpServer() {
               mode: args.mode || "auto",
               criteria: args.criteria || {},
               ef_search: args.ef_search,
+              query_template: args.query_template,
             });
           } else if (meAction === "update") {
             const body = {};
@@ -1915,6 +1918,7 @@ function createMcpServer() {
             if (args.criteria !== undefined) body.criteria = args.criteria;
             if (args.mode !== undefined) body.mode = args.mode;
             if (args.ef_search !== undefined) body.ef_search = args.ef_search;
+            if (args.query_template !== undefined) body.query_template = args.query_template;
             result = await apiRequest("PATCH", `/api/v1/embedding-sets/${args.slug}`, body);
           } else if (meAction === "delete") {
             await apiRequest("DELETE", `/api/v1/embedding-sets/${args.slug}`);
@@ -2960,6 +2964,7 @@ function createMcpServer() {
             name: args.name,
             model: args.model,
             dimension: toNum(args.dimension),
+            provider_dimension: toNum(args.provider_dimension),
             vector_type: args.vector_type,
             provider: args.provider,
             is_default: args.is_default || false,
@@ -2978,6 +2983,7 @@ function createMcpServer() {
           if (args.name !== undefined) body.name = args.name;
           if (args.model !== undefined) body.model = args.model;
           if (args.dimension !== undefined) body.dimension = toNum(args.dimension);
+          if (args.provider_dimension !== undefined) body.provider_dimension = toNum(args.provider_dimension);
           if (args.vector_type !== undefined) body.vector_type = args.vector_type;
           if (args.provider !== undefined) body.provider = args.provider;
           if (args.is_default !== undefined) body.is_default = args.is_default;

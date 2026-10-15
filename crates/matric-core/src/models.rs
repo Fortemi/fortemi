@@ -1099,6 +1099,9 @@ pub struct EmbeddingConfigProfile {
     pub description: Option<String>,
     pub model: String,
     pub dimension: i32,
+    /// Raw provider output size before truncation; dimension remains the stored size.
+    #[serde(default)]
+    pub provider_dimension: Option<i32>,
     #[serde(default)]
     pub vector_type: crate::EmbeddingVectorType,
     pub chunk_size: i32,
@@ -1200,6 +1203,11 @@ impl fmt::Debug for EmbeddingConfigProfile {
 }
 
 impl EmbeddingConfigProfile {
+    /// Raw dimension is explicit opt-in; absent configs retain provider-native processing.
+    pub fn raw_dimension(&self) -> i32 {
+        self.provider_dimension.unwrap_or(self.dimension)
+    }
+
     /// Validate that a truncation dimension is valid for this config.
     pub fn validate_truncate_dim(&self, dim: i32) -> Result<(), String> {
         if !self.supports_mrl {
@@ -1296,6 +1304,10 @@ pub struct EmbeddingSet {
     pub updated_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_by: Option<String>,
+    /// Optional query wrapper containing exactly one `{text}` (at most 2048 UTF-8 bytes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(max_length = 2048)]
+    pub query_template: Option<String>,
 }
 
 impl fmt::Debug for EmbeddingSet {
@@ -1485,6 +1497,10 @@ pub struct CreateEmbeddingSetRequest {
     /// Per-set HNSW query default (10-1000); `None` falls back to the tuning default.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ef_search: Option<i32>,
+    /// Optional query wrapper containing exactly one `{text}` (at most 2048 UTF-8 bytes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(max_length = 2048)]
+    pub query_template: Option<String>,
 }
 
 impl fmt::Debug for CreateEmbeddingSetRequest {
@@ -1563,6 +1579,10 @@ pub struct UpdateEmbeddingSetRequest {
     /// Per-set HNSW query default (10-1000); `None` leaves the stored value unchanged.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ef_search: Option<i32>,
+    /// Optional query wrapper containing exactly one `{text}` (at most 2048 UTF-8 bytes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(max_length = 2048)]
+    pub query_template: Option<String>,
 }
 
 impl fmt::Debug for UpdateEmbeddingSetRequest {
@@ -7322,6 +7342,7 @@ mod tests {
             description: Some("Pröfile description private@example.test".to_string()),
             model: "prïvate-embedding-model".to_string(),
             dimension: 768,
+            provider_dimension: None,
             vector_type: crate::EmbeddingVectorType::Vector,
             chunk_size: 512,
             chunk_overlap: 64,
@@ -7348,6 +7369,7 @@ mod tests {
             ),
         };
         let set = EmbeddingSet {
+            query_template: None,
             id: Uuid::new_v4(),
             name: "Prïvate embedding set".to_string(),
             slug: "prïvate-embedding-set".to_string(),
@@ -7406,6 +7428,7 @@ mod tests {
             supports_mrl: true,
         };
         let create = CreateEmbeddingSetRequest {
+            query_template: None,
             name: "Créate private set".to_string(),
             slug: Some("créate-private-set".to_string()),
             description: Some("Créate description private@example.test".to_string()),
@@ -7424,6 +7447,7 @@ mod tests {
             ef_search: None,
         };
         let update = UpdateEmbeddingSetRequest {
+            query_template: None,
             name: Some("Üpdate private set".to_string()),
             description: Some("Üpdate description /tmp/customer/update.md".to_string()),
             purpose: Some("Üpdate purpose private@example.test".to_string()),
@@ -8990,6 +9014,7 @@ mod tests {
     #[test]
     fn test_create_embedding_set_request() {
         let request = CreateEmbeddingSetRequest {
+            query_template: None,
             name: "Test Set".to_string(),
             slug: None, // Should be auto-generated
             description: Some("A test embedding set".to_string()),

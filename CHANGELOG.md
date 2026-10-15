@@ -9,6 +9,19 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Fixed
 
+- Separate optional provider raw dimensions from capped embedding storage/index dimensions and preserve external ownership in candidate shards. Keep body chunks searchable for every set; search profile rows only for external sets (#1217).
+
+- Apply embedding-set `query_template` instructions on every query provider path,
+  include them in stored contract fingerprints without changing template-less
+  fingerprints, and L2-normalize MRL vectors after truncation. Reject invalid
+  templates and explicitly degrade search to FTS when query preparation fails (#1217).
+  Contextual revision uses the same query preparation and preserves Phase 1 with
+  an explicit skip reason when preparation fails.
+  Stored vectors written before this change are not rewritten; L2 rescaling is
+  ranking-neutral under cosine search. Truncated sets use their effective dimension
+  for storage, external imports, search, and index selection. Preserve query
+  templates in full-v1 shards with the optional schema 2.2.0 field; reject older
+  export targets that would discard a template.
 - Sort the `x-fortemi-attachments` extension's keys in the attachments-disabled
   OpenAPI spec, so it no longer differs between builds with and without
   serde_json's `preserve_order` feature (#1216).

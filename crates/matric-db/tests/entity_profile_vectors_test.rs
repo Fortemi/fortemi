@@ -163,6 +163,11 @@ async fn profile_similarity_orders_filters_and_resolves_external_identity() {
         .execute(&mut *connection)
         .await
         .expect("begin");
+    sqlx::query("UPDATE embedding_set SET vector_source='external' WHERE id=$1")
+        .bind(set_id)
+        .execute(&mut *connection)
+        .await
+        .unwrap();
     let hits = find_similar_profiles_for_note_tx(
         &mut connection,
         query,
@@ -255,6 +260,11 @@ async fn chunk_similarity_ignores_profile_only_rows_and_explain_uses_shape_index
         .execute(&mut *connection)
         .await
         .expect("begin");
+    sqlx::query("UPDATE embedding_set SET vector_source='external' WHERE id=$1")
+        .bind(set_id)
+        .execute(&mut *connection)
+        .await
+        .unwrap();
     let plan = explain_similar_profiles_for_note_tx(
         &mut connection,
         query,

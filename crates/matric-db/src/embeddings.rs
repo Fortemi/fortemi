@@ -133,7 +133,7 @@ impl EmbeddingRepository for PgEmbeddingRepository {
             JOIN note n ON n.id = e.note_id
             LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
-            WHERE e.vector_kind = 'body_chunk' AND {set_predicate} {}
+            WHERE {set_predicate} {}
             ORDER BY e.note_id, {distance}
             "#,
             archive_clause
@@ -212,7 +212,7 @@ impl EmbeddingRepository for PgEmbeddingRepository {
             JOIN note n ON n.id = e.note_id
             LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
-            WHERE e.vector_kind = 'body_chunk' AND {set_predicate} {}
+            WHERE {set_predicate} {}
             ORDER BY e.note_id, {distance}
             "#,
             archive_clause
@@ -374,7 +374,7 @@ impl PgEmbeddingRepository {
             JOIN note n ON n.id = e.note_id
             LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
-            WHERE e.vector_kind = 'body_chunk' AND {set_predicate} {}
+            WHERE {set_predicate} {}
             ORDER BY e.note_id, {distance}
             "#,
             archive_clause
@@ -507,7 +507,7 @@ impl PgEmbeddingRepository {
             JOIN note n ON n.id = e.note_id
             LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
-            WHERE e.vector_kind = 'body_chunk' AND {set_predicate}
+            WHERE {set_predicate}
             ORDER BY e.note_id, {distance}
             "#,
             archive_clause, strict_filter_clause
@@ -887,7 +887,7 @@ impl PgEmbeddingRepository {
             JOIN note n ON n.id = e.note_id
             LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
-            WHERE e.vector_kind = 'body_chunk' AND {set_predicate} {}
+            WHERE {set_predicate} {}
             ORDER BY e.note_id, {distance}
             "#,
             archive_clause
@@ -967,7 +967,7 @@ impl PgEmbeddingRepository {
             JOIN note n ON n.id = e.note_id
             LEFT JOIN note_original noc ON noc.note_id = e.note_id
             LEFT JOIN note_revised_current nrc ON nrc.note_id = e.note_id
-            WHERE e.vector_kind = 'body_chunk' AND {set_predicate} {}
+            WHERE {set_predicate} {}
             ORDER BY e.note_id, {distance}
             "#,
             archive_clause

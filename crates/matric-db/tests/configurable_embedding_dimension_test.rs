@@ -37,6 +37,7 @@ fn config_request(
         description: Some(format!("{name} configurable dimension test")),
         model: format!("{name}-model"),
         dimension,
+        provider_dimension: None,
         vector_type,
         chunk_size: 512,
         chunk_overlap: 64,
@@ -56,6 +57,7 @@ fn config_request(
 
 fn set_request(name: &str, config_id: Uuid) -> CreateEmbeddingSetRequest {
     CreateEmbeddingSetRequest {
+        query_template: None,
         name: name.to_string(),
         slug: Some(name.to_lowercase().replace(' ', "-")),
         description: None,

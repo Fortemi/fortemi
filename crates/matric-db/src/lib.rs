@@ -42,6 +42,7 @@ pub mod collections;
 pub mod document_types;
 pub mod embedding_sets;
 mod embedding_storage_contract;
+pub use embedding_storage_contract::searchable_vector_predicate;
 pub mod embeddings;
 pub mod entity_vectors;
 pub mod external_owner;

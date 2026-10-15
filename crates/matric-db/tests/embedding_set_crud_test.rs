@@ -48,6 +48,7 @@ async fn test_embedding_set_crud_lifecycle() {
     // ============================================================================
 
     let create_request = CreateEmbeddingSetRequest {
+        query_template: None,
         name: "Test Set for CRUD".to_string(),
         slug: Some("test-crud-set".to_string()),
         description: Some("A test embedding set for CRUD operations".to_string()),
@@ -98,6 +99,7 @@ async fn test_embedding_set_crud_lifecycle() {
     // ============================================================================
 
     let update_request = matric_core::UpdateEmbeddingSetRequest {
+        query_template: None,
         name: Some("Updated Test Set".to_string()),
         description: Some("Updated description".to_string()),
         purpose: None,
@@ -198,6 +200,7 @@ async fn test_external_set_member_add_queues_no_embedding_jobs() {
 
     db.embedding_sets
         .create(CreateEmbeddingSetRequest {
+            query_template: None,
             name: format!("External member queue {unique}"),
             slug: Some(slug.clone()),
             description: None,
@@ -274,6 +277,7 @@ async fn test_internal_set_member_add_still_queues_embedding_job() {
 
     db.embedding_sets
         .create(CreateEmbeddingSetRequest {
+            query_template: None,
             name: format!("Internal member queue {unique}"),
             slug: Some(slug.clone()),
             description: None,
@@ -340,6 +344,7 @@ async fn test_delete_removes_member_associations() {
 
     // Create a test set
     let create_request = CreateEmbeddingSetRequest {
+        query_template: None,
         name: "Test Set With Members".to_string(),
         slug: Some("test-with-members".to_string()),
         description: Some("Testing member cleanup on delete".to_string()),

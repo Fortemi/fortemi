@@ -135,3 +135,15 @@ exported set is non-768 or uses `halfvec`, so existing consumers are unaffected
 unless the archive actually needs the widened vector contract. Consumers must
 negotiate the complete `(manifest.version, manifest.profile)` tuple and reject
 dimension/type mismatches before any persistent write.
+
+## Schema 2.2 embedding query contracts (unreleased)
+
+`2.2.0/contract.json` registers optional nullable full-v1 `query_template`,
+`vector_source`, and config `provider_dimension` fields for Fortemi/fortemi#1217.
+Its manifest, set, and config schemas are new; other components reuse the
+pinned 2.1.0 definitions. The server selects 2.2.0 when an exported contract
+needs a wrapper, external ownership, or a raw provider dimension. Explicit
+older targets reject lossy exports. Older archives restore SQL NULL for the
+wrapper/raw dimension and internal write ownership. Synthetic config/set corpora
+and route tests cover raw 4096 to stored 1024 retrieval and write suppression.
+Cross-repository qualification and reciprocal consumer tracking remain release gates.

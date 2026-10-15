@@ -6,6 +6,27 @@
 **Implementation status:** The registered nine-cell `core-v1`, `record-v1`, and `full-v1` producer/consumer matrix is complete, including current receipt-bound AIWG-to-PGlite and AIWG-to-Fortemi `core-v1` cells. Versioned `core-v1` schemas through `2.0.0`, receipt-bound RecordStore self and Fortemi consumer cells, Fortemi `core-v1` and `full-v1` self-cells, PGlite `core-v1` self and bidirectional Fortemi/PGlite cells, a supported complete-inventory `full-v1` server route with production Ed25519 publisher signing, transactional rich-component apply, registered historical transitions, bounded preflight, identity-preserving import, signed-import verification, and disk-backed attachment-sidecar streaming are implemented. Matrix completion authorizes only registered-profile cell claims; unqualified suite compatibility, portability, complete backup, and parity remain blocked.
 **Supersedes in part:** ADR-028, ADR-029
 
+## Query-template extension (#1217, unreleased)
+
+Schema `2.2.0/full-v1` adds optional nullable `embedding_sets.query_template`,
+`embedding_sets.vector_source`, and `embedding_configs.provider_dimension`.
+Absent/null ownership restores `internal`; absent/null raw dimensions retain
+legacy provider-native behavior. Raw dimensions are bounded at 16384 and must
+be at least the capped storage dimension. These fields preserve query
+preparation and write suppression for external profile vectors.
+This is a MINOR change under section 2; immutable earlier schemas reject the new
+field. Missing or null means the legacy no-template default. The reader restores
+non-null values exactly after complete archive validation. Automatic full-v1
+exports select 2.2.0 when needed, and an explicit older target rejects rather
+than dropping a template, external ownership, or raw provider dimension. Existing archives import with SQL NULL.
+
+`contracts/knowledge-shard/2.2.0/contract.json` pins the new schemas and reused
+2.1.0 components, the synthetic corpus, and consumer impact under
+[Fortemi/fortemi#1217](https://git.integrolabs.net/Fortemi/fortemi/issues/1217).
+The new tuple has local implementation tests only. Earlier cross-repository
+receipts do not cover it; reciprocal consumer issue/PR links, fixture pins, and
+section 6 release gates remain required before release.
+
 ## Context
 
 ### Supplemental Native Operations (#1146, React #419/#420)

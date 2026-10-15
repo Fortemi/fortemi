@@ -1186,6 +1186,12 @@ export default [
           },
           "description": "Auto-membership criteria (for create/update with mode=auto/mixed)"
         },
+        "query_template": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^(?:(?!\\{text\\})[\\s\\S])*\\{text\\}(?:(?!\\{text\\})[\\s\\S])*$",
+          "description": "Query wrapper with exactly one {text} placeholder, at most 2048 UTF-8 bytes; overrides Ollama model query prefixes"
+        },
         "ef_search": {
           "type": "integer",
           "minimum": 10,
@@ -2952,6 +2958,12 @@ export default [
           "description": "internal lets Fortemi generate embeddings; external suppresses automatic embedding writes",
           "default": "internal"
         },
+        "query_template": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^(?:(?!\\{text\\})[\\s\\S])*\\{text\\}(?:(?!\\{text\\})[\\s\\S])*$",
+          "description": "Query wrapper with exactly one {text} placeholder, at most 2048 UTF-8 bytes; overrides Ollama model query prefixes"
+        },
         "ef_search": {
           "type": "integer",
           "minimum": 10,
@@ -3129,6 +3141,12 @@ export default [
             "external"
           ],
           "description": "Change whether Fortemi or an external process owns vectors"
+        },
+        "query_template": {
+          "type": "string",
+          "maxLength": 2048,
+          "pattern": "^(?:(?!\\{text\\})[\\s\\S])*\\{text\\}(?:(?!\\{text\\})[\\s\\S])*$",
+          "description": "Query wrapper with exactly one {text} placeholder, at most 2048 UTF-8 bytes; overrides Ollama model query prefixes"
         },
         "ef_search": {
           "type": "integer",
@@ -5749,6 +5767,12 @@ When called without note_ids, processes all notes in the current archive (up to 
           "type": "number",
           "description": "Vector dimension. Use vector for 1-2000 dimensions, halfvec for 1-4000 dimensions."
         },
+        "provider_dimension": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16384,
+          "description": "Raw provider output dimension before truncate-then-L2-normalize; must be at least dimension. Omit for legacy provider-native behavior."
+        },
         "vector_type": {
           "type": "string",
           "enum": ["vector", "halfvec"],
@@ -5827,6 +5851,12 @@ When called without note_ids, processes all notes in the current archive (up to 
         "dimension": {
           "type": "number",
           "description": "New vector dimension. Use vector for 1-2000 dimensions, halfvec for 1-4000 dimensions."
+        },
+        "provider_dimension": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16384,
+          "description": "Raw provider output dimension before truncate-then-L2-normalize; must be at least dimension. Omit for legacy provider-native behavior."
         },
         "vector_type": {
           "type": "string",

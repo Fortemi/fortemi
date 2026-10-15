@@ -8,8 +8,7 @@ use uuid::Uuid;
 
 /// Current client-side vector normalization policy.
 ///
-/// Providers return their native vectors; Fortemi does not normalize them
-/// before storage or search.
+/// Legacy vectors stay provider-native; explicit MRL contracts truncate then L2-normalize.
 pub const EMBEDDING_NORMALIZATION_PROVIDER_NATIVE: &str = "provider-native";
 
 /// The inputs that define whether stored and query vectors share an embedding space.
@@ -20,6 +19,10 @@ pub struct EmbeddingContract {
     dimension: usize,
     normalization: String,
     embedding_set_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    query_template: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    provider_dimension: Option<usize>,
 }
 
 impl EmbeddingContract {
@@ -46,6 +49,8 @@ impl EmbeddingContract {
             dimension,
             normalization: EMBEDDING_NORMALIZATION_PROVIDER_NATIVE.to_string(),
             embedding_set_id,
+            query_template: None,
+            provider_dimension: None,
         })
     }
 
@@ -69,6 +74,26 @@ impl EmbeddingContract {
         self.embedding_set_id
     }
 
+    pub fn with_query_template(mut self, query_template: Option<String>) -> Result<Self, String> {
+        if let Some(template) = &query_template {
+            crate::validate_query_template(template)?;
+        }
+        self.query_template = query_template;
+        Ok(self)
+    }
+
+    pub fn with_provider_dimension(mut self, raw: Option<usize>) -> Result<Self, String> {
+        if raw.is_some_and(|raw| raw < self.dimension || raw > 16384) {
+            return Err("provider_dimension must be at least dimension and at most 16384".into());
+        }
+        self.provider_dimension = raw;
+        Ok(self)
+    }
+
+    pub fn query_template(&self) -> Option<&str> {
+        self.query_template.as_deref()
+    }
+
     /// Stable SHA-256 identity for persistence, cache lineage, and freshness checks.
     pub fn fingerprint(&self) -> String {
         fn hash_field(hasher: &mut Sha256, value: &[u8]) {
@@ -88,6 +113,16 @@ impl EmbeddingContract {
                 hash_field(&mut hasher, id.as_bytes());
             }
             None => hasher.update([0]),
+        }
+        // Absence must retain the v1 bytes for existing stored vectors.
+        if let Some(template) = &self.query_template {
+            hash_field(&mut hasher, b"query_template");
+            hash_field(&mut hasher, template.as_bytes());
+        }
+        if let Some(raw) = self.provider_dimension {
+            hash_field(&mut hasher, b"provider_dimension");
+            hash_field(&mut hasher, &(raw as u64).to_be_bytes());
+            hash_field(&mut hasher, b"truncate-first-then-l2-normalize");
         }
         hex::encode(hasher.finalize())
     }
@@ -128,6 +163,69 @@ mod tests {
         for variant in variants {
             assert_ne!(base.fingerprint(), variant.fingerprint());
         }
+    }
+
+    #[test]
+    fn templates_change_fingerprints_and_absence_preserves_legacy_bytes() {
+        let set_id = Uuid::parse_str("018f4f52-4ff2-7a4e-8b5d-6d9b4f4d7022").unwrap();
+        let base =
+            EmbeddingContract::new("openai", "text-embedding-3-small", 1536, Some(set_id)).unwrap();
+        // Golden SHA-256 from the pre-template v1 field encoding.
+        assert_eq!(
+            base.fingerprint(),
+            "9474441f083cb621452c905a663d181cd914d3fcea35e1554063b9856caee293"
+        );
+        assert_eq!(
+            base.clone()
+                .with_query_template(None)
+                .unwrap()
+                .fingerprint(),
+            base.fingerprint()
+        );
+        assert_eq!(
+            base.clone()
+                .with_provider_dimension(None)
+                .unwrap()
+                .fingerprint(),
+            base.fingerprint()
+        );
+        let raw = base.clone().with_provider_dimension(Some(4096)).unwrap();
+        assert_ne!(raw.fingerprint(), base.fingerprint());
+        assert_ne!(
+            raw.clone()
+                .with_provider_dimension(Some(8192))
+                .unwrap()
+                .fingerprint(),
+            raw.fingerprint()
+        );
+        assert!(base.clone().with_provider_dimension(Some(1024)).is_err());
+        assert!(base.clone().with_provider_dimension(Some(16385)).is_err());
+        let first = base
+            .clone()
+            .with_query_template(Some("Query:{text}".to_string()))
+            .unwrap();
+        let second = base
+            .clone()
+            .with_query_template(Some("Instruct: Find companies\nQuery:{text}".to_string()))
+            .unwrap();
+        assert_ne!(first.fingerprint(), base.fingerprint());
+        assert_ne!(first.fingerprint(), second.fingerprint());
+        let mut legacy = serde_json::to_value(&base).unwrap();
+        assert!(legacy.get("query_template").is_none());
+        assert_eq!(
+            serde_json::from_value::<EmbeddingContract>(legacy.clone()).unwrap(),
+            base
+        );
+        legacy["query_template"] = serde_json::Value::Null;
+        assert_eq!(
+            serde_json::from_value::<EmbeddingContract>(legacy)
+                .unwrap()
+                .fingerprint(),
+            base.fingerprint()
+        );
+        assert!(base
+            .with_query_template(Some("invalid".to_string()))
+            .is_err());
     }
 
     #[test]

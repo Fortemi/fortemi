@@ -5,6 +5,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 pub const SHARD_SCHEMA_2_1_VERSION: &str = "2.1.0";
+pub const SHARD_SCHEMA_2_2_VERSION: &str = "2.2.0";
 
 #[derive(Clone, Copy)]
 struct ShardEmbeddingConfigContract {
@@ -12,12 +13,38 @@ struct ShardEmbeddingConfigContract {
     vector_type: EmbeddingVectorType,
 }
 
-pub fn is_schema_2_1(version: &str) -> bool {
-    version == SHARD_SCHEMA_2_1_VERSION
+pub fn supports_variable_embeddings(version: &str) -> bool {
+    matches!(version, SHARD_SCHEMA_2_1_VERSION | SHARD_SCHEMA_2_2_VERSION)
 }
 
 pub fn is_schema_2_family(version: &str) -> bool {
-    matches!(version, "2.0.0" | SHARD_SCHEMA_2_1_VERSION)
+    matches!(
+        version,
+        "2.0.0" | SHARD_SCHEMA_2_1_VERSION | SHARD_SCHEMA_2_2_VERSION
+    )
+}
+
+pub fn schema_2_2_manifest(profile: &str) -> Option<&'static str> {
+    (profile == "full-v1").then_some(include_str!(
+        "../../../contracts/knowledge-shard/2.2.0/full-v1/manifest.schema.json"
+    ))
+}
+
+pub fn schema_2_2_component(profile: &str, component: &str) -> Option<&'static str> {
+    if profile != "full-v1" {
+        return None;
+    }
+    if component == "embedding_sets" {
+        Some(include_str!(
+            "../../../contracts/knowledge-shard/2.2.0/full-v1/embedding-set.schema.json"
+        ))
+    } else if component == "embedding_configs" {
+        Some(include_str!(
+            "../../../contracts/knowledge-shard/2.2.0/full-v1/embedding-config.schema.json"
+        ))
+    } else {
+        component_schema(profile, component)
+    }
 }
 
 pub fn manifest_schema(profile: &str) -> Option<&'static str> {
@@ -186,6 +213,13 @@ pub fn validate_schema_2_1_embedding_contract(
                         .to_string(),
                 );
             }
+            matric_core::validate_provider_dimension(
+                dimension as i32,
+                value
+                    .get("provider_dimension")
+                    .and_then(Value::as_i64)
+                    .map(|raw| raw as i32),
+            )?;
             let space_contract = value.get("space_contract").filter(|value| !value.is_null());
             let space_id = value.get("space_id").and_then(Value::as_str);
             if space_contract.is_none() && space_id.is_some() {
@@ -218,6 +252,9 @@ pub fn validate_schema_2_1_embedding_contract(
         let values = serde_json::from_slice::<Vec<Value>>(data)
             .map_err(|_| "Knowledge shard embedding sets are invalid.".to_string())?;
         for value in values {
+            if let Some(template) = value.get("query_template").and_then(Value::as_str) {
+                matric_core::validate_query_template(template)?;
+            }
             let Some(set_id) = parse_uuid_field(&value, "id") else {
                 continue;
             };

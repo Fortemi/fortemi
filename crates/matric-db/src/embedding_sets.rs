@@ -190,7 +190,7 @@ impl PgEmbeddingSetRepository {
                 es.id, es.name, es.slug, es.description, es.purpose, es.usage_hints, es.keywords,
                 es.set_type::text as set_type, es.vector_source, es.mode::text as mode, es.criteria, es.embedding_config_id,
                 ec.space_contract, ec.space_id,
-                es.truncate_dim, es.auto_embed_rules,
+                es.truncate_dim, es.query_template, es.auto_embed_rules,
                 es.index_status::text as index_status, es.index_type,
                 COALESCE(es.defer_index_build, FALSE) AS defer_index_build,
                 es.ef_search,
@@ -221,7 +221,7 @@ impl PgEmbeddingSetRepository {
                 es.id, es.name, es.slug, es.description, es.purpose, es.usage_hints, es.keywords,
                 es.set_type::text as set_type, es.vector_source, es.mode::text as mode, es.criteria, es.embedding_config_id,
                 ec.space_contract, ec.space_id,
-                es.truncate_dim, es.auto_embed_rules,
+                es.truncate_dim, es.query_template, es.auto_embed_rules,
                 es.index_status::text as index_status, es.index_type,
                 COALESCE(es.defer_index_build, FALSE) AS defer_index_build,
                 es.ef_search,
@@ -287,6 +287,9 @@ impl PgEmbeddingSetRepository {
         if let Some(ef_search) = req.ef_search {
             validate_ef_search(ef_search).map_err(Error::InvalidInput)?;
         }
+        if let Some(template) = &req.query_template {
+            matric_core::validate_query_template(template).map_err(Error::InvalidInput)?;
+        }
 
         sqlx::query(
             r#"
@@ -294,12 +297,12 @@ impl PgEmbeddingSetRepository {
                 id, name, slug, description, purpose, usage_hints, keywords,
                 set_type, mode, criteria, embedding_config_id, truncate_dim,
                 auto_embed_rules, vector_source, defer_index_build, ef_search, agent_metadata,
-                created_at, updated_at
+                created_at, updated_at, query_template
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7,
                 $8::embedding_set_type, $9::embedding_set_mode, $10, $11, $12,
                 $13, $14, $15, $16, $17,
-                $18, $18
+                $18, $18, $19
             )
             "#,
         )
@@ -321,6 +324,7 @@ impl PgEmbeddingSetRepository {
         .bind(req.ef_search)
         .bind(&agent_metadata_json)
         .bind(now)
+        .bind(&req.query_template)
         .execute(&self.pool)
         .await
         .map_err(Error::Database)?;
@@ -655,7 +659,7 @@ impl PgEmbeddingSetRepository {
     pub async fn list_configs(&self) -> Result<Vec<EmbeddingConfigProfile>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
+            SELECT id, name, description, model, dimension, provider_dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
                    provider::text, provider_config, content_types, document_composition, space_contract, space_id
@@ -680,6 +684,7 @@ impl PgEmbeddingSetRepository {
                     description: row.get("description"),
                     model: row.get("model"),
                     dimension: row.get("dimension"),
+                    provider_dimension: row.get("provider_dimension"),
                     vector_type: parse_vector_type(row.get::<String, _>("vector_type"))
                         .unwrap_or_default(),
                     chunk_size: row.get("chunk_size"),
@@ -717,7 +722,7 @@ impl PgEmbeddingSetRepository {
     pub async fn get_default_config(&self) -> Result<Option<EmbeddingConfigProfile>> {
         let row = sqlx::query(
             r#"
-            SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
+            SELECT id, name, description, model, dimension, provider_dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
                    provider::text, provider_config, content_types, document_composition, space_contract, space_id
@@ -742,6 +747,7 @@ impl PgEmbeddingSetRepository {
                     description: row.get("description"),
                     model: row.get("model"),
                     dimension: row.get("dimension"),
+                    provider_dimension: row.get("provider_dimension"),
                     vector_type: parse_vector_type(row.get::<String, _>("vector_type"))
                         .unwrap_or_default(),
                     chunk_size: row.get("chunk_size"),
@@ -778,7 +784,7 @@ impl PgEmbeddingSetRepository {
     pub async fn get_config(&self, id: Uuid) -> Result<Option<EmbeddingConfigProfile>> {
         let row = sqlx::query(
             r#"
-            SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
+            SELECT id, name, description, model, dimension, provider_dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
                    provider::text, provider_config, content_types, document_composition, space_contract, space_id
@@ -803,6 +809,7 @@ impl PgEmbeddingSetRepository {
                     description: row.get("description"),
                     model: row.get("model"),
                     dimension: row.get("dimension"),
+                    provider_dimension: row.get("provider_dimension"),
                     vector_type: parse_vector_type(row.get::<String, _>("vector_type"))
                         .unwrap_or_default(),
                     chunk_size: row.get("chunk_size"),
@@ -841,6 +848,8 @@ impl PgEmbeddingSetRepository {
         request: CreateEmbeddingConfigRequest,
     ) -> Result<EmbeddingConfigProfile> {
         validate_config_dimension(request.dimension, request.vector_type)?;
+        matric_core::validate_provider_dimension(request.dimension, request.provider_dimension)
+            .map_err(Error::InvalidInput)?;
         let id = new_v7();
         let now = Utc::now();
         // Bind matryoshka_dims as Vec<i32> directly (issue #126 EMB-017)
@@ -856,13 +865,13 @@ impl PgEmbeddingSetRepository {
                 hnsw_m, hnsw_ef_construction, is_default, created_at, updated_at,
                 supports_mrl, matryoshka_dims, default_truncate_dim,
                 provider, provider_config, content_types, document_composition,
-                space_contract, space_id
+                space_contract, space_id, provider_dimension
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8,
                 $9, $10, FALSE, $11, $11,
                 $12, $13, $14,
                 $15::embedding_provider, $16, $17, $18,
-                $19, $20
+                $19, $20, $21
             )
             "#,
         )
@@ -886,6 +895,7 @@ impl PgEmbeddingSetRepository {
         .bind(serde_json::to_value(&request.document_composition).unwrap_or_default())
         .bind(&request.space_contract)
         .bind(&computed_space_id)
+        .bind(request.provider_dimension)
         .execute(&self.pool)
         .await
         .map_err(Error::Database)?;
@@ -911,7 +921,10 @@ impl PgEmbeddingSetRepository {
         id: Uuid,
         request: UpdateEmbeddingConfigRequest,
     ) -> Result<EmbeddingConfigProfile> {
-        if request.dimension.is_some() || request.vector_type.is_some() {
+        if request.dimension.is_some()
+            || request.vector_type.is_some()
+            || request.provider_dimension.is_some()
+        {
             let current = self
                 .get_config(id)
                 .await?
@@ -919,6 +932,11 @@ impl PgEmbeddingSetRepository {
             let dimension = request.dimension.unwrap_or(current.dimension);
             let vector_type = request.vector_type.unwrap_or(current.vector_type);
             validate_config_dimension(dimension, vector_type)?;
+            matric_core::validate_provider_dimension(
+                dimension,
+                request.provider_dimension.or(current.provider_dimension),
+            )
+            .map_err(Error::InvalidInput)?;
         }
         let computed_space_id = request.space_contract.as_ref().map(embedding_space_id);
         if request.space_contract.is_some() {
@@ -949,6 +967,10 @@ impl PgEmbeddingSetRepository {
         }
         if request.dimension.is_some() {
             updates.push(format!("dimension = ${}", param_idx));
+            param_idx += 1;
+        }
+        if request.provider_dimension.is_some() {
+            updates.push(format!("provider_dimension = ${}", param_idx));
             param_idx += 1;
         }
         if request.vector_type.is_some() {
@@ -1023,6 +1045,9 @@ impl PgEmbeddingSetRepository {
         }
         if let Some(dimension) = request.dimension {
             query_builder = query_builder.bind(dimension);
+        }
+        if let Some(provider_dimension) = request.provider_dimension {
+            query_builder = query_builder.bind(provider_dimension);
         }
         if let Some(vector_type) = request.vector_type {
             query_builder = query_builder.bind(vector_type.to_string());
@@ -1164,7 +1189,7 @@ impl PgEmbeddingSetRepository {
     ) -> Result<Vec<EmbeddingConfigProfile>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
+            SELECT id, name, description, model, dimension, provider_dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
                    provider::text, provider_config, content_types, document_composition, space_contract, space_id
@@ -1191,6 +1216,7 @@ impl PgEmbeddingSetRepository {
                     description: row.get("description"),
                     model: row.get("model"),
                     dimension: row.get("dimension"),
+                    provider_dimension: row.get("provider_dimension"),
                     vector_type: parse_vector_type(row.get::<String, _>("vector_type"))
                         .unwrap_or_default(),
                     chunk_size: row.get("chunk_size"),
@@ -1231,7 +1257,7 @@ impl PgEmbeddingSetRepository {
     ) -> Result<Vec<EmbeddingConfigProfile>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
+            SELECT id, name, description, model, dimension, provider_dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
                    provider::text, provider_config, content_types, document_composition, space_contract, space_id
@@ -1258,6 +1284,7 @@ impl PgEmbeddingSetRepository {
                     description: row.get("description"),
                     model: row.get("model"),
                     dimension: row.get("dimension"),
+                    provider_dimension: row.get("provider_dimension"),
                     vector_type: parse_vector_type(row.get::<String, _>("vector_type"))
                         .unwrap_or_default(),
                     chunk_size: row.get("chunk_size"),
@@ -1711,6 +1738,7 @@ impl PgEmbeddingSetRepository {
                 .unwrap_or(None),
             space_id: row.try_get::<Option<String>, _>("space_id").unwrap_or(None),
             truncate_dim: row.try_get("truncate_dim").ok(),
+            query_template: row.get("query_template"),
             auto_embed_rules,
             document_count: row.get("document_count"),
             embedding_count: row.get("embedding_count"),
@@ -1867,7 +1895,7 @@ impl PgEmbeddingSetRepository {
                 es.id, es.name, es.slug, es.description, es.purpose, es.usage_hints, es.keywords,
                 es.set_type::text as set_type, es.vector_source, es.mode::text as mode, es.criteria, es.embedding_config_id,
                 ec.space_contract, ec.space_id,
-                es.truncate_dim, es.auto_embed_rules,
+                es.truncate_dim, es.query_template, es.auto_embed_rules,
                 es.index_status::text as index_status, es.index_type,
                 COALESCE(es.defer_index_build, FALSE) AS defer_index_build,
                 es.ef_search,
@@ -1902,7 +1930,7 @@ impl PgEmbeddingSetRepository {
                 es.id, es.name, es.slug, es.description, es.purpose, es.usage_hints, es.keywords,
                 es.set_type::text as set_type, es.vector_source, es.mode::text as mode, es.criteria, es.embedding_config_id,
                 ec.space_contract, ec.space_id,
-                es.truncate_dim, es.auto_embed_rules,
+                es.truncate_dim, es.query_template, es.auto_embed_rules,
                 es.index_status::text as index_status, es.index_type,
                 COALESCE(es.defer_index_build, FALSE) AS defer_index_build,
                 es.ef_search,
@@ -1975,6 +2003,9 @@ impl PgEmbeddingSetRepository {
         if let Some(ef_search) = req.ef_search {
             validate_ef_search(ef_search).map_err(Error::InvalidInput)?;
         }
+        if let Some(template) = &req.query_template {
+            matric_core::validate_query_template(template).map_err(Error::InvalidInput)?;
+        }
 
         sqlx::query(
             r#"
@@ -1982,12 +2013,12 @@ impl PgEmbeddingSetRepository {
                 id, name, slug, description, purpose, usage_hints, keywords,
                 set_type, mode, criteria, embedding_config_id, truncate_dim,
                 auto_embed_rules, vector_source, defer_index_build, ef_search, agent_metadata,
-                created_at, updated_at
+                created_at, updated_at, query_template
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7,
                 $8::embedding_set_type, $9::embedding_set_mode, $10, $11, $12,
                 $13, $14, $15, $16, $17,
-                $18, $18
+                $18, $18, $19
             )
             "#,
         )
@@ -2009,6 +2040,7 @@ impl PgEmbeddingSetRepository {
         .bind(req.ef_search)
         .bind(&agent_metadata_json)
         .bind(now)
+        .bind(&req.query_template)
         .execute(&mut **tx)
         .await
         .map_err(Error::Database)?;
@@ -2098,6 +2130,9 @@ impl PgEmbeddingSetRepository {
         if let Some(ef_search) = req.ef_search {
             validate_ef_search(ef_search).map_err(Error::InvalidInput)?;
         }
+        if let Some(template) = &req.query_template {
+            matric_core::validate_query_template(template).map_err(Error::InvalidInput)?;
+        }
 
         // Single UPDATE with COALESCE — NULL params preserve existing values
         let row = sqlx::query(
@@ -2116,6 +2151,7 @@ impl PgEmbeddingSetRepository {
                 vector_source = COALESCE($12, vector_source),
                 defer_index_build = COALESCE($13, defer_index_build),
                 ef_search = COALESCE($14, ef_search),
+                query_template = COALESCE($15, query_template),
                 updated_at = NOW()
             WHERE slug = $1
             RETURNING
@@ -2123,7 +2159,7 @@ impl PgEmbeddingSetRepository {
                 set_type::text as set_type, vector_source, mode::text as mode, criteria, embedding_config_id,
                 (SELECT space_contract FROM embedding_config ec WHERE ec.id = embedding_set.embedding_config_id) AS space_contract,
                 (SELECT space_id FROM embedding_config ec WHERE ec.id = embedding_set.embedding_config_id) AS space_id,
-                truncate_dim, auto_embed_rules,
+                truncate_dim, query_template, auto_embed_rules,
                 index_status::text as index_status, index_type,
                 COALESCE(defer_index_build, FALSE) AS defer_index_build,
                 ef_search,
@@ -2146,6 +2182,7 @@ impl PgEmbeddingSetRepository {
         .bind(&vector_source)
         .bind(defer_index_build)
         .bind(req.ef_search)
+        .bind(&req.query_template)
         .fetch_one(&mut **tx)
         .await
         .map_err(Error::Database)?;
@@ -2535,7 +2572,7 @@ impl PgEmbeddingSetRepository {
     ) -> Result<Vec<EmbeddingConfigProfile>> {
         let rows = sqlx::query(
             r#"
-            SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
+            SELECT id, name, description, model, dimension, provider_dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
                    provider::text, provider_config, content_types, document_composition, space_contract, space_id
@@ -2560,6 +2597,7 @@ impl PgEmbeddingSetRepository {
                     description: row.get("description"),
                     model: row.get("model"),
                     dimension: row.get("dimension"),
+                    provider_dimension: row.get("provider_dimension"),
                     vector_type: parse_vector_type(row.get::<String, _>("vector_type"))
                         .unwrap_or_default(),
                     chunk_size: row.get("chunk_size"),
@@ -2600,7 +2638,7 @@ impl PgEmbeddingSetRepository {
     ) -> Result<Option<EmbeddingConfigProfile>> {
         let row = sqlx::query(
             r#"
-            SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
+            SELECT id, name, description, model, dimension, provider_dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
                    provider::text, provider_config, content_types, document_composition, space_contract, space_id
@@ -2625,6 +2663,7 @@ impl PgEmbeddingSetRepository {
                     description: row.get("description"),
                     model: row.get("model"),
                     dimension: row.get("dimension"),
+                    provider_dimension: row.get("provider_dimension"),
                     vector_type: parse_vector_type(row.get::<String, _>("vector_type"))
                         .unwrap_or_default(),
                     chunk_size: row.get("chunk_size"),
@@ -2665,7 +2704,7 @@ impl PgEmbeddingSetRepository {
     ) -> Result<Option<EmbeddingConfigProfile>> {
         let row = sqlx::query(
             r#"
-            SELECT id, name, description, model, dimension, vector_type, chunk_size, chunk_overlap,
+            SELECT id, name, description, model, dimension, provider_dimension, vector_type, chunk_size, chunk_overlap,
                    hnsw_m, hnsw_ef_construction, ivfflat_lists, is_default, created_at, updated_at,
                    supports_mrl, matryoshka_dims, default_truncate_dim,
                    provider::text, provider_config, content_types, document_composition, space_contract, space_id
@@ -2690,6 +2729,7 @@ impl PgEmbeddingSetRepository {
                     description: row.get("description"),
                     model: row.get("model"),
                     dimension: row.get("dimension"),
+                    provider_dimension: row.get("provider_dimension"),
                     vector_type: parse_vector_type(row.get::<String, _>("vector_type"))
                         .unwrap_or_default(),
                     chunk_size: row.get("chunk_size"),

@@ -142,7 +142,7 @@ struct TableStats {
 
 async fn load_set(pool: &Pool<Postgres>, schema: &str, set_id: Uuid) -> Result<SetShape> {
     let query = format!(
-        "SELECT es.slug, ec.dimension, ec.vector_type, es.ef_search, es.last_indexed_at
+        "SELECT es.slug, COALESCE(es.truncate_dim, ec.dimension) AS dimension, ec.vector_type, es.ef_search, es.last_indexed_at
          FROM {schema}.embedding_set es
          JOIN public.embedding_config ec ON ec.id = es.embedding_config_id
          WHERE es.id = $1"
@@ -263,9 +263,14 @@ async fn probe_recall(
     effective_ef_search: i32,
     count: i32,
 ) -> Result<Option<f32>> {
+    let kinds = crate::embedding_storage_contract::searchable_vector_predicate(
+        "e",
+        &format!("{schema}.embedding_set"),
+    );
     let sample_query = format!(
-        "SELECT vector FROM {schema}.embedding
+        "SELECT vector FROM {schema}.embedding e
          WHERE embedding_set_id = $1
+           AND {kinds}
            AND vector IS NOT NULL
            AND vector_dims(vector) = $2
          ORDER BY random() LIMIT $3"
@@ -283,8 +288,9 @@ async fn probe_recall(
 
     let order = distance_order(&set.vector_type, set.dimension, "$2");
     let top_query = format!(
-        "SELECT id FROM {schema}.embedding
+        "SELECT id FROM {schema}.embedding e
          WHERE embedding_set_id = $1
+           AND {kinds}
            AND vector IS NOT NULL
            AND vector_dims(vector) = {dimension}
          ORDER BY {order} LIMIT {k}",

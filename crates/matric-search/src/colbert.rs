@@ -254,6 +254,24 @@ mod tests {
     }
 
     #[test]
+    fn cosine_similarity_is_scale_invariant() {
+        let vector = |v: Vec<f32>| Vector::from(v);
+        let a = vector(vec![3., 4., 1.]);
+        let b = vector(vec![1., 2., 3.]);
+        let base = ColBERTReranker::cosine_similarity(&a, &b).unwrap();
+        assert!(
+            (base - ColBERTReranker::cosine_similarity(&vector(vec![21., 28., 7.]), &b).unwrap())
+                .abs()
+                < 1e-6
+        );
+        assert!(
+            (base - ColBERTReranker::cosine_similarity(&a, &vector(vec![11., 22., 33.])).unwrap())
+                .abs()
+                < 1e-6
+        );
+    }
+
+    #[test]
     fn test_cosine_similarity_identical() {
         let a = vec_from_slice(&[1.0, 0.0, 0.0]);
         let b = vec_from_slice(&[1.0, 0.0, 0.0]);

@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "contractRevision": "23",
+  "status": "unreleased-candidate",
+  "authority": {
+    "repository": "Fortemi/fortemi",
+    "issue": "https://git.integrolabs.net/Fortemi/fortemi/issues/1217",
+    "adr": "docs/architecture/adr/ADR-102-canonical-knowledge-shard-contract.md"
+  },
+  "knowledgeShard": {
+    "format": "matric-shard",
+    "schemaVersion": "2.2.0",
+    "minimumReaderVersion": "2.2.0",
+    "profile": "full-v1"
+  },
+  "schemaBundle": {
+    "baseAuthority": "contracts/knowledge-shard/2.1.0/contract.json",
+    "files": {
+      "contracts/knowledge-shard/2.1.0/core-v1/collection.schema.json": "7507e3d8889c298f058246adecfa3fe8cf529f9c54f51a6beeec5a2229e8afff",
+      "contracts/knowledge-shard/2.1.0/core-v1/link.schema.json": "e654ca15596d4c3bddd99061f1011ae84085725db7b5b877023491d4c70a55fd",
+      "contracts/knowledge-shard/2.1.0/core-v1/note.schema.json": "f43082707710b1222afba6bd4f39ca694868257cdc0f6c3741fea48a48f322b8",
+      "contracts/knowledge-shard/2.1.0/core-v1/tag.schema.json": "dba94d9b65ef485667a618594d4e543da3db743b1608073daf340af39c83586f",
+      "contracts/knowledge-shard/2.1.0/core-v1/template.schema.json": "45d452c0d0ec82d8d8640d01b4db6ceeb92e8409597986f2d1c2361eccd8a3b6",
+      "contracts/knowledge-shard/2.1.0/full-v1/community-assignment.schema.json": "43caae37ff83af794e3b33c5c5a890c29891391c9013894b6a27a368d1d1a1e1",
+      "contracts/knowledge-shard/2.1.0/full-v1/community-set.schema.json": "44b5ba4dfafffafca4cd2dcbeb613e84b5eac40b8141ee42b64acdd442fc505c",
+      "contracts/knowledge-shard/2.1.0/full-v1/embedding-set-member.schema.json": "c3ec095a34bc679caf5953e103f8ff340def3e7f7d24354f84c0b23a50e685b9",
+      "contracts/knowledge-shard/2.1.0/full-v1/embedding.schema.json": "d0062129a58cc963688d8a477d93bb18c2515ebbb7459751540fae3be938866c",
+      "contracts/knowledge-shard/2.1.0/full-v1/graph-edge.schema.json": "ec03fd6f149f93ad59f1da43fda9584307c7e3a1d1fa9a66bb532b9d5cb09619",
+      "contracts/knowledge-shard/2.1.0/full-v1/graph-source.schema.json": "4df54f110cefad9204af4d5a334b42a865488a256acb3100e71319582c9692dc",
+      "contracts/knowledge-shard/2.1.0/full-v1/named-location.schema.json": "4fdacb534ae5d061e930fd3a6e5a248eff9724e106c86013400600ef42dbc860",
+      "contracts/knowledge-shard/2.1.0/full-v1/note-original-history.schema.json": "41246036eff831ec9dd3b84868ad089983bb375289eff0886f69ae80fe27760d",
+      "contracts/knowledge-shard/2.1.0/full-v1/note-original.schema.json": "85ed82382d951107d508e0628822b5342aa9ec19c1e9231c1f22dcecdd7316fe",
+      "contracts/knowledge-shard/2.1.0/full-v1/note-revised-current.schema.json": "506cff36ced7b63b06f4c37341aac2784b8dd20df6c1a0f969584288a11c4e2a",
+      "contracts/knowledge-shard/2.1.0/full-v1/note-revision.schema.json": "29366d0d5c5dc738fbb8ae3ad129086b51da1471b00c6fa27827b1d3d70b769f",
+      "contracts/knowledge-shard/2.1.0/full-v1/note-skos-tag.schema.json": "9be98ac497399dcc8696db6ba5582e58b3a5c4f57191e5dcf45d666c2954cf42",
+      "contracts/knowledge-shard/2.1.0/full-v1/provenance-activity.schema.json": "a91766df21408b770913ffc2f01b0d94c22d22e6282169392758d9a0cc491999",
+      "contracts/knowledge-shard/2.1.0/full-v1/provenance-device.schema.json": "b3fbb075bf1b3102d684254ebc9bd7cdb65358bf3fa91c831f8bd307701bb1ee",
+      "contracts/knowledge-shard/2.1.0/full-v1/provenance-edge.schema.json": "bb60c4762c410c82879a47f79f75b34f885e8599d3e2f842ea72381c4bf7aba3",
+      "contracts/knowledge-shard/2.1.0/full-v1/provenance-location.schema.json": "d497ea4cf761e04966dbd086c6559b975f6f04a36b537e2c994da0b5db7e1bcc",
+      "contracts/knowledge-shard/2.1.0/full-v1/provenance-record.schema.json": "4b780451a3beae7557a0af7ae29e07ea7652dc7825acd072adf3c8bd58420c17",
+      "contracts/knowledge-shard/2.1.0/full-v1/signature.schema.json": "f3ff9a478f425855716f18f0921aeebcd9992884d6040df72dc397c0e3531f99",
+      "contracts/knowledge-shard/2.1.0/full-v1/skos-collection-member.schema.json": "cfcbed164958e27834075be91e7907e386e29089b65f1a79383cc4472890d2e7",
+      "contracts/knowledge-shard/2.1.0/full-v1/skos-collection.schema.json": "0820fd02247fb82ee31aee2a77481906b9e82af90f04bb12038ab519c2b39fa5",
+      "contracts/knowledge-shard/2.1.0/full-v1/skos-concept.schema.json": "7a352094ece588501dc06960abf781a642e5df82c6a47ff6002b0b2023621b1c",
+      "contracts/knowledge-shard/2.1.0/full-v1/skos-label.schema.json": "256d1f370268cdc53cbc3d0fc2dc7fa4872cfbe28c22d8162f0b07bec67565d6",
+      "contracts/knowledge-shard/2.1.0/full-v1/skos-mapping-relation.schema.json": "149c978086247bfc6da3b5a655fc6e20958fcd4f11f533eb634f1fb58eb7feac",
+      "contracts/knowledge-shard/2.1.0/full-v1/skos-note.schema.json": "87d13a0391ec78b7354af34448083096e8c767fe481d34f05ecab831aa957469",
+      "contracts/knowledge-shard/2.1.0/full-v1/skos-relation.schema.json": "5b9fc1004137e5d3d7f1a8b2d74470863b0d708dd28b148456ebf52a16ff2432",
+      "contracts/knowledge-shard/2.1.0/full-v1/skos-scheme-membership.schema.json": "7547f5fd19c1012a4045d3415af03d9ddeb9a0997ea229af490169c97730f60e",
+      "contracts/knowledge-shard/2.1.0/full-v1/skos-scheme.schema.json": "a0ce0892d56f9a6871282210192f05c97db3a92675c4b9f7c6f8d784f3100d25",
+      "contracts/knowledge-shard/2.2.0/full-v1/embedding-config.schema.json": "03476bf53465d3bfba270b3c3f1ede8254b15f4e1b60ec6b361e1edc86c44192",
+      "contracts/knowledge-shard/2.2.0/full-v1/embedding-set.schema.json": "303a938ba044960cd9b09cc5438737576afc85ed0e51994b5cabf0fa21d66655",
+      "contracts/knowledge-shard/2.2.0/full-v1/manifest.schema.json": "20b4a98c18c53ec3a6c385d886750e77e4d32100f6bb25578f8db296b5edb109"
+    }
+  },
+  "fieldSemantics": {
+    "embedding_sets.query_template": {
+      "optional": true,
+      "nullable": true,
+      "absentDefault": null,
+      "nullMeaning": "No set query wrapper; use existing provider query behavior.",
+      "valueMeaning": "Exactly one {text}, at most 2048 UTF-8 bytes; restore without modification.",
+      "exportNull": "Omit; absence and null both denote the legacy no-template default."
+    },
+    "embedding_sets.vector_source": {
+      "optional": true,
+      "nullable": true,
+      "absentDefault": "internal",
+      "nullMeaning": "Internal automatic embedding ownership",
+      "valueMeaning": "Preserve internal/external write ownership independently of searchable vector kinds."
+    },
+    "embedding_configs.provider_dimension": {
+      "optional": true,
+      "nullable": true,
+      "absentDefault": null,
+      "nullMeaning": "Legacy provider-native postprocessing.",
+      "valueMeaning": "Raw provider output before truncation and L2 normalization; storage dimension <= raw <= 16384."
+    }
+  },
+  "compatibility": {
+    "previousReaders": "Continue accepting 1.x, 2.0.0 and 2.1.0; absent query_template/provider_dimension default to NULL and vector_source to internal.",
+    "upgrade": "2.1.0 records remain valid 2.2.0 records; no rewriting or migration is required.",
+    "downgrade": "Reject older full-v1 exports if query_template, external ownership, or provider_dimension would be discarded.",
+    "selection": "Full-v1 exports select 2.2.0 when any of these extended contracts is present."
+  },
+  "canonicalCorpus": {
+    "path": "tests/fixtures/shards/full-v1-query-template-v2.2/embedding_sets.json",
+    "sha256": "f279cad22517395194c6a5dc327b4531bd089e151b9141324c94f01e81bacf32",
+    "test": "shard_query_template_tests::query_template_schema_2_2_golden_corpus_and_pins"
+  },
+  "consumerImpact": {
+    "fortemi": "Producer/consumer route round trip, legacy NULL default, validation-before-writes tests in shard_query_template_tests.rs.",
+    "fortemi-react": "Consumers pinned to earlier schema versions must reject 2.2.0 until their optional query_template mapping is implemented and fixtures pass. Preserve vector_source and provider_dimension under the same qualification gate.",
+    "aiwg": "Full-v1 consumers must preserve optional query_template and pass the new fixture before advertising 2.2.0. Preserve vector_source and provider_dimension under the same qualification gate.",
+    "HotM": "Consumers supporting full-v1 must negotiate 2.2.0 and preserve query_template before advertising support. Preserve vector_source and provider_dimension under the same qualification gate.",
+    "tracking": "Consumer issue/PR reciprocal links and cross-repository pins/results are required before release under Fortemi/fortemi#1217."
+  },
+  "claimPolicy": "Local implementation and corpus only. No new cross-repository conformance or release claim; existing receipts remain immutable and do not cover 2.2.0.",
+  "providerDimensionCorpus": {
+    "path": "tests/fixtures/shards/full-v1-query-template-v2.2/embedding_configs.json",
+    "sha256": "bc76206df48215d0da7a3c944874d7af5b6e01bb07df8b5849869025b7d25f89"
+  }
+}

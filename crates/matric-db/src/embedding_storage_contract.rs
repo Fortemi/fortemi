@@ -73,7 +73,7 @@ impl EmbeddingStorageContract {
     /// `placeholder` is always referenced, so the bound set id keeps a type.
     pub(crate) fn set_predicate(&self, alias: &str, placeholder: &str) -> String {
         let dims = format!("vector_dims({alias}.vector) = {}", self.dimension);
-        match self.scope {
+        let scope = match self.scope {
             ContractScope::Set => format!("{alias}.embedding_set_id = {placeholder} AND {dims}"),
             ContractScope::DefaultWithLegacy => format!(
                 "({alias}.embedding_set_id = {placeholder} OR {alias}.embedding_set_id IS NULL) AND {dims}"
@@ -81,7 +81,9 @@ impl EmbeddingStorageContract {
             ContractScope::QueryDimension => {
                 format!("({placeholder}::uuid IS NULL OR TRUE) AND {dims}")
             }
-        }
+        };
+        let kinds = searchable_vector_predicate(alias, "embedding_set");
+        format!("({scope}) AND {kinds}")
     }
 
     pub(crate) fn validate_vector(&self, vector: &Vector) -> Result<()> {
@@ -90,13 +92,24 @@ impl EmbeddingStorageContract {
     }
 }
 
+/// Body chunks remain readable after ownership changes. Profiles are an external-set capability.
+pub fn searchable_vector_predicate(alias: &str, set_table: &str) -> String {
+    format!(
+        "({alias}.vector_kind = 'body_chunk' OR ({alias}.vector_kind = 'profile' AND EXISTS \
+         (SELECT 1 FROM {set_table} searchable_set WHERE searchable_set.id = {alias}.embedding_set_id \
+          AND searchable_set.vector_source = 'external')))"
+    )
+}
+
 pub(crate) async fn contract_for_set(
     connection: &mut PgConnection,
     embedding_set_id: Uuid,
 ) -> Result<EmbeddingStorageContract> {
     let row = sqlx::query(
         r#"
-        SELECT es.id AS embedding_set_id, ec.dimension, ec.vector_type
+        SELECT es.id AS embedding_set_id,
+               COALESCE(es.truncate_dim, ec.dimension) AS dimension,
+               ec.vector_type
         FROM embedding_set es
         JOIN public.embedding_config ec ON ec.id = es.embedding_config_id
         WHERE es.id = $1
@@ -117,7 +130,9 @@ pub(crate) async fn default_contract(
 ) -> Result<EmbeddingStorageContract> {
     let row = sqlx::query(
         r#"
-        SELECT es.id AS embedding_set_id, ec.dimension, ec.vector_type
+        SELECT es.id AS embedding_set_id,
+               COALESCE(es.truncate_dim, ec.dimension) AS dimension,
+               ec.vector_type
         FROM embedding_set es
         JOIN public.embedding_config ec ON ec.id = es.embedding_config_id
         WHERE es.id = get_default_embedding_set_id()
@@ -159,4 +174,31 @@ fn contract_from_row(row: &sqlx::postgres::PgRow) -> Result<EmbeddingStorageCont
         vector_type,
         scope: ContractScope::Set,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_query_expressions_use_cosine_for_each_storage_type() {
+        for (vector_type, expected) in [
+            (
+                EmbeddingVectorType::Vector,
+                "(e.vector::vector(1024)) <=> $1::vector(1024)",
+            ),
+            (
+                EmbeddingVectorType::Halfvec,
+                "(e.vector::halfvec(1024)) <=> ($1::vector::halfvec(1024))",
+            ),
+        ] {
+            let contract = EmbeddingStorageContract {
+                embedding_set_id: Uuid::nil(),
+                dimension: 1024,
+                vector_type,
+                scope: ContractScope::Set,
+            };
+            assert_eq!(contract.distance_expr("e.vector", "$1"), expected);
+        }
+    }
 }
