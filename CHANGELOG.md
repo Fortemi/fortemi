@@ -7,8 +7,18 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.10.6] - 2026-10-16
+
+External-OIDC single-tenant deployments now treat the configured tenant as the
+owner of all content, with an automatic offline ownership upgrade, a restricted
+runtime database role and admin-only archive management. Readers get
+read-scoped, archive-filtered events and a reader archive picker. Consumes
+fortemi-auth 2026.10.3.
+
 ### Security
 
+- Update rustls to 0.23.46 for RUSTSEC-2026-0346 to RUSTSEC-2026-0349
+  (lockfile only, including the fortemi-auth consumer smoke crate).
 - Allow the yanked `zip` 2.4.2 and 3.0.0 in cargo-deny, for review by
   2026-10-31, so policy checks pass again. Upstream yanked every release before
   9.0.3 after publishing extraction advisories, with more to follow. Fortemi
@@ -3323,7 +3333,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.10.0...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.10.6...HEAD
+[2026.10.6]: https://github.com/fortemi/fortemi/compare/v2026.10.5...v2026.10.6
 [2026.10.0]: https://github.com/fortemi/fortemi/compare/v2026.9.11...v2026.10.0
 [2026.9.11]: https://github.com/fortemi/fortemi/compare/v2026.9.10...v2026.9.11
 [2026.9.10]: https://github.com/fortemi/fortemi/compare/v2026.9.9...v2026.9.10
