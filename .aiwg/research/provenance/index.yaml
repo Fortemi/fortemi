@@ -73,6 +73,10 @@ records:
 - entity: urn:aiwg:artifact:docs/content/deployment-and-migrations.md
   record: records/issue-1205-round4-docs_content_deployment-and-migrations-md.prov.yaml
 - entity: urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard
+  record: records/release-docs-shard-2026.10.6.prov.yaml
+- entity: urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard.receipt.json
+  record: records/release-docs-shard-2026.10.6.prov.yaml
+- entity: urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard
   record: records/release-docs-shard-2026.10.5.prov.yaml
 - entity: urn:aiwg:artifact:docker/seed-data/fortemi-docs.shard.receipt.json
   record: records/release-docs-shard-2026.10.5.prov.yaml
