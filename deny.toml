@@ -36,6 +36,21 @@ ignore = [
     # Tracked in fortemi/fortemi#1011. Expiry: 2026-10-01.
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
+
+    # zip 2.4.2 (matric-jobs, calamine 0.26.1) and zip 3.0.0 (utoipa-swagger-ui
+    # 9.0.2 build dependency) were yanked on 2026-10-16 with every release
+    # before 9.0.3, after the extraction advisories GHSA-vv5m-jxxh-4627,
+    # GHSA-4v9h-p7m9-rh26 and GHSA-4684-h2q9-2vcp and before further ones.
+    # Those affect extract() to disk. Fortemi and calamine read entries only in
+    # memory. The utoipa-swagger-ui build script writes entries with their
+    # archive modes, so matric-api enables its `vendored` feature: the input
+    # is the Swagger UI zip in utoipa-swagger-ui-vendored, checksum-pinned in
+    # Cargo.lock, not a download. No calamine or utoipa-swagger-ui release
+    # builds on zip 9 yet. These entries exempt only the yank; cargo-audit
+    # still fails on RustSec vulnerability advisories against these versions.
+    # Tracked in fortemi/fortemi#1221. Review by 2026-10-31.
+    "zip@2.4.2",
+    "zip@3.0.0",
 ]
 
 # ===========================================================================

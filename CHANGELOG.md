@@ -7,6 +7,17 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+### Security
+
+- Allow the yanked `zip` 2.4.2 and 3.0.0 in cargo-deny, for review by
+  2026-10-31, so policy checks pass again. Upstream yanked every release before
+  9.0.3 after publishing extraction advisories, with more to follow. Fortemi
+  reads archive entries only in memory, and no calamine or utoipa-swagger-ui
+  release builds on `zip` 9 yet. Swagger UI is now built from the
+  checksum-pinned vendored archive instead of a download from GitHub, because
+  its build script applies the archive's file modes. cargo-audit still fails on
+  vulnerability advisories against these versions (#1221).
+
 ### Fixed
 
 - Start the all-in-one bundle in external-OIDC and hosted mode again: when no
