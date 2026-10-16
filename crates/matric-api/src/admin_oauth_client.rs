@@ -3,8 +3,8 @@
 //! First-party clients (the bundle's MCP introspection client, operator tooling) are
 //! created directly in the database, so they do not depend on the public dynamic
 //! registration endpoint, whose policy may be `admin` or `disabled`. The command uses
-//! `DATABASE_URL`, the same role the API uses for registration. The client secret is
-//! printed once, on stdout only.
+//! `DATABASE_URL`, the same role the API uses for registration, and in external-OIDC
+//! mode the same configured tenant. The client secret is printed once, on stdout only.
 
 use matric_core::ClientRegistrationRequest;
 
@@ -117,6 +117,26 @@ fn request_for(cli: &RegisterCli) -> ClientRegistrationRequest {
     }
 }
 
+/// External-OIDC deployments keep every row under the configured tenant (#1205). A
+/// client registered under the personal tenant would be invisible to the API, which
+/// binds that tenant, so its credentials would fail on the next start (#1220).
+fn pool_config_from_env<F>(env: F) -> anyhow::Result<matric_db::PoolConfig>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    if env("FORTEMI_AUTH_MODE").as_deref() != Some("external-oidc") {
+        return Ok(matric_db::PoolConfig::new());
+    }
+    let tenant = env("FORTEMI_AUTH_DEFAULT_TENANT")
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!("FORTEMI_AUTH_DEFAULT_TENANT is required in external OIDC mode")
+        })?;
+    let tenant = uuid::Uuid::parse_str(tenant.trim())
+        .map_err(|_| anyhow::anyhow!("FORTEMI_AUTH_DEFAULT_TENANT must be a UUID"))?;
+    Ok(matric_db::PoolConfig::new().single_tenant(tenant))
+}
+
 /// Runs the command when invoked as `matric-api admin oauth-client ...`.
 pub async fn run_if_requested() -> anyhow::Result<bool> {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -132,9 +152,12 @@ pub async fn run_if_requested() -> anyhow::Result<bool> {
     let cli = parse_register_args(args.into_iter().skip(3))?;
     let url = std::env::var("DATABASE_URL")
         .map_err(|_| anyhow::anyhow!("admin oauth-client register requires DATABASE_URL"))?;
-    let db = matric_db::Database::connect(&url)
-        .await
-        .map_err(|_| anyhow::anyhow!("could not connect with DATABASE_URL"))?;
+    let db = matric_db::Database::connect_with_config(
+        &url,
+        pool_config_from_env(|name| std::env::var(name).ok())?,
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("could not connect with DATABASE_URL"))?;
     let mut response = db
         .oauth
         .register_client(request_for(&cli))
@@ -159,6 +182,59 @@ pub async fn run_if_requested() -> anyhow::Result<bool> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use matric_db::pool::TenantPoolMode;
+
+    fn tenant_mode(vars: &[(&str, &str)]) -> anyhow::Result<TenantPoolMode> {
+        let vars: Vec<(String, String)> = vars
+            .iter()
+            .map(|(key, value)| (key.to_string(), value.to_string()))
+            .collect();
+        pool_config_from_env(|name| {
+            vars.iter()
+                .find(|(key, _)| key == name)
+                .map(|(_, value)| value.clone())
+        })
+        .map(|config| config.tenant_mode)
+    }
+
+    #[test]
+    fn external_oidc_registration_binds_the_configured_tenant() {
+        let tenant = "00000000-0000-4000-8000-000000000001";
+        assert_eq!(
+            tenant_mode(&[
+                ("FORTEMI_AUTH_MODE", "external-oidc"),
+                ("FORTEMI_AUTH_DEFAULT_TENANT", tenant),
+            ])
+            .unwrap(),
+            TenantPoolMode::SingleTenant(uuid::Uuid::parse_str(tenant).unwrap())
+        );
+    }
+
+    #[test]
+    fn other_modes_keep_the_default_pool() {
+        assert_eq!(tenant_mode(&[]).unwrap(), TenantPoolMode::PersonalSynthetic);
+        assert_eq!(
+            tenant_mode(&[("FORTEMI_MULTI_TENANT", "true")]).unwrap(),
+            TenantPoolMode::PersonalSynthetic
+        );
+    }
+
+    #[test]
+    fn external_oidc_registration_requires_a_valid_tenant() {
+        for vars in [
+            vec![("FORTEMI_AUTH_MODE", "external-oidc")],
+            vec![
+                ("FORTEMI_AUTH_MODE", "external-oidc"),
+                ("FORTEMI_AUTH_DEFAULT_TENANT", " "),
+            ],
+            vec![
+                ("FORTEMI_AUTH_MODE", "external-oidc"),
+                ("FORTEMI_AUTH_DEFAULT_TENANT", "not-a-uuid"),
+            ],
+        ] {
+            assert!(tenant_mode(&vars).is_err(), "{vars:?}");
+        }
+    }
 
     fn parse(args: &[&str]) -> anyhow::Result<RegisterCli> {
         parse_register_args(args.iter().map(|arg| arg.to_string()))

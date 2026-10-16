@@ -59,6 +59,27 @@ require_postgres_password
 
 if [ -z "${DATABASE_URL:-}" ]; then
     DATABASE_URL="$(printf '%s%s:%s@localhost:5432/%s' 'postgres://' "$POSTGRES_USER" "$POSTGRES_PASSWORD" "$POSTGRES_DB")"
+    # External-OIDC and hosted startup refuse the table owner as the runtime
+    # login (#1205). When the operator supplied neither URL, the bundle keeps the
+    # owner for migrations and provisions a restricted runtime login (#1220).
+    # Mode values match the server's strict parsing exactly.
+    bundle_split_mode=false
+    case "${FORTEMI_MULTI_TENANT:-}" in true|1) bundle_split_mode=true ;; esac
+    if [ "${FORTEMI_AUTH_MODE:-}" = external-oidc ]; then bundle_split_mode=true; fi
+    if [ "$bundle_split_mode" = true ] && [ -z "${MIGRATION_DATABASE_URL:-}" ]; then
+        BUNDLE_PROVISION_RUNTIME_ROLE=true
+        BUNDLE_RUNTIME_DB_USER=fortemi_runtime
+        if [ "$POSTGRES_USER" = "$BUNDLE_RUNTIME_DB_USER" ]; then
+            echo "ERROR: POSTGRES_USER must not be ${BUNDLE_RUNTIME_DB_USER}, the bundle's restricted runtime login." >&2
+            exit 1
+        fi
+        MIGRATION_DATABASE_URL="$DATABASE_URL"
+        export MIGRATION_DATABASE_URL
+        # Fresh per start and never persisted; hex needs no URL encoding.
+        BUNDLE_RUNTIME_DB_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+        DATABASE_URL="$(printf '%s%s:%s@localhost:5432/%s' 'postgres://' "$BUNDLE_RUNTIME_DB_USER" "$BUNDLE_RUNTIME_DB_PASSWORD" "$POSTGRES_DB")"
+    fi
+    unset bundle_split_mode
     export DATABASE_URL
 fi
 
@@ -616,7 +637,159 @@ register_mcp_client() {
     echo "  ================================================================"
     echo ""
 }
+# Runtime role setup from docs/content/external-oidc-upgrade.md (#1220), run
+# after migrations and before the API serves. The runtime login belongs to the
+# bundle: it is created, marked and granted once, in one transaction, and an
+# existing role without the marker is refused. Later migrations and schema
+# synchronization keep its grants current, so a restart does not repair
+# revoked application grants. Every start re-applies the read-only exceptions
+# (tenant_registry, audit_event), rotates the password, re-asserts the role
+# attributes and fails closed if the login can reach the owner, a superuser or
+# a BYPASSRLS role. Only a client-computed SCRAM-SHA-256 verifier reaches the
+# server, on stdin, so the runtime password never appears in process arguments
+# or server logs.
+BUNDLE_RUNTIME_ROLE_MARKER='fortemi-bundle managed restricted runtime login (#1220)'
+bundle_runtime_role_sql() {
+    local verifier name
+    for name in "$POSTGRES_USER" "$POSTGRES_DB" "$BUNDLE_RUNTIME_DB_USER"; do
+        if ! [[ "$name" =~ ^[a-z_][a-z0-9_]*$ ]]; then
+            echo "ERROR: runtime role provisioning needs plain lowercase role and database names" >&2
+            return 1
+        fi
+    done
+    if [ "$POSTGRES_USER" = "$BUNDLE_RUNTIME_DB_USER" ]; then
+        echo "ERROR: the owner and the restricted runtime login must be different roles" >&2
+        return 1
+    fi
+    verifier="$(printf '%s' "$BUNDLE_RUNTIME_DB_PASSWORD" | python3 -c '
+import base64, hashlib, hmac, os, sys
+pw = sys.stdin.buffer.read()
+salt, iters = os.urandom(16), 4096
+salted = hashlib.pbkdf2_hmac("sha256", pw, salt, iters)
+client = hmac.new(salted, b"Client Key", "sha256").digest()
+server = hmac.new(salted, b"Server Key", "sha256").digest()
+b64 = lambda b: base64.b64encode(b).decode()
+print("SCRAM-SHA-256$%d:%s$%s:%s" % (iters, b64(salt), b64(hashlib.sha256(client).digest()), b64(server)))
+')" || return 1
+    printf '%s\n' '\set ON_ERROR_STOP on' \
+        "\\set owner $POSTGRES_USER" "\\set db $POSTGRES_DB" "\\set runtime $BUNDLE_RUNTIME_DB_USER" \
+        "\\set marker '$BUNDLE_RUNTIME_ROLE_MARKER'" "\\set verifier '$verifier'"
+    cat <<'SQL'
+SELECT set_config('fortemi.bundle_owner', :'owner', true),
+       set_config('fortemi.bundle_runtime', :'runtime', true),
+       set_config('fortemi.bundle_marker', :'marker', true) \g /dev/null
+DO $$
+DECLARE
+    s RECORD;
+    owner_role text := current_setting('fortemi.bundle_owner');
+    runtime_role text := current_setting('fortemi.bundle_runtime');
+    marker text := current_setting('fortemi.bundle_marker');
+    existing oid;
+BEGIN
+    SELECT oid INTO existing FROM pg_roles WHERE rolname = runtime_role;
+    IF existing IS NOT NULL THEN
+        IF shobj_description(existing, 'pg_authid') IS DISTINCT FROM marker THEN
+            RAISE EXCEPTION 'role % exists and is not managed by the bundle; set DATABASE_URL and MIGRATION_DATABASE_URL explicitly', runtime_role;
+        END IF;
+        RETURN;
+    END IF;
+    EXECUTE format('CREATE ROLE %I LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION', runtime_role);
+    EXECUTE format('COMMENT ON ROLE %I IS %L', runtime_role, marker);
+    EXECUTE format('GRANT CONNECT ON DATABASE %I TO %I', current_database(), runtime_role);
+    EXECUTE format('REVOKE CREATE ON DATABASE %I FROM %I', current_database(), runtime_role);
+    EXECUTE format('REVOKE CREATE ON SCHEMA public FROM PUBLIC, %I', runtime_role);
+    FOR s IN SELECT nspname FROM pg_namespace
+        WHERE nspname = 'public' OR nspname LIKE 'archive\_%' ESCAPE '\' LOOP
+        EXECUTE format('GRANT USAGE ON SCHEMA %I TO %I', s.nspname, runtime_role);
+        EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA %I TO %I', s.nspname, runtime_role);
+        EXECUTE format('GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA %I TO %I', s.nspname, runtime_role);
+        EXECUTE format('GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA %I TO %I', s.nspname, runtime_role);
+        EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %I', owner_role, s.nspname, runtime_role);
+        EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA %I GRANT USAGE, SELECT ON SEQUENCES TO %I', owner_role, s.nspname, runtime_role);
+    END LOOP;
+END $$;
+DO $$
+DECLARE
+    runtime_role text := current_setting('fortemi.bundle_runtime');
+BEGIN
+    -- The runtime only reads the tenant registry and appends audit events
+    -- (docs/deployment/hosted-postgresql-role.md, migration 20261010010000).
+    IF to_regclass('public.tenant_registry') IS NOT NULL THEN
+        EXECUTE format('REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLE public.tenant_registry FROM %I', runtime_role);
+    END IF;
+    IF to_regclass('public.audit_event') IS NOT NULL THEN
+        EXECUTE format('REVOKE UPDATE, DELETE, TRUNCATE ON TABLE public.audit_event FROM %I', runtime_role);
+    END IF;
+END $$;
+ALTER ROLE :"runtime" LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION
+    PASSWORD :'verifier';
+DO $$
+DECLARE
+    runtime_role text := current_setting('fortemi.bundle_runtime');
+    owner_role text := current_setting('fortemi.bundle_owner');
+    reachable text;
+BEGIN
+    SELECT string_agg(r.rolname, ', ' ORDER BY r.rolname) INTO reachable
+      FROM pg_roles r
+     WHERE r.rolname <> runtime_role
+       AND pg_has_role(runtime_role, r.oid, 'MEMBER')
+       AND (r.rolname = owner_role OR r.rolsuper OR r.rolbypassrls);
+    IF reachable IS NOT NULL THEN
+        RAISE EXCEPTION 'runtime login % can reach privileged roles: %', runtime_role, reachable;
+    END IF;
+END $$;
+SQL
+}
+
+# The owner needs BYPASSRLS before migrations: per-archive migrations and the
+# external-OIDC ownership step must see archives of every tenant (#1220).
+bundle_owner_role_sql() {
+    if ! [[ "$POSTGRES_USER" =~ ^[a-z_][a-z0-9_]*$ && "$POSTGRES_DB" =~ ^[a-z_][a-z0-9_]*$ ]]; then
+        echo "ERROR: runtime role provisioning needs plain lowercase role and database names" >&2
+        return 1
+    fi
+    printf '%s\n' '\set ON_ERROR_STOP on' "\\set owner $POSTGRES_USER" "\\set db $POSTGRES_DB"
+    cat <<'SQL'
+ALTER ROLE :"owner" BYPASSRLS;
+GRANT CREATE ON DATABASE :"db" TO :"owner";
+GRANT USAGE, CREATE ON SCHEMA public TO :"owner";
+SQL
+}
+
+prepare_bundle_owner_role() {
+    local sql
+    sql="$(bundle_owner_role_sql)" || return 1
+    printf '%s\n' "$sql" | su postgres -c "psql -X -qAt -1 -d ${POSTGRES_DB}" >/dev/null
+}
+
+provision_bundle_runtime_role() {
+    local sql
+    sql="$(bundle_runtime_role_sql)" || return 1
+    printf '%s\n' "$sql" | su postgres -c "psql -X -qAt -1 -d ${POSTGRES_DB}" >/dev/null
+}
+
 # --- End testable bundle runtime helpers ---
+
+if [ "${BUNDLE_PROVISION_RUNTIME_ROLE:-false}" = true ]; then
+    # Migrate first so the role's grants and read-only exceptions cover every
+    # table before the API serves; the API's own migration step is then a no-op.
+    echo ">>> Granting the owner role migration privileges..."
+    if ! prepare_bundle_owner_role; then
+        echo "ERROR: could not prepare the owner role" >&2
+        exit 1
+    fi
+    echo ">>> Applying migrations with the owner role before runtime role setup..."
+    if ! "${FORTEMI_API_BIN:-/app/matric-api}" --migrate-only; then
+        echo "ERROR: migrations failed" >&2
+        exit 1
+    fi
+    echo ">>> Provisioning restricted runtime role ${BUNDLE_RUNTIME_DB_USER}..."
+    if ! provision_bundle_runtime_role; then
+        echo "ERROR: could not provision the restricted runtime role" >&2
+        exit 1
+    fi
+    unset BUNDLE_RUNTIME_DB_PASSWORD
+fi
 
 # --- Start API first (MCP needs the API for credential validation) ---
 echo ">>> Starting Matric API..."
@@ -769,13 +942,23 @@ elif [ -f "$MCP_CREDS_FILE" ]; then
     export MCP_CLIENT_ID MCP_CLIENT_SECRET
 fi
 
-# Validate existing credentials against the API's introspection endpoint
-validate_mcp_credentials
+case "${FORTEMI_MULTI_TENANT:-}" in
+    true|1)
+        # A bundle-registered client would belong to no hosted tenant, so hosted
+        # introspection could never authenticate it (#1220). Hosted MCP validates
+        # each bearer token instead.
+        echo ">>> Hosted mode: skipping bundle MCP client provisioning"
+        ;;
+    *)
+        # Validate existing credentials against the API's introspection endpoint
+        validate_mcp_credentials
 
-# Auto-register if credentials are missing or invalid
-if [ "$MCP_CREDS_VALID" = false ]; then
-    register_mcp_client
-fi
+        # Auto-register if credentials are missing or invalid
+        if [ "$MCP_CREDS_VALID" = false ]; then
+            register_mcp_client
+        fi
+        ;;
+esac
 
 # --- Seed Support Archive (opt-in, background, non-blocking) ---
 # Default off so the Docker bundle mirrors the native build path

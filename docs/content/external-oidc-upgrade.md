@@ -147,6 +147,16 @@ BEGIN
 END $$;
 ```
 
+After the first upgraded start has applied migrations, keep the runtime login
+read-only on the tenant registry and append-only on audit events, as in the
+[hosted role runbook](../deployment/hosted-postgresql-role.md):
+
+```sql
+REVOKE INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER
+    ON TABLE public.tenant_registry FROM fortemi_runtime;
+REVOKE UPDATE,DELETE,TRUNCATE ON TABLE public.audit_event FROM fortemi_runtime;
+```
+
 Keep migration credentials out of the runtime login's role memberships. The
 administrative login must own existing application objects: BYPASSRLS and DML
 grants alone cannot alter tables, create indexes, drop/rename indexes, or grant
@@ -236,34 +246,32 @@ review workspace. The read-only copies at
 `de-2626/deploy/data-edge/preview/fortemi/statefulset.yaml` run the pinned
 2026.10.5 bundle in external-OIDC mode against the Nexa realm, with a configured
 E, claim-policy ConfigMap and disabled workers. They supply `POSTGRES_PASSWORD`
-but neither database URL. The bundle entrypoint therefore derives
-`DATABASE_URL` from `POSTGRES_USER` (default `matric`), the existing object owner.
-**That external-OIDC workload requires a configuration change before upgrading.**
+but neither database URL.
 
-Apply the role/grant setup above to the persistent database, then add two
-secret-backed environment entries to the StatefulSet (create these secret keys
-through the deployment's secret-management process):
+The all-in-one bundle provisions the runtime split itself (#1220). In
+external-OIDC or hosted mode, when neither `DATABASE_URL` nor
+`MIGRATION_DATABASE_URL` is set, the entrypoint keeps the `POSTGRES_USER` owner
+as `MIGRATION_DATABASE_URL`, grants it BYPASSRLS and database `CREATE`, applies
+migrations with it so every tenant's archives are migrated, and then, before the API
+serves, creates `fortemi_runtime` with the grants above (once, marked as
+bundle-managed) and runs the API as that login. Later migrations and memory
+synchronization keep its grants current; a restart does not re-grant privileges
+that were revoked. Every start applies the two revocations above, rotates the
+runtime password and re-checks the role's attributes, and fails if the login can
+reach the owner, a superuser or a BYPASSRLS role. Only a SCRAM verifier reaches
+PostgreSQL, over the local socket; the password is not persisted, logged or passed
+as an argument. An existing `fortemi_runtime` the bundle did not create is
+refused. Do not share the role with other processes: each start invalidates the
+previous password. `POSTGRES_USER` must not be `fortemi_runtime`. MCP client
+auto-registration uses the runtime login and the configured tenant; hosted mode
+skips the bundle MCP client, which would belong to no tenant. The preview
+StatefulSet therefore needs only the image update for the offline ownership
+upgrade: stop it and all writers, update the image, and validate the completion
+receipt and HTTP reads before resuming other instances/workers.
 
-```yaml
-- name: MIGRATION_DATABASE_URL
-  valueFrom:
-    secretKeyRef:
-      name: fortemi-postgres
-      key: migration-url
-- name: DATABASE_URL
-  valueFrom:
-    secretKeyRef:
-      name: fortemi-postgres
-      key: runtime-url
-```
-
-`migration-url` must connect to the original owner with BYPASSRLS (or a
-superuser); `runtime-url` must connect to `fortemi_runtime`. Retain the existing
-E, issuer/claim-policy/audiences, `POSTGRES_PASSWORD` for the embedded database,
-attachment storage and backup mounts. Use URL-encoded passwords. Stop the
-StatefulSet and all writers for the offline ownership upgrade, update the image
-and environment together, and validate the completion receipt and HTTP reads
-before resuming other instances/workers. Leaving either URL implicit is
-unsupported for external OIDC. Older copies in `de-fortemi-asis` and
+Setting either URL explicitly turns this off; then supply both, as for any
+non-bundle deployment, with `MIGRATION_DATABASE_URL` connecting to the original
+owner with BYPASSRLS (or a superuser) and `DATABASE_URL` to `fortemi_runtime`,
+using URL-encoded passwords. Older copies in `de-fortemi-asis` and
 `data-edge-pr1870` use local auth, which retains its existing database behavior.
 No preview manifest was modified in this change.

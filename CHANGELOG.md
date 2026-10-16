@@ -9,6 +9,17 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Fixed
 
+- Start the all-in-one bundle in external-OIDC and hosted mode again: when no
+  database URL is configured, the entrypoint grants the owner BYPASSRLS and
+  migrates with it, then
+  creates and grants the restricted `fortemi_runtime` login once and runs the
+  API as it. Every start rotates its password (sent to PostgreSQL only as a SCRAM
+  verifier), keeps `tenant_registry` read-only and `audit_event` append-only for
+  it, and refuses a runtime login that can reach a privileged role or that the
+  bundle did not create. `matric-api admin oauth-client register` binds the
+  configured tenant in external-OIDC mode, so the bundle's MCP client stays
+  valid across restarts; hosted mode skips that client. Community mode and
+  explicit URLs are unchanged (#1220).
 - Keep the MMR diversity order when chain deduplication is enabled (the
   default): hybrid search no longer re-sorts reranked results by score, so
   `diversity` now changes result order. Score-sorted deduplication breaks ties
