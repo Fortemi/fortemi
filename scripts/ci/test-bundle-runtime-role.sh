@@ -41,6 +41,14 @@ trap cleanup EXIT
 
 fail() { echo "FAIL: $*" >&2; docker logs "$NAME" 2>&1 | grep -E 'ERROR|Error:' | tail -5 >&2 || true; exit 1; }
 
+# Capture logs before matching: with pipefail, `docker logs | grep -q` fails when
+# grep exits on the first match and docker logs receives SIGPIPE.
+container_log_has() {
+    local logs
+    logs="$(docker logs "$NAME" 2>&1)" || return 1
+    grep -qE -- "$1" <<<"$logs"
+}
+
 common_env=(-e POSTGRES_PASSWORD="$OWNER_PASSWORD" -e PGDATA=/var/lib/postgresql/data/pgdata
     -e MATRIC_ATTACHMENT_SCAN_MODE=disabled -e REDIS_ENABLED=false -e RENDERER_ENABLED=false
     -e WORKER_ENABLED=false -e JOB_WORKER_ENABLED=false)
@@ -96,7 +104,7 @@ api_db_user() { local info; info="$(api_db_userinfo)"; printf '%s\n' "${info%%:*
 wait_for_mcp_credentials() {
     local deadline=$((SECONDS + 60))
     while (( SECONDS < deadline )); do
-        docker logs "$NAME" 2>&1 | grep -qE "MCP credentials (valid|registered)" && return 0
+        container_log_has "MCP credentials (valid|registered)" && return 0
         sleep 2
     done
     fail "MCP credentials were neither validated nor registered"
@@ -146,13 +154,13 @@ start ready -v "${VOLUME}:/var/lib/postgresql/data" "${common_env[@]}" "${extern
 assert_external_posture
 [ "$(sql "SELECT md5(rolpassword) FROM pg_authid WHERE rolname = 'fortemi_runtime'")" != "$first_verifier" ] \
     || fail "runtime password was not rotated on restart"
-docker logs "$NAME" 2>&1 | grep -q "MCP credentials valid" || fail "persisted MCP credentials were not accepted after restart"
+container_log_has "MCP credentials valid" || fail "persisted MCP credentials were not accepted after restart"
 [ "$(sql "SELECT count(*) FROM public.oauth_client")" = 1 ] || fail "restart registered another OAuth client"
 
 echo ">>> unmarked existing runtime role is refused"
 sql "COMMENT ON ROLE fortemi_runtime IS NULL" >/dev/null
 start exit -v "${VOLUME}:/var/lib/postgresql/data" "${common_env[@]}" "${external_env[@]}"
-docker logs "$NAME" 2>&1 | grep -q "is not managed by the bundle" || fail "refusal reason missing"
+container_log_has "is not managed by the bundle" || fail "refusal reason missing"
 docker rm -f "$NAME" >/dev/null
 docker volume rm "$VOLUME" >/dev/null
 
