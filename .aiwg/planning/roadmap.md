@@ -1738,3 +1738,10 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
   strict baseline reproduced. See `docs/content/adaptive-search.md`. HTTP and
   independent real-model relevance qualification remain open; no merge or release
   claim. #1210 relevance CI follows on a stacked local branch.
+
+- 2026-10-17 — [~] #1210 / #1208: stacked keyword relevance CI gate pins binary
+  aggregate/per-query baselines, checks ten deterministic repetitions, publishes
+  versioned reports, and tests deliberate regression failures. Real-model
+  semantic/hybrid baselines, HTTP/provider regeneration, and independent held-out
+  relevance remain open. Local delivery only; original Git metadata is read-only,
+  so branch commits are provided in a Git bundle for operator import.
