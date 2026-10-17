@@ -67,3 +67,5 @@ pub use mmr::mmr_rerank;
 pub use rrf::*;
 pub use rsf::rsf_fuse;
 pub use script_detection::{detect_script, has_cjk, has_emoji, DetectedScript, ScriptDetection};
+
+pub mod query_policy;

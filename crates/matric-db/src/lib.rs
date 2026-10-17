@@ -72,6 +72,7 @@ pub mod search;
 pub mod search_candidates;
 mod search_evidence_projection;
 pub mod search_evidence_resolution;
+pub mod search_query;
 pub mod skos_tags;
 mod skos_tags_tx;
 pub mod source_upsert;

@@ -25,6 +25,8 @@ pub struct SearchCandidateScope {
     pub legacy_filters: String,
     pub embedding_set_id: Option<Uuid>,
     pub exclude_archived: bool,
+    /// Explicit expression applied before limits in every retrieval mode.
+    pub lexical_constraint: Option<(crate::search_query::Expression, LexicalStrategy)>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -45,6 +47,14 @@ impl SearchCandidateScope {
         } else {
             self.strict.as_ref()
         };
+        if let Some((expression, strategy)) = &self.lexical_constraint {
+            clauses.push(expression_predicate(
+                expression,
+                *strategy,
+                offset,
+                &mut params,
+            ));
+        }
         if self.exclude_archived {
             clauses.push("n.archived IS NOT TRUE".into());
         }
@@ -161,7 +171,149 @@ fn hits(rows: Vec<sqlx::postgres::PgRow>) -> Result<Vec<SearchHit>> {
 
 const TAGS: &str = "ARRAY(SELECT nt.tag_name FROM note_tag nt WHERE nt.note_id = n.id AND nt.tenant_id = n.tenant_id ORDER BY nt.tag_name)";
 
+fn analyzer(strategy: LexicalStrategy) -> &'static str {
+    match strategy {
+        LexicalStrategy::English => "public.matric_english",
+        _ => "public.matric_simple",
+    }
+}
+
+/// Normalize exactly once, retaining analyzer stopword/phrase/prefix semantics.
+pub async fn normalize_query(
+    connection: &mut PgConnection,
+    query: &str,
+    strategy: LexicalStrategy,
+) -> Result<String> {
+    Ok(
+        sqlx::query_scalar("SELECT to_tsquery($1::regconfig, $2)::text")
+            .bind(analyzer(strategy))
+            .bind(query)
+            .fetch_one(connection)
+            .await?,
+    )
+}
+
+/// Normalize leaves and remove analyzer stopwords before applying Boolean
+/// constraints across units. An empty expression matches nothing, including NOT.
+pub async fn normalize_expression(
+    connection: &mut PgConnection,
+    parsed: &crate::search_query::ParsedQuery,
+    strategy: LexicalStrategy,
+) -> Result<crate::search_query::Expression> {
+    use crate::search_query::Expression;
+    let Some(expression) = &parsed.expression else {
+        return Ok(Expression::Term(String::new()));
+    };
+    let mut leaves = Vec::new();
+    expression.leaves(&mut leaves);
+    let normalized: Vec<String> = sqlx::query_scalar("SELECT to_tsquery($1::regconfig, term)::text FROM unnest($2::text[]) WITH ORDINALITY AS t(term, position) ORDER BY position")
+        .bind(analyzer(strategy)).bind(leaves).fetch_all(connection).await?;
+    Ok(expression
+        .normalized(&mut normalized.into_iter())
+        .unwrap_or(Expression::Term(String::new())))
+}
+
+/// Unique analyzed terms, excluding stopwords; used for minimum-should-match.
+pub async fn query_terms(
+    connection: &mut PgConnection,
+    query: &str,
+    strategy: LexicalStrategy,
+) -> Result<Vec<String>> {
+    Ok(
+        sqlx::query_scalar("SELECT tsvector_to_array(to_tsvector($1::regconfig, $2))")
+            .bind(analyzer(strategy))
+            .bind(query)
+            .fetch_one(connection)
+            .await?,
+    )
+}
+
+fn unit_predicate(query: &str, strategy: LexicalStrategy) -> String {
+    let config = analyzer(strategy);
+    format!("(to_tsvector('{config}', COALESCE(n.title, '')) @@ ({query}) OR to_tsvector('{config}', COALESCE(nrc.content, '')) @@ ({query}) OR EXISTS (SELECT 1 FROM attachment a WHERE a.note_id = n.id AND a.tenant_id = n.tenant_id AND a.status = 'completed' AND to_tsvector('{config}', COALESCE(a.extracted_text, '')) @@ ({query})))")
+}
+
+fn expression_predicate(
+    expression: &crate::search_query::Expression,
+    strategy: LexicalStrategy,
+    offset: usize,
+    params: &mut Vec<QueryParam>,
+) -> String {
+    use crate::search_query::Expression;
+    match expression {
+        Expression::Term(term) => {
+            params.push(QueryParam::String(term.clone()));
+            unit_predicate(&format!("${}::tsquery", offset + params.len()), strategy)
+        }
+        Expression::And(a, b) => format!(
+            "({} AND {})",
+            expression_predicate(a, strategy, offset, params),
+            expression_predicate(b, strategy, offset, params)
+        ),
+        Expression::Or(a, b) => format!(
+            "({} OR {})",
+            expression_predicate(a, strategy, offset, params),
+            expression_predicate(b, strategy, offset, params)
+        ),
+        Expression::Not(a) => format!(
+            "NOT ({})",
+            expression_predicate(a, strategy, offset, params)
+        ),
+    }
+}
+
+/// Classify a bounded candidate union using the same unit-local admission as FTS.
+/// Returns full-match IDs and counts of distinct analyzed terms for each note.
+pub async fn classify_lexical_matches(
+    connection: &mut PgConnection,
+    ids: &[Uuid],
+    strict: &str,
+    terms: &[String],
+    strategy: LexicalStrategy,
+) -> Result<Vec<(Uuid, bool, i64)>> {
+    let full = unit_predicate("$2::tsquery", strategy);
+    let term = unit_predicate("term::tsquery", strategy);
+    let sql = format!("SELECT n.id, ({full}) AS full_match, (SELECT count(*) FROM unnest($3::text[]) term WHERE {term}) AS matched FROM note n JOIN note_revised_current nrc ON nrc.note_id = n.id AND nrc.tenant_id = n.tenant_id WHERE n.id = ANY($1)");
+    Ok(sqlx::query_as(&sql)
+        .bind(ids)
+        .bind(strict)
+        .bind(terms)
+        .fetch_all(connection)
+        .await?)
+}
+
 pub async fn lexical_on_connection(
+    connection: &mut PgConnection,
+    query: &str,
+    limit: i64,
+    strategy: LexicalStrategy,
+    scope: &SearchCandidateScope,
+) -> Result<Vec<SearchHit>> {
+    let parsed = crate::search_query::ParsedQuery::parse(query)?;
+    let mut scope = scope.clone();
+    let strategy = if parsed.explicit
+        && !matches!(strategy, LexicalStrategy::English | LexicalStrategy::Simple)
+    {
+        LexicalStrategy::Simple
+    } else {
+        strategy
+    };
+    if parsed.explicit {
+        scope.lexical_constraint = Some((
+            normalize_expression(connection, &parsed, strategy).await?,
+            strategy,
+        ));
+    }
+    let compiled = if matches!(strategy, LexicalStrategy::English | LexicalStrategy::Simple) {
+        normalize_query(connection, &parsed.tsquery(), strategy).await?
+    } else {
+        query.to_string()
+    };
+    lexical_compiled_on_connection(connection, &compiled, limit, strategy, &scope).await
+}
+
+/// Execute an analyzer-normalized tsquery, or raw trigram/bigram text.
+pub async fn lexical_compiled_on_connection(
     connection: &mut PgConnection,
     query: &str,
     limit: i64,
@@ -183,11 +335,11 @@ pub async fn lexical_on_connection(
     }
     let (score, matching) = match strategy {
         LexicalStrategy::English => (
-            "ts_rank(setweight(COALESCE(to_tsvector('public.matric_english', n.title), ''::tsvector), 'A') || setweight(COALESCE((SELECT to_tsvector('public.matric_english', string_agg(nt.tag_name, ' ')) FROM note_tag nt WHERE nt.note_id = n.id AND nt.tenant_id = n.tenant_id), ''::tsvector), 'B') || setweight(nrc.tsv, 'C'), websearch_to_tsquery('public.matric_english', $1), 32)",
-            "nrc.tsv @@ websearch_to_tsquery('public.matric_english', $1) OR to_tsvector('public.matric_english', COALESCE(n.title, '')) @@ websearch_to_tsquery('public.matric_english', $1)"),
+            "ts_rank(setweight(COALESCE(to_tsvector('public.matric_english', n.title), ''::tsvector), 'A') || setweight(COALESCE((SELECT to_tsvector('public.matric_english', string_agg(nt.tag_name, ' ')) FROM note_tag nt WHERE nt.note_id = n.id AND nt.tenant_id = n.tenant_id), ''::tsvector), 'B') || setweight(nrc.tsv, 'C'), $1::tsquery, 32)",
+            "nrc.tsv @@ $1::tsquery OR to_tsvector('public.matric_english', COALESCE(n.title, '')) @@ $1::tsquery"),
         LexicalStrategy::Simple => (
-            "ts_rank(to_tsvector('public.matric_simple', COALESCE(n.title, '')) || to_tsvector('public.matric_simple', nrc.content), websearch_to_tsquery('public.matric_simple', $1))",
-            "to_tsvector('public.matric_simple', nrc.content) @@ websearch_to_tsquery('public.matric_simple', $1) OR to_tsvector('public.matric_simple', COALESCE(n.title, '')) @@ websearch_to_tsquery('public.matric_simple', $1)"),
+            "ts_rank(to_tsvector('public.matric_simple', COALESCE(n.title, '')) || to_tsvector('public.matric_simple', nrc.content), $1::tsquery)",
+            "to_tsvector('public.matric_simple', nrc.content) @@ $1::tsquery OR to_tsvector('public.matric_simple', COALESCE(n.title, '')) @@ $1::tsquery"),
         LexicalStrategy::Trigram => (
             "GREATEST(similarity(nrc.content, $1), similarity(COALESCE(n.title, ''), $1))",
             "nrc.content % $1 OR nrc.content ILIKE '%' || $3 || '%' ESCAPE '\\' OR n.title ILIKE '%' || $3 || '%' ESCAPE '\\'"),
@@ -198,22 +350,30 @@ pub async fn lexical_on_connection(
     let trigram = matches!(strategy, LexicalStrategy::Trigram);
     let offset = if trigram { 3 } else { 2 };
     let (cte, candidate, mut params) = scope.build(offset);
-    let matches_unit = |text: &str| {
-        match strategy {
-        LexicalStrategy::English => format!("to_tsvector('public.matric_english', {text}) @@ websearch_to_tsquery('public.matric_english', $1)"),
-        LexicalStrategy::Simple => format!("to_tsvector('public.matric_simple', {text}) @@ websearch_to_tsquery('public.matric_simple', $1)"),
-        LexicalStrategy::Trigram => format!("{text} % $1 OR {text} ILIKE '%' || $3 || '%' ESCAPE '\\'"),
+    let matches_unit = |text: &str| match strategy {
+        LexicalStrategy::English => {
+            format!("to_tsvector('public.matric_english', {text}) @@ $1::tsquery")
+        }
+        LexicalStrategy::Simple => {
+            format!("to_tsvector('public.matric_simple', {text}) @@ $1::tsquery")
+        }
+        LexicalStrategy::Trigram => {
+            format!("{text} % $1 OR {text} ILIKE '%' || $3 || '%' ESCAPE '\\'")
+        }
         LexicalStrategy::Bigram => format!("{text} LIKE likequery($1)"),
-    }
     };
     let units = format!("SELECT 1, 'title'::text, n.id::text, 0, n.title WHERE {} UNION ALL SELECT 2, 'current', n.id::text, 0, nrc.content WHERE {} UNION ALL SELECT 3, 'attachment', a.id::text, 0, a.extracted_text FROM attachment a WHERE a.note_id = n.id AND a.tenant_id = n.tenant_id AND a.status = 'completed' AND ({})", matches_unit("n.title"), matches_unit("nrc.content"), matches_unit("a.extracted_text"));
     let attachment_match = matches_unit("a.extracted_text");
     let attachment_scope =
         "a.note_id = n.id AND a.tenant_id = n.tenant_id AND a.status = 'completed'";
-    let matching = format!("({matching}) OR EXISTS (SELECT 1 FROM attachment a WHERE {attachment_scope} AND ({attachment_match}))");
+    let matching = if scope.lexical_constraint.is_some() {
+        "TRUE".to_string()
+    } else {
+        format!("({matching}) OR EXISTS (SELECT 1 FROM attachment a WHERE {attachment_scope} AND ({attachment_match}))")
+    };
     let attachment_score = match strategy {
-        LexicalStrategy::English => "ts_rank(setweight(to_tsvector('public.matric_english', a.extracted_text), 'C'), websearch_to_tsquery('public.matric_english', $1), 32)",
-        LexicalStrategy::Simple => "ts_rank(to_tsvector('public.matric_simple', a.extracted_text), websearch_to_tsquery('public.matric_simple', $1))",
+        LexicalStrategy::English => "ts_rank(setweight(to_tsvector('public.matric_english', a.extracted_text), 'C'), $1::tsquery, 32)",
+        LexicalStrategy::Simple => "ts_rank(to_tsvector('public.matric_simple', a.extracted_text), $1::tsquery)",
         LexicalStrategy::Trigram => "similarity(a.extracted_text, $1)",
         LexicalStrategy::Bigram => "bigm_similarity(a.extracted_text, $1)",
     };
