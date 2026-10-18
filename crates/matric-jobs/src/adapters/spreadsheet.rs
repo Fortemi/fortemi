@@ -914,19 +914,7 @@ mod tests {
             .unwrap();
         writer.start_file("content.xml", options).unwrap();
         writer
-            .write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
-<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:version="1.2">
-  <office:body><office:spreadsheet><table:table table:name="People">
-    <table:table-row>
-      <table:table-cell office:value-type="string"><text:p>Name</text:p></table:table-cell>
-      <table:table-cell office:value-type="string"><text:p>Age</text:p></table:table-cell>
-    </table:table-row>
-    <table:table-row>
-      <table:table-cell office:value-type="string"><text:p>Alice</text:p></table:table-cell>
-      <table:table-cell office:value-type="float" office:value="30"><text:p>30</text:p></table:table-cell>
-    </table:table-row>
-  </table:table></office:spreadsheet></office:body>
-</office:document-content>"#)
+            .write_all(br#"<?xml version="1.0" encoding="UTF-8"?><office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:version="1.2"><office:body><office:spreadsheet><table:table table:name="People"><table:table-row><table:table-cell office:value-type="string"><text:p>Name</text:p></table:table-cell><table:table-cell office:value-type="string"><text:p>Age</text:p></table:table-cell></table:table-row><table:table-row><table:table-cell office:value-type="string"><text:p>Alice</text:p></table:table-cell><table:table-cell office:value-type="float" office:value="30"><text:p>30</text:p></table:table-cell></table:table-row></table:table></office:spreadsheet></office:body></office:document-content>"#)
             .unwrap();
         let data = writer.finish().unwrap().into_inner();
 
