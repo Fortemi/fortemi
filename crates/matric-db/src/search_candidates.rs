@@ -61,7 +61,7 @@ impl SearchCandidateScope {
         if let Some(filter) = &self.unified {
             let mut filter = filter.clone();
             filter.tags = None;
-            let built = UnifiedFilterQueryBuilder::new(filter, offset).build();
+            let built = UnifiedFilterQueryBuilder::new(filter, offset + params.len()).build();
             if let Some(value) = built.cte_clause {
                 cte = format!("WITH RECURSIVE {value} ");
             }
@@ -204,10 +204,12 @@ pub async fn normalize_expression(
     let Some(expression) = &parsed.expression else {
         return Ok(Expression::Term(String::new()));
     };
-    let mut leaves = Vec::new();
-    expression.leaves(&mut leaves);
-    let normalized: Vec<String> = sqlx::query_scalar("SELECT to_tsquery($1::regconfig, term)::text FROM unnest($2::text[]) WITH ORDINALITY AS t(term, position) ORDER BY position")
-        .bind(analyzer(strategy)).bind(leaves).fetch_all(connection).await?;
+    let (sql, params) = expression.normalization_query();
+    let mut query = sqlx::query_scalar(&sql).bind(analyzer(strategy));
+    for param in params {
+        query = query.bind(param);
+    }
+    let normalized: Vec<String> = query.fetch_all(connection).await?;
     Ok(expression
         .normalized(&mut normalized.into_iter())
         .unwrap_or(Expression::Term(String::new())))
@@ -244,6 +246,17 @@ fn expression_predicate(
         Expression::Term(term) => {
             params.push(QueryParam::String(term.clone()));
             unit_predicate(&format!("${}::tsquery", offset + params.len()), strategy)
+        }
+        Expression::Phrase(phrase) => {
+            params.push(QueryParam::String(phrase.clone()));
+            unit_predicate(
+                &format!(
+                    "phraseto_tsquery('{}', ${})",
+                    analyzer(strategy),
+                    offset + params.len()
+                ),
+                strategy,
+            )
         }
         Expression::And(a, b) => format!(
             "({} AND {})",
@@ -298,14 +311,13 @@ pub async fn lexical_on_connection(
     } else {
         strategy
     };
-    if parsed.explicit {
-        scope.lexical_constraint = Some((
-            normalize_expression(connection, &parsed, strategy).await?,
-            strategy,
-        ));
-    }
-    let compiled = if matches!(strategy, LexicalStrategy::English | LexicalStrategy::Simple) {
-        normalize_query(connection, &parsed.tsquery(), strategy).await?
+    let compiled = if parsed.explicit {
+        let expression = normalize_expression(connection, &parsed, strategy).await?;
+        let compiled = expression.tsquery()?;
+        scope.lexical_constraint = Some((expression, strategy));
+        compiled
+    } else if matches!(strategy, LexicalStrategy::English | LexicalStrategy::Simple) {
+        normalize_query(connection, &parsed.tsquery()?, strategy).await?
     } else {
         query.to_string()
     };
@@ -441,6 +453,87 @@ pub async fn vector_on_connection(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_explicit_unified_filter_offsets(offset: usize) {
+        use matric_core::{MetadataFilter, StrictCollectionFilter, StrictTemporalFilter};
+        use std::collections::BTreeMap;
+
+        let collection = StrictFilter::new()
+            .with_collections(StrictCollectionFilter::new().in_collection(Uuid::from_u128(1)));
+        let recursive = StrictFilter::new().with_collections(
+            StrictCollectionFilter::new()
+                .in_collection(Uuid::from_u128(1))
+                .with_descendants(true),
+        );
+        let temporal = StrictFilter::new().with_temporal(
+            StrictTemporalFilter::new().updated_after("2026-01-01T00:00:00Z".parse().unwrap()),
+        );
+        let metadata = StrictFilter::new()
+            .with_metadata(MetadataFilter::new().with_format("markdown").starred_only());
+        let combined = StrictFilter {
+            collections: recursive.collections.clone(),
+            temporal: temporal.temporal.clone(),
+            metadata: metadata.metadata.clone(),
+            ..Default::default()
+        };
+        let placeholders = regex::Regex::new(r"\$(\d+)").unwrap();
+        for (filter, filter_params) in [
+            (collection, 1),
+            (recursive, 1),
+            (temporal, 1),
+            (metadata, 2),
+            (combined, 4),
+        ] {
+            let expression = crate::search_query::ParsedQuery::parse("alpha AND beta")
+                .unwrap()
+                .expression
+                .unwrap();
+            let (cte, sql, params) = SearchCandidateScope {
+                lexical_constraint: Some((expression, LexicalStrategy::English)),
+                unified: Some(filter),
+                ..Default::default()
+            }
+            .build(offset);
+            assert_eq!(params.len(), 2 + filter_params);
+            let mut counts = BTreeMap::new();
+            for capture in placeholders.captures_iter(&format!("{cte}{sql}")) {
+                *counts
+                    .entry(capture[1].parse::<usize>().unwrap())
+                    .or_insert(0) += 1;
+            }
+            assert_eq!(
+                counts.keys().copied().collect::<Vec<_>>(),
+                (offset + 1..=offset + params.len()).collect::<Vec<_>>()
+            );
+            // Each expression parameter is intentionally reused across the three
+            // searchable units. Unified filters must use their own unique slots.
+            assert_eq!(counts[&(offset + 1)], 3);
+            assert_eq!(counts[&(offset + 2)], 3);
+            for index in offset + 3..=offset + params.len() {
+                assert_eq!(counts[&index], 1, "filter placeholder ${index} reused");
+            }
+        }
+    }
+
+    #[test]
+    fn lexical_explicit_syntax_and_unified_filters_have_unique_contiguous_params() {
+        // Lexical retrieval reserves query and limit (plus escaped LIKE text for trigram).
+        assert_explicit_unified_filter_offsets(2);
+        assert_explicit_unified_filter_offsets(3);
+    }
+
+    #[test]
+    fn semantic_explicit_syntax_and_unified_filters_have_unique_contiguous_params() {
+        // Semantic retrieval reserves vector and limit.
+        assert_explicit_unified_filter_offsets(2);
+    }
+
+    #[test]
+    fn hybrid_explicit_syntax_and_unified_filters_have_unique_contiguous_params() {
+        // Both queries in hybrid retrieval reserve query/vector and limit.
+        assert_explicit_unified_filter_offsets(2);
+    }
+
     #[test]
     fn combines_scope_and_binds_offsets_without_values_in_sql() {
         let scope = SearchCandidateScope {

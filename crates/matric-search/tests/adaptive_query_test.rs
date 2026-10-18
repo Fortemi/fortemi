@@ -296,6 +296,79 @@ async fn explicit_syntax_and_final_match_tiers(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = false)]
+async fn explicit_phrases_with_unified_filters_across_modes(pool: PgPool) {
+    use matric_core::{MetadataFilter, StrictCollectionFilter, StrictFilter, StrictTemporalFilter};
+
+    let db = database(pool).await;
+    let engine = HybridSearchEngine::new(db.clone());
+    let mut tx = db.pool().begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_tenant', $1, true)")
+        .bind(Uuid::nil().to_string())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let set: Uuid = sqlx::query_scalar("SELECT id FROM embedding_set WHERE slug='default'")
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    let collection = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO collection (id, name, created_at_utc) VALUES ($1, 'phrase-fixture', now())",
+    )
+    .bind(collection)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    let vector = Vector::from(vec![1.0_f32; 768]);
+    for (id, content) in [
+        (1, "alpha beta"),
+        (2, "alpha gamma beta"),
+        (3, "alpha beta"),
+    ] {
+        let id = Uuid::from_u128(id);
+        seed(&mut tx, id, "fixture", content, &[]).await;
+        if id != Uuid::from_u128(3) {
+            sqlx::query("UPDATE note SET collection_id=$1 WHERE id=$2")
+                .bind(collection)
+                .bind(id)
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+        }
+        sqlx::query("INSERT INTO embedding (note_id, chunk_index, text, vector, model, embedding_set_id) VALUES ($1, 0, $2, $3, 'synthetic-constraint-test', $4)")
+            .bind(id).bind(content).bind(&vector).bind(set).execute(&mut *tx).await.unwrap();
+    }
+    let filter = StrictFilter::new()
+        .with_collections(StrictCollectionFilter::new().in_collection(collection))
+        .with_temporal(
+            StrictTemporalFilter::new().updated_after("2020-01-01T00:00:00Z".parse().unwrap()),
+        )
+        .with_metadata(MetadataFilter::new().with_format("markdown"));
+    for (query, expected) in [
+        (r#""alpha , beta""#, vec![1]),
+        (r#""alpha \"beta\"""#, vec![1]),
+        ("alpha AND beta", vec![1, 2]),
+    ] {
+        for (mode, config) in [
+            ("lexical", HybridSearchConfig::fts_only()),
+            ("semantic", HybridSearchConfig::semantic_only()),
+            ("hybrid", HybridSearchConfig::default()),
+        ] {
+            let hits = SearchRequest::new(query)
+                .with_config(config.with_unified_filter(filter.clone()))
+                .with_embedding(vector.clone())
+                .with_limit(20)
+                .execute_on_connection(&engine, &mut tx)
+                .await
+                .unwrap();
+            let mut ids: Vec<_> = hits.iter().map(|hit| hit.hit.note_id.as_u128()).collect();
+            ids.sort();
+            assert_eq!(ids, expected, "{mode}: {query}");
+        }
+    }
+}
+
+#[sqlx::test(migrations = false)]
 async fn golden_relevance_report(pool: PgPool) {
     let fixture: relevance::Fixture =
         serde_json::from_str(include_str!("fixtures/golden_test_set.json")).unwrap();
@@ -368,6 +441,31 @@ async fn golden_relevance_report(pool: PgPool) {
             "metrics": relevance::mean(&metrics), "queries": per_query,
             "zero_result_rate": per_query.iter().filter(|q| q["ranking"].as_array().unwrap().is_empty()).count() as f64 / fixture.queries.len() as f64,
             "p95_ms": latencies[(latencies.len() * 95).div_ceil(100) - 1]}));
+    }
+    let strict = runs.iter().find(|run| run["mode"] == "strict").unwrap();
+    let adaptive = runs.iter().find(|run| run["mode"] == "adaptive").unwrap();
+    for metric in ["ndcg10", "mrr10"] {
+        let strict_value = strict["metrics"][metric].as_f64().unwrap();
+        let adaptive_value = adaptive["metrics"][metric].as_f64().unwrap();
+        assert!(
+            adaptive_value >= strict_value.max(0.90),
+            "adaptive {metric} {adaptive_value} must be >= max(0.90, strict {strict_value})"
+        );
+    }
+    for (strict_query, adaptive_query) in strict["queries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip(adaptive["queries"].as_array().unwrap())
+    {
+        assert_eq!(strict_query["id"], adaptive_query["id"]);
+        let strict_ndcg = strict_query["metrics"]["ndcg10"].as_f64().unwrap();
+        let adaptive_ndcg = adaptive_query["metrics"]["ndcg10"].as_f64().unwrap();
+        assert!(
+            adaptive_ndcg >= strict_ndcg - 1e-9,
+            "query {}: adaptive nDCG@10 {adaptive_ndcg} regressed from strict {strict_ndcg}",
+            strict_query["id"]
+        );
     }
     let report = json!({"evaluator": "binary-v1", "route": "SearchRequest::execute_on_connection", "fixture_version": "1.0", "repetitions": 10, "runs": runs});
     println!(

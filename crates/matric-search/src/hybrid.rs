@@ -404,15 +404,14 @@ impl HybridSearchEngine {
         {
             strategy = LexicalStrategy::Simple;
         }
-        if parsed.explicit {
-            scope.lexical_constraint = Some((
-                normalize_expression(connection, &parsed, strategy).await?,
-                strategy,
-            ));
-        }
         let lexical_policy = matches!(strategy, LexicalStrategy::English | LexicalStrategy::Simple);
-        let strict_query = if lexical_policy {
-            normalize_query(connection, &parsed.tsquery(), strategy).await?
+        let strict_query = if parsed.explicit {
+            let expression = normalize_expression(connection, &parsed, strategy).await?;
+            let compiled = expression.tsquery()?;
+            scope.lexical_constraint = Some((expression, strategy));
+            compiled
+        } else if lexical_policy {
+            normalize_query(connection, &parsed.tsquery()?, strategy).await?
         } else {
             query.to_string()
         };
