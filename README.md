@@ -284,6 +284,14 @@ the installer and exposure preflight reject the profile. See the
 [dependency trust guide](docs/content/container-dependency-trust.md#disabled-autoheal)
 for public advisory sources. Keep `FORTEMI_AUTOHEAL_MODE=disabled`.
 
+**Upgrade note:** removing the service leaves existing autoheal containers running
+with Docker socket access. Before upgrading, follow the operator guide's
+[autoheal retirement step](docs/content/operators-guide.md#upgrade-retire-existing-autoheal-containers):
+list the old service containers using the Compose project and service labels,
+then explicitly run `docker rm -f <names>` for the returned names. The installer
+stops and prints the exact command if it finds any; it never removes them
+itself.
+
 Third-party image defaults are locked to reviewed multi-architecture digests.
 Use only complete `tag@sha256` values for customer registry overrides. The
 [dependency trust guide](docs/content/container-dependency-trust.md) documents

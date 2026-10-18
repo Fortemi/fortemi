@@ -12,6 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "init-bundle-env.sh"
 CONFIGURE = ROOT / "installer" / "scripts" / "configure.sh"
+DEPLOY = ROOT / "installer" / "scripts" / "deploy.sh"
 
 
 class InitBundleEnvTests(unittest.TestCase):
@@ -311,6 +312,91 @@ class InitBundleEnvTests(unittest.TestCase):
                     self.assertEqual(env_file.read_text(encoding="utf-8"), content)
                     self.assertFalse((install_dir / ".env.bak").exists())
                     self.assertFalse((install_dir / "data").exists())
+
+
+class DeployAutohealRetirementTests(unittest.TestCase):
+    def deploy(self, root, *, project=None, model_name="", names="", inspect_status=0):
+        install_dir = root / "__Fortemi.Bundle-TEST"
+        scripts_dir = install_dir / "scripts"
+        scripts_dir.mkdir(parents=True)
+        (scripts_dir / "validate-bundle-exposure.sh").write_text("exit 0\n")
+        bin_dir = root / "bin"
+        bin_dir.mkdir()
+        docker = bin_dir / "docker"
+        docker.write_text(
+            '#!/bin/bash\nprintf "%s\\n" "$*" >> "$DOCKER_CALLS"\n'
+            'if [[ "$1 $4 $5 $6" == "compose config --format json" ]]; then\n'
+            '  printf \'{"name": "%s"}\\n\' "$MODEL_NAME"\n'
+            '  exit 0\n'
+            'fi\n'
+            'if [[ "$1 $2" == "ps -a" ]]; then\n'
+            '  printf "%s" "$AUTOHEAL_NAMES"\n'
+            '  exit "$INSPECT_STATUS"\n'
+            'fi\n'
+            '[[ "$1" == compose && ( "$4" == pull || "$4 $5" == "up -d" ) ]]\n'
+        )
+        docker.chmod(0o755)
+        curl = bin_dir / "curl"
+        curl.write_text("#!/bin/bash\nexit 0\n")
+        curl.chmod(0o755)
+        env = os.environ.copy()
+        env.pop("COMPOSE_PROJECT_NAME", None)
+        env.update({
+            "PATH": f"{bin_dir}:{env['PATH']}",
+            "INSTALL_DIR": str(install_dir),
+            "AUTOHEAL_NAMES": names,
+            "MODEL_NAME": model_name,
+            "INSPECT_STATUS": str(inspect_status),
+            "DOCKER_CALLS": str(root / "docker-calls"),
+        })
+        if project is not None:
+            env["COMPOSE_PROJECT_NAME"] = project
+        result = subprocess.run(
+            ["bash", str(DEPLOY)], capture_output=True, text=True, env=env,
+        )
+        return result, (root / "docker-calls").read_text().splitlines()
+
+    def test_refuses_retired_containers_with_exact_command_and_project_scope(self):
+        for project, expected in ((None, "fortemibundle-test"), ("__Custom.Project-1", "customproject-1")):
+            with self.subTest(project=project), tempfile.TemporaryDirectory() as directory:
+                result, calls = self.deploy(
+                    Path(directory), project=project,
+                    names="old-autoheal-1\nold-autoheal-2\n",
+                )
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("Docker socket access", result.stderr)
+                self.assertIn("docker rm -f old-autoheal-1 old-autoheal-2\n", result.stderr)
+                self.assertIn("docs/content/operators-guide.md#upgrade-retire-existing-autoheal-containers", result.stderr)
+                expected_calls = [] if project else ["compose -f docker-compose.bundle.yml config --format json"]
+                self.assertEqual(calls, expected_calls + [
+                    f"ps -a --filter label=com.docker.compose.project={expected} "
+                    "--filter label=com.docker.compose.service=autoheal --format {{.Names}}"
+                ])
+
+    def test_proceeds_when_no_retired_container_exists(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, calls = self.deploy(Path(directory))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(calls[-2:], [
+                "compose -f docker-compose.bundle.yml pull",
+                "compose -f docker-compose.bundle.yml up -d",
+            ])
+
+    def test_stops_when_container_inspection_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, calls = self.deploy(Path(directory), inspect_status=1)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("cannot check for retired autoheal containers", result.stderr)
+            self.assertEqual(len(calls), 2)
+
+    def test_uses_compose_resolved_project_name_from_environment_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, calls = self.deploy(
+                Path(directory), model_name="tenant-from-dotenv", names="old-autoheal\n",
+            )
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("label=com.docker.compose.project=tenant-from-dotenv", calls[-1])
+            self.assertIn("docker rm -f old-autoheal", result.stderr)
 
 
 if __name__ == "__main__":

@@ -251,7 +251,8 @@ jobs:
       - name: Check Buildx invocation policy
         run: |
           # https://github.com/docker/buildx/security/advisories/GHSA-gwr2-q96m-6682 and https://github.com/docker/buildx/security/advisories/GHSA-p54p-jq4x-rc28
-          if grep -RInE 'buildx[[:space:]]+bake|--progress[=]rawjson' .gitea/ scripts/ build/; then exit 1; else test "$?" -eq 1; fi
+          python3 scripts/ci/check-no-buildx-bake.py
+          python3 -m unittest tests/test_check_no_buildx_bake.py
 
       - name: Check Docker bundle exposure policy
         run: |

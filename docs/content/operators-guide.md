@@ -177,6 +177,29 @@ The preflight also rejects any Docker socket mount. See
 [Disabled Autoheal](container-dependency-trust.md#disabled-autoheal) for public
 advisory sources and the requirements for re-enablement under #1240.
 
+#### Upgrade: Retire Existing Autoheal Containers
+
+Removing the service from Compose does not stop existing containers: `compose
+up -d` leaves orphans running, potentially retaining Docker socket access.
+Before upgrading, remove `ops-autoheal` from `COMPOSE_PROFILES`, keep
+`FORTEMI_AUTOHEAL_MODE=disabled`, and explicitly retire the old containers.
+From the installation directory, export the same `COMPOSE_PROJECT_NAME` as the
+existing deployment if one was set, including in `.env` (otherwise use the
+normalized directory name):
+
+```bash
+project="$(printf '%s' "${COMPOSE_PROJECT_NAME:-$(basename "$PWD")}" |
+  LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C tr -cd 'a-z0-9_-' | sed 's/^[_-]*//')"
+docker ps -a --filter "label=com.docker.compose.project=${project}" \
+  --filter 'label=com.docker.compose.service=autoheal' --format '{{.Names}}'
+```
+
+Review the returned names, then run `docker rm -f <names>` with exactly those
+names. This targets only the retired autoheal service for that project. Repeat
+the query to confirm no matches before starting the upgrade. The installer
+stops when it detects these containers and prints the exact retirement command;
+it never removes containers automatically.
+
 All third-party bundle defaults use reviewed `tag@sha256` references. See
 [Third-Party Container Dependency Trust](container-dependency-trust.md) for the
 complete inventory, digest verification, update/rollback procedure, and

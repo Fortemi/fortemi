@@ -38,7 +38,8 @@ external repository.
 
 ## Disabled Autoheal
 
-`ops-autoheal` is disabled pending Fortemi/fortemi#1240. The package review of
+`ops-autoheal` is disabled pending a reviewed replacement tracked in the
+project issue tracker. The package review of
 `willfarrell/autoheal:1.2.0` found unpatched HIGH/CRITICAL advisories in its
 installed packages on both amd64 and arm64. Its Alpine 3.13 base reached
 [end of support on 2022-11-01](https://alpinelinux.org/releases/).
@@ -57,15 +58,15 @@ rendered autoheal service, and all Docker socket mounts. Keep
 `FORTEMI_AUTOHEAL_MODE=disabled` and remove the profile from existing settings.
 Use service restart policies with operator health monitoring.
 
-Re-enablement under #1240 requires a reviewed replacement, restoration of the
+Re-enablement requires a reviewed replacement, restoration of the
 small service block from Git history and its inventory entry, and coordinated
 updates to the installer, preflight, tests, and operator guidance. Docker socket
 access remains root-equivalent host control even with a read-only mount.
 
 ## Builder Feed Review (2026-10-18)
 
-Review for [Fortemi/fortemi#1237](https://git.integrolabs.net/Fortemi/fortemi/issues/1237),
-checked **2026-10-18** using public upstream sources. The proposed builder pins
+This review is tracked in the project issue tracker and was checked
+**2026-10-18** using public upstream sources. The proposed builder pins
 are `docker-ce-cli=5:29.9.1-1~debian.12~bookworm` and
 `docker-buildx-plugin=0.38.0-1~debian.12~bookworm`. Both are published in Docker's
 Debian bookworm stable Packages indexes for
@@ -137,21 +138,25 @@ signing-key fingerprint and exact package versions. Its review date is
 - The published **fortemi-builder:latest still carries Buildx 0.35.0** until
   the next release tag publishes the rebuilt image via `build-builder.yaml`.
   That version is affected by both Bake advisories above. Per the operator's
-  #1237 acceptance criteria, **titan-host-runner is inactive** and is the only
+  acceptance criteria, **titan-host-runner is inactive** and is the only
   runner mapping `matric-builder` to that image; no active runner uses it.
-  Tracked by [Fortemi/fortemi#1237](https://git.integrolabs.net/Fortemi/fortemi/issues/1237).
+  Tracked in the project issue tracker.
 - **Titan host Buildx v0.30.1** remains exposed to both Bake advisories. Its
-  upgrade is owned by sysops and tracked in
-  [roctinam/sysops#187](https://git.integrolabs.net/roctinam/sysops/issues/187).
+  upgrade is owned by sysops and tracked in its issue tracker.
   This source-pin change does not upgrade the host binary.
 
-The adjacent ci-builder Lint guard rejects `buildx bake` and
-`--progress=rawjson` anywhere under `.gitea/`, `scripts/` or `build/`; its regex
-does not match its own command. Local image qualification under #1237 criterion
-4b remains pending the titan resource preflight dispatch gate: record the local
-image ID/digest, in-image Docker/Buildx versions and verifier exit status then.
+The ci-builder Lint step runs `scripts/ci/check-no-buildx-bake.py` over every
+file under `.gitea/`, `scripts/` and `build/`, excluding the guard and its test.
+It joins shell continuations and rejects a `buildx` token followed by `bake`,
+including intervening options, and `--progress` set to `rawjson` with either
+separator and optional quotes.
+
+Criterion **4b: local qualification pending**. Record the local image ID/digest,
+in-image Docker/Buildx versions and verifier exit status after qualification.
 No image has been built or published for this review. Autoheal's separate
-criterion 7 package check and stale `images[6]` review remain pending.
+criterion 7 package check is complete: HIGH/CRITICAL advisories were found,
+the retired image inventory entry was removed, and the profile remains disabled
+pending the reviewed replacement tracked in the project issue tracker.
 
 ## Python Sidecar Locks
 
@@ -221,7 +226,8 @@ python3 scripts/ci/verify-third-party-dependencies.py
 
 Rollback restores the prior reviewed digest. Preserve database/model volumes
 unless that dependency's manifest entry requires a compatibility migration.
-Autoheal remains disabled pending #1240; do not restore its retired image.
+Autoheal remains disabled pending a reviewed replacement; do not restore its
+retired image.
 
 ## Customer and Air-Gapped Mirrors
 
@@ -251,8 +257,8 @@ replace the repository's reviewed defaults.
   cadence, mirror guidance, and drift lint.
 - #888 owns Fortemi-published image digest, SBOM, provenance, and signing
   evidence.
-- #937 established the explicit Docker socket trust boundary; #1240 owns
-  re-enablement of the currently disabled `ops-autoheal` service.
+- #937 established the explicit Docker socket trust boundary; re-enablement of
+  the disabled `ops-autoheal` service is tracked in the project issue tracker.
 - #1075 owns removal of the retired llama.cpp registry namespace.
 - #1076 owns exact, hash-locked Python package graphs, supported sidecar
   platforms, and the PyTorch CPU/CUDA compatibility boundary.
