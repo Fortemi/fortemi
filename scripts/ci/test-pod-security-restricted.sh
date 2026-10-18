@@ -21,6 +21,8 @@
 # storage provisioner (which reaches the API server through a Service) work.
 set -euo pipefail
 
+remove_docker() { bash "$(dirname "${BASH_SOURCE[0]}")/remove-run-docker.sh" "$@"; }
+
 BUNDLE_IMAGE=""
 while (( $# )); do
     case "$1" in
@@ -37,7 +39,8 @@ KUBECTL_VERSION=v1.37.0
 KUBECTL_SHA256=6129359f4e1f3848a5572ccb0b26cf28b8ca08cef38c95a765b2f64a2c961a2f
 NODE_IMAGE="kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5"
 TIMEOUT="${PSA_TIMEOUT_SECONDS:-600}"
-CLUSTER="fortemi-psa-$$"
+CLUSTER="fortemi-psa-${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}-${CI_RESOURCE_ATTEMPT:-1}-$$"
+export KIND_EXPERIMENTAL_DOCKER_NETWORK="${CLUSTER}-net"
 NAMESPACE=fortemi-bundle
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/fortemi-psa.XXXXXX")"
 chmod 0700 "$WORK"
@@ -52,8 +55,13 @@ cleanup() {
         log "kept cluster ${CLUSTER} (KUBECONFIG=${KUBECONFIG})"
         return
     fi
-    "${WORK}/bin/kind" delete cluster --name "$CLUSTER" >/dev/null 2>&1 || true
-    rm -rf "$WORK"
+    if [[ -n "${CI_RESOURCE_SCOPE:-}" ]]; then
+        echo '::notice::Retained kind containers/network for verified final ID reconciliation.'
+    else
+        "${WORK}/bin/kind" delete cluster --name "$CLUSTER" >/dev/null 2>&1 || true
+        remove_docker network rm "$KIND_EXPERIMENTAL_DOCKER_NETWORK" || true
+    fi
+    bash "$ROOT/scripts/ci/cleanup-local-temp.sh" "$WORK"
 }
 trap cleanup EXIT
 
@@ -71,6 +79,8 @@ kubectl() { "${WORK}/bin/kubectl" "$@"; }
 docker image inspect "$BUNDLE_IMAGE" >/dev/null || fail "${BUNDLE_IMAGE} is not in the local Docker daemon"
 
 log "creating kind cluster ${CLUSTER} (${NODE_IMAGE%@*})"
+"${ROOT}/scripts/ci/create-explicit-docker-network.sh" \
+    "$KIND_EXPERIMENTAL_DOCKER_NETWORK" "${GITHUB_RUN_ID:-$$}" >/dev/null
 "${WORK}/bin/kind" create cluster --name "$CLUSTER" --image "$NODE_IMAGE" \
     --kubeconfig "$KUBECONFIG" --wait 180s >"${WORK}/kind.log" 2>&1 ||
     { cat "${WORK}/kind.log"; fail "kind create cluster failed"; }

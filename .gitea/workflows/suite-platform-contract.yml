@@ -9,7 +9,8 @@ on:
         default: ''
 
 concurrency:
-  group: fortemi-shared-runner
+  # Only an exact-source main-chain dispatch is independent of releases.
+  group: ${{ (startsWith(gitea.ref, 'refs/tags/') || !(gitea.event_name == 'workflow_dispatch' && gitea.ref == 'refs/heads/main' && gitea.event.inputs.source_sha)) && 'fortemi-shared-runner' || format('{0}-run-{1}', gitea.workflow, gitea.run_id) }}
   cancel-in-progress: false
 
 env:
@@ -682,6 +683,10 @@ jobs:
 
   handoff-docsite:
     name: Dispatch Documentation Deployment
+    env:
+      CI_MUTEX_JOB_NAME: Dispatch Documentation Deployment
+      CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
+      CI_ACTIONS_TOKEN: ${{ github.token }}
     runs-on: matric-builder
     needs: [aggregate]
     if: github.event_name == 'workflow_dispatch' && needs.aggregate.result == 'success'
@@ -707,6 +712,10 @@ jobs:
             --arg ref "${GITHUB_REF:?GITHUB_REF is required}" \
             --arg source_sha "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}" \
             '{ref: $ref, inputs: {source_sha: $source_sha}}' > dispatch.json
+          if [[ "${GITHUB_REF}" == refs/heads/main ]]; then
+            bash scripts/ci/main-side-effect.sh dispatch docsite-deploy.yml dispatch.json
+            exit 0
+          fi
           curl --fail-with-body --silent --show-error -X POST \
             -H "Authorization: token ${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" \
             -H "Accept: application/json" \

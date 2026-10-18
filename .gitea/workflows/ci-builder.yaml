@@ -43,12 +43,15 @@ on:
       # pyannote sidecar built by build-pyannote.yaml
       - 'build/pyannote/**'
 
-# Suppress duplicate runs of this workflow. Cross-workflow serialization is
-# enforced by the explicit CI -> Tests -> Sidecar -> Suite -> Docsite chain;
-# Gitea scopes concurrency groups to a workflow and cannot provide that chain.
+# Suppress duplicate runs of this workflow. Gitea 1.27 matches concurrency by
+# repository + group (models/actions/run_attempt.go L89-97). Workflow names in
+# the groups keep CI and Tests independent; the dispatch chain orders handoffs.
 concurrency:
-  group: fortemi-shared-runner
-  cancel-in-progress: false
+  # PR pushes replace only the same workflow/branch. Tags retain the release
+  # group; main pushes and exact-source main dispatches use unique groups.
+  # The capacity-1 runner serialises jobs even when runs interleave. #1234
+  group: ${{ gitea.event_name == 'pull_request' && format('{0}-pr-{1}', gitea.workflow, gitea.head_ref) || (startsWith(gitea.ref, 'refs/tags/') || (gitea.event_name == 'workflow_dispatch' && !(gitea.ref == 'refs/heads/main' && gitea.event.inputs.source_sha))) && 'fortemi-shared-runner' || format('{0}-run-{1}', gitea.workflow, gitea.run_id) }}
+  cancel-in-progress: ${{ gitea.event_name == 'pull_request' }}
 
 env:
   CHAIN_SOURCE_SHA: ${{ github.event.inputs.source_sha || github.sha }}
@@ -116,9 +119,13 @@ jobs:
   # not be published by an earlier validation chain.
   sync-github-source:
     name: Sync Source to GitHub
+    env:
+      CI_MUTEX_JOB_NAME: Sync Source to GitHub
+      CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
+      CI_ACTIONS_TOKEN: ${{ github.token }}
     runs-on: matric-builder
-    needs: [integration-test]
-    if: github.event_name != 'pull_request'
+    needs: [admit-source, integration-test]
+    if: needs.admit-source.outputs.current == 'true' && (github.event_name != 'pull_request')
     steps:
       - name: Checkout complete repository
         run: |
@@ -155,8 +162,7 @@ jobs:
 
           git remote add github https://github.com/Fortemi/fortemi.git
           if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
-            GIT_ASKPASS="${ASKPASS}" GIT_TERMINAL_PROMPT=0 git push github \
-              HEAD:refs/heads/main
+            GIT_ASKPASS="${ASKPASS}" bash scripts/ci/main-side-effect.sh sync
           elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
             GIT_ASKPASS="${ASKPASS}" GIT_TERMINAL_PROMPT=0 git push github \
               "${GITHUB_REF}:${GITHUB_REF}"
@@ -164,12 +170,146 @@ jobs:
             echo "No public source ref is defined for ${GITHUB_REF}; skipping."
           fi
 
+      - name: Cleanup fetched tokens
+        if: always()
+        run: ci/vault-fetch.sh --cleanup
+
+  # Admit dispatches using the workflow revision before any payload work.
+  admit-source:
+    name: Admit current main source
+    runs-on: matric-builder
+    needs: [verify-release-ref]
+    outputs:
+      current: ${{ steps.freshness.outputs.current }}
+    env:
+      CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
+      CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
+      CI_WORKFLOW_SHA: ${{ gitea.sha }}
+      CI_SAFETY_TOOLS: "${{ github.workspace }}/target/.ci-tools/${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+    steps:
+      - name: Checkout workflow-revision safety tooling
+        run: |
+          set -euo pipefail
+          # Register a fresh checkout before Git writes; never follow an existing ancestor symlink.
+          [[ "${CI_WORKFLOW_SHA:?CI_WORKFLOW_SHA is required}" =~ ^[0-9a-f]{40}$ ]]
+          CI_SAFETY_TOOLS="$(python3 - <<'PYBOOT'
+          import json, os, secrets, time
+          owner, attempt = os.environ['CI_RESOURCE_SCOPE'], os.environ['CI_RESOURCE_ATTEMPT']
+          assert all(v.isdecimal() and int(v) > 0 for v in (owner, attempt))
+          base = os.path.dirname(os.environ['CI_SAFETY_TOOLS'])
+          fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+          try:
+              for part in os.path.abspath(base).split('/')[1:]:
+                  try: os.mkdir(part, 0o700, dir_fd=fd)
+                  except FileExistsError: pass
+                  child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                  os.close(fd)
+                  fd = child
+              name = f'{owner}-{attempt}.{secrets.token_hex(12)}'
+              os.mkdir(name, 0o700, dir_fd=fd)
+              root = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+              try:
+                  info = os.fstat(root)
+                  marker = os.open('.owner.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=root)
+                  with os.fdopen(marker, 'w') as stream:
+                      json.dump({'fortemi.ci.scope': owner, 'fortemi.ci.attempt': attempt,
+                                 'created': time.time(), 'identity': [info.st_dev, info.st_ino]}, stream)
+                      stream.flush()
+                      os.fsync(stream.fileno())
+              finally: os.close(root)
+          finally: os.close(fd)
+          print(os.path.join(base, name))
+          PYBOOT
+          )"
+          export CI_SAFETY_TOOLS
+          printf 'CI_SAFETY_TOOLS=%s\n' "$CI_SAFETY_TOOLS" >> "$GITHUB_ENV"
+          git init -q "${CI_SAFETY_TOOLS}"
+          git -C "${CI_SAFETY_TOOLS}" remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git -C "${CI_SAFETY_TOOLS}" sparse-checkout set scripts/ci
+          git -C "${CI_SAFETY_TOOLS}" fetch --quiet --no-tags --depth=1 origin "${CI_WORKFLOW_SHA}"
+          git -C "${CI_SAFETY_TOOLS}" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "${CI_SAFETY_TOOLS}" rev-parse HEAD)" = "${CI_WORKFLOW_SHA}"
+      - name: Check main tip before heavy work
+        id: freshness
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == workflow_dispatch && "${GITHUB_REF}" == refs/heads/main ]]; then
+            cd "${CI_SAFETY_TOOLS}"
+            result=0
+            bash scripts/ci/main-tip-guard.sh || result=$?
+            if [[ "$result" == 10 ]]; then
+              echo 'current=false' >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            [[ "$result" == 0 ]] || exit "$result"
+          fi
+          echo 'current=true' >> "$GITHUB_OUTPUT"
+
+      - name: Cleanup admission tooling
+        if: always()
+        run: echo '::notice::Retained workflow tooling for verified final quarantine reconciliation.'
+
   # Build testdb image once for all jobs
   build-testdb:
     name: Build Test Database Image
     runs-on: matric-builder
-    needs: [verify-release-ref]
+    needs: [admit-source, verify-release-ref]
+    env:
+      CI_WORKFLOW_SHA: ${{ gitea.sha }}
+      CI_SAFETY_TOOLS: "${{ github.workspace }}/target/.ci-tools/${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      CI_RUNS_ROOT: "${{ github.workspace }}/target/.ci-runs"
+      CI_ACTIONS_TOKEN: ${{ github.token }}
+      CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
+      CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
+      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
+      TESTDB_IMAGE: "matric-testdb:ci-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      DOCKER_CONFIG: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/docker-build-testdb"
+    if: needs.admit-source.outputs.current == 'true'
     steps:
+      - name: Checkout workflow-revision safety tooling
+        run: |
+          set -euo pipefail
+          # Register a fresh checkout before Git writes; never follow an existing ancestor symlink.
+          [[ "${CI_WORKFLOW_SHA:?CI_WORKFLOW_SHA is required}" =~ ^[0-9a-f]{40}$ ]]
+          CI_SAFETY_TOOLS="$(python3 - <<'PYBOOT'
+          import json, os, secrets, time
+          owner, attempt = os.environ['CI_RESOURCE_SCOPE'], os.environ['CI_RESOURCE_ATTEMPT']
+          assert all(v.isdecimal() and int(v) > 0 for v in (owner, attempt))
+          base = os.path.dirname(os.environ['CI_SAFETY_TOOLS'])
+          fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+          try:
+              for part in os.path.abspath(base).split('/')[1:]:
+                  try: os.mkdir(part, 0o700, dir_fd=fd)
+                  except FileExistsError: pass
+                  child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                  os.close(fd)
+                  fd = child
+              name = f'{owner}-{attempt}.{secrets.token_hex(12)}'
+              os.mkdir(name, 0o700, dir_fd=fd)
+              root = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+              try:
+                  info = os.fstat(root)
+                  marker = os.open('.owner.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=root)
+                  with os.fdopen(marker, 'w') as stream:
+                      json.dump({'fortemi.ci.scope': owner, 'fortemi.ci.attempt': attempt,
+                                 'created': time.time(), 'identity': [info.st_dev, info.st_ino]}, stream)
+                      stream.flush()
+                      os.fsync(stream.fileno())
+              finally: os.close(root)
+          finally: os.close(fd)
+          print(os.path.join(base, name))
+          PYBOOT
+          )"
+          export CI_SAFETY_TOOLS
+          printf 'CI_SAFETY_TOOLS=%s\n' "$CI_SAFETY_TOOLS" >> "$GITHUB_ENV"
+          git init -q "${CI_SAFETY_TOOLS}"
+          git -C "${CI_SAFETY_TOOLS}" remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git -C "${CI_SAFETY_TOOLS}" sparse-checkout set scripts/ci
+          git -C "${CI_SAFETY_TOOLS}" fetch --quiet --no-tags --depth=1 origin "${CI_WORKFLOW_SHA}"
+          git -C "${CI_SAFETY_TOOLS}" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "${CI_SAFETY_TOOLS}" rev-parse HEAD)" = "${CI_WORKFLOW_SHA}"
+
       - name: Checkout
         run: |
           set -euo pipefail
@@ -183,16 +323,80 @@ jobs:
           git checkout --quiet --detach FETCH_HEAD
           test "$(git rev-parse HEAD)" = "${CHAIN_SOURCE_SHA}"
 
+      - name: Reconcile inactive runs and configure owned resources
+        run: |
+          python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
+          bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
       - name: Build testdb image
         run: |
-          docker build -f build/Dockerfile.testdb -t matric-testdb:local .
+          docker build -f build/Dockerfile.testdb -t "${TESTDB_IMAGE}" .
           echo "Built testdb image for CI"
+
+      - name: Cleanup run-local build and Docker state
+        if: always()
+        run: |
+          echo '::notice::Retained run directories for verified final quarantine reconciliation.'
 
   lint:
     name: Lint
     runs-on: matric-builder
-    needs: [build-testdb]
+    needs: [admit-source, build-testdb]
+    env:
+      CI_WORKFLOW_SHA: ${{ gitea.sha }}
+      CI_SAFETY_TOOLS: "${{ github.workspace }}/target/.ci-tools/${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      CI_RUNS_ROOT: "${{ github.workspace }}/target/.ci-runs"
+      CI_ACTIONS_TOKEN: ${{ github.token }}
+      CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
+      CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
+      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
+      DOCKER_CONFIG: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/docker-lint"
+    if: needs.admit-source.outputs.current == 'true'
     steps:
+      - name: Checkout workflow-revision safety tooling
+        run: |
+          set -euo pipefail
+          # Register a fresh checkout before Git writes; never follow an existing ancestor symlink.
+          [[ "${CI_WORKFLOW_SHA:?CI_WORKFLOW_SHA is required}" =~ ^[0-9a-f]{40}$ ]]
+          CI_SAFETY_TOOLS="$(python3 - <<'PYBOOT'
+          import json, os, secrets, time
+          owner, attempt = os.environ['CI_RESOURCE_SCOPE'], os.environ['CI_RESOURCE_ATTEMPT']
+          assert all(v.isdecimal() and int(v) > 0 for v in (owner, attempt))
+          base = os.path.dirname(os.environ['CI_SAFETY_TOOLS'])
+          fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+          try:
+              for part in os.path.abspath(base).split('/')[1:]:
+                  try: os.mkdir(part, 0o700, dir_fd=fd)
+                  except FileExistsError: pass
+                  child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                  os.close(fd)
+                  fd = child
+              name = f'{owner}-{attempt}.{secrets.token_hex(12)}'
+              os.mkdir(name, 0o700, dir_fd=fd)
+              root = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+              try:
+                  info = os.fstat(root)
+                  marker = os.open('.owner.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=root)
+                  with os.fdopen(marker, 'w') as stream:
+                      json.dump({'fortemi.ci.scope': owner, 'fortemi.ci.attempt': attempt,
+                                 'created': time.time(), 'identity': [info.st_dev, info.st_ino]}, stream)
+                      stream.flush()
+                      os.fsync(stream.fileno())
+              finally: os.close(root)
+          finally: os.close(fd)
+          print(os.path.join(base, name))
+          PYBOOT
+          )"
+          export CI_SAFETY_TOOLS
+          printf 'CI_SAFETY_TOOLS=%s\n' "$CI_SAFETY_TOOLS" >> "$GITHUB_ENV"
+          git init -q "${CI_SAFETY_TOOLS}"
+          git -C "${CI_SAFETY_TOOLS}" remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git -C "${CI_SAFETY_TOOLS}" sparse-checkout set scripts/ci
+          git -C "${CI_SAFETY_TOOLS}" fetch --quiet --no-tags --depth=1 origin "${CI_WORKFLOW_SHA}"
+          git -C "${CI_SAFETY_TOOLS}" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "${CI_SAFETY_TOOLS}" rev-parse HEAD)" = "${CI_WORKFLOW_SHA}"
+
       - name: Checkout
         run: |
           set -euo pipefail
@@ -201,8 +405,16 @@ jobs:
           git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
+      - name: Reconcile inactive runs and configure owned resources
+        run: |
+          python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
+          bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
       - name: Check formatting
         run: cargo fmt --all -- --check
+
+      - name: Test run ownership, main admission, and partial retry guards
+        run: python3 -m unittest tests/test_ci_run_safety.py -v
 
       - name: Test shared-host GPU capacity guard
         run: python3 -m unittest discover -s scripts/ci -p test_check_gpu_test_capacity.py -v
@@ -241,11 +453,13 @@ jobs:
           fi
           COMPOSE_VERSION=v2.39.2
           COMPOSE_SHA256=a55a8cd4ef103aac282812554e531aac8df7e914a287ee81e14d695556a22902
-          curl -fsSL -o /tmp/docker-compose \
+          mkdir -p "${DOCKER_CONFIG}/cli-plugins"
+          COMPOSE_DOWNLOAD=$(mktemp "${DOCKER_CONFIG}/compose.XXXXXX")
+          trap 'rm -f "$COMPOSE_DOWNLOAD"' EXIT
+          curl -fsSL -o "$COMPOSE_DOWNLOAD" \
             "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64"
-          echo "${COMPOSE_SHA256}  /tmp/docker-compose" | sha256sum -c -
-          mkdir -p ~/.docker/cli-plugins
-          install -m 0755 /tmp/docker-compose ~/.docker/cli-plugins/docker-compose
+          echo "${COMPOSE_SHA256}  ${COMPOSE_DOWNLOAD}" | sha256sum -c -
+          install -m 0755 "$COMPOSE_DOWNLOAD" "${DOCKER_CONFIG}/cli-plugins/docker-compose"
           docker compose version
 
       - name: Check Docker bundle exposure policy
@@ -376,6 +590,11 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+      - name: Cleanup run-local build and Docker state
+        if: always()
+        run: |
+          echo '::notice::Retained run directories for verified final quarantine reconciliation.'
+
   knowledge-shard-matrix:
     name: Knowledge Shard Conformance Matrix
     runs-on: ubuntu-latest
@@ -383,6 +602,8 @@ jobs:
     defaults:
       run:
         shell: bash
+    needs: [admit-source]
+    if: needs.admit-source.outputs.current == 'true'
     steps:
       - name: Checkout
         run: |
@@ -451,6 +672,8 @@ jobs:
     defaults:
       run:
         shell: bash
+    needs: [admit-source]
+    if: needs.admit-source.outputs.current == 'true'
     steps:
       - name: Checkout
         run: |
@@ -480,11 +703,65 @@ jobs:
   audit:
     name: Security Audit (deps)
     runs-on: matric-builder
-    needs: [lint]
+    needs: [admit-source, lint]
     # Advisory scan; runs in parallel with lint.
     # Fails on high/critical advisories. See .cargo/audit.toml for the allowlist
     # mechanism (accept individual advisories with documented expiry).
+    env:
+      CI_WORKFLOW_SHA: ${{ gitea.sha }}
+      CI_SAFETY_TOOLS: "${{ github.workspace }}/target/.ci-tools/${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      CI_RUNS_ROOT: "${{ github.workspace }}/target/.ci-runs"
+      CI_ACTIONS_TOKEN: ${{ github.token }}
+      CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
+      CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
+      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
+      DOCKER_CONFIG: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/docker-audit"
+    if: needs.admit-source.outputs.current == 'true'
     steps:
+      - name: Checkout workflow-revision safety tooling
+        run: |
+          set -euo pipefail
+          # Register a fresh checkout before Git writes; never follow an existing ancestor symlink.
+          [[ "${CI_WORKFLOW_SHA:?CI_WORKFLOW_SHA is required}" =~ ^[0-9a-f]{40}$ ]]
+          CI_SAFETY_TOOLS="$(python3 - <<'PYBOOT'
+          import json, os, secrets, time
+          owner, attempt = os.environ['CI_RESOURCE_SCOPE'], os.environ['CI_RESOURCE_ATTEMPT']
+          assert all(v.isdecimal() and int(v) > 0 for v in (owner, attempt))
+          base = os.path.dirname(os.environ['CI_SAFETY_TOOLS'])
+          fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+          try:
+              for part in os.path.abspath(base).split('/')[1:]:
+                  try: os.mkdir(part, 0o700, dir_fd=fd)
+                  except FileExistsError: pass
+                  child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                  os.close(fd)
+                  fd = child
+              name = f'{owner}-{attempt}.{secrets.token_hex(12)}'
+              os.mkdir(name, 0o700, dir_fd=fd)
+              root = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+              try:
+                  info = os.fstat(root)
+                  marker = os.open('.owner.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=root)
+                  with os.fdopen(marker, 'w') as stream:
+                      json.dump({'fortemi.ci.scope': owner, 'fortemi.ci.attempt': attempt,
+                                 'created': time.time(), 'identity': [info.st_dev, info.st_ino]}, stream)
+                      stream.flush()
+                      os.fsync(stream.fileno())
+              finally: os.close(root)
+          finally: os.close(fd)
+          print(os.path.join(base, name))
+          PYBOOT
+          )"
+          export CI_SAFETY_TOOLS
+          printf 'CI_SAFETY_TOOLS=%s\n' "$CI_SAFETY_TOOLS" >> "$GITHUB_ENV"
+          git init -q "${CI_SAFETY_TOOLS}"
+          git -C "${CI_SAFETY_TOOLS}" remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git -C "${CI_SAFETY_TOOLS}" sparse-checkout set scripts/ci
+          git -C "${CI_SAFETY_TOOLS}" fetch --quiet --no-tags --depth=1 origin "${CI_WORKFLOW_SHA}"
+          git -C "${CI_SAFETY_TOOLS}" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "${CI_SAFETY_TOOLS}" rev-parse HEAD)" = "${CI_WORKFLOW_SHA}"
+
       - name: Checkout
         run: |
           set -euo pipefail
@@ -493,8 +770,15 @@ jobs:
           git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
+      - name: Reconcile inactive runs and configure owned resources
+        run: |
+          python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
+          bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
       - name: Install cargo-audit
         run: |
+          export PATH="${CARGO_INSTALL_ROOT}/bin:${PATH}"
+          echo "${CARGO_INSTALL_ROOT}/bin" >> "$GITHUB_PATH"
           # cargo-audit may already be in the builder image; check before installing
           if ! command -v cargo-audit >/dev/null 2>&1; then
             # Building aws-lc-sys at -O3 can trigger GCC 12's profile_estimate
@@ -519,13 +803,72 @@ jobs:
           npm ci --ignore-scripts
           npm audit --audit-level=high
 
+      - name: Cleanup run-local build and Docker state
+        if: always()
+        run: |
+          echo '::notice::Retained run directories for verified final quarantine reconciliation.'
+
   deny:
     name: Policy Check (cargo-deny)
     runs-on: matric-builder
-    needs: [audit]
+    needs: [admit-source, audit]
     # License + advisory + duplicate + source policy enforcement.
     # See deny.toml at repo root for the active policies.
+    env:
+      CI_WORKFLOW_SHA: ${{ gitea.sha }}
+      CI_SAFETY_TOOLS: "${{ github.workspace }}/target/.ci-tools/${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      CI_RUNS_ROOT: "${{ github.workspace }}/target/.ci-runs"
+      CI_ACTIONS_TOKEN: ${{ github.token }}
+      CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
+      CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
+      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
+      DOCKER_CONFIG: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/docker-deny"
+    if: needs.admit-source.outputs.current == 'true'
     steps:
+      - name: Checkout workflow-revision safety tooling
+        run: |
+          set -euo pipefail
+          # Register a fresh checkout before Git writes; never follow an existing ancestor symlink.
+          [[ "${CI_WORKFLOW_SHA:?CI_WORKFLOW_SHA is required}" =~ ^[0-9a-f]{40}$ ]]
+          CI_SAFETY_TOOLS="$(python3 - <<'PYBOOT'
+          import json, os, secrets, time
+          owner, attempt = os.environ['CI_RESOURCE_SCOPE'], os.environ['CI_RESOURCE_ATTEMPT']
+          assert all(v.isdecimal() and int(v) > 0 for v in (owner, attempt))
+          base = os.path.dirname(os.environ['CI_SAFETY_TOOLS'])
+          fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+          try:
+              for part in os.path.abspath(base).split('/')[1:]:
+                  try: os.mkdir(part, 0o700, dir_fd=fd)
+                  except FileExistsError: pass
+                  child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                  os.close(fd)
+                  fd = child
+              name = f'{owner}-{attempt}.{secrets.token_hex(12)}'
+              os.mkdir(name, 0o700, dir_fd=fd)
+              root = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+              try:
+                  info = os.fstat(root)
+                  marker = os.open('.owner.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=root)
+                  with os.fdopen(marker, 'w') as stream:
+                      json.dump({'fortemi.ci.scope': owner, 'fortemi.ci.attempt': attempt,
+                                 'created': time.time(), 'identity': [info.st_dev, info.st_ino]}, stream)
+                      stream.flush()
+                      os.fsync(stream.fileno())
+              finally: os.close(root)
+          finally: os.close(fd)
+          print(os.path.join(base, name))
+          PYBOOT
+          )"
+          export CI_SAFETY_TOOLS
+          printf 'CI_SAFETY_TOOLS=%s\n' "$CI_SAFETY_TOOLS" >> "$GITHUB_ENV"
+          git init -q "${CI_SAFETY_TOOLS}"
+          git -C "${CI_SAFETY_TOOLS}" remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git -C "${CI_SAFETY_TOOLS}" sparse-checkout set scripts/ci
+          git -C "${CI_SAFETY_TOOLS}" fetch --quiet --no-tags --depth=1 origin "${CI_WORKFLOW_SHA}"
+          git -C "${CI_SAFETY_TOOLS}" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "${CI_SAFETY_TOOLS}" rev-parse HEAD)" = "${CI_WORKFLOW_SHA}"
+
       - name: Checkout
         run: |
           set -euo pipefail
@@ -534,8 +877,15 @@ jobs:
           git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
+      - name: Reconcile inactive runs and configure owned resources
+        run: |
+          python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
+          bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
       - name: Install cargo-deny
         run: |
+          export PATH="${CARGO_INSTALL_ROOT}/bin:${PATH}"
+          echo "${CARGO_INSTALL_ROOT}/bin" >> "$GITHUB_PATH"
           if ! command -v cargo-deny >/dev/null 2>&1; then
             cargo install --locked cargo-deny
           fi
@@ -550,11 +900,70 @@ jobs:
             --config tests/fortemi-auth-consumer/deny.toml \
             check
 
+      - name: Cleanup run-local build and Docker state
+        if: always()
+        run: |
+          echo '::notice::Retained run directories for verified final quarantine reconciliation.'
+
   auth-consumer:
     name: Fortemi Auth Consumer Conformance
     runs-on: matric-builder
-    needs: [deny]
+    needs: [admit-source, deny]
+    env:
+      CI_WORKFLOW_SHA: ${{ gitea.sha }}
+      CI_SAFETY_TOOLS: "${{ github.workspace }}/target/.ci-tools/${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      CI_RUNS_ROOT: "${{ github.workspace }}/target/.ci-runs"
+      CI_ACTIONS_TOKEN: ${{ github.token }}
+      CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
+      CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
+      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
+      DOCKER_CONFIG: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/docker-auth-consumer"
+    if: needs.admit-source.outputs.current == 'true'
     steps:
+      - name: Checkout workflow-revision safety tooling
+        run: |
+          set -euo pipefail
+          # Register a fresh checkout before Git writes; never follow an existing ancestor symlink.
+          [[ "${CI_WORKFLOW_SHA:?CI_WORKFLOW_SHA is required}" =~ ^[0-9a-f]{40}$ ]]
+          CI_SAFETY_TOOLS="$(python3 - <<'PYBOOT'
+          import json, os, secrets, time
+          owner, attempt = os.environ['CI_RESOURCE_SCOPE'], os.environ['CI_RESOURCE_ATTEMPT']
+          assert all(v.isdecimal() and int(v) > 0 for v in (owner, attempt))
+          base = os.path.dirname(os.environ['CI_SAFETY_TOOLS'])
+          fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+          try:
+              for part in os.path.abspath(base).split('/')[1:]:
+                  try: os.mkdir(part, 0o700, dir_fd=fd)
+                  except FileExistsError: pass
+                  child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                  os.close(fd)
+                  fd = child
+              name = f'{owner}-{attempt}.{secrets.token_hex(12)}'
+              os.mkdir(name, 0o700, dir_fd=fd)
+              root = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+              try:
+                  info = os.fstat(root)
+                  marker = os.open('.owner.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=root)
+                  with os.fdopen(marker, 'w') as stream:
+                      json.dump({'fortemi.ci.scope': owner, 'fortemi.ci.attempt': attempt,
+                                 'created': time.time(), 'identity': [info.st_dev, info.st_ino]}, stream)
+                      stream.flush()
+                      os.fsync(stream.fileno())
+              finally: os.close(root)
+          finally: os.close(fd)
+          print(os.path.join(base, name))
+          PYBOOT
+          )"
+          export CI_SAFETY_TOOLS
+          printf 'CI_SAFETY_TOOLS=%s\n' "$CI_SAFETY_TOOLS" >> "$GITHUB_ENV"
+          git init -q "${CI_SAFETY_TOOLS}"
+          git -C "${CI_SAFETY_TOOLS}" remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git -C "${CI_SAFETY_TOOLS}" sparse-checkout set scripts/ci
+          git -C "${CI_SAFETY_TOOLS}" fetch --quiet --no-tags --depth=1 origin "${CI_WORKFLOW_SHA}"
+          git -C "${CI_SAFETY_TOOLS}" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "${CI_SAFETY_TOOLS}" rev-parse HEAD)" = "${CI_WORKFLOW_SHA}"
+
       - name: Checkout
         run: |
           set -euo pipefail
@@ -562,6 +971,11 @@ jobs:
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
           git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
+
+      - name: Reconcile inactive runs and configure owned resources
+        run: |
+          python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
+          bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
 
       - name: Validate the isolated harness
         run: |
@@ -576,14 +990,20 @@ jobs:
       - name: Execute the locked public auth contract
         run: cargo test --manifest-path tests/fortemi-auth-consumer/Cargo.toml --locked
 
+      - name: Cleanup run-local build and Docker state
+        if: always()
+        run: |
+          echo '::notice::Retained run directories for verified final quarantine reconciliation.'
+
   mcp-lockfile-sync:
     name: mcp-server Lockfile Sync
     runs-on: matric-builder
-    needs: [auth-consumer]
+    needs: [admit-source, auth-consumer]
     # Verifies mcp-server/package-lock.json is in sync with package.json.
     # The audit job already runs `npm ci` implicitly, but this job exists
     # to surface drift with an explicit, actionable error message instead
     # of conflating "lockfile drift" with "advisory found".
+    if: needs.admit-source.outputs.current == 'true'
     steps:
       - name: Checkout
         run: |
@@ -602,7 +1022,8 @@ jobs:
   mcp-server-tests:
     name: MCP Server Unit Tests
     runs-on: matric-builder
-    needs: [mcp-lockfile-sync]
+    needs: [admit-source, mcp-lockfile-sync]
+    if: needs.admit-source.outputs.current == 'true'
     steps:
       - name: Checkout
         run: |
@@ -647,10 +1068,65 @@ jobs:
   build:
     name: Build & Unit Test
     runs-on: matric-builder
-    needs: [mcp-server-tests]
+    needs: [admit-source, mcp-server-tests]
     # Note: services: directive doesn't work with Docker-based runners using host networking
     # We manually manage PostgreSQL container instead (see setup/teardown steps)
+    env:
+      CI_WORKFLOW_SHA: ${{ gitea.sha }}
+      CI_SAFETY_TOOLS: "${{ github.workspace }}/target/.ci-tools/${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      CI_RUNS_ROOT: "${{ github.workspace }}/target/.ci-runs"
+      CI_ACTIONS_TOKEN: ${{ github.token }}
+      CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
+      CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
+      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
+      TESTDB_IMAGE: "matric-testdb:ci-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      DOCKER_CONFIG: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/docker-build"
+    if: needs.admit-source.outputs.current == 'true'
     steps:
+      - name: Checkout workflow-revision safety tooling
+        run: |
+          set -euo pipefail
+          # Register a fresh checkout before Git writes; never follow an existing ancestor symlink.
+          [[ "${CI_WORKFLOW_SHA:?CI_WORKFLOW_SHA is required}" =~ ^[0-9a-f]{40}$ ]]
+          CI_SAFETY_TOOLS="$(python3 - <<'PYBOOT'
+          import json, os, secrets, time
+          owner, attempt = os.environ['CI_RESOURCE_SCOPE'], os.environ['CI_RESOURCE_ATTEMPT']
+          assert all(v.isdecimal() and int(v) > 0 for v in (owner, attempt))
+          base = os.path.dirname(os.environ['CI_SAFETY_TOOLS'])
+          fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+          try:
+              for part in os.path.abspath(base).split('/')[1:]:
+                  try: os.mkdir(part, 0o700, dir_fd=fd)
+                  except FileExistsError: pass
+                  child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                  os.close(fd)
+                  fd = child
+              name = f'{owner}-{attempt}.{secrets.token_hex(12)}'
+              os.mkdir(name, 0o700, dir_fd=fd)
+              root = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+              try:
+                  info = os.fstat(root)
+                  marker = os.open('.owner.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=root)
+                  with os.fdopen(marker, 'w') as stream:
+                      json.dump({'fortemi.ci.scope': owner, 'fortemi.ci.attempt': attempt,
+                                 'created': time.time(), 'identity': [info.st_dev, info.st_ino]}, stream)
+                      stream.flush()
+                      os.fsync(stream.fileno())
+              finally: os.close(root)
+          finally: os.close(fd)
+          print(os.path.join(base, name))
+          PYBOOT
+          )"
+          export CI_SAFETY_TOOLS
+          printf 'CI_SAFETY_TOOLS=%s\n' "$CI_SAFETY_TOOLS" >> "$GITHUB_ENV"
+          git init -q "${CI_SAFETY_TOOLS}"
+          git -C "${CI_SAFETY_TOOLS}" remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git -C "${CI_SAFETY_TOOLS}" sparse-checkout set scripts/ci
+          git -C "${CI_SAFETY_TOOLS}" fetch --quiet --no-tags --depth=1 origin "${CI_WORKFLOW_SHA}"
+          git -C "${CI_SAFETY_TOOLS}" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "${CI_SAFETY_TOOLS}" rev-parse HEAD)" = "${CI_WORKFLOW_SHA}"
+
       - name: Checkout
         run: |
           set -euo pipefail
@@ -659,9 +1135,14 @@ jobs:
           git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
+      - name: Reconcile inactive runs and configure owned resources
+        run: |
+          python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
+          bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
       - name: Build testdb image
         run: |
-          docker build -f build/Dockerfile.testdb -t matric-testdb:local .
+          docker build -f build/Dockerfile.testdb -t "${TESTDB_IMAGE}" .
 
       - name: Smoke pre-migration recovery metadata with PostgreSQL
         run: bash scripts/ci/smoke-pre-migration-recovery-realpg.sh
@@ -670,32 +1151,28 @@ jobs:
         run: |
           set -e
           # Use unique container name per run to avoid race conditions between parallel runs
-          DB_CONTAINER="matric-build-db-${GITHUB_RUN_ID}"
-          # Use unique port: base 15432 + (run_id mod 1000) to avoid port conflicts
-          DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
+          DB_CONTAINER="matric-build-db-${CI_RESOURCE_SCOPE}-${CI_RESOURCE_ATTEMPT}"
           DB_USER="matric"
-          DB_PASSWORD="fortemi-ci-${GITHUB_RUN_ID}-${DB_PORT}"
+          DB_PASSWORD="fortemi-ci-${CI_RESOURCE_SCOPE}-${CI_RESOURCE_ATTEMPT}"
           DB_NAME="matric_test"
           echo "DB_CONTAINER=${DB_CONTAINER}" >> $GITHUB_ENV
-          echo "DB_PORT=${DB_PORT}" >> $GITHUB_ENV
           echo "DB_USER=${DB_USER}" >> $GITHUB_ENV
           echo "DB_PASSWORD=${DB_PASSWORD}" >> $GITHUB_ENV
           echo "DB_NAME=${DB_NAME}" >> $GITHUB_ENV
-          echo "Starting PostgreSQL container ${DB_CONTAINER} on port ${DB_PORT}..."
+          echo "Starting PostgreSQL container ${DB_CONTAINER} with a Docker-assigned port..."
 
-          # Kill any container occupying our target port (stale containers from other runs)
-          docker ps --format '{{.ID}}\t{{.Ports}}' | grep ":${DB_PORT}->" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
           # Clean up any leftover containers with this name
-          docker stop ${DB_CONTAINER} 2>/dev/null || true
-          docker rm ${DB_CONTAINER} 2>/dev/null || true
+          python3 "${CI_SAFETY_TOOLS}/scripts/ci/owned-docker.py" rm -v ${DB_CONTAINER} || true
 
           # Start PostgreSQL with pgvector on unique port
-          docker run -d --name ${DB_CONTAINER} \
-            -p ${DB_PORT}:5432 \
+          docker run -d --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE}" --name ${DB_CONTAINER} \
+            -p 127.0.0.1::5432 \
             -e POSTGRES_USER="${DB_USER}" \
             -e POSTGRES_PASSWORD="${DB_PASSWORD}" \
             -e POSTGRES_DB="${DB_NAME}" \
-            matric-testdb:local
+            "${TESTDB_IMAGE}"
+          DB_PORT=$(docker port "${DB_CONTAINER}" 5432/tcp | head -1 | sed 's/.*://')
+          echo "DB_PORT=${DB_PORT}" >> "$GITHUB_ENV"
 
           # Wait for PostgreSQL to be ready
           echo "Waiting for PostgreSQL..."
@@ -711,24 +1188,22 @@ jobs:
       - name: Run migration repair regressions with PostgreSQL
         run: |
           set -euo pipefail
-          DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
           export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
           cargo test -p matric-db --features migrations migration_repair_tests -- --nocapture
 
       - name: Setup Redis for SSE token tests
-        run: bash scripts/ci/test-redis.sh start "matric-build-redis-${GITHUB_RUN_ID}"
+        run: bash scripts/ci/test-redis.sh start "matric-build-redis-${CI_RESOURCE_SCOPE}-${CI_RESOURCE_ATTEMPT}"
 
       - name: Run migrations
         run: |
           set -euo pipefail
-          DB_CONTAINER="matric-build-db-${GITHUB_RUN_ID}"
+          DB_CONTAINER="matric-build-db-${CI_RESOURCE_SCOPE}-${CI_RESOURCE_ATTEMPT}"
 
           # Ensure extensions exist (matric is superuser in testdb image; init-extensions.sh handles this
           # on first boot, but these are a safety net for containers with pre-existing data volumes)
           docker exec ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS vector;"
           docker exec ${DB_CONTAINER} psql -U "${DB_USER}" -d "${DB_NAME}" -c "CREATE EXTENSION IF NOT EXISTS postgis;"
 
-          DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
           export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
           FORTEMI_CI_DISPOSABLE_DATABASE=1 cargo run --locked -p matric-db \
             --features migrations --example ci_database_bootstrap
@@ -751,11 +1226,10 @@ jobs:
 
       - name: Verify binaries
         run: |
-          ls -la target/release/matric-* 2>/dev/null || echo "No binaries found"
+          ls -la "${CARGO_TARGET_DIR}"/release/matric-* 2>/dev/null || echo "No binaries found"
 
       - name: Run worker integration tests (serial, first)
         run: |
-          DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
           export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
           # Worker tests require serial execution due to shared database state
           # (tests share job queue, workers can claim jobs from other tests)
@@ -764,7 +1238,6 @@ jobs:
 
       - name: Run other tests
         run: |
-          DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
           export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
           # The remaining tests share this PostgreSQL instance and mutate
           # archive/job tables. Serialize them to prevent transient deadlocks
@@ -779,7 +1252,6 @@ jobs:
 
       - name: Capture AL-SYS04/05 asset lifecycle receipt
         run: |
-          DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
           export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
           FORTEMI_AL_SYS_EXPECT_CLEAN_CHECKOUT=1 \
             scripts/ci/verify-asset-lifecycle-system-receipt.sh \
@@ -794,7 +1266,6 @@ jobs:
 
       - name: Capture AL-PERF01 asset lifecycle receipt
         run: |
-          DB_PORT=$((15432 + (GITHUB_RUN_ID % 1000)))
           export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
           mkdir -p target/al-perf01-receipts
           scripts/ci/verify-asset-lifecycle-perf-receipt.sh \
@@ -850,20 +1321,88 @@ jobs:
       - name: Teardown PostgreSQL
         if: always()
         run: |
-          DB_CONTAINER="matric-build-db-${GITHUB_RUN_ID}"
-          echo "Cleaning up PostgreSQL container ${DB_CONTAINER}..."
-          docker stop ${DB_CONTAINER} 2>/dev/null || true
-          docker rm ${DB_CONTAINER} 2>/dev/null || true
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/owned-docker.py" ]]; then
+            DB_CONTAINER="matric-build-db-${CI_RESOURCE_SCOPE}-${CI_RESOURCE_ATTEMPT}"
+            echo "Cleaning up PostgreSQL container ${DB_CONTAINER}..."
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/owned-docker.py" rm -v ${DB_CONTAINER} || true
+          else
+            echo '::warning::Kept Docker resources: workflow-revision removal helper unavailable.'
+          fi
 
       - name: Teardown Redis
         if: always()
-        run: bash scripts/ci/test-redis.sh stop "matric-build-redis-${GITHUB_RUN_ID}"
+        run: |
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/owned-docker.py" ]]; then
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/owned-docker.py" rm -fv "matric-build-redis-${CI_RESOURCE_SCOPE}-${CI_RESOURCE_ATTEMPT}"
+          else
+            echo '::warning::Kept Docker resources: workflow-revision removal helper unavailable.'
+          fi
+
+      - name: Cleanup run-local build and Docker state
+        if: always()
+        run: |
+          echo '::notice::Retained run directories for verified final quarantine reconciliation.'
 
   build-image:
     name: Build Docker Image
     runs-on: matric-builder
-    needs: build
+    needs: [admit-source, build]
+    env:
+      CI_WORKFLOW_SHA: ${{ gitea.sha }}
+      CI_SAFETY_TOOLS: "${{ github.workspace }}/target/.ci-tools/${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      CI_RUNS_ROOT: "${{ github.workspace }}/target/.ci-runs"
+      CI_ACTIONS_TOKEN: ${{ github.token }}
+      CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
+      CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
+      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
+      TEST_API_IMAGE: "matric-memory:test-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      DOCKER_CONFIG: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/docker-build-image"
+    if: needs.admit-source.outputs.current == 'true'
     steps:
+      - name: Checkout workflow-revision safety tooling
+        run: |
+          set -euo pipefail
+          # Register a fresh checkout before Git writes; never follow an existing ancestor symlink.
+          [[ "${CI_WORKFLOW_SHA:?CI_WORKFLOW_SHA is required}" =~ ^[0-9a-f]{40}$ ]]
+          CI_SAFETY_TOOLS="$(python3 - <<'PYBOOT'
+          import json, os, secrets, time
+          owner, attempt = os.environ['CI_RESOURCE_SCOPE'], os.environ['CI_RESOURCE_ATTEMPT']
+          assert all(v.isdecimal() and int(v) > 0 for v in (owner, attempt))
+          base = os.path.dirname(os.environ['CI_SAFETY_TOOLS'])
+          fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+          try:
+              for part in os.path.abspath(base).split('/')[1:]:
+                  try: os.mkdir(part, 0o700, dir_fd=fd)
+                  except FileExistsError: pass
+                  child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                  os.close(fd)
+                  fd = child
+              name = f'{owner}-{attempt}.{secrets.token_hex(12)}'
+              os.mkdir(name, 0o700, dir_fd=fd)
+              root = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+              try:
+                  info = os.fstat(root)
+                  marker = os.open('.owner.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=root)
+                  with os.fdopen(marker, 'w') as stream:
+                      json.dump({'fortemi.ci.scope': owner, 'fortemi.ci.attempt': attempt,
+                                 'created': time.time(), 'identity': [info.st_dev, info.st_ino]}, stream)
+                      stream.flush()
+                      os.fsync(stream.fileno())
+              finally: os.close(root)
+          finally: os.close(fd)
+          print(os.path.join(base, name))
+          PYBOOT
+          )"
+          export CI_SAFETY_TOOLS
+          printf 'CI_SAFETY_TOOLS=%s\n' "$CI_SAFETY_TOOLS" >> "$GITHUB_ENV"
+          git init -q "${CI_SAFETY_TOOLS}"
+          git -C "${CI_SAFETY_TOOLS}" remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git -C "${CI_SAFETY_TOOLS}" sparse-checkout set scripts/ci
+          git -C "${CI_SAFETY_TOOLS}" fetch --quiet --no-tags --depth=1 origin "${CI_WORKFLOW_SHA}"
+          git -C "${CI_SAFETY_TOOLS}" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "${CI_SAFETY_TOOLS}" rev-parse HEAD)" = "${CI_WORKFLOW_SHA}"
+
       - name: Checkout
         run: |
           set -euo pipefail
@@ -871,6 +1410,11 @@ jobs:
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
           git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
+
+      - name: Reconcile inactive runs and configure owned resources
+        run: |
+          python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
+          bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
 
       - name: Build Docker image
         run: |
@@ -881,10 +1425,15 @@ jobs:
             --build-arg VERSION=test-${SHORT_SHA} \
             --build-arg GIT_SHA=${CHAIN_SOURCE_SHA} \
             --build-arg BUILD_DATE=${BUILD_DATE} \
-            -t matric-memory:test .
+            -t "${TEST_API_IMAGE}" .
 
-          echo "Built image: matric-memory:test"
-          docker images matric-memory:test
+          echo "Built image: ${TEST_API_IMAGE}"
+          docker images "${TEST_API_IMAGE}"
+
+      - name: Cleanup run-local build and Docker state
+        if: always()
+        run: |
+          echo '::notice::Retained run directories for verified final quarantine reconciliation.'
 
   # Build the hosted image variant (#1172) and prove it starts in hosted mode
   # against a disposable OpenBao Transit server with /readyz reporting
@@ -893,8 +1442,64 @@ jobs:
   hosted-image-smoke:
     name: Hosted Image Smoke (OpenBao Transit)
     runs-on: matric-builder
-    needs: build-image
+    needs: [admit-source, build-image]
+    env:
+      CI_WORKFLOW_SHA: ${{ gitea.sha }}
+      CI_SAFETY_TOOLS: "${{ github.workspace }}/target/.ci-tools/${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      CI_RUNS_ROOT: "${{ github.workspace }}/target/.ci-runs"
+      CI_ACTIONS_TOKEN: ${{ github.token }}
+      CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
+      CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
+      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
+      TESTDB_IMAGE: "matric-testdb:ci-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      HOSTED_TEST_IMAGE: "matric-memory:hosted-test-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      DOCKER_CONFIG: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/docker-hosted-image-smoke"
+    if: needs.admit-source.outputs.current == 'true'
     steps:
+      - name: Checkout workflow-revision safety tooling
+        run: |
+          set -euo pipefail
+          # Register a fresh checkout before Git writes; never follow an existing ancestor symlink.
+          [[ "${CI_WORKFLOW_SHA:?CI_WORKFLOW_SHA is required}" =~ ^[0-9a-f]{40}$ ]]
+          CI_SAFETY_TOOLS="$(python3 - <<'PYBOOT'
+          import json, os, secrets, time
+          owner, attempt = os.environ['CI_RESOURCE_SCOPE'], os.environ['CI_RESOURCE_ATTEMPT']
+          assert all(v.isdecimal() and int(v) > 0 for v in (owner, attempt))
+          base = os.path.dirname(os.environ['CI_SAFETY_TOOLS'])
+          fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+          try:
+              for part in os.path.abspath(base).split('/')[1:]:
+                  try: os.mkdir(part, 0o700, dir_fd=fd)
+                  except FileExistsError: pass
+                  child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                  os.close(fd)
+                  fd = child
+              name = f'{owner}-{attempt}.{secrets.token_hex(12)}'
+              os.mkdir(name, 0o700, dir_fd=fd)
+              root = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+              try:
+                  info = os.fstat(root)
+                  marker = os.open('.owner.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=root)
+                  with os.fdopen(marker, 'w') as stream:
+                      json.dump({'fortemi.ci.scope': owner, 'fortemi.ci.attempt': attempt,
+                                 'created': time.time(), 'identity': [info.st_dev, info.st_ino]}, stream)
+                      stream.flush()
+                      os.fsync(stream.fileno())
+              finally: os.close(root)
+          finally: os.close(fd)
+          print(os.path.join(base, name))
+          PYBOOT
+          )"
+          export CI_SAFETY_TOOLS
+          printf 'CI_SAFETY_TOOLS=%s\n' "$CI_SAFETY_TOOLS" >> "$GITHUB_ENV"
+          git init -q "${CI_SAFETY_TOOLS}"
+          git -C "${CI_SAFETY_TOOLS}" remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git -C "${CI_SAFETY_TOOLS}" sparse-checkout set scripts/ci
+          git -C "${CI_SAFETY_TOOLS}" fetch --quiet --no-tags --depth=1 origin "${CI_WORKFLOW_SHA}"
+          git -C "${CI_SAFETY_TOOLS}" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "${CI_SAFETY_TOOLS}" rev-parse HEAD)" = "${CI_WORKFLOW_SHA}"
+
       - name: Checkout
         run: |
           set -euo pipefail
@@ -902,6 +1507,11 @@ jobs:
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
           git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
+
+      - name: Reconcile inactive runs and configure owned resources
+        run: |
+          python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
+          bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
 
       - name: Build hosted image variant
         run: |
@@ -912,30 +1522,91 @@ jobs:
             --build-arg VERSION=test-${SHORT_SHA} \
             --build-arg GIT_SHA=${CHAIN_SOURCE_SHA} \
             --build-arg BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
-            -t matric-memory:hosted-test .
+            -t "${HOSTED_TEST_IMAGE}" .
 
       - name: Start hosted image against OpenBao Transit
         run: |
           set -euo pipefail
-          docker build -f build/Dockerfile.testdb -t matric-testdb:local .
-          scripts/ci/smoke-hosted-image.sh --image matric-memory:hosted-test \
+          docker build -f build/Dockerfile.testdb -t "${TESTDB_IMAGE}" .
+          scripts/ci/smoke-hosted-image.sh --image "${HOSTED_TEST_IMAGE}" \
             --output hosted-image-smoke/hosted-amd64-smoke.json
 
       - name: Upload hosted image smoke evidence
         if: always()
         uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
         with:
-          name: hosted-image-smoke-${{ github.run_id }}
+          name: hosted-image-smoke-${{ github.run_id }}-${{ gitea.run_attempt || '1' }}
           path: hosted-image-smoke/
           retention-days: 365
+
+      - name: Cleanup run-local build and Docker state
+        if: always()
+        run: |
+          echo '::notice::Retained run directories for verified final quarantine reconciliation.'
 
   # Run the all-in-one bundle as uid 999 with no added capabilities in a kind
   # namespace that enforces Pod Security "restricted" (#1173).
   pod-security-restricted:
     name: Bundle Under Pod Security Restricted (kind)
     runs-on: matric-builder
-    needs: build-image
+    needs: [admit-source, build-image]
+    env:
+      CI_WORKFLOW_SHA: ${{ gitea.sha }}
+      CI_SAFETY_TOOLS: "${{ github.workspace }}/target/.ci-tools/${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      CI_RUNS_ROOT: "${{ github.workspace }}/target/.ci-runs"
+      CI_ACTIONS_TOKEN: ${{ github.token }}
+      CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
+      CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
+      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
+      PSA_TEST_IMAGE: "fortemi-bundle:psa-test-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      DOCKER_CONFIG: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/docker-pod-security-restricted"
+      FORTEMI_BUILDX_BUILDER: "fortemi-psa-bk0331-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+    if: needs.admit-source.outputs.current == 'true'
     steps:
+      - name: Checkout workflow-revision safety tooling
+        run: |
+          set -euo pipefail
+          # Register a fresh checkout before Git writes; never follow an existing ancestor symlink.
+          [[ "${CI_WORKFLOW_SHA:?CI_WORKFLOW_SHA is required}" =~ ^[0-9a-f]{40}$ ]]
+          CI_SAFETY_TOOLS="$(python3 - <<'PYBOOT'
+          import json, os, secrets, time
+          owner, attempt = os.environ['CI_RESOURCE_SCOPE'], os.environ['CI_RESOURCE_ATTEMPT']
+          assert all(v.isdecimal() and int(v) > 0 for v in (owner, attempt))
+          base = os.path.dirname(os.environ['CI_SAFETY_TOOLS'])
+          fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+          try:
+              for part in os.path.abspath(base).split('/')[1:]:
+                  try: os.mkdir(part, 0o700, dir_fd=fd)
+                  except FileExistsError: pass
+                  child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                  os.close(fd)
+                  fd = child
+              name = f'{owner}-{attempt}.{secrets.token_hex(12)}'
+              os.mkdir(name, 0o700, dir_fd=fd)
+              root = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+              try:
+                  info = os.fstat(root)
+                  marker = os.open('.owner.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=root)
+                  with os.fdopen(marker, 'w') as stream:
+                      json.dump({'fortemi.ci.scope': owner, 'fortemi.ci.attempt': attempt,
+                                 'created': time.time(), 'identity': [info.st_dev, info.st_ino]}, stream)
+                      stream.flush()
+                      os.fsync(stream.fileno())
+              finally: os.close(root)
+          finally: os.close(fd)
+          print(os.path.join(base, name))
+          PYBOOT
+          )"
+          export CI_SAFETY_TOOLS
+          printf 'CI_SAFETY_TOOLS=%s\n' "$CI_SAFETY_TOOLS" >> "$GITHUB_ENV"
+          git init -q "${CI_SAFETY_TOOLS}"
+          git -C "${CI_SAFETY_TOOLS}" remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git -C "${CI_SAFETY_TOOLS}" sparse-checkout set scripts/ci
+          git -C "${CI_SAFETY_TOOLS}" fetch --quiet --no-tags --depth=1 origin "${CI_WORKFLOW_SHA}"
+          git -C "${CI_SAFETY_TOOLS}" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "${CI_SAFETY_TOOLS}" rev-parse HEAD)" = "${CI_WORKFLOW_SHA}"
+
       - name: Checkout
         run: |
           set -euo pipefail
@@ -943,28 +1614,118 @@ jobs:
           git remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
           git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
+
+      - name: Reconcile inactive runs and configure owned resources
+        run: |
+          python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
+          bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
+      - name: Setup run-scoped native bundle builder
+        run: |
+          set -euo pipefail
+          # Keep the release multiarch helper unchanged; this builder is native.
+          BUILDKIT_IMAGE=moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+          docker create --privileged --init \
+            --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE}" --label "fortemi.ci.attempt=${CI_RESOURCE_ATTEMPT}" \
+            --name "buildx_buildkit_${FORTEMI_BUILDX_BUILDER}0" \
+            --mount "type=volume,target=/var/lib/buildkit" \
+            "$BUILDKIT_IMAGE" --allow-insecure-entitlement=network.host >/dev/null
+          docker buildx create --name "${FORTEMI_BUILDX_BUILDER}" \
+            --driver docker-container --driver-opt "image=${BUILDKIT_IMAGE}"
+          docker buildx inspect --bootstrap "${FORTEMI_BUILDX_BUILDER}"
 
       - name: Build bundle image
         run: |
           set -euo pipefail
           SHORT_SHA="${CHAIN_SOURCE_SHA:0:7}"
-          docker build -f Dockerfile.bundle \
+          docker buildx build --builder "${FORTEMI_BUILDX_BUILDER}" --load -f Dockerfile.bundle \
             --build-arg VERSION=test-${SHORT_SHA} \
             --build-arg GIT_SHA=${CHAIN_SOURCE_SHA} \
             --build-arg BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
-            -t fortemi-bundle:psa-test .
+            -t "${PSA_TEST_IMAGE}" .
 
       - name: Run the bundle under Pod Security restricted
-        run: scripts/ci/test-pod-security-restricted.sh --bundle-image fortemi-bundle:psa-test
+        run: scripts/ci/test-pod-security-restricted.sh --bundle-image "${PSA_TEST_IMAGE}"
 
       - name: Provision the restricted runtime role in external-OIDC mode
-        run: scripts/ci/test-bundle-runtime-role.sh --bundle-image fortemi-bundle:psa-test
+        run: scripts/ci/test-bundle-runtime-role.sh --bundle-image "${PSA_TEST_IMAGE}"
+
+      - name: Cleanup native bundle builder and its target cache
+        if: always()
+        run: |
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/owned-docker.py" ]]; then
+            # Retain client metadata for quarantine; remove only the verified daemon ID.
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/owned-docker.py" rm -fv "buildx_buildkit_${FORTEMI_BUILDX_BUILDER}0" || true
+          else
+            echo '::warning::Kept Docker resources: workflow-revision removal helper unavailable.'
+          fi
+
+      - name: Cleanup run-local build and Docker state
+        if: always()
+        run: |
+          echo '::notice::Retained run directories for verified final quarantine reconciliation.'
 
   test-container:
     name: Test Container (Isolated)
     runs-on: matric-builder
-    needs: [build-image]
+    needs: [admit-source, build-image]
+    env:
+      CI_WORKFLOW_SHA: ${{ gitea.sha }}
+      CI_SAFETY_TOOLS: "${{ github.workspace }}/target/.ci-tools/${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      CI_RUNS_ROOT: "${{ github.workspace }}/target/.ci-runs"
+      CI_ACTIONS_TOKEN: ${{ github.token }}
+      CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
+      CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
+      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
+      TESTDB_IMAGE: "matric-testdb:ci-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      TEST_API_IMAGE: "matric-memory:test-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      DOCKER_CONFIG: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/docker-test-container"
+    if: needs.admit-source.outputs.current == 'true'
     steps:
+      - name: Checkout workflow-revision safety tooling
+        run: |
+          set -euo pipefail
+          # Register a fresh checkout before Git writes; never follow an existing ancestor symlink.
+          [[ "${CI_WORKFLOW_SHA:?CI_WORKFLOW_SHA is required}" =~ ^[0-9a-f]{40}$ ]]
+          CI_SAFETY_TOOLS="$(python3 - <<'PYBOOT'
+          import json, os, secrets, time
+          owner, attempt = os.environ['CI_RESOURCE_SCOPE'], os.environ['CI_RESOURCE_ATTEMPT']
+          assert all(v.isdecimal() and int(v) > 0 for v in (owner, attempt))
+          base = os.path.dirname(os.environ['CI_SAFETY_TOOLS'])
+          fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+          try:
+              for part in os.path.abspath(base).split('/')[1:]:
+                  try: os.mkdir(part, 0o700, dir_fd=fd)
+                  except FileExistsError: pass
+                  child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                  os.close(fd)
+                  fd = child
+              name = f'{owner}-{attempt}.{secrets.token_hex(12)}'
+              os.mkdir(name, 0o700, dir_fd=fd)
+              root = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+              try:
+                  info = os.fstat(root)
+                  marker = os.open('.owner.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=root)
+                  with os.fdopen(marker, 'w') as stream:
+                      json.dump({'fortemi.ci.scope': owner, 'fortemi.ci.attempt': attempt,
+                                 'created': time.time(), 'identity': [info.st_dev, info.st_ino]}, stream)
+                      stream.flush()
+                      os.fsync(stream.fileno())
+              finally: os.close(root)
+          finally: os.close(fd)
+          print(os.path.join(base, name))
+          PYBOOT
+          )"
+          export CI_SAFETY_TOOLS
+          printf 'CI_SAFETY_TOOLS=%s\n' "$CI_SAFETY_TOOLS" >> "$GITHUB_ENV"
+          git init -q "${CI_SAFETY_TOOLS}"
+          git -C "${CI_SAFETY_TOOLS}" remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git -C "${CI_SAFETY_TOOLS}" sparse-checkout set scripts/ci
+          git -C "${CI_SAFETY_TOOLS}" fetch --quiet --no-tags --depth=1 origin "${CI_WORKFLOW_SHA}"
+          git -C "${CI_SAFETY_TOOLS}" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "${CI_SAFETY_TOOLS}" rev-parse HEAD)" = "${CI_WORKFLOW_SHA}"
+
       - name: Checkout
         run: |
           set -euo pipefail
@@ -973,21 +1734,28 @@ jobs:
           git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
+      - name: Reconcile inactive runs and configure owned resources
+        run: |
+          python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
+          bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
       - name: Build testdb image
         run: |
-          docker build -f build/Dockerfile.testdb -t matric-testdb:local .
+          docker build -f build/Dockerfile.testdb -t "${TESTDB_IMAGE}" .
+
+      - name: Ensure exact-source API image for partial retries
+        run: bash scripts/ci/ensure-run-api-image.sh
 
       - name: Deploy test environment
         run: |
           set -e
           # Use unique names per run to avoid race conditions
-          TEST_NET="matric-test-net-${GITHUB_RUN_ID}"
-          TEST_DB="matric-test-db-${GITHUB_RUN_ID}"
-          TEST_REDIS="matric-test-redis-${GITHUB_RUN_ID}"
-          TEST_API="matric-test-api-${GITHUB_RUN_ID}"
-          TEST_PORT=$((13001 + (GITHUB_RUN_ID % 1000)))
+          TEST_NET="matric-test-net-${CI_RESOURCE_SCOPE}-${CI_RESOURCE_ATTEMPT}"
+          TEST_DB="matric-test-db-${CI_RESOURCE_SCOPE}-${CI_RESOURCE_ATTEMPT}"
+          TEST_REDIS="matric-test-redis-${CI_RESOURCE_SCOPE}-${CI_RESOURCE_ATTEMPT}"
+          TEST_API="matric-test-api-${CI_RESOURCE_SCOPE}-${CI_RESOURCE_ATTEMPT}"
           TEST_DB_USER="matric"
-          TEST_DB_PASSWORD="fortemi-ci-${GITHUB_RUN_ID}-${TEST_PORT}"
+          TEST_DB_PASSWORD="fortemi-ci-${CI_RESOURCE_SCOPE}-${CI_RESOURCE_ATTEMPT}"
           TEST_DB_NAME="matric"
           echo "TEST_NET=${TEST_NET}" >> $GITHUB_ENV
           echo "TEST_DB=${TEST_DB}" >> $GITHUB_ENV
@@ -996,15 +1764,12 @@ jobs:
           echo "TEST_DB_USER=${TEST_DB_USER}" >> $GITHUB_ENV
           echo "TEST_DB_PASSWORD=${TEST_DB_PASSWORD}" >> $GITHUB_ENV
           echo "TEST_DB_NAME=${TEST_DB_NAME}" >> $GITHUB_ENV
-          echo "Starting isolated test environment on port ${TEST_PORT}..."
+          echo "Starting isolated test environment with a Docker-assigned port..."
 
-          # Kill any container occupying our target port (stale containers from other runs)
-          docker ps --format '{{.ID}}\t{{.Ports}}' | grep ":${TEST_PORT}->" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
           # Clean up any leftover containers from previous runs
           echo "Cleaning up any existing test containers..."
-          docker stop ${TEST_API} ${TEST_REDIS} ${TEST_DB} 2>/dev/null || true
-          docker rm ${TEST_API} ${TEST_REDIS} ${TEST_DB} 2>/dev/null || true
-          docker network rm ${TEST_NET} 2>/dev/null || true
+          python3 "${CI_SAFETY_TOOLS}/scripts/ci/owned-docker.py" rm -v ${TEST_API} ${TEST_REDIS} ${TEST_DB} || true
+          python3 "${CI_SAFETY_TOOLS}/scripts/ci/owned-docker.py" network rm ${TEST_NET} || true
 
           TEST_NET_SUBNET=$(scripts/ci/create-explicit-docker-network.sh \
             "${TEST_NET}" "${GITHUB_RUN_ID}")
@@ -1012,16 +1777,16 @@ jobs:
 
           # Start PostgreSQL with pgvector
           echo "Starting PostgreSQL..."
-          docker run -d --name ${TEST_DB} \
+          docker run -d --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE}" --name ${TEST_DB} \
             --network ${TEST_NET} \
             -e POSTGRES_USER="${TEST_DB_USER}" \
             -e POSTGRES_PASSWORD="${TEST_DB_PASSWORD}" \
             -e POSTGRES_DB="${TEST_DB_NAME}" \
-            matric-testdb:local
+            "${TESTDB_IMAGE}"
 
           # Start Redis for caching
           echo "Starting Redis..."
-          docker run -d --name ${TEST_REDIS} \
+          docker run -d --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE}" --name ${TEST_REDIS} \
             --network ${TEST_NET} \
             redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99
 
@@ -1053,9 +1818,9 @@ jobs:
 
           # Start the API container on isolated port
           echo "Starting API container..."
-          docker run -d --name ${TEST_API} \
+          docker run -d --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE}" --name ${TEST_API} \
             --network ${TEST_NET} \
-            -p ${TEST_PORT}:3000 \
+            -p 127.0.0.1::3000 \
             -e DATABASE_URL="$(printf '%s%s:%s@%s:5432/%s' 'postgres://' "${TEST_DB_USER}" "${TEST_DB_PASSWORD}" "${TEST_DB}" "${TEST_DB_NAME}")" \
             -e REDIS_URL=redis://${TEST_REDIS}:6379 \
             -e RUST_LOG=info \
@@ -1067,7 +1832,9 @@ jobs:
             -e I_UNDERSTAND_NO_AUTH=true \
             -e RATE_LIMIT_ENABLED=false \
             -e MATRIC_ATTACHMENT_SCAN_MODE=disabled \
-            matric-memory:test
+            "${TEST_API_IMAGE}"
+          TEST_PORT=$(docker port "${TEST_API}" 3000/tcp | head -1 | sed 's/.*://')
+          echo "TEST_PORT=${TEST_PORT}" >> "$GITHUB_ENV"
 
           # Wait for API to be healthy (use docker exec for DinD environment)
           echo "Waiting for API to start..."
@@ -1130,7 +1897,7 @@ jobs:
 
       - name: Run container API tests
         run: |
-          TEST_API="matric-test-api-${GITHUB_RUN_ID}"
+          TEST_API="matric-test-api-${CI_RESOURCE_SCOPE}-${CI_RESOURCE_ATTEMPT}"
           CURL_CMD="docker exec ${TEST_API} curl" \
           API_BASE="http://localhost:3000" \
           VERBOSE=1 \
@@ -1138,7 +1905,7 @@ jobs:
 
       - name: Verify published OpenAPI contract
         run: |
-          TEST_API="matric-test-api-${GITHUB_RUN_ID}"
+          TEST_API="matric-test-api-${CI_RESOURCE_SCOPE}-${CI_RESOURCE_ATTEMPT}"
           docker exec ${TEST_API} sh -c \
             'curl -sf -H "Authorization: Bearer $(cat /tmp/fortemi-ci-contract-key)" http://localhost:3000/api/v1/operator/openapi.yaml' \
             >openapi-runtime.yaml
@@ -1148,7 +1915,7 @@ jobs:
 
       - name: Verify published AsyncAPI contract
         run: |
-          TEST_API="matric-test-api-${GITHUB_RUN_ID}"
+          TEST_API="matric-test-api-${CI_RESOURCE_SCOPE}-${CI_RESOURCE_ATTEMPT}"
           docker exec ${TEST_API} sh -c \
             'curl -sf -H "Authorization: Bearer $(cat /tmp/fortemi-ci-contract-key)" http://localhost:3000/api/v1/operator/asyncapi.yaml' \
             >asyncapi-runtime.yaml
@@ -1177,23 +1944,40 @@ jobs:
       - name: Teardown test environment
         if: always()
         run: |
-          TEST_NET="matric-test-net-${GITHUB_RUN_ID}"
-          TEST_DB="matric-test-db-${GITHUB_RUN_ID}"
-          TEST_REDIS="matric-test-redis-${GITHUB_RUN_ID}"
-          TEST_API="matric-test-api-${GITHUB_RUN_ID}"
-          echo "Cleaning up test environment..."
-          docker stop ${TEST_API} ${TEST_REDIS} ${TEST_DB} 2>/dev/null || true
-          docker rm ${TEST_API} ${TEST_REDIS} ${TEST_DB} 2>/dev/null || true
-          docker network rm ${TEST_NET} 2>/dev/null || true
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/owned-docker.py" ]]; then
+            TEST_NET="matric-test-net-${CI_RESOURCE_SCOPE}-${CI_RESOURCE_ATTEMPT}"
+            TEST_DB="matric-test-db-${CI_RESOURCE_SCOPE}-${CI_RESOURCE_ATTEMPT}"
+            TEST_REDIS="matric-test-redis-${CI_RESOURCE_SCOPE}-${CI_RESOURCE_ATTEMPT}"
+            TEST_API="matric-test-api-${CI_RESOURCE_SCOPE}-${CI_RESOURCE_ATTEMPT}"
+            echo "Cleaning up test environment..."
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/owned-docker.py" rm -v ${TEST_API} ${TEST_REDIS} ${TEST_DB} || true
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/owned-docker.py" network rm ${TEST_NET} || true
+          else
+            echo '::warning::Kept Docker resources: workflow-revision removal helper unavailable.'
+          fi
+
+      - name: Cleanup run-local build and Docker state
+        if: always()
+        run: |
+          echo '::notice::Retained run directories for verified final quarantine reconciliation.'
 
   integration-test:
     name: Integration Tests (GPU)
     runs-on: titan
-    needs: test-container
+    needs: [admit-source, test-container]
     # The budget covers the GPU lease wait (up to 30m while shared ROKO tasks
     # drain on Titan) plus a cold build and the serial inference tests.
     timeout-minutes: 75
     env:
+      CI_WORKFLOW_SHA: ${{ gitea.sha }}
+      CI_SAFETY_TOOLS: "${{ github.workspace }}/target/.ci-tools/${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      CI_RUNS_ROOT: "${{ github.workspace }}/target/.ci-runs"
+      CI_ACTIONS_TOKEN: ${{ github.token }}
+      CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
+      CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
+      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
+      DOCKER_CONFIG: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/docker-integration-test"
       INFERENCE_BACKEND: ollama
       CARGO_BUILD_JOBS: '2'
       # Use smaller model for CI — the default qwen3.5:27b (22GB) doesn't fit
@@ -1201,7 +1985,51 @@ jobs:
       # generation works, not model quality.
       OLLAMA_GEN_MODEL: qwen3.5:9b
       MATRIC_GEN_TIMEOUT_SECS: 120
+    if: needs.admit-source.outputs.current == 'true'
     steps:
+      - name: Checkout workflow-revision safety tooling
+        run: |
+          set -euo pipefail
+          # Register a fresh checkout before Git writes; never follow an existing ancestor symlink.
+          [[ "${CI_WORKFLOW_SHA:?CI_WORKFLOW_SHA is required}" =~ ^[0-9a-f]{40}$ ]]
+          CI_SAFETY_TOOLS="$(python3 - <<'PYBOOT'
+          import json, os, secrets, time
+          owner, attempt = os.environ['CI_RESOURCE_SCOPE'], os.environ['CI_RESOURCE_ATTEMPT']
+          assert all(v.isdecimal() and int(v) > 0 for v in (owner, attempt))
+          base = os.path.dirname(os.environ['CI_SAFETY_TOOLS'])
+          fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+          try:
+              for part in os.path.abspath(base).split('/')[1:]:
+                  try: os.mkdir(part, 0o700, dir_fd=fd)
+                  except FileExistsError: pass
+                  child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                  os.close(fd)
+                  fd = child
+              name = f'{owner}-{attempt}.{secrets.token_hex(12)}'
+              os.mkdir(name, 0o700, dir_fd=fd)
+              root = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+              try:
+                  info = os.fstat(root)
+                  marker = os.open('.owner.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=root)
+                  with os.fdopen(marker, 'w') as stream:
+                      json.dump({'fortemi.ci.scope': owner, 'fortemi.ci.attempt': attempt,
+                                 'created': time.time(), 'identity': [info.st_dev, info.st_ino]}, stream)
+                      stream.flush()
+                      os.fsync(stream.fileno())
+              finally: os.close(root)
+          finally: os.close(fd)
+          print(os.path.join(base, name))
+          PYBOOT
+          )"
+          export CI_SAFETY_TOOLS
+          printf 'CI_SAFETY_TOOLS=%s\n' "$CI_SAFETY_TOOLS" >> "$GITHUB_ENV"
+          git init -q "${CI_SAFETY_TOOLS}"
+          git -C "${CI_SAFETY_TOOLS}" remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git -C "${CI_SAFETY_TOOLS}" sparse-checkout set scripts/ci
+          git -C "${CI_SAFETY_TOOLS}" fetch --quiet --no-tags --depth=1 origin "${CI_WORKFLOW_SHA}"
+          git -C "${CI_SAFETY_TOOLS}" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "${CI_SAFETY_TOOLS}" rev-parse HEAD)" = "${CI_WORKFLOW_SHA}"
+
       - name: Checkout
         run: |
           set -euo pipefail
@@ -1210,6 +2038,11 @@ jobs:
           git fetch --quiet --no-tags --depth=1 origin "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}"
           git checkout --quiet --detach FETCH_HEAD
 
+      - name: Reconcile inactive runs and configure owned resources
+        run: |
+          python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
+          bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
       - name: Run integration tests under the Titan GPU lease
         run: |
           set -euo pipefail
@@ -1217,7 +2050,9 @@ jobs:
           # ROKO runners from accepting new work, and restores them on exit.
           # Capacity can still change due to inference services; refuse rather
           # than evict a model or count an unavailable GPU as a passing test.
-          sudo /usr/local/sbin/titan-gpu-ci-lease run -- bash -lc '
+          sudo /usr/local/sbin/titan-gpu-ci-lease run -- env \
+            CARGO_TARGET_DIR="${CARGO_TARGET_DIR}" \
+            CARGO_INSTALL_ROOT="${CARGO_INSTALL_ROOT}" bash -lc '
             set -euo pipefail
             nvidia-smi
             python3 scripts/ci/check-gpu-test-capacity.py
@@ -1246,6 +2081,11 @@ jobs:
               -- \
               --test-threads=1
           '
+
+      - name: Cleanup run-local build and Docker state
+        if: always()
+        run: |
+          echo '::notice::Retained run directories for verified final quarantine reconciliation.'
 
   # Release image - pushes on version tags only
   publish-release:
@@ -1840,20 +2680,23 @@ jobs:
   main-validation:
     name: Main Validation Complete
     runs-on: matric-builder
-    needs: [sync-github-source, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix, helm-chart, hosted-image-smoke, pod-security-restricted]
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: [admit-source, sync-github-source, test-container, integration-test, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, knowledge-shard-matrix, helm-chart, hosted-image-smoke, pod-security-restricted]
+    if: needs.admit-source.outputs.current == 'true' && (github.ref == 'refs/heads/main' && github.event_name != 'pull_request')
     steps:
       - name: Record validation-only completion
         run: echo "Main validation complete; container registry publication is release-only."
 
-  # Gitea does not serialize a concurrency-group name across workflow files.
-  # Dispatch the next capacity-1 workflow only after the validation-only main
-  # gate or the signed release finalizer succeeds.
+  # Dispatch the next workflow only after the validation-only main gate or
+  # the signed release finalizer succeeds. Other runs may interleave jobs.
   handoff-tests:
     name: Dispatch Comprehensive Tests
+    env:
+      CI_MUTEX_JOB_NAME: Dispatch Comprehensive Tests
+      CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
+      CI_ACTIONS_TOKEN: ${{ github.token }}
     runs-on: matric-builder
-    needs: [main-validation, finalize-releases]
-    if: always() && github.event_name != 'pull_request' && ((github.ref == 'refs/heads/main' && needs.main-validation.result == 'success') || (startsWith(github.ref, 'refs/tags/v') && needs.finalize-releases.result == 'success'))
+    needs: [admit-source, main-validation, finalize-releases]
+    if: needs.admit-source.outputs.current == 'true' && (always() && github.event_name != 'pull_request' && ((github.ref == 'refs/heads/main' && needs.main-validation.result == 'success') || (startsWith(github.ref, 'refs/tags/v') && needs.finalize-releases.result == 'success')))
     steps:
       - name: Checkout dispatch tooling
         run: |
@@ -1876,6 +2719,10 @@ jobs:
             --arg ref "${GITHUB_REF:?GITHUB_REF is required}" \
             --arg source_sha "${CHAIN_SOURCE_SHA:?CHAIN_SOURCE_SHA is required}" \
             '{ref: $ref, inputs: {test_category: "all", source_sha: $source_sha}}' > dispatch.json
+          if [[ "${GITHUB_REF}" == refs/heads/main ]]; then
+            bash scripts/ci/main-side-effect.sh dispatch test.yml dispatch.json
+            exit 0
+          fi
           curl --fail-with-body --silent --show-error -X POST \
             -H "Authorization: token ${BUILD_REPO_TOKEN:?BUILD_REPO_TOKEN is required}" \
             -H "Accept: application/json" \
@@ -1886,3 +2733,84 @@ jobs:
       - name: Cleanup trigger token
         if: always()
         run: ci/vault-fetch.sh --cleanup
+
+  cleanup-run-images:
+    name: Cleanup Run Resources
+    runs-on: matric-builder
+    needs: [admit-source, runner-capacity, verify-release-ref, sync-github-source, build-testdb, lint, knowledge-shard-matrix, helm-chart, audit, deny, auth-consumer, mcp-lockfile-sync, mcp-server-tests, build, build-image, hosted-image-smoke, pod-security-restricted, test-container, integration-test, publish-release, publish-github, sign-release-images, verify-ghcr-release, finalize-releases, main-validation, handoff-tests]
+    if: always()
+    env:
+      CI_WORKFLOW_SHA: ${{ gitea.sha }}
+      CI_SAFETY_TOOLS: "${{ github.workspace }}/target/.ci-tools/${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      CI_RUNS_ROOT: "${{ github.workspace }}/target/.ci-runs"
+      CI_ACTIONS_TOKEN: ${{ github.token }}
+      CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
+      CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
+      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
+      TESTDB_IMAGE: "matric-testdb:ci-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      TEST_API_IMAGE: "matric-memory:test-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      HOSTED_TEST_IMAGE: "matric-memory:hosted-test-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      PSA_TEST_IMAGE: "fortemi-bundle:psa-test-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
+      DOCKER_CONFIG: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/docker-cleanup-run-images"
+    steps:
+      - name: Checkout cleanup tooling
+        run: |
+          set -euo pipefail
+          # Register a fresh checkout before Git writes; never follow an existing ancestor symlink.
+          [[ "${CI_WORKFLOW_SHA:?CI_WORKFLOW_SHA is required}" =~ ^[0-9a-f]{40}$ ]]
+          CI_SAFETY_TOOLS="$(python3 - <<'PYBOOT'
+          import json, os, secrets, time
+          owner, attempt = os.environ['CI_RESOURCE_SCOPE'], os.environ['CI_RESOURCE_ATTEMPT']
+          assert all(v.isdecimal() and int(v) > 0 for v in (owner, attempt))
+          base = os.path.dirname(os.environ['CI_SAFETY_TOOLS'])
+          fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+          try:
+              for part in os.path.abspath(base).split('/')[1:]:
+                  try: os.mkdir(part, 0o700, dir_fd=fd)
+                  except FileExistsError: pass
+                  child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                  os.close(fd)
+                  fd = child
+              name = f'{owner}-{attempt}.{secrets.token_hex(12)}'
+              os.mkdir(name, 0o700, dir_fd=fd)
+              root = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+              try:
+                  info = os.fstat(root)
+                  marker = os.open('.owner.json', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=root)
+                  with os.fdopen(marker, 'w') as stream:
+                      json.dump({'fortemi.ci.scope': owner, 'fortemi.ci.attempt': attempt,
+                                 'created': time.time(), 'identity': [info.st_dev, info.st_ino]}, stream)
+                      stream.flush()
+                      os.fsync(stream.fileno())
+              finally: os.close(root)
+          finally: os.close(fd)
+          print(os.path.join(base, name))
+          PYBOOT
+          )"
+          export CI_SAFETY_TOOLS
+          printf 'CI_SAFETY_TOOLS=%s\n' "$CI_SAFETY_TOOLS" >> "$GITHUB_ENV"
+          git init -q "${CI_SAFETY_TOOLS}"
+          git -C "${CI_SAFETY_TOOLS}" remote add origin https://git.integrolabs.net/${GITHUB_REPOSITORY}.git
+          git -C "${CI_SAFETY_TOOLS}" sparse-checkout set scripts/ci
+          git -C "${CI_SAFETY_TOOLS}" fetch --quiet --no-tags --depth=1 origin "${CI_WORKFLOW_SHA}"
+          git -C "${CI_SAFETY_TOOLS}" checkout --quiet --detach FETCH_HEAD
+          test "$(git -C "${CI_SAFETY_TOOLS}" rev-parse HEAD)" = "${CI_WORKFLOW_SHA}"
+
+      - name: Reconcile inactive runs
+        if: always() && needs.admit-source.outputs.current == 'true'
+        run: |
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py" ]]; then
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
+          else
+            echo '::warning::Kept run resources: workflow-revision cleanup helper unavailable.'
+          fi
+
+      - name: Remove only this run's labelled resources
+        if: always()
+        run: |
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py" ]]; then
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py" --current
+          else
+            echo '::warning::Kept run resources: workflow-revision cleanup helper unavailable.'
+          fi

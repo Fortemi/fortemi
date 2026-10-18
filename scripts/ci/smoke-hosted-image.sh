@@ -24,6 +24,8 @@
 # SMOKE_TIMEOUT_SECONDS (default 600), KEEP_HOSTED_SMOKE=1 keeps the stack.
 set -euo pipefail
 
+remove_docker() { bash "$(dirname "${BASH_SOURCE[0]}")/remove-run-docker.sh" "$@"; }
+
 IMAGE="" PLATFORM="" OUTPUT=""
 while (( $# )); do
     case "$1" in
@@ -41,7 +43,13 @@ REDIS_IMAGE="redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0d
 TESTDB_IMAGE="${TESTDB_IMAGE:-matric-testdb:local}"
 TIMEOUT="${SMOKE_TIMEOUT_SECONDS:-600}"
 TRANSIT_KEY=fortemi-hosted-smoke
-RUN_ID="fortemi-hosted-smoke-$$-$(date +%s)"
+# Release callers do not set CI_RESOURCE_SCOPE; retain their existing arguments.
+CI_DOCKER_LABELS=() CI_VOLUME_ARGS=()
+if [[ -n "${CI_RESOURCE_SCOPE:-}" ]]; then
+    CI_DOCKER_LABELS=(--label "fortemi.ci.scope=${CI_RESOURCE_SCOPE}")
+    CI_VOLUME_ARGS=(-v)
+fi
+RUN_ID="fortemi-hosted-smoke-${CI_RESOURCE_SCOPE:+${CI_RESOURCE_SCOPE}-${CI_RESOURCE_ATTEMPT:?}-}$$-$(date +%s)"
 BAO="${RUN_ID}-bao" DB="${RUN_ID}-db" REDIS="${RUN_ID}-redis" APP="${RUN_ID}-api"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/fortemi-hosted-smoke.XXXXXX")"
 chmod 0700 "$WORK"
@@ -55,8 +63,8 @@ cleanup() {
         log "kept ${BAO} ${DB} ${REDIS} ${APP} and ${WORK}"
         return
     fi
-    docker rm -f "$APP" "$BAO" "$DB" "$REDIS" >/dev/null 2>&1 || true
-    rm -rf "$WORK"
+    remove_docker rm -f "${CI_VOLUME_ARGS[@]}" "$APP" "$BAO" "$DB" "$REDIS" || true
+    bash "$ROOT/scripts/ci/cleanup-local-temp.sh" "$WORK"
 }
 trap cleanup EXIT
 
@@ -100,7 +108,7 @@ HCL
 log "starting OpenBao"
 # No bind mounts: the CI runner's private /tmp is invisible to the Docker daemon.
 # docker cp -a keeps owner and mode so the non-root container user can read them.
-docker create --name "$BAO" --user "$(id -u):$(id -g)" --cap-drop ALL \
+docker create "${CI_DOCKER_LABELS[@]}" --name "$BAO" --user "$(id -u):$(id -g)" --cap-drop ALL \
     --security-opt no-new-privileges -p 127.0.0.1::8200 \
     --entrypoint bao "$OPENBAO_IMAGE" server -config=/smoke/bao.hcl >/dev/null
 docker cp -a "${WORK}/." "${BAO}:/smoke"
@@ -140,10 +148,10 @@ if ! docker image inspect "$TESTDB_IMAGE" >/dev/null 2>&1; then
     docker build -q -f "${ROOT}/build/Dockerfile.testdb" -t "$TESTDB_IMAGE" "$ROOT" >/dev/null
 fi
 OWNER_PASSWORD="$(secret)" RUNTIME_PASSWORD="$(secret)"
-docker run -d --name "$DB" -p 127.0.0.1::5432 \
+docker run "${CI_DOCKER_LABELS[@]}" -d --name "$DB" -p 127.0.0.1::5432 \
     -e POSTGRES_USER=matric -e POSTGRES_PASSWORD="$OWNER_PASSWORD" -e POSTGRES_DB=matric \
     "$TESTDB_IMAGE" >/dev/null
-docker run -d --name "$REDIS" -p 127.0.0.1::6379 "$REDIS_IMAGE" >/dev/null
+docker run "${CI_DOCKER_LABELS[@]}" -d --name "$REDIS" -p 127.0.0.1::6379 "$REDIS_IMAGE" >/dev/null
 DB_PORT="$(docker port "$DB" 5432/tcp | head -1 | sed 's/.*://')"
 REDIS_PORT="$(docker port "$REDIS" 6379/tcp | head -1 | sed 's/.*://')"
 # TCP readiness: the image's first-boot init server listens on the socket only.
@@ -163,7 +171,7 @@ common_env=(
     -e "MIGRATION_DATABASE_URL=${MIGRATION_DATABASE_URL}" -e "DATABASE_URL=${DATABASE_URL}"
 )
 log "applying migrations with ${IMAGE} --migrate-only"
-docker run --rm --network host "${PLATFORM_ARGS[@]}" "${common_env[@]}" \
+docker run "${CI_DOCKER_LABELS[@]}" --rm --network host "${PLATFORM_ARGS[@]}" "${common_env[@]}" \
     "$IMAGE" /app/matric-api --migrate-only > "${WORK}/migrate.log" 2>&1 ||
     { tail -30 "${WORK}/migrate.log"; fail "--migrate-only failed"; }
 
@@ -186,7 +194,7 @@ log "starting hosted API on 127.0.0.1:${API_PORT}"
 mkdir -p "${WORK}/run-fortemi"
 cp "${WORK}/ca.pem" "${WORK}/run-fortemi/ca.pem"
 cp "${WORK}/runtime.token" "${WORK}/run-fortemi/vault-token"
-docker create --name "$APP" --network host "${PLATFORM_ARGS[@]}" \
+docker create "${CI_DOCKER_LABELS[@]}" --name "$APP" --network host "${PLATFORM_ARGS[@]}" \
     --user "$(id -u):$(id -g)" --cap-drop ALL --security-opt no-new-privileges \
     "${common_env[@]}" \
     -e HOST=127.0.0.1 -e PORT="$API_PORT" \

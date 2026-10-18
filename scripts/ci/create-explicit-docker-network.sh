@@ -3,6 +3,8 @@
 
 set -euo pipefail
 
+remove_docker() { bash "$(dirname "${BASH_SOURCE[0]}")/remove-run-docker.sh" "$@"; }
+
 network_name="${1:?Usage: $0 <network-name> [numeric-seed]}"
 network_seed="${2:-${GITHUB_RUN_ID:-0}}"
 
@@ -23,6 +25,11 @@ fi
 # 172.16.0.0/12 defaults. Creation is atomic, so concurrent jobs that select
 # the same first candidate safely advance without a check-then-create race.
 network_start=$((network_seed % 4096))
+ci_docker_labels=()
+if [[ -n "${CI_RESOURCE_SCOPE:-}" ]]; then
+    ci_docker_labels=(--label "fortemi.ci.scope=${CI_RESOURCE_SCOPE}")
+fi
+
 for network_offset in {0..255}; do
     network_slot=$(((network_start + network_offset) % 4096))
     second_octet=$((240 + (network_slot / 256)))
@@ -30,6 +37,7 @@ for network_offset in {0..255}; do
     network_subnet="10.${second_octet}.${third_octet}.0/24"
 
     if ! docker network create \
+        "${ci_docker_labels[@]}" \
         --driver bridge \
         --subnet "$network_subnet" \
         "$network_name" >/dev/null 2>&1; then
@@ -40,7 +48,7 @@ for network_offset in {0..255}; do
         --format '{{(index .IPAM.Config 0).Subnet}}' \
         "$network_name")"
     if [[ "$actual_subnet" != "$network_subnet" ]]; then
-        docker network rm "$network_name" >/dev/null 2>&1 || true
+        remove_docker network rm "$network_name" || true
         echo "ERROR: Docker network subnet verification failed" >&2
         exit 1
     fi

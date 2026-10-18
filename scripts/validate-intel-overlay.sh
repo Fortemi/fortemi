@@ -97,10 +97,10 @@ if ! OPENAI_API_KEY=validation-only-vllm-key docker compose \
     --env-file /dev/null \
     -f docker-compose.bundle.yml \
     -f docker-compose.intel.yml \
-    config --format json >"$rendered" 2>/tmp/intel-overlay-render.err; then
+    config --format json >"$rendered" 2>"$missing_key_error"; then
     echo "ERROR: compose render failed — likely a Compose release older than" >&2
     echo "v2.17.0 (no '!reset' support) or a syntax error in the overlay:" >&2
-    cat /tmp/intel-overlay-render.err >&2
+    cat "$missing_key_error" >&2
     exit 1
 fi
 

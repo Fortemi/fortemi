@@ -2,14 +2,16 @@
 # Disposable Redis for database-backed Rust test jobs, including SSE tokens.
 set -euo pipefail
 
+remove_docker() { bash "$(dirname "${BASH_SOURCE[0]}")/remove-run-docker.sh" "$@"; }
+
 action=${1:?usage: test-redis.sh start|stop container-name}
 container=${2:?container-name is required}
 
 case "$action" in
   start)
     : "${GITHUB_ENV:?GITHUB_ENV must name the test environment file}"
-    docker rm -f "$container" >/dev/null 2>&1 || true
-    docker run -d --name "$container" -p 127.0.0.1::6379 \
+    remove_docker rm -fv "$container" || true
+    docker run --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}" -d --name "$container" -p 127.0.0.1::6379 \
       redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99 >/dev/null
     for i in {1..30}; do
       if docker exec "$container" redis-cli ping 2>/dev/null | grep -q PONG; then
@@ -23,7 +25,7 @@ case "$action" in
     exit 1
     ;;
   stop)
-    docker rm -f "$container" >/dev/null 2>&1 || true
+    remove_docker rm -fv "$container" || true
     ;;
   *)
     echo "usage: test-redis.sh start|stop container-name" >&2
