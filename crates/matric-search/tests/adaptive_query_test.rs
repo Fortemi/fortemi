@@ -52,6 +52,66 @@ async fn seed(
 }
 
 #[sqlx::test(migrations = false)]
+async fn semantic_candidates_preserve_cosine_scores_under_rescaling(pool: PgPool) {
+    use matric_db::search_candidates::{vector_on_connection, SearchCandidateScope};
+
+    let db = database(pool).await;
+    let mut tx = db.pool().begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_tenant', $1, true)")
+        .bind(Uuid::nil().to_string())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let set: Uuid = sqlx::query_scalar("SELECT id FROM embedding_set WHERE slug='default'")
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    let vector = |x, y| {
+        let mut values = vec![0.0_f32; 768];
+        values[0] = x;
+        values[1] = y;
+        Vector::from(values)
+    };
+    // L2 would prefer the tilted vector to the larger, perfectly aligned one.
+    // Include orthogonal/opposite directions to check the full cosine range.
+    for (id, x, y) in [(1, 10.0, 0.0), (2, 0.8, 0.6), (3, 0.0, 1.0), (4, -1.0, 0.0)] {
+        let id = Uuid::from_u128(id);
+        seed(&mut tx, id, "fixture", "alpha beta", &[]).await;
+        sqlx::query("INSERT INTO embedding (note_id, chunk_index, text, vector, model, embedding_set_id) VALUES ($1, 0, 'alpha beta', $2, 'synthetic-cosine-test', $3)")
+            .bind(id).bind(vector(x, y)).bind(set).execute(&mut *tx).await.unwrap();
+    }
+    for scale in [1.0, 7.0] {
+        for magnitude in [10.0, 0.1] {
+            sqlx::query("UPDATE embedding SET vector=$1 WHERE note_id=$2")
+                .bind(vector(magnitude, 0.0))
+                .bind(Uuid::from_u128(1))
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            let hits = vector_on_connection(
+                &mut tx,
+                &vector(scale, 0.0),
+                10,
+                &SearchCandidateScope::default(),
+            )
+            .await
+            .unwrap();
+            assert_eq!(hits.len(), 4);
+            for (hit, (id, similarity)) in
+                hits.iter().zip([(1, 1.0), (2, 0.8), (3, 0.0), (4, -1.0)])
+            {
+                assert_eq!(hit.note_id, Uuid::from_u128(id));
+                assert!(
+                    (hit.score - similarity).abs() < 1e-6,
+                    "cosine similarity for {id}: {} (query scale {scale}, document magnitude {magnitude})",
+                    hit.score
+                );
+            }
+        }
+    }
+}
+
+#[sqlx::test(migrations = false)]
 async fn explicit_syntax_and_final_match_tiers(pool: PgPool) {
     let db = database(pool).await;
     let engine = HybridSearchEngine::new(db.clone());
@@ -92,6 +152,7 @@ async fn explicit_syntax_and_final_match_tiers(pool: PgPool) {
         ("alpha NOT beta", vec![2]),
         ("alpha -beta", vec![2]),
         ("\"alpha beta\"", vec![1]),
+        ("\"beta alpha\"", vec![]),
         ("\"alpha the beta\"", vec![5]),
         ("alph*", vec![1, 2, 3, 5]),
         ("alph* NOT beta", vec![2, 3]),
