@@ -17,8 +17,8 @@ FROM rust:1.92-bookworm@sha256:e90e846de4124376164ddfbaab4b0774c7bdeef5e73886629
 # Build arguments
 ARG RUST_VERSION=1.92.0
 ARG SQLX_VERSION=0.8
-ARG DOCKER_CLI_VERSION=5:29.6.2-1~debian.12~bookworm
-ARG DOCKER_BUILDX_VERSION=0.35.0-1~debian.12~bookworm
+ARG DOCKER_CLI_VERSION=5:29.9.1-1~debian.12~bookworm
+ARG DOCKER_BUILDX_VERSION=0.38.0-1~debian.12~bookworm
 
 # Labels
 LABEL org.opencontainers.image.title="fortemi-builder"

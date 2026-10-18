@@ -1001,7 +1001,7 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 | Backup restore | Hosted = operator-local break-glass only; verified Fortemi-produced artifacts only | #927 / #978 |
 | Backup config | Strict key/value parser (no shell `source`); periodic restore drills as gate | #980 |
 | Docker bundle | Local-first default (127.0.0.1, generated secret); rendered-`compose config` preflight | #989 |
-| Docker autoheal | Behind explicit `ops-autoheal` profile; no default socket mount | #937 |
+| Docker autoheal | Service removed; `ops-autoheal` disabled after HIGH/CRITICAL package findings, pending reviewed replacement | #937 / #1240 |
 | Bridge models | Strict OpenAI `/v1/models`; omit unverifiable models for strict tenants; strict slug resolver | #866 |
 | Bridge routing | Typed `RoutePlan`/`BridgeResolvedModel` before any bridge route | #867 |
 | Provider cache | Strip external router cache controls; retention = model eligibility; coarse classes to clients | #985 |

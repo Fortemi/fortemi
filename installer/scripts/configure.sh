@@ -20,30 +20,16 @@ FORTEMI_INSTALL_MODE="${FORTEMI_INSTALL_MODE:-secure}"
 FORTEMI_EXPOSURE_PROFILE="${FORTEMI_EXPOSURE_PROFILE:-local}"
 FORTEMI_AUTOHEAL_MODE="${FORTEMI_AUTOHEAL_MODE:-disabled}"
 
-case "${FORTEMI_AUTOHEAL_MODE}" in
-    disabled)
-        case ",${COMPOSE_PROFILES}," in
-            *,ops-autoheal,*)
-                echo "ERROR: COMPOSE_PROFILES includes ops-autoheal but" >&2
-                echo "       FORTEMI_AUTOHEAL_MODE is not ops-autoheal." >&2
-                exit 1
-                ;;
-        esac
-        ;;
-    ops-autoheal)
-        case ",${COMPOSE_PROFILES}," in
-            *,ops-autoheal,*)
-                ;;
-            *)
-                COMPOSE_PROFILES="${COMPOSE_PROFILES},ops-autoheal"
-                ;;
-        esac
-        ;;
-    *)
-        echo "ERROR: FORTEMI_AUTOHEAL_MODE must be 'disabled' or 'ops-autoheal'." >&2
-        exit 1
-        ;;
-esac
+# Reject the retired profile before backing up or writing operator configuration.
+if [[ "${FORTEMI_AUTOHEAL_MODE}" == ops-autoheal ||
+      ",${COMPOSE_PROFILES//[[:space:]]/}," == *,ops-autoheal,* ]]; then
+    echo "ERROR: autoheal is disabled because willfarrell/autoheal 1.2.0 is built on end-of-life Alpine 3.13 with unpatched HIGH/CRITICAL advisories; see Fortemi/fortemi#1240." >&2
+    exit 1
+fi
+if [[ "${FORTEMI_AUTOHEAL_MODE}" != disabled ]]; then
+    echo "ERROR: FORTEMI_AUTOHEAL_MODE must be 'disabled' (see Fortemi/fortemi#1240)." >&2
+    exit 1
+fi
 
 case "${FORTEMI_INSTALL_MODE}" in
     secure)
@@ -131,7 +117,7 @@ cat > "${ENV_FILE}" <<EOF
 # Domain and protocol (${PROTOCOL}://${DOMAIN})
 ISSUER_URL=${PROTOCOL}://${DOMAIN}
 
-# Profiles: one hardware profile, optionally plus explicit ops-autoheal
+# Profiles: one hardware profile; ops-autoheal disabled pending Fortemi/fortemi#1240
 COMPOSE_PROFILES=${COMPOSE_PROFILES}
 
 # Install mode: secure | local-no-auth
@@ -140,7 +126,7 @@ FORTEMI_INSTALL_MODE=${FORTEMI_INSTALL_MODE}
 # Exposure profile: local | shared
 FORTEMI_EXPOSURE_PROFILE=${FORTEMI_EXPOSURE_PROFILE}
 
-# Autoheal installer choice: disabled | ops-autoheal
+# Autoheal: disabled pending Fortemi/fortemi#1240
 FORTEMI_AUTOHEAL_MODE=${FORTEMI_AUTOHEAL_MODE}
 
 # Inference provider: ollama | openai | openrouter | llamacpp
@@ -233,14 +219,7 @@ if [ "${FORTEMI_EXPOSURE_PROFILE}" = "shared" ]; then
     echo "  WARNING: non-loopback exposure selected; deploy preflight will require"
     echo "           public HTTPS metadata/origins and a non-default DB secret."
 fi
-if [ "${FORTEMI_AUTOHEAL_MODE}" = "ops-autoheal" ]; then
-    echo "  Autoheal: enabled by explicit operator choice"
-    echo "  WARNING: ops-autoheal grants a third-party container root-equivalent"
-    echo "           host control through the Docker socket; :ro is not a"
-    echo "           security boundary."
-else
-    echo "  Autoheal: disabled; no Docker socket mount"
-fi
+echo "  Autoheal: disabled pending Fortemi/fortemi#1240; no Docker socket mount"
 if [ "${INFERENCE_PROVIDER}" = "ollama" ]; then
     echo "  Model:    ${OLLAMA_GEN_MODEL}"
 fi

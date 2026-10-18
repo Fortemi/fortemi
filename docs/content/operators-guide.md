@@ -161,35 +161,44 @@ authentication, public HTTPS issuer/resource/origin values, a generated or
 operator-supplied database secret, reverse-proxy TLS, and host-firewall
 restrictions.
 
-### Container Restart Policy and Optional Autoheal
+### Container Restart Policy and Disabled Autoheal
 
 The default bundle does not mount the host Docker socket. Every monitored
 application service already uses `restart: unless-stopped`; combine those
 restart policies with operator health monitoring and manual or platform-managed
 restart procedures for the socket-free path.
 
-Autoheal is available only through the explicit `ops-autoheal` profile:
+`ops-autoheal` is disabled pending Fortemi/fortemi#1240 because
+`willfarrell/autoheal:1.2.0` uses end-of-life Alpine 3.13 with unpatched
+HIGH/CRITICAL advisories. The service has been removed from the bundle. Keep
+`FORTEMI_AUTOHEAL_MODE=disabled` and remove `ops-autoheal` from existing
+`COMPOSE_PROFILES` settings; the installer and exposure preflight reject it.
+The preflight also rejects any Docker socket mount. See
+[Disabled Autoheal](container-dependency-trust.md#disabled-autoheal) for public
+advisory sources and the requirements for re-enablement under #1240.
+
+#### Upgrade: Retire Existing Autoheal Containers
+
+Removing the service from Compose does not stop existing containers: `compose
+up -d` leaves orphans running, potentially retaining Docker socket access.
+Before upgrading, remove `ops-autoheal` from `COMPOSE_PROFILES`, keep
+`FORTEMI_AUTOHEAL_MODE=disabled`, and explicitly retire the old containers.
+From the installation directory, export the same `COMPOSE_PROJECT_NAME` as the
+existing deployment if one was set, including in `.env` (otherwise use the
+normalized directory name):
 
 ```bash
-# Keep the selected hardware profile and add the host-control profile.
-COMPOSE_PROFILES=edge,ops-autoheal
-scripts/validate-bundle-exposure.sh
-docker compose -f docker-compose.bundle.yml up -d
+project="$(printf '%s' "${COMPOSE_PROJECT_NAME:-$(basename "$PWD")}" |
+  LC_ALL=C tr '[:upper:]' '[:lower:]' | LC_ALL=C tr -cd 'a-z0-9_-' | sed 's/^[_-]*//')"
+docker ps -a --filter "label=com.docker.compose.project=${project}" \
+  --filter 'label=com.docker.compose.service=autoheal' --format '{{.Names}}'
 ```
 
-The profile runs the pinned third-party `willfarrell/autoheal:1.2.0` image and
-mounts the host Docker socket read-only. Docker API access through that socket
-is still root-equivalent host control; `:ro` is not a security boundary. The
-image can inspect and restart labeled containers, and compromise of that image
-can compromise the operator host. Treat enabling it as an explicit trust
-acceptance, not application-level health hardening.
-
-The guided installer defaults `FORTEMI_AUTOHEAL_MODE=disabled`. Set it to
-`ops-autoheal` only after accepting the warning printed during configuration.
-The rendered-config preflight rejects socket access without that exact profile
-and rejects socket mounts on any other service. Release verification must
-classify the autoheal image as a consumed third-party dependency under #990;
-Fortemi image provenance does not attest to this upstream image.
+Review the returned names, then run `docker rm -f <names>` with exactly those
+names. This targets only the retired autoheal service for that project. Repeat
+the query to confirm no matches before starting the upgrade. The installer
+stops when it detects these containers and prints the exact retirement command;
+it never removes containers automatically.
 
 All third-party bundle defaults use reviewed `tag@sha256` references. See
 [Third-Party Container Dependency Trust](container-dependency-trust.md) for the
