@@ -145,15 +145,27 @@ signing-key fingerprint and exact package versions. Its review date is
   upgrade is owned by sysops and tracked in its issue tracker.
   This source-pin change does not upgrade the host binary.
 
-The ci-builder Lint step runs `scripts/ci/check-no-buildx-bake.py` over every
-file under `.gitea/`, `scripts/` and `build/`, excluding the guard and its test.
-It joins shell continuations and rejects a `buildx` token followed by `bake`,
-including intervening options, and `--progress` set to `rawjson` with either
-separator and optional quotes.
+The ci-builder Lint step runs `scripts/ci/check-buildx-policy.py` over every
+file under `.gitea/`, `scripts/` and `build/`, excluding the check and its test.
+It does not try to parse shell, YAML or Dockerfile syntax. After joining line
+continuations and removing quote characters and backslashes, a file fails if it
+mentions `buildx` and contains the word `bake` anywhere, or contains `rawjson`
+anywhere. A legitimate future mention must be listed in the check with a reason.
 
-Criterion **4b: local qualification pending**. Record the local image ID/digest,
-in-image Docker/Buildx versions and verifier exit status after qualification.
-No image has been built or published for this review. Autoheal's separate
+The pinned builder was qualified locally on 2026-10-18 without publishing it.
+It was built with a resource-capped, throwaway BuildKit builder, and nothing
+was pushed or tagged in a registry. Inside the image:
+
+- the installed packages are `docker-ce-cli=5:29.9.1-1~debian.12~bookworm` and
+  `docker-buildx-plugin=0.38.0-1~debian.12~bookworm`;
+- `docker buildx version` reports v0.38.0;
+- `scripts/ci/verify-third-party-dependencies.py` passes.
+
+The local image ID was
+`sha256:45173a34a77bf828b3648e4b6872239b4e0a85547df329ff59705d3466a56700`, and
+its `containerimage.digest` was
+`sha256:3a583a74d105eb2d4919b5c6108976b4a42b3e5bdbeec1dc352b6d39330967fb`. The
+published image is rebuilt only by the next release tag. Autoheal's separate
 criterion 7 package check is complete: HIGH/CRITICAL advisories were found,
 the retired image inventory entry was removed, and the profile remains disabled
 pending the reviewed replacement tracked in the project issue tracker.

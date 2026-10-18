@@ -251,8 +251,8 @@ jobs:
       - name: Check Buildx invocation policy
         run: |
           # https://github.com/docker/buildx/security/advisories/GHSA-gwr2-q96m-6682 and https://github.com/docker/buildx/security/advisories/GHSA-p54p-jq4x-rc28
-          python3 scripts/ci/check-no-buildx-bake.py
-          python3 -m unittest tests/test_check_no_buildx_bake.py
+          python3 scripts/ci/check-buildx-policy.py
+          python3 -m unittest tests/test_check_buildx_policy.py
 
       - name: Check Docker bundle exposure policy
         run: |
