@@ -12,6 +12,7 @@ from datetime import date, datetime, timezone
 import json
 from pathlib import Path
 import sys
+import re
 import tomllib
 
 
@@ -27,8 +28,18 @@ class GuardError(ValueError):
     pass
 
 
+# zip 9.0.0-9.0.3 and every prerelease are affected by RUSTSEC-2026-0367..0369 or
+# unreleased; only stable releases from 9.0.4 on are the patched direct edge.
+MINIMUM_PATCHED_ZIP = (9, 0, 4)
+
+
 def is_zip9(package):
-    return package["name"] == "zip" and package["version"].split(".")[0] == "9"
+    if package["name"] != "zip":
+        return False
+    version = package["version"]
+    if not re.fullmatch(r"9\.\d+\.\d+", version):
+        return False
+    return tuple(int(part) for part in version.split(".")) >= MINIMUM_PATCHED_ZIP
 
 
 def identity(package):
