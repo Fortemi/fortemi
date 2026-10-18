@@ -101,21 +101,6 @@
       "mirror_policy": "Mirror the multi-architecture digest and retain it in each sidecar Dockerfile."
     },
     {
-      "id": "autoheal-ops",
-      "tag": "docker.io/willfarrell/autoheal:1.2.0",
-      "digest": "sha256:31f580ef0279eaced5b38d631b08c474d70d8403c1c2fdd6ddcf2e879d5f3f7c",
-      "immutable_reference": "willfarrell/autoheal:1.2.0@sha256:31f580ef0279eaced5b38d631b08c474d70d8403c1c2fdd6ddcf2e879d5f3f7c",
-      "role": "optional-health-ops-helper",
-      "privilege_boundary": ["root-equivalent-docker-daemon-socket"],
-      "source_class": "community-image",
-      "upstream": "https://github.com/willfarrell/docker-autoheal",
-      "surfaces": ["docker-compose.bundle.yml"],
-      "reviewed_at": "2026-07-19",
-      "update_cadence_days": 90,
-      "rollback": "Disable ops-autoheal first; restore the prior reviewed digest only after operator review.",
-      "mirror_policy": "Customer mirrors must provide a complete tag@sha256 reference through FORTEMI_AUTOHEAL_IMAGE."
-    },
-    {
       "id": "redis7-bundle",
       "tag": "docker.io/library/redis:7-alpine",
       "digest": "sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99",
@@ -220,13 +205,15 @@
       "surface": "build/Dockerfile.builder",
       "verification": "HTTPS plus apt signed-by keyring",
       "key_fingerprint": "9DC858229FC7DD38854AE2D88D81803C0EBFCD88",
-      "version_policy": "docker-ce-cli=5:29.6.2-1~debian.12~bookworm and docker-buildx-plugin=0.35.0-1~debian.12~bookworm; changes require manifest review",
+      "version_policy": "docker-ce-cli=5:29.9.1-1~debian.12~bookworm and docker-buildx-plugin=0.38.0-1~debian.12~bookworm; changes require manifest review",
       "sbom_evidence": "/usr/share/fortemi/builder-third-party-packages.tsv inside the immutable fortemi-builder image",
-      "reviewed_at": "2026-07-19",
+      "review_evidence": "docs/content/container-dependency-trust.md#builder-feed-review-2026-10-18",
+      "reviewed_at": "2026-10-18",
       "update_cadence_days": 90,
       "rollback": "Rebuild the prior reviewed fortemi-builder digest.",
       "exception_owner": "Fortemi CI maintainers",
-      "exception_expires": "2026-10-17"
+      "exception_reason": "The apt feed cannot be pinned by digest; retain HTTPS, signed-by fingerprint verification and exact pins docker-ce-cli=5:29.9.1-1~debian.12~bookworm and docker-buildx-plugin=0.38.0-1~debian.12~bookworm under Fortemi/fortemi#1237. The published fortemi-builder:latest still carries buildx 0.35.0 until the next release tag through build-builder.yaml; titan-host-runner, the only runner mapping matric-builder to that image, is inactive. The titan host buildx v0.30.1 upgrade remains tracked in roctinam/sysops#187.",
+      "exception_expires": "2026-11-17"
     }
   ],
   "internal_image_patterns": [
