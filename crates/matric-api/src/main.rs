@@ -5408,6 +5408,15 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn operator_swagger_ui() -> SwaggerUi {
+    SwaggerUi::new("/api/v1/operator/docs").config(
+        Config::new(["/api/v1/operator/openapi.yaml"])
+            .try_it_out_enabled(false)
+            .filter(true)
+            .display_request_duration(true),
+    )
+}
+
 /// The complete production route inventory and middleware stack, also used by
 /// external-OIDC acceptance tests.
 fn production_router(state: AppState, http_telemetry: otel::HttpTelemetryState) -> Router {
@@ -5433,14 +5442,7 @@ fn production_router(state: AppState, http_telemetry: otel::HttpTelemetryState) 
         .route("/api/v1/health/streaming", get(streaming_health_check))
         .route("/api/v1/system/compatibility", get(system_compatibility))
         // Operator-only generated API inventory (#965).
-        .merge(
-            SwaggerUi::new("/api/v1/operator/docs").config(
-                Config::new(["/api/v1/operator/openapi.yaml"])
-                    .try_it_out_enabled(false)
-                    .filter(true)
-                    .display_request_duration(true),
-            ),
-        )
+        .merge(operator_swagger_ui())
         .route("/api/v1/operator/openapi.yaml", get(openapi_yaml))
         .route("/api/v1/operator/asyncapi.yaml", get(asyncapi_yaml))
         .merge(hosted_user_secret_routes())
@@ -51354,6 +51356,46 @@ mod tests {
             "default-src 'self'; frame-ancestors 'none'"
         );
         assert_eq!(headers["cross-origin-opener-policy"], "same-origin");
+    }
+
+    #[tokio::test]
+    async fn operator_swagger_ui_serves_vendored_assets() {
+        // Use the production Swagger configuration and real embedded assets.
+        // The workspace binary tests in test.yml exercise this without a server.
+        let router = Router::new().merge(operator_swagger_ui());
+        for (asset, content_type, expected) in [
+            ("", "text/html", "Swagger UI"),
+            ("swagger-ui.css", "text/css", ".swagger-ui"),
+            ("swagger-ui-bundle.js", "javascript", "SwaggerUIBundle"),
+            (
+                "swagger-initializer.js",
+                "javascript",
+                "/api/v1/operator/openapi.yaml",
+            ),
+        ] {
+            let response = router
+                .clone()
+                .oneshot(
+                    axum::http::Request::builder()
+                        .uri(format!("/api/v1/operator/docs/{asset}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "asset: {asset}");
+            assert!(response.headers()[header::CONTENT_TYPE]
+                .to_str()
+                .unwrap()
+                .contains(content_type));
+            let body = axum::body::to_bytes(response.into_body(), 8 * 1024 * 1024)
+                .await
+                .unwrap();
+            assert!(
+                String::from_utf8_lossy(&body).contains(expected),
+                "asset: {asset}"
+            );
+        }
     }
 
     #[tokio::test]

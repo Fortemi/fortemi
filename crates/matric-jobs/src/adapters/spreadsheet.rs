@@ -772,7 +772,7 @@ mod tests {
     /// Build the smallest valid xlsx workbook in memory containing one sheet
     /// with the provided rows of string data.
     ///
-    /// Uses the zip crate (available through calamine's dependencies) — we
+    /// Uses the workspace zip crate — we
     /// construct the required xlsx XML structure by hand.
     fn build_minimal_xlsx(rows: &[Vec<&str>]) -> Vec<u8> {
         use std::io::Write;
@@ -891,6 +891,61 @@ mod tests {
             .replace('>', "&gt;")
             .replace('"', "&quot;")
             .replace('\'', "&apos;")
+    }
+
+    #[tokio::test]
+    async fn test_extract_ods_with_headers() {
+        use std::io::Write;
+
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        writer.start_file("mimetype", options).unwrap();
+        writer
+            .write_all(b"application/vnd.oasis.opendocument.spreadsheet")
+            .unwrap();
+        writer.start_file("META-INF/manifest.xml", options).unwrap();
+        writer
+            .write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+<manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.2">
+  <manifest:file-entry manifest:full-path="/" manifest:media-type="application/vnd.oasis.opendocument.spreadsheet"/>
+  <manifest:file-entry manifest:full-path="content.xml" manifest:media-type="text/xml"/>
+</manifest:manifest>"#)
+            .unwrap();
+        writer.start_file("content.xml", options).unwrap();
+        writer
+            .write_all(br#"<?xml version="1.0" encoding="UTF-8"?>
+<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" office:version="1.2">
+  <office:body><office:spreadsheet><table:table table:name="People">
+    <table:table-row>
+      <table:table-cell office:value-type="string"><text:p>Name</text:p></table:table-cell>
+      <table:table-cell office:value-type="string"><text:p>Age</text:p></table:table-cell>
+    </table:table-row>
+    <table:table-row>
+      <table:table-cell office:value-type="string"><text:p>Alice</text:p></table:table-cell>
+      <table:table-cell office:value-type="float" office:value="30"><text:p>30</text:p></table:table-cell>
+    </table:table-row>
+  </table:table></office:spreadsheet></office:body>
+</office:document-content>"#)
+            .unwrap();
+        let data = writer.finish().unwrap().into_inner();
+
+        let result = SpreadsheetAdapter
+            .extract(
+                &data,
+                "people.ods",
+                "application/vnd.oasis.opendocument.spreadsheet",
+                &serde_json::json!({}),
+            )
+            .await
+            .expect("valid ODS should parse with the calamine ZIP reader");
+        let text = result.extracted_text.unwrap();
+        assert!(text.contains("## Sheet: People (1 rows x 2 columns)"));
+        assert!(text.contains("| Name | Age |"));
+        assert!(text.contains("| Alice | 30 |"));
+        assert_eq!(result.metadata["sheet_count"], 1);
+        assert_eq!(result.metadata["total_rows"], 2);
+        assert_eq!(result.metadata["max_columns"], 2);
     }
 
     #[tokio::test]

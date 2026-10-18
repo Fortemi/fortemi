@@ -504,6 +504,14 @@ jobs:
           fi
           cargo audit --version
 
+      - name: Enforce ZIP exception scope and expiry
+        # Use the same pinned builder toolchain as cargo-audit/cargo-deny.
+        run: |
+          set -euo pipefail
+          python3 -B -m unittest discover -s scripts/ci -p test_zip_exception_guard.py
+          cargo metadata --locked --all-features --format-version 1 > zip-exception-metadata.json
+          python3 -B scripts/ci/zip-exception-guard.py zip-exception-metadata.json --lockfile Cargo.lock
+
       - name: Audit Rust deps (cargo-audit)
         # Honors .cargo/audit.toml allowlist for accepted advisories
         # Yanked-package policy is enforced by cargo-deny, where unavoidable
