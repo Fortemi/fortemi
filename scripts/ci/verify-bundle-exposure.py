@@ -26,9 +26,10 @@ KNOWN_INSECURE_PASSWORDS = {
 PRIVATE_DNS_SUFFIXES = (".localhost", ".local", ".internal", ".lan")
 AUTOHEAL_PROFILE = "ops-autoheal"
 AUTOHEAL_SERVICE = "autoheal"
-AUTOHEAL_IMAGE = (
-    "willfarrell/autoheal:1.2.0"
-    "@sha256:31f580ef0279eaced5b38d631b08c474d70d8403c1c2fdd6ddcf2e879d5f3f7c"
+AUTOHEAL_DISABLED_REASON = (
+    "autoheal is disabled because willfarrell/autoheal 1.2.0 is built on "
+    "end-of-life Alpine 3.13 with unpatched HIGH/CRITICAL advisories; "
+    "see Fortemi/fortemi#1240."
 )
 THIRD_PARTY_BUNDLE_SERVICES = {
     "autoheal",
@@ -245,35 +246,12 @@ def validate(
             + RELEASE_EVIDENCE_DOC
         )
 
-    autoheal = services.get(AUTOHEAL_SERVICE)
-    autoheal_enabled = AUTOHEAL_PROFILE in active_profiles
-    if sockets and not autoheal_enabled:
+    if AUTOHEAL_PROFILE in active_profiles or AUTOHEAL_SERVICE in services:
+        errors.append(AUTOHEAL_DISABLED_REASON)
+    if sockets:
         errors.append(
-            "Docker socket access requires the explicit ops-autoheal profile"
-        )
-    unexpected_sockets = [name for name in sockets if name != AUTOHEAL_SERVICE]
-    if unexpected_sockets:
-        errors.append(
-            "Docker socket access is forbidden outside the autoheal service: "
-            + ", ".join(unexpected_sockets)
-        )
-    if autoheal_enabled:
-        if not isinstance(autoheal, dict):
-            errors.append(
-                "ops-autoheal profile must render the reviewed autoheal service"
-            )
-        else:
-            if AUTOHEAL_SERVICE not in sockets:
-                errors.append(
-                    "ops-autoheal service must render its reviewed Docker socket mount"
-                )
-            if autoheal.get("image") != AUTOHEAL_IMAGE:
-                errors.append(
-                    f"ops-autoheal image must be pinned to {AUTOHEAL_IMAGE}"
-                )
-    elif autoheal is not None:
-        errors.append(
-            "autoheal service must not render without the explicit ops-autoheal profile"
+            "Docker socket access is forbidden in the bundle: "
+            + ", ".join(sockets)
         )
 
     report = {
@@ -294,9 +272,7 @@ def validate(
             if not mutable_third_party
             else "third_party_mutable"
         ),
-        "docker_socket_profile": (
-            AUTOHEAL_PROFILE if autoheal_enabled and sockets else "absent"
-        ),
+        "docker_socket_profile": "forbidden" if sockets else "absent",
     }
     return errors, warnings, report
 

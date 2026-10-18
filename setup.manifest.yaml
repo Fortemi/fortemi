@@ -49,12 +49,12 @@ params:
 
   - name: FORTEMI_AUTOHEAL_MODE
     type: choice
-    choices: [disabled, ops-autoheal]
+    choices: [disabled]
     default: disabled
     description: >-
-      Optional container auto-restart mode. disabled keeps the Docker socket out
-      of the bundle. ops-autoheal explicitly grants a pinned third-party
-      container root-equivalent host control through the Docker socket.
+      Autoheal is disabled pending Fortemi/fortemi#1240. willfarrell/autoheal
+      1.2.0 uses end-of-life Alpine 3.13 with unpatched HIGH/CRITICAL advisories.
+      The bundle contains no autoheal service or Docker socket mount.
 
   - name: FORTEMI_INSTALL_MODE
     type: choice

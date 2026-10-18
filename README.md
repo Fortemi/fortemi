@@ -277,18 +277,20 @@ without a generated or operator-supplied value.
 
 The default bundle contains no Docker socket mount. Services use
 `restart: unless-stopped`; operators monitor health and restart unhealthy
-containers through their normal operations tooling. Optional autoheal is an
-explicit host-control decision:
+containers through their normal operations tooling. `ops-autoheal` is disabled
+pending Fortemi/fortemi#1240: `willfarrell/autoheal:1.2.0` uses end-of-life
+Alpine 3.13 with unpatched HIGH/CRITICAL advisories. The service has been removed;
+the installer and exposure preflight reject the profile. See the
+[dependency trust guide](docs/content/container-dependency-trust.md#disabled-autoheal)
+for public advisory sources. Keep `FORTEMI_AUTOHEAL_MODE=disabled`.
 
-```bash
-COMPOSE_PROFILES=edge,ops-autoheal
-```
-
-`ops-autoheal` runs the pinned third-party `willfarrell/autoheal:1.2.0` image
-with the host Docker socket. That access is root-equivalent host control; the
-read-only mount flag is not a security boundary. Enable it only after accepting
-that trust boundary. The installer exposes the same choice as
-`FORTEMI_AUTOHEAL_MODE=ops-autoheal` and defaults to `disabled`.
+**Upgrade note:** removing the service leaves existing autoheal containers running
+with Docker socket access. Before upgrading, follow the operator guide's
+[autoheal retirement step](docs/content/operators-guide.md#upgrade-retire-existing-autoheal-containers):
+list the old service containers using the Compose project and service labels,
+then explicitly run `docker rm -f <names>` for the returned names. The installer
+stops and prints the exact command if it finds any; it never removes them
+itself.
 
 Third-party image defaults are locked to reviewed multi-architecture digests.
 Use only complete `tag@sha256` values for customer registry overrides. The
@@ -912,11 +914,10 @@ Key variables (see [full reference](docs/content/configuration.md) for all ~27 v
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `COMPOSE_PROFILES` | `edge` | Hardware profile: `edge`, `gpu-12gb`, `gpu-24gb`; optional `ops-autoheal` is a separate explicit host-control profile. |
-| `FORTEMI_AUTOHEAL_MODE` | `disabled` | Installer choice. `ops-autoheal` opts a pinned third-party container into root-equivalent Docker socket access. |
+| `COMPOSE_PROFILES` | `edge` | Hardware profile: `edge`, `gpu-12gb`, `gpu-24gb`; `ops-autoheal` is disabled pending #1240. |
+| `FORTEMI_AUTOHEAL_MODE` | `disabled` | Only `disabled` is accepted; autoheal is disabled pending #1240. |
 | `FORTEMI_REDIS_IMAGE` | reviewed Redis digest | Complete `tag@sha256` override for an approved customer mirror. |
 | `FORTEMI_SPEACHES_CPU_IMAGE` / `FORTEMI_SPEACHES_CUDA_IMAGE` | reviewed Speaches digests | Complete CPU/GPU transcription image overrides for approved mirrors. |
-| `FORTEMI_AUTOHEAL_IMAGE` | reviewed autoheal digest | Complete optional autoheal mirror reference; `ops-autoheal` is still required. |
 | `FORTEMI_EXPOSURE_PROFILE` | `local` | `local` permits loopback publishing only; `shared` enables validated non-loopback publishing. |
 | `API_HOST_BIND` | `127.0.0.1` | Host IP for the published API port. |
 | `MCP_HOST_BIND` | `127.0.0.1` | Host IP for the published MCP port. |
