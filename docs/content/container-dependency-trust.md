@@ -147,10 +147,16 @@ signing-key fingerprint and exact package versions. Its review date is
 
 The ci-builder Lint step runs `scripts/ci/check-buildx-policy.py` over every
 file under `.gitea/`, `scripts/` and `build/`, excluding the check and its test.
-It does not try to parse shell, YAML or Dockerfile syntax. After joining line
-continuations and removing quote characters and backslashes, a file fails if it
-mentions `buildx` and contains the word `bake` anywhere, or contains `rawjson`
-anywhere. A legitimate future mention must be listed in the check with a reason.
+It does not try to parse shell, YAML or Dockerfile syntax. It joins line
+continuations and removes quote characters and backslashes. Because `buildx`
+is used in this tree, any line containing the substring `bake` then fails, and
+so does any line containing `rawjson`. Escaped spellings such as `bake\n`
+still match. The rule applies across the whole tree, so a command assembled
+from a variable defined in another file is caught.
+
+Unrelated mentions are allowed only as exact lines listed in the check, each
+with a reason. Deliberate obfuscation, such as splitting the word across
+variables or decoding it at run time, is left to code review.
 
 The pinned builder was qualified locally on 2026-10-18 without publishing it.
 It was built with a resource-capped, throwaway BuildKit builder, and nothing

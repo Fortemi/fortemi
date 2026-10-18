@@ -28,6 +28,12 @@ class CheckBuildxPolicyTests(unittest.TestCase):
             "run: >-\n  docker buildx\n  bake\n",
             'RUN ["docker", "buildx", "bake"]',
             "docker BUILDX BAKE",
+            'run: "docker buildx bake\\n"',
+            'run: "docker buildx\\tbake"',
+            'RUN ["sh", "-c", "docker buildx bake\\n"]',
+            "printf 'docker buildx bake\\n' | bash",
+            "docker buildx bakehouse",
+            "docker buildx build # never bake here",
         ):
             with self.subTest(content=content):
                 self.assert_flagged(content, "bake")
@@ -44,19 +50,30 @@ class CheckBuildxPolicyTests(unittest.TestCase):
             with self.subTest(content=content):
                 self.assert_flagged(content, "rawjson")
 
-    def test_allows_ordinary_builds_and_bake_without_buildx(self):
+    def test_allows_ordinary_builds_and_listed_bake_lines(self):
         for content in (
             "docker buildx build --progress plain",
-            "docker buildx build --progress=plain -f ./bakery.Dockerfile .",
-            "docker buildx bakehouse",
-            'errors.append("Dockerfile.bundle must not bake POSTGRES_PASSWORD")',
-            "# do not bake secrets into images",
+            "docker buildx build --progress=plain -f ./Dockerfile.builder .",
         ):
             with self.subTest(content=content):
                 self.assertEqual(guard.violations(content), [])
-        self.assertEqual(
-            guard.violations((ROOT / "scripts/ci/verify-bundle-db-secrets.py").read_text()), []
-        )
+        for relative in ("scripts/ci/verify-bundle-db-secrets.py", "build/README.md"):
+            with self.subTest(relative=relative):
+                text = (ROOT / relative).read_text()
+                self.assertEqual(guard.violations(text, relative), [])
+                # A bake command added to an allow-listed file is still caught.
+                self.assertTrue(guard.violations(text + "\ndocker buildx bake\n", relative))
+
+    def test_bake_without_buildx_anywhere_in_tree_is_allowed(self):
+        self.assertEqual(guard.violations("# do not bake secrets", buildx_in_tree=False), [])
+
+    def test_buildx_in_one_file_and_bake_in_another_is_caught(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "scripts/ci").mkdir(parents=True)
+            (root / "scripts/ci/env.sh").write_text("TOOL=buildx\n")
+            (root / "scripts/ci/run.sh").write_text('docker "$TOOL" bake\n')
+            self.assertEqual(len(guard.verify(root)), 1)
 
     def test_scans_all_policy_directories_and_skips_only_listed_files(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -74,10 +91,11 @@ class CheckBuildxPolicyTests(unittest.TestCase):
             cache = root / "scripts/ci/__pycache__"
             cache.mkdir(parents=True)
             (cache / "policy.cpython-314.pyc").write_bytes(b"docker buildx bake\n")
-            (root / "scripts/ci/stray.pyo").write_bytes(b"docker buildx bake\n")
             self.assertEqual(guard.verify(root), [])
+            # Authored files are never skipped by suffix alone.
+            (root / "scripts/ci/disguised.pyc").write_text("docker buildx bake\n")
             (cache / "notes.sh").write_text("docker buildx bake\n")
-            self.assertEqual(len(guard.verify(root)), 1)
+            self.assertEqual(len(guard.verify(root)), 2)
 
     def test_repository_passes(self):
         self.assertEqual(guard.verify(ROOT), [])
