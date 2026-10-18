@@ -124,7 +124,7 @@ class ZipExceptionGuardTests(unittest.TestCase):
             self.check(today=date(2026, 11, 17))
 
     def test_unapproved_zip_versions_fail(self):
-        for version in ["2.4.3", "3.0.1", "8.9.0", "10.0.0", "9.0.0-pre2", "9.0.5-rc.1", "9.0.3", "9.0.0"]:
+        for version in ["2.4.3", "3.0.1", "8.9.0", "10.0.0", "9.0.0-pre2", "9.0.5-rc.1", "9.0.5+build", "9.0.3", "9.0.2", "9.0.1", "9.0.0"]:
             with self.subTest(version=version):
                 self.metadata = fixture()
                 next(p for p in self.metadata["packages"] if p["id"] == "zip9")["version"] = version
@@ -137,8 +137,11 @@ class ZipExceptionGuardTests(unittest.TestCase):
             self.check()
 
     def test_new_zip9_version_passes(self):
-        next(p for p in self.metadata["packages"] if p["id"] == "zip9")["version"] = "9.1.0"
-        self.check()
+        for version in ["9.0.4", "9.1.0"]:
+            with self.subTest(version=version):
+                self.metadata = fixture()
+                next(p for p in self.metadata["packages"] if p["id"] == "zip9")["version"] = version
+                self.check()
 
     def test_lock_only_extra_consumer_fails(self):
         lock = lock_fixture(self.metadata)
