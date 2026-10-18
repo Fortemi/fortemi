@@ -97,6 +97,20 @@ class CheckBuildxPolicyTests(unittest.TestCase):
             (cache / "notes.sh").write_text("docker buildx bake\n")
             self.assertEqual(len(guard.verify(root)), 2)
 
+    def test_rejects_non_utf8_and_nul_containing_inputs(self):
+        for encoding in ("utf-16", "utf-16-le", "utf-16-be", "utf-32"):
+            with self.subTest(encoding=encoding), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                (root / ".gitea/workflows").mkdir(parents=True)
+                (root / ".gitea/workflows/ci.yml").write_bytes(
+                    "run: docker buildx bake --progress=rawjson\n".encode(encoding))
+                self.assertTrue(any("unsupported encoding" in error for error in guard.verify(root)))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "build").mkdir()
+            (root / "build/blob").write_bytes(b"\xff\xfe\x00binary")
+            self.assertTrue(any("unsupported encoding" in error for error in guard.verify(root)))
+
     def test_repository_passes(self):
         self.assertEqual(guard.verify(ROOT), [])
 
