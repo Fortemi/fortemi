@@ -40,12 +40,10 @@
 #   COMPOSE_PROFILES=gpu-12gb   # in .env (mid-range GPU)
 #   COMPOSE_PROFILES=gpu-24gb   # in .env (high-end GPU)
 #
-# Optional host-control profile (never enabled by default):
-#   COMPOSE_PROFILES=edge,ops-autoheal
-# This grants the third-party autoheal container root-equivalent control of the
-# host through the Docker socket. A read-only socket mount is not a security
-# boundary. Prefer restart policies plus operator monitoring unless this risk is
-# explicitly accepted.
+# ops-autoheal is disabled pending Fortemi/fortemi#1240: willfarrell/autoheal
+# 1.2.0 uses end-of-life Alpine 3.13 with unpatched HIGH/CRITICAL advisories.
+# The service is removed so direct Compose use cannot start it. Re-enablement
+# requires a reviewed replacement under #1240; use restart policies and monitoring.
 #
 # For clean install (wipe database):
 #   docker compose -f docker-compose.bundle.yml down -v
@@ -56,23 +54,6 @@
 # Manual MCP_CLIENT_ID/MCP_CLIENT_SECRET in .env only needed for standalone (non-Docker) deployments.
 
 services:
-  # Trusted, explicit opt-in only: restarts labeled unhealthy containers.
-  # Docker socket access is root-equivalent host control; :ro is not a security
-  # boundary. The default bundle relies on restart policies and operator
-  # monitoring and contains no Docker socket mount.
-  autoheal:
-    image: ${FORTEMI_AUTOHEAL_IMAGE:-willfarrell/autoheal:1.2.0@sha256:31f580ef0279eaced5b38d631b08c474d70d8403c1c2fdd6ddcf2e879d5f3f7c}
-    profiles:
-      - ops-autoheal
-    environment:
-      - AUTOHEAL_CONTAINER_LABEL=autoheal
-      - AUTOHEAL_INTERVAL=30
-      - AUTOHEAL_START_PERIOD=300
-      - AUTOHEAL_DEFAULT_STOP_TIMEOUT=10
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    restart: unless-stopped
-
   # Redis cache for search query results
   redis:
     image: ${FORTEMI_REDIS_IMAGE:-redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99}

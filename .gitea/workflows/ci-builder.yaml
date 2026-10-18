@@ -248,6 +248,11 @@ jobs:
           install -m 0755 /tmp/docker-compose ~/.docker/cli-plugins/docker-compose
           docker compose version
 
+      - name: Check Buildx invocation policy
+        run: |
+          # https://github.com/docker/buildx/security/advisories/GHSA-gwr2-q96m-6682 and https://github.com/docker/buildx/security/advisories/GHSA-p54p-jq4x-rc28
+          if grep -RInE 'buildx[[:space:]]+bake|--progress[=]rawjson' .gitea/ scripts/ build/; then exit 1; else test "$?" -eq 1; fi
+
       - name: Check Docker bundle exposure policy
         run: |
           python3 scripts/ci/verify-third-party-dependencies.py
@@ -259,9 +264,18 @@ jobs:
               COMPOSE_PROFILES="${profiles}" \
               bash scripts/validate-bundle-exposure.sh /dev/null
           done
-          POSTGRES_PASSWORD=ci-render-fixture-not-a-runtime-secret \
+          if POSTGRES_PASSWORD=ci-render-fixture-not-a-runtime-secret \
             COMPOSE_PROFILES=edge,ops-autoheal \
-            bash scripts/validate-bundle-exposure.sh /dev/null
+            bash scripts/validate-bundle-exposure.sh /dev/null > /tmp/autoheal-rejection.log 2>&1; then
+            echo "disabled ops-autoheal profile unexpectedly passed" >&2
+            exit 1
+          else
+            status=$?
+            cat /tmp/autoheal-rejection.log
+            test "$status" -eq 1
+            grep -F 'autoheal is disabled' /tmp/autoheal-rejection.log
+            grep -F 'Fortemi/fortemi#1240' /tmp/autoheal-rejection.log
+          fi
           docker compose -f docker-compose.llamacpp.yml config --format json |
             python3 -c 'import json,sys; image=json.load(sys.stdin)["services"]["llamacpp"]["image"]; assert image == "ghcr.io/ggml-org/llama.cpp:server@sha256:b832a7b7252a90a79a1e8d23d9be3ac5261a33224f60682dff0cade412fa55d3", image; print("llama.cpp dependency lock passed")'
           if rg -n 'ghcr\.io/ggerganov/llama\.cpp' \

@@ -228,7 +228,7 @@ class InitBundleEnvTests(unittest.TestCase):
             self.assertNotIn("COMPOSE_PROFILES=edge,ops-autoheal", content)
             self.assertIn("no Docker socket mount", result.stdout)
 
-    def test_installer_requires_explicit_autoheal_mode(self) -> None:
+    def test_installer_rejects_explicit_autoheal_mode_before_writes(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             install_dir = Path(directory)
             scripts_dir = install_dir / "scripts"
@@ -253,12 +253,13 @@ class InitBundleEnvTests(unittest.TestCase):
                 env=env,
             )
 
-            self.assertEqual(result.returncode, 0, result.stderr)
-            content = (install_dir / ".env").read_text(encoding="utf-8")
-            self.assertIn("COMPOSE_PROFILES=edge,ops-autoheal\n", content)
-            self.assertIn("FORTEMI_AUTOHEAL_MODE=ops-autoheal\n", content)
-            self.assertIn("root-equivalent", result.stdout)
-            self.assertIn(":ro is not a", result.stdout)
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("autoheal is disabled because willfarrell/autoheal 1.2.0", result.stderr)
+            self.assertIn("end-of-life Alpine 3.13", result.stderr)
+            self.assertIn("unpatched HIGH/CRITICAL advisories", result.stderr)
+            self.assertIn("Fortemi/fortemi#1240", result.stderr)
+            self.assertFalse((install_dir / ".env").exists())
+            self.assertFalse((install_dir / "data").exists())
 
     def test_installer_rejects_conflicting_autoheal_profile(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -280,8 +281,36 @@ class InitBundleEnvTests(unittest.TestCase):
             )
 
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn("is not ops-autoheal", result.stderr)
+            self.assertIn("autoheal is disabled", result.stderr)
+            self.assertIn("Fortemi/fortemi#1240", result.stderr)
             self.assertFalse((Path(directory) / ".env").exists())
+
+    def test_installer_rejects_autoheal_profiles_and_preserves_existing_env(self) -> None:
+        for mode in ("disabled", "ops-autoheal"):
+            for profiles in ("ops-autoheal", "ops-autoheal,edge", "edge, ops-autoheal "):
+                with self.subTest(mode=mode, profiles=profiles), tempfile.TemporaryDirectory() as directory:
+                    install_dir = Path(directory)
+                    env_file = install_dir / ".env"
+                    content = "KEEP=operator-config\nPOSTGRES_PASSWORD=existing-secret\n"
+                    env_file.write_text(content, encoding="utf-8")
+                    env = os.environ.copy()
+                    env.update({
+                        "INSTALL_DIR": directory,
+                        "COMPOSE_PROFILES": profiles,
+                        "FORTEMI_AUTOHEAL_MODE": mode,
+                    })
+
+                    result = subprocess.run(
+                        ["bash", str(CONFIGURE)], check=False,
+                        capture_output=True, text=True, env=env,
+                    )
+
+                    self.assertEqual(result.returncode, 1)
+                    self.assertIn("autoheal is disabled", result.stderr)
+                    self.assertIn("Fortemi/fortemi#1240", result.stderr)
+                    self.assertEqual(env_file.read_text(encoding="utf-8"), content)
+                    self.assertFalse((install_dir / ".env.bak").exists())
+                    self.assertFalse((install_dir / "data").exists())
 
 
 if __name__ == "__main__":
