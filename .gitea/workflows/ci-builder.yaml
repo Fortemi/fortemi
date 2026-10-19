@@ -479,17 +479,18 @@ jobs:
               COMPOSE_PROFILES="${profiles}" \
               bash scripts/validate-bundle-exposure.sh /dev/null
           done
+          autoheal_log="${TMPDIR:?}/autoheal-rejection.log"
           if POSTGRES_PASSWORD=ci-render-fixture-not-a-runtime-secret \
             COMPOSE_PROFILES=edge,ops-autoheal \
-            bash scripts/validate-bundle-exposure.sh /dev/null > /tmp/autoheal-rejection.log 2>&1; then
+            bash scripts/validate-bundle-exposure.sh /dev/null > "$autoheal_log" 2>&1; then
             echo "disabled ops-autoheal profile unexpectedly passed" >&2
             exit 1
           else
             status=$?
-            cat /tmp/autoheal-rejection.log
+            cat "$autoheal_log"
             test "$status" -eq 1
-            grep -F 'autoheal is disabled' /tmp/autoheal-rejection.log
-            grep -F 'Fortemi/fortemi#1240' /tmp/autoheal-rejection.log
+            grep -F 'autoheal is disabled' "$autoheal_log"
+            grep -F 'Fortemi/fortemi#1240' "$autoheal_log"
           fi
           docker compose -f docker-compose.llamacpp.yml config --format json |
             python3 -c 'import json,sys; image=json.load(sys.stdin)["services"]["llamacpp"]["image"]; assert image == "ghcr.io/ggml-org/llama.cpp:server@sha256:b832a7b7252a90a79a1e8d23d9be3ac5261a33224f60682dff0cade412fa55d3", image; print("llama.cpp dependency lock passed")'
@@ -500,6 +501,12 @@ jobs:
           fi
           docker compose -f docker-compose.whisper.yml config --quiet
           docker compose -f docker-compose.workstation.yml config --quiet
+          python3 -m unittest tests/test_verify_bundle_exposure.py
+
+      - name: Check jobs diagnostic Compose rendering
+        run: |
+          # LOG_FILE is an in-container path rendered into Compose and compared
+          # by the verifier; nothing is written on the runner host.
           POSTGRES_PASSWORD=ci-render-fixture-not-a-runtime-secret \
             FORTEMI_DIAGNOSTIC_PROFILE=jobs \
             RUST_LOG=warn \
@@ -510,7 +517,6 @@ jobs:
             JOB_STALE_REAP_INTERVAL_SECS=7 \
             docker compose -f docker-compose.bundle.yml config --format json | \
             python3 scripts/ci/verify-jobs-diagnostic-compose.py
-          python3 -m unittest tests/test_verify_bundle_exposure.py
 
       - name: Check Docker bundle database secret contract
         run: |
