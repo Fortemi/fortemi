@@ -251,7 +251,7 @@ Guards (verbatim; G0 denotes the implicit default):
 | `build` | G2 | Yes | Yes |
 | `build-image` | G2 | Yes | Yes |
 | `hosted-image-smoke` | G2 | Yes | Yes |
-| `pod-security-restricted` | G2 | Yes; extra local release checks when opted in | Yes |
+| `pod-security-restricted` | G2 | Yes | Yes |
 | `test-container` | G2 | Yes | Yes |
 | `integration-test` | G2 | Yes | Yes |
 | `publish-release` | G3 | Skipped | Yes |

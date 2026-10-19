@@ -522,7 +522,12 @@ jobs:
           python3 -m unittest tests/test_verify_source_backup_artifacts.py
 
       - name: Check change-scoped workflow policy
-        run: python3 -m unittest discover -s tests -p 'test_change_scoped_ci.py'
+        run: |
+          python3 -c 'import yaml' 2>/dev/null || {
+            echo "::error::Host Python lacks PyYAML (python3-yaml); see build/RUNNER_SETUP.md Prerequisites" >&2
+            exit 1
+          }
+          python3 -m unittest discover -s tests -p 'test_change_scoped_ci.py'
 
       - name: Check release job guards
         run: |

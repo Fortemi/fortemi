@@ -36,6 +36,10 @@ This guide explains how to configure a Gitea Actions runner to use the matric-bu
 - Access to `ghcr.io` container registry
 - Dedicated runner host or VM and service account, with no general user
   workloads or untrusted CI co-tenancy
+- Host Python 3 with PyYAML (`python3-yaml` on Debian/Ubuntu). Lint jobs run on
+  the host executor, and the workflow policy tests (`tests/test_ci_run_safety.py`,
+  `tests/test_change_scoped_ci.py`) parse `.gitea/workflows` with it. Lint's
+  first policy step fails with an explicit message when it is missing.
 
 ## Runner Registration
 
