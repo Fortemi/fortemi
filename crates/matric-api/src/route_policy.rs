@@ -85,6 +85,9 @@ pub struct RoutePolicyInput {
     pub action: Action,
     pub resource: Resource,
     pub context: AuthzContext,
+    /// Verified token attribution for audit only; never passed to `AuthorizationPolicy`.
+    /// Kept outside `context.environment`, which is an input to access decisions.
+    pub audit_azp: Option<String>,
 }
 
 impl fmt::Debug for RoutePolicyInput {
@@ -2481,6 +2484,7 @@ pub fn authorization_input_for_request(
         action,
         resource,
         context,
+        audit_azp: None,
     })
 }
 
@@ -3028,6 +3032,7 @@ pub(crate) mod tests {
             action: Action::rest("archive-secret-action", "scope:archive-secret"),
             resource,
             context,
+            audit_azp: Some("private-audit-client".to_string()),
         };
 
         let output = format!("{:?}\n{:?}", POLICY, input);
@@ -3054,6 +3059,7 @@ pub(crate) mod tests {
         }
 
         for raw in [
+            "private-audit-client",
             POLICY.path,
             POLICY.action_family,
             "customer-private-resource-kind",

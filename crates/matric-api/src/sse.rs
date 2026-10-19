@@ -222,6 +222,7 @@ pub(super) async fn authorize_memory_subscription(
     tenant: Option<Uuid>,
     name: &str,
     user_id: Option<Uuid>,
+    identity: Option<&ValidatedBearerIdentity>,
 ) -> Result<(), ApiError> {
     let tenant_text = tenant.map(|id| id.to_string());
     let path = format!("/api/v1/archives/{name}");
@@ -240,6 +241,7 @@ pub(super) async fn authorize_memory_subscription(
     }
     // Archive selection shares the stream's human-read or MCP admission.
     input.action = authorization_input(&auth.principal, human, tenant).action;
+    input = apply_identity_audit_attribution(input, identity);
     authorize_policy_input(
         state.authorization_policy.as_ref(),
         state.audit_sink.as_ref(),

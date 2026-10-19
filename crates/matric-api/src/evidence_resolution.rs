@@ -21,6 +21,7 @@ async fn authorize_note(
     scope: Option<&TenantRequestScope>,
     archive: &ArchiveContext,
     auth: Option<&Auth>,
+    identity: Option<&ValidatedBearerIdentity>,
     locator: &SearchEvidenceLocator,
 ) -> Result<(), ApiError> {
     let note = Uuid::parse_str(locator.note_id()).map_err(|_| unavailable())?;
@@ -48,6 +49,7 @@ async fn authorize_note(
     let input = apply_verified_tenant_to_policy_input(input, tenant);
     let input =
         normalize_route_policy_input_for_authorization(state, input, Some(archive), scope).await;
+    let input = apply_identity_audit_attribution(input, identity);
     let anonymous = Auth {
         principal: AuthPrincipal::Anonymous,
     };
@@ -120,6 +122,7 @@ pub(super) async fn resolve_search_evidence(
     State(state): State<AppState>,
     scope: Option<Extension<TenantRequestScope>>,
     auth: Option<Extension<Auth>>,
+    identity: Option<Extension<ValidatedBearerIdentity>>,
     Extension(archive): Extension<ArchiveContext>,
     headers: HeaderMap,
     body: Result<Bytes, axum::extract::rejection::BytesRejection>,
@@ -128,6 +131,7 @@ pub(super) async fn resolve_search_evidence(
         state: AppState,
         scope: Option<Extension<TenantRequestScope>>,
         auth: Option<Extension<Auth>>,
+        identity: Option<Extension<ValidatedBearerIdentity>>,
         archive: ArchiveContext,
         body: Result<Bytes, axum::extract::rejection::BytesRejection>,
     ) -> Result<Json<Value>, ApiError> {
@@ -138,6 +142,7 @@ pub(super) async fn resolve_search_evidence(
             scope.as_ref().map(|Extension(scope)| scope),
             &archive,
             auth.as_ref().map(|Extension(auth)| auth),
+            identity.as_ref().map(|Extension(identity)| identity),
             &locator,
         )
         .await?;
@@ -175,7 +180,7 @@ pub(super) async fn resolve_search_evidence(
                 .eq_ignore_ascii_case("application/json")
         });
     let mut response = if json_content {
-        resolve(state, scope, auth, archive, body)
+        resolve(state, scope, auth, identity, archive, body)
             .await
             .into_response()
     } else {

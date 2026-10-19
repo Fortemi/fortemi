@@ -7362,6 +7362,7 @@ async fn sse_events(
         input.action = sse::authorization_input(&principal, human, tenant_id).action;
         input = apply_verified_tenant_to_policy_input(input, Some(scope.tenant()));
         input = apply_archive_context_to_policy_input(input, Some(&context));
+        input = apply_identity_audit_attribution(input, identity.as_ref());
         if let Some(user) = identity.as_ref().and_then(sse::stable_user_id) {
             input
                 .context
@@ -7489,6 +7490,7 @@ async fn sse_events(
                 tenant_id,
                 memory_name,
                 identity.as_ref().and_then(sse::stable_user_id),
+                identity.as_ref(),
             )
             .await?;
         }
@@ -13760,6 +13762,9 @@ fn apply_claim_policy_audit_context(
     context: Option<&fortemi_auth_core::AuthContext>,
     principal: Option<&RequestPrincipal>,
 ) -> route_policy::RoutePolicyInput {
+    // Only the verified request principal supplies the authorized party. Do not
+    // put it in AuthzContext: the policy evaluator receives that entire context.
+    input.audit_azp = principal.and_then(|principal| principal.azp.clone());
     if let Some(context) = context {
         input.context.environment.insert(
             "principal_kind".to_string(),
@@ -13817,6 +13822,27 @@ fn apply_claim_policy_audit_context(
     input
 }
 
+/// Fresh resource checks (SSE archives and evidence reads) retain the verified
+/// request's attribution without changing any policy-visible input.
+fn apply_identity_audit_attribution(
+    input: route_policy::RoutePolicyInput,
+    identity: Option<&ValidatedBearerIdentity>,
+) -> route_policy::RoutePolicyInput {
+    #[cfg(feature = "hosted-auth")]
+    {
+        let mut input = input;
+        input.audit_azp = identity
+            .and_then(|identity| identity.request_principal.as_ref())
+            .and_then(|principal| principal.azp.clone());
+        input
+    }
+    #[cfg(not(feature = "hosted-auth"))]
+    {
+        let _ = identity;
+        input
+    }
+}
+
 async fn emit_auth_decision_audit_event(
     audit_sink: &dyn AuditSink,
     event: AuditEvent,
@@ -13855,7 +13881,11 @@ fn auth_decision_audit_event(
         .with_attr("scope_family", format!("{:?}", input.action.scope_family))
         .with_attr("route_template", input.policy.path.to_string())
         .with_attr("policy_class", format!("{:?}", input.policy.class))
-        .with_attr("resource_kind", format!("{:?}", input.resource.kind));
+        .with_attr("resource_kind", format!("{:?}", input.resource.kind))
+        // Match JIT provisioning: null when absent, with the shared audit
+        // sanitizer's string bound and injection/secret redaction applied.
+        .with_attr("azp", serde_json::json!(input.audit_azp))
+        .with_attr("azp_present", input.audit_azp.is_some());
     for key in [
         "principal_kind",
         "scope_grants",
@@ -76214,8 +76244,59 @@ not-json
         assert_eq!(event.attrs["route_template"], "/api/v1/notes");
         assert_eq!(event.attrs["policy_class"], "TenantObject");
         assert_eq!(event.attrs["resource_kind"], "Note");
+        assert_eq!(event.attrs.get("azp"), Some(&serde_json::Value::Null));
         let serialized = serde_json::to_string(&event).expect("serialize audit event");
         assert!(!serialized.contains("tenant:secret"));
+    }
+
+    #[cfg(feature = "hosted-auth")]
+    #[test]
+    fn auth_decision_audit_event_records_exact_azp_for_allow_and_deny() {
+        let auth = Auth {
+            principal: AuthPrincipal::OAuthClient {
+                client_id: "external-oidc".to_string(),
+                user_id: Some("synthetic-subject".to_string()),
+                scope: "read".to_string(),
+            },
+        };
+        for client in [
+            Some("web-auth"),
+            Some("fortemi-cli"),
+            Some("fortemi-admin-cli"),
+            None,
+        ] {
+            let mut principal = RequestPrincipal::legacy(&auth.principal);
+            principal.azp = client.map(ToOwned::to_owned);
+            principal.email = Some("synthetic@example.invalid".to_string());
+            for (outcome, action) in [
+                (AuditOutcome::Success, "decision"),
+                (AuditOutcome::Denied, "decision_deny"),
+            ] {
+                let mut input = route_policy::authorization_input_for_request(
+                    &Method::GET,
+                    "/api/v1/notes",
+                    None,
+                )
+                .unwrap();
+                // An environment value must never override verified attribution
+                // or leak an unrelated email into the event.
+                input
+                    .context
+                    .environment
+                    .insert("azp".into(), serde_json::json!("unverified-client"));
+                input.context.environment.insert(
+                    "email".into(),
+                    serde_json::json!("injected@example.invalid"),
+                );
+                let input = apply_claim_policy_audit_context(input, None, Some(&principal));
+                let event =
+                    auth_decision_audit_event(&auth, &input, outcome, None, "role_based", "test");
+                assert_eq!(event.action, action);
+                assert_eq!(event.attrs.get("azp"), Some(&serde_json::json!(client)));
+                assert_eq!(event.attrs["azp_present"], client.is_some());
+                token_attribution_tests::assert_no_email(&serde_json::to_value(&event).unwrap());
+            }
+        }
     }
 
     #[cfg(feature = "hosted-auth")]
@@ -76317,6 +76398,7 @@ not-json
             Some("018fd1a0-0000-7000-8000-000000000001")
         );
         assert_eq!(event.attrs["reason_code"], "MissingScope");
+        assert_eq!(event.attrs.get("azp"), Some(&serde_json::Value::Null));
         assert_eq!(event.attrs["resource_id_normalized"], false);
         assert_eq!(event.attrs["requires_backing_resource_normalization"], true);
     }

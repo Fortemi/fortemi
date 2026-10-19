@@ -543,8 +543,12 @@ Email is attribution only. Application users are matched by tenant, issuer,
 and subject, never email; email cannot grant scopes or affect authorization.
 The server persists verified attribution on the application user, while `/me`
 reflects the current OIDC token even if a previous token supplied an email.
-Authorization decision audits report `azp_present` without including email
-or raw client values. The verifier is pinned to signed `fortemi-auth`
+Authorization decision and decision-deny audits record the verified token's
+`azp` (for example `web-auth`, `fortemi-cli` or `fortemi-admin-cli`) and
+`azp_present`, matching just-in-time provisioning records. `azp` is `null` for
+API keys, personal access tokens and other credentials without token
+attribution. Audit-only attribution never feeds the authorization decision,
+and no audit record contains email. The verifier is pinned to signed `fortemi-auth`
 `v2026.10.3`, claim contract `4.0.0`.
 
 #### Personal access tokens
