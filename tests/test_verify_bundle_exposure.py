@@ -227,38 +227,49 @@ class BundleExposureTests(unittest.TestCase):
         output = "\n".join((*errors, *warnings, *report.values()))
         self.assertNotIn(secret, output)
 
-    def test_ops_autoheal_profile_accepts_only_reviewed_service(self) -> None:
+    def test_ops_autoheal_profile_rejects_previously_reviewed_service(self) -> None:
         config = base_config()
         config["services"]["autoheal"] = self.autoheal_service()
 
         errors, _, report = MODULE.validate(config, {"edge", "ops-autoheal"})
 
-        self.assertEqual(errors, [])
-        self.assertEqual(report["docker_socket_profile"], "ops-autoheal")
+        self.assertIn(MODULE.AUTOHEAL_DISABLED_REASON, errors)
+        self.assertIn("end-of-life Alpine 3.13", "\n".join(errors))
+        self.assertIn("unpatched HIGH/CRITICAL", "\n".join(errors))
+        self.assertIn("Fortemi/fortemi#1240", "\n".join(errors))
+        self.assertEqual(report["docker_socket_profile"], "forbidden")
 
-    def test_socket_mount_requires_explicit_ops_autoheal_profile(self) -> None:
+    def test_autoheal_service_is_rejected_without_profile(self) -> None:
         config = base_config()
         config["services"]["autoheal"] = self.autoheal_service()
 
         errors, _, _ = MODULE.validate(config)
 
         self.assertIn(
-            "requires the explicit ops-autoheal profile",
+            "Docker socket access is forbidden in the bundle: autoheal",
             "\n".join(errors),
         )
+        self.assertIn(MODULE.AUTOHEAL_DISABLED_REASON, errors)
 
-    def test_ops_autoheal_profile_requires_service_and_pinned_image(self) -> None:
+    def test_ops_autoheal_profile_is_rejected_without_service_or_with_image_override(self) -> None:
         missing_errors, _, _ = MODULE.validate(base_config(), {"ops-autoheal"})
-        self.assertIn(
-            "must render the reviewed autoheal service",
-            "\n".join(missing_errors),
-        )
+        self.assertIn(MODULE.AUTOHEAL_DISABLED_REASON, missing_errors)
 
         config = base_config()
         config["services"]["autoheal"] = self.autoheal_service()
         config["services"]["autoheal"]["image"] = "willfarrell/autoheal:latest"
         image_errors, _, _ = MODULE.validate(config, {"ops-autoheal"})
-        self.assertIn("must be pinned", "\n".join(image_errors))
+        self.assertIn(MODULE.AUTOHEAL_DISABLED_REASON, image_errors)
+        self.assertIn("require immutable digest references", "\n".join(image_errors))
+
+    def test_autoheal_service_is_rejected_even_without_socket_mount(self) -> None:
+        config = base_config()
+        config["services"]["autoheal"] = self.autoheal_service()
+        del config["services"]["autoheal"]["volumes"]
+
+        errors, _, _ = MODULE.validate(config)
+
+        self.assertIn(MODULE.AUTOHEAL_DISABLED_REASON, errors)
 
     def test_other_service_can_never_mount_docker_socket(self) -> None:
         config = base_config()
@@ -277,9 +288,17 @@ class BundleExposureTests(unittest.TestCase):
         errors, _, _ = MODULE.validate(config, {"ops-autoheal"})
 
         self.assertIn(
-            "forbidden outside the autoheal service: unexpected",
+            "Docker socket access is forbidden in the bundle: autoheal, unexpected",
             "\n".join(errors),
         )
+
+    def test_other_service_socket_is_rejected_without_autoheal_profile(self) -> None:
+        config = base_config()
+        config["services"]["unexpected"] = self.autoheal_service()
+
+        errors, _, _ = MODULE.validate(config)
+
+        self.assertIn("Docker socket access is forbidden in the bundle: unexpected", errors)
 
     @staticmethod
     def autoheal_service() -> dict:

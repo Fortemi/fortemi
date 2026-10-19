@@ -42,4 +42,26 @@ ignore = [
     # Expiry: 2026-10-01 (re-check calamine releases monthly)
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
+
+    # #1221 Option B, PO accepted 2026-10-17. Only these old ZIP paths:
+    # - calamine 0.26.1 -> zip 2.4.2 (runtime):
+    #   calamine reads xlsx/ods in memory via ZipArchive::new + by_name/by_index; never calls extract()
+    #   Source refs in calamine 0.26.1: src/xlsx/mod.rs:915,
+    #   src/ods.rs:137, src/xlsb/mod.rs:453. Follow-up: #1228.
+    # - utoipa-swagger-ui 9.0.2 -> zip 3.0.0 (build time only): no upgraded
+    #   release using zip 9 is adopted in Option B. The vendored feature uses
+    #   checksum-pinned utoipa-swagger-ui-vendored input from Cargo.lock;
+    #   build.rs:84-144 reads by_index/enclosed_name, writes only dist assets
+    #   under OUT_DIR, and applies Unix modes. No untrusted runtime input.
+    #   Follow-up: #1229.
+    # Exact extract-only advisories: RUSTSEC-2026-0367, RUSTSEC-2026-0368,
+    # RUSTSEC-2026-0369. No read-path advisory or other ZIP version is approved.
+    # Owner: maintainers. Expiry: 2026-11-16 (both paths; <=30 days).
+    # Advisory ignores are ID-wide in the tools; enforce the approved scope
+    # with scripts/ci/zip-exception-guard.py before cargo audit in CI (scope,
+    # workspace edges, libbz2 paths, and UTC expiry). EXCEPTION_EXPIRY is the
+    # executable date; its unit test checks that these comments match it.
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
 ]

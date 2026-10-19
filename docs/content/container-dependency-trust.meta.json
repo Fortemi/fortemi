@@ -1,0 +1,19 @@
+{
+  "provenance": [
+    {
+      "issue": "Fortemi/fortemi#1237",
+      "url": "https://git.integrolabs.net/Fortemi/fortemi/issues/1237",
+      "scope": "Builder feed review and local qualification acceptance criteria"
+    },
+    {
+      "issue": "Fortemi/fortemi#1240",
+      "url": "https://git.integrolabs.net/Fortemi/fortemi/issues/1240",
+      "scope": "Reviewed replacement and re-enablement of disabled autoheal"
+    },
+    {
+      "issue": "roctinam/sysops#187",
+      "url": "https://git.integrolabs.net/roctinam/sysops/issues/187",
+      "scope": "Titan host Buildx upgrade"
+    }
+  ]
+}

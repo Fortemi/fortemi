@@ -247,7 +247,8 @@ impl ArchiveAdapter {
         probe.contains(&0)
     }
 
-    /// Extract text and entry metadata from a ZIP archive.
+    /// Extract text and entry metadata from a ZIP archive, entirely in memory.
+    /// Entry paths, symlinks and Unix modes are never applied to the filesystem.
     fn extract_zip(data: &[u8], limits: &Limits) -> Result<ExtractOutput> {
         let cursor = Cursor::new(data);
         let mut archive = zip::ZipArchive::new(cursor)
@@ -263,7 +264,10 @@ impl ArchiveAdapter {
                 matric_core::Error::Internal(archive_failure_detail("zip_index", &e))
             })?;
 
-            let name = file.name().to_string();
+            let name = file
+                .name()
+                .map_err(|e| matric_core::Error::Internal(archive_failure_detail("zip_name", &e)))?
+                .into_owned();
             let size = file.size();
             let is_dir = file.is_dir();
 
@@ -655,7 +659,7 @@ mod tests {
         let buf = Vec::new();
         let cursor = Cursor::new(buf);
         let mut writer = zip::ZipWriter::new(cursor);
-        let options = zip::write::FileOptions::<()>::default()
+        let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Stored);
 
         for (name, content) in entries {
@@ -665,7 +669,7 @@ mod tests {
             } else {
                 // Directory entry
                 writer
-                    .add_directory(*name, zip::write::FileOptions::<()>::default())
+                    .add_directory(*name, zip::write::SimpleFileOptions::default())
                     .unwrap();
             }
         }
@@ -764,6 +768,189 @@ mod tests {
     }
 
     // ── ZIP extraction ────────────────────────────────────────────────────────
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_zip_ingest_contains_symlinks_and_privileged_modes() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = tempfile::tempdir().unwrap();
+        let destination = root.path().join("destination");
+        let outside = root.path().join("outside");
+        fs::create_dir(&destination).unwrap();
+        fs::create_dir(&outside).unwrap();
+        let sentinel = outside.join("sentinel.txt");
+        fs::write(&sentinel, b"untouched").unwrap();
+        fs::set_permissions(&sentinel, fs::Permissions::from_mode(0o600)).unwrap();
+
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        // unix_permissions() masks off special bits; external_attributes() is
+        // necessary to construct a genuinely malicious central-directory mode.
+        writer
+            .start_file(
+                "privileged.txt",
+                options.external_attributes(0o106755 << 16),
+            )
+            .unwrap();
+        writer.write_all(b"ordinary text").unwrap();
+        writer
+            .add_symlink("escape", outside.to_str().unwrap(), options)
+            .unwrap();
+        writer.start_file("escape/payload.txt", options).unwrap();
+        writer.write_all(b"must stay inside").unwrap();
+        writer
+            .add_symlink("sentinel-link", sentinel.to_str().unwrap(), options)
+            .unwrap();
+        let zip_data = writer.finish().unwrap().into_inner();
+
+        // Check the fixture itself so a writer API change cannot silently remove
+        // the attack conditions from this regression test.
+        let mut archive = zip::ZipArchive::new(Cursor::new(&zip_data)).unwrap();
+        assert_eq!(
+            (archive
+                .by_name("privileged.txt")
+                .unwrap()
+                .external_attributes()
+                >> 16)
+                & 0o6000,
+            0o6000
+        );
+        assert!(archive.by_name("escape").unwrap().is_symlink());
+
+        let result = ArchiveAdapter
+            .extract(
+                &zip_data,
+                destination.join("crafted.zip").to_str().unwrap(),
+                "application/zip",
+                &serde_json::json!({}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.metadata["total_files"], 4);
+        assert!(result.extracted_text.unwrap().contains("ordinary text"));
+        assert!(result.derived_files.is_empty());
+        assert_eq!(fs::read_dir(&destination).unwrap().count(), 0);
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 1);
+        assert_eq!(fs::read(&sentinel).unwrap(), b"untouched");
+        assert_eq!(
+            fs::metadata(&sentinel).unwrap().permissions().mode() & 0o7777,
+            0o600
+        );
+
+        // Also exercise the dependency's disk-extraction fixes. The regular file
+        // precedes the rejected symlink, so the permission assertion is not vacuous.
+        assert!(archive.extract(&destination).is_err());
+        let extracted = destination.join("privileged.txt");
+        assert_eq!(fs::read(&extracted).unwrap(), b"ordinary text");
+        assert_eq!(
+            fs::metadata(extracted).unwrap().permissions().mode() & 0o6000,
+            0
+        );
+        assert!(fs::symlink_metadata(destination.join("escape")).is_err());
+        assert!(fs::symlink_metadata(destination.join("sentinel-link")).is_err());
+        assert_eq!(fs::read_dir(&outside).unwrap().count(), 1);
+        assert_eq!(fs::read(&sentinel).unwrap(), b"untouched");
+        assert_eq!(
+            fs::metadata(sentinel).unwrap().permissions().mode() & 0o7777,
+            0o600
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_zip_extract_does_not_apply_symlink_mode_to_target() {
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let destination = tempfile::tempdir().unwrap();
+        let sentinel = destination.path().join("sentinel.txt");
+        fs::write(&sentinel, b"untouched").unwrap();
+        fs::set_permissions(&sentinel, fs::Permissions::from_mode(0o600)).unwrap();
+
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        // RUSTSEC-2026-0369: this symlink is allowed by containment checks.
+        // Applying its archive mode with chmod would follow it and change the
+        // sentinel to 0777. No escaping link can short-circuit this fixture.
+        writer
+            .add_symlink(
+                "sentinel-link",
+                "sentinel.txt",
+                options.unix_permissions(0o777),
+            )
+            .unwrap();
+        writer
+            .start_file("after-link.txt", options.unix_permissions(0o640))
+            .unwrap();
+        writer.write_all(b"permission pass reached").unwrap();
+        let zip_data = writer.finish().unwrap().into_inner();
+
+        let mut archive = zip::ZipArchive::new(Cursor::new(&zip_data)).unwrap();
+        let link_entry = archive.by_name("sentinel-link").unwrap();
+        assert!(link_entry.is_symlink());
+        assert_eq!(link_entry.unix_mode().unwrap() & 0o777, 0o777);
+        drop(link_entry);
+
+        // Successful extraction, a real symlink, and the trailing file's mode
+        // prove this assertion is independent of the earlier escape rejection.
+        archive.extract(destination.path()).unwrap();
+        let link = destination.path().join("sentinel-link");
+        assert!(fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(
+            fs::read_link(&link).unwrap(),
+            std::path::Path::new("sentinel.txt")
+        );
+        assert_eq!(fs::read(&sentinel).unwrap(), b"untouched");
+        assert_eq!(
+            fs::metadata(&sentinel).unwrap().permissions().mode() & 0o7777,
+            0o600
+        );
+        let after_link = destination.path().join("after-link.txt");
+        assert_eq!(fs::read(&after_link).unwrap(), b"permission pass reached");
+        assert_eq!(
+            fs::metadata(after_link).unwrap().permissions().mode() & 0o7777,
+            0o640
+        );
+    }
+
+    #[tokio::test]
+    async fn test_zip_bzip2_entry_extraction() {
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Bzip2);
+        writer.start_file("notes/bzip2.txt", options).unwrap();
+        writer
+            .write_all(b"Compressed with bzip2 inside a zip")
+            .unwrap();
+        let zip_data = writer.finish().unwrap().into_inner();
+
+        let mut reread = zip::ZipArchive::new(Cursor::new(zip_data.clone())).unwrap();
+        assert_eq!(
+            reread.by_index(0).unwrap().compression(),
+            zip::CompressionMethod::Bzip2
+        );
+
+        let result = ArchiveAdapter
+            .extract(
+                &zip_data,
+                "bz.zip",
+                "application/zip",
+                &serde_json::json!({}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.metadata["total_files"], 1);
+        let text = result.extracted_text.unwrap();
+        assert!(text.contains("notes/bzip2.txt"));
+        assert!(text.contains("Compressed with bzip2 inside a zip"));
+    }
 
     #[tokio::test]
     async fn test_zip_text_extraction() {

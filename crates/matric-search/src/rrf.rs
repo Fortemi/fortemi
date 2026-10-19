@@ -97,6 +97,7 @@ pub fn rrf_fuse(ranked_lists: Vec<Vec<SearchHit>>, limit: usize) -> Vec<SearchHi
         b.score
             .partial_cmp(&a.score)
             .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.note_id.cmp(&b.note_id))
     });
     results.truncate(limit);
 
@@ -113,6 +114,29 @@ pub fn rrf_fuse(ranked_lists: Vec<Vec<SearchHit>>, limit: usize) -> Vec<SearchHi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn equal_fusion_scores_use_uuid_order() {
+        let hit = |id| SearchHit {
+            note_id: Uuid::from_u128(id),
+            score: 1.0,
+            evidence: None,
+            snippet: None,
+            title: None,
+            tags: Vec::new(),
+            embedding_status: None,
+        };
+        for _ in 0..10 {
+            let results = rrf_fuse(vec![vec![hit(2), hit(1)], vec![hit(1), hit(2)]], 10);
+            assert_eq!(
+                results
+                    .iter()
+                    .map(|h| h.note_id.as_u128())
+                    .collect::<Vec<_>>(),
+                vec![1, 2]
+            );
+        }
+    }
 
     #[test]
     fn test_rrf_fuse_single_list() {

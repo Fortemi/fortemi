@@ -84,6 +84,8 @@ pub struct HybridSearchConfig {
     /// MMR diversity weight (0.0 = pure relevance, 1.0 = max diversity).
     /// When None or 0.0, MMR re-ranking is skipped.
     pub diversity: Option<f32>,
+    /// Adaptive lexical query policy; explicit syntax always takes precedence.
+    pub query_policy: crate::query_policy::QueryPolicyConfig,
 }
 
 impl fmt::Debug for HybridSearchConfig {
@@ -148,6 +150,7 @@ impl Default for HybridSearchConfig {
             script_hint: None,
             fts_flags: FtsFeatureFlags::default(),
             diversity: None,
+            query_policy: crate::query_policy::QueryPolicyConfig::from_env(),
         }
     }
 }
@@ -361,7 +364,9 @@ impl HybridSearchEngine {
         config: &HybridSearchConfig,
     ) -> Result<Vec<EnhancedSearchHit>> {
         use matric_db::search_candidates::{
-            lexical_on_connection, vector_on_connection, LexicalStrategy, SearchCandidateScope,
+            classify_lexical_matches, lexical_compiled_on_connection, normalize_expression,
+            normalize_query, query_terms, vector_on_connection, LexicalStrategy,
+            SearchCandidateScope,
         };
         let start = Instant::now();
         if !(0..=1000).contains(&limit) {
@@ -372,13 +377,15 @@ impl HybridSearchEngine {
         if limit == 0 {
             return Ok(Vec::new());
         }
-        let scope = SearchCandidateScope {
+        let parsed = matric_db::search_query::ParsedQuery::parse(query)?;
+        let mut scope = SearchCandidateScope {
             metadata: config.metadata_predicates.clone(),
             strict: config.strict_filter.clone(),
             unified: config.unified_filter.clone(),
             legacy_filters: filters.to_string(),
             embedding_set_id: config.embedding_set_id,
             exclude_archived: config.exclude_archived,
+            lexical_constraint: None,
         };
         let (strategy, detected_script) = Self::select_strategy(query, config);
         debug!(
@@ -386,19 +393,79 @@ impl HybridSearchEngine {
             ?strategy,
             "Selected search strategy based on script detection"
         );
-        let strategy = match strategy {
+        let mut strategy = match strategy {
             SearchStrategy::FtsEnglish => LexicalStrategy::English,
             SearchStrategy::FtsSimple => LexicalStrategy::Simple,
             SearchStrategy::Trigram => LexicalStrategy::Trigram,
             SearchStrategy::Bigram | SearchStrategy::Cjk => LexicalStrategy::Bigram,
         };
+        if parsed.explicit
+            && !matches!(strategy, LexicalStrategy::English | LexicalStrategy::Simple)
+        {
+            strategy = LexicalStrategy::Simple;
+        }
+        let lexical_policy = matches!(strategy, LexicalStrategy::English | LexicalStrategy::Simple);
+        let strict_query = if parsed.explicit {
+            let expression = normalize_expression(connection, &parsed, strategy).await?;
+            let compiled = expression.tsquery()?;
+            scope.lexical_constraint = Some((expression, strategy));
+            compiled
+        } else if lexical_policy {
+            normalize_query(connection, &parsed.tsquery()?, strategy).await?
+        } else {
+            query.to_string()
+        };
+        let terms = if lexical_policy && !parsed.explicit {
+            query_terms(connection, query, strategy)
+                .await?
+                .iter()
+                .map(|term| matric_db::search_query::quote_term(term))
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        let candidate_limit = config.query_policy.bounded_limit(limit);
+        let mut decision = crate::query_policy::QueryPolicyConfig {
+            enabled: false,
+            ..config.query_policy.clone()
+        }
+        .decide(parsed.explicit, terms.len(), 0);
         let mut lists = Vec::new();
         let mut fts_count = 0;
         let mut semantic_count = 0;
         if config.fts_weight > 0.0 && !query.trim().is_empty() {
             let fts_start = Instant::now();
-            let hits =
-                lexical_on_connection(connection, query, limit * 2, strategy, &scope).await?;
+            let strict_hits = lexical_compiled_on_connection(
+                connection,
+                &strict_query,
+                candidate_limit,
+                strategy,
+                &scope,
+            )
+            .await?;
+            decision = config
+                .query_policy
+                .decide(parsed.explicit, terms.len(), strict_hits.len());
+            let hits = if decision.policy == "minimum_should_match" {
+                let expanded = lexical_compiled_on_connection(
+                    connection,
+                    &terms.join(" | "),
+                    candidate_limit,
+                    strategy,
+                    &scope,
+                )
+                .await?;
+                // Preserve the strict reservoir even if OR scoring fills the expansion cap.
+                let mut hits = strict_hits;
+                let mut seen = hits
+                    .iter()
+                    .map(|h| h.note_id)
+                    .collect::<std::collections::HashSet<_>>();
+                hits.extend(expanded.into_iter().filter(|h| seen.insert(h.note_id)));
+                hits
+            } else {
+                strict_hits
+            };
             fts_count = hits.len();
             debug!(
                 fts_hits = fts_count,
@@ -418,7 +485,7 @@ impl HybridSearchEngine {
                 } else {
                     MIN_SEMANTIC_SIMILARITY
                 };
-                let hits = vector_on_connection(connection, vector, limit * 2, &scope)
+                let hits = vector_on_connection(connection, vector, candidate_limit, &scope)
                     .await?
                     .into_iter()
                     .filter(|hit| hit.score >= threshold)
@@ -431,7 +498,34 @@ impl HybridSearchEngine {
             }
         }
         let fusion_start = Instant::now();
-        let mut results = rrf_fuse(lists, limit as usize * 3);
+        // Classify the entire bounded union before fusion truncation. Semantic
+        // candidates cannot bypass a relaxed minimum-should-match requirement.
+        let ids = lists
+            .iter()
+            .flatten()
+            .map(|h| h.note_id)
+            .collect::<Vec<_>>();
+        let matches = if lexical_policy && !parsed.explicit {
+            classify_lexical_matches(connection, &ids, &strict_query, &terms, strategy).await?
+        } else {
+            Vec::new()
+        };
+        let full_ids = matches
+            .iter()
+            .filter(|(_, full, _)| *full)
+            .map(|(id, _, _)| *id)
+            .collect::<std::collections::HashSet<_>>();
+        if decision.policy == "minimum_should_match" && config.fts_weight > 0.0 {
+            let eligible = matches
+                .iter()
+                .filter(|(_, full, count)| *full || *count >= decision.required_terms as i64)
+                .map(|(id, _, _)| *id)
+                .collect::<std::collections::HashSet<_>>();
+            for list in &mut lists {
+                list.retain(|h| eligible.contains(&h.note_id));
+            }
+        }
+        let mut results = rrf_fuse(lists, candidate_limit as usize * 3);
         debug!(
             fusion_method = "rrf",
             result_count = results.len(),
@@ -460,7 +554,13 @@ impl HybridSearchEngine {
                     .await?;
                 let vectors = rows.into_iter().map(|row| Ok((row.try_get("note_id")?, row.try_get("vector")?)))
                     .collect::<std::result::Result<std::collections::HashMap<Uuid, Vector>, sqlx::Error>>()?;
-                results = mmr_rerank(results, &vectors, vector, diversity, limit as usize * 3);
+                results = mmr_rerank(
+                    results,
+                    &vectors,
+                    vector,
+                    diversity,
+                    candidate_limit as usize * 3,
+                );
                 mmr_applied = true;
                 debug!(diversity = %diversity, vectors_fetched = vectors.len(), result_count = results.len(), duration_ms = mmr_start.elapsed().as_millis() as u64, "MMR diversity re-ranking complete");
             }
@@ -474,7 +574,31 @@ impl HybridSearchEngine {
         } else {
             deduplicate_search_results(results, &config.deduplication)
         };
+        // Stable partition after every rank-changing step. Within each tier,
+        // retain fused/MMR order, including the UUID tie break from fusion.
+        if lexical_policy && !parsed.explicit && config.fts_weight > 0.0 {
+            results.sort_by_key(|hit| !full_ids.contains(&hit.hit.note_id));
+        }
         results.truncate(limit as usize);
+        let match_tiers = results
+            .iter()
+            .map(|hit| {
+                if parsed.explicit || full_ids.contains(&hit.hit.note_id) {
+                    "full"
+                } else {
+                    "partial"
+                }
+            })
+            .collect::<Vec<_>>();
+        debug!(
+            policy = decision.policy,
+            trigger = decision.trigger,
+            required_terms = decision.required_terms,
+            analyzed_terms = terms.len(),
+            candidate_limit,
+            ?match_tiers,
+            "Lexical query policy diagnostics"
+        );
         info!(
             fts_hits = fts_count,
             semantic_hits = semantic_count,
