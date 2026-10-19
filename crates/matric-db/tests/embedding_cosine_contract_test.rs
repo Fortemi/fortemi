@@ -1,5 +1,31 @@
 use std::{fs, path::Path};
 
+// PostgreSQL also uses <-> for tsquery phrase adjacency. These exact lines
+// construct/test lexical phrases; they never compare embedding vectors. Keep
+// the exception scoped to this file and these statements, not all query code.
+const TSQUERY_PHRASE_LINES: [&str; 2] = [
+    r#".join(" <-> ")"#,
+    r#"("\"alpha the beta\"", "('alpha' <-> 'the' <-> 'beta')", true),"#,
+];
+
+fn forbidden_operator(path: &Path, line: &str) -> Option<&'static str> {
+    [
+        "vector_ip_ops",
+        "halfvec_ip_ops",
+        "vector_l2_ops",
+        "halfvec_l2_ops",
+        "<#>",
+        "<->",
+    ]
+    .into_iter()
+    .find(|&forbidden| {
+        line.contains(forbidden)
+            && !(forbidden == "<->"
+                && path.ends_with("src/search_query.rs")
+                && TSQUERY_PHRASE_LINES.contains(&line.trim()))
+    })
+}
+
 fn scan(path: &Path, extension: &str, checked: &mut usize) {
     for entry in fs::read_dir(path).unwrap() {
         let path = entry.unwrap().path();
@@ -7,19 +33,9 @@ fn scan(path: &Path, extension: &str, checked: &mut usize) {
             scan(&path, extension, checked);
         } else if path.extension().is_some_and(|ext| ext == extension) {
             let source = fs::read_to_string(&path).unwrap();
-            // All current distance operators here are embedding searches. There
-            // are no non-embedding exceptions; add a documented allowlist if needed.
-            for forbidden in [
-                "vector_ip_ops",
-                "halfvec_ip_ops",
-                "vector_l2_ops",
-                "halfvec_l2_ops",
-                "<#>",
-                "<->",
-            ] {
-                for (line, text) in source.lines().enumerate() {
-                    assert!(
-                        !text.contains(forbidden),
+            for (line, text) in source.lines().enumerate() {
+                if let Some(forbidden) = forbidden_operator(&path, text) {
+                    panic!(
                         "{}:{}: non-cosine embedding search: {forbidden}",
                         path.display(),
                         line + 1
@@ -27,6 +43,47 @@ fn scan(path: &Path, extension: &str, checked: &mut usize) {
                 }
             }
             *checked += 1;
+        }
+    }
+}
+
+#[test]
+fn only_documented_tsquery_phrase_statements_are_allowlisted() {
+    let path = Path::new("src/search_query.rs");
+    for line in TSQUERY_PHRASE_LINES {
+        assert_eq!(forbidden_operator(path, line), None);
+        // Identical text in another source file is not exempt.
+        assert_eq!(
+            forbidden_operator(Path::new("src/embedding.rs"), line),
+            Some("<->")
+        );
+        // Extra vector SQL on an allowlisted line must still be rejected.
+        assert_eq!(
+            forbidden_operator(path, &format!("{line} e.vector <-> $1")),
+            Some("<->")
+        );
+    }
+}
+
+#[test]
+fn non_cosine_vector_queries_and_indexes_are_rejected_even_in_phrase_parser() {
+    for path in [
+        "src/search_query.rs",
+        "src/embedding.rs",
+        "migrations/test.sql",
+    ] {
+        for forbidden in [
+            "vector_ip_ops",
+            "halfvec_ip_ops",
+            "vector_l2_ops",
+            "halfvec_l2_ops",
+            "<#>",
+            "<->",
+        ] {
+            assert_eq!(
+                forbidden_operator(Path::new(path), &format!("e.vector {forbidden} $1")),
+                Some(forbidden)
+            );
         }
     }
 }
