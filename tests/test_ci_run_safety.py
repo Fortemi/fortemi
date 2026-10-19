@@ -692,6 +692,38 @@ class OwnershipTests(unittest.TestCase):
                 with self.subTest(bad=bad), self.assertRaises(ValueError):
                     self.module.container_args('run', bad)
 
+    def test_hidden_network_aliases_map_only_to_documented_flags(self):
+        real_help = (ROOT / 'tests/fixtures/docker/run-help-29.1.3.txt').read_text()
+        no_network_help = '\n'.join(line for line in real_help.splitlines() if '--network' not in line)
+        def capture_with(help_text):
+            def capture(*args):
+                if args[-1] == '--help': return help_text
+                return '[{"Config":{"Volumes":{}}}]'
+            return capture
+        accepted = [
+            ['--net', 'n1', 'image'], ['--net=n1', 'image'],
+            ['--net-alias', 'a1', '--net', 'n1', 'image'], ['--net-alias=a1', 'image'],
+        ]
+        for args in accepted:
+            with self.subTest(args=args), patch.object(self.module, 'capture', capture_with(real_help)):
+                out = self.module.container_args('run', args)
+                self.assertEqual(out[-1], 'image')
+                self.assertEqual(out[:len(args) - 1], args[:-1])
+                self.assertEqual(out[-5:-1], self.module.LABELS)
+        refused = [
+            # Canonical flag absent from help: the alias is unknown too.
+            (no_network_help, ['--net', 'n1', 'image']),
+            (no_network_help, ['--net-alias=a1', 'image']),
+            # Refusals after an alias still apply.
+            (real_help, ['--net', 'n1', '--mount', 'type=volume,source=named,target=/var', 'image']),
+            (real_help, ['--net=n1', '-v', 'named:/var', 'image']),
+            (real_help, ['--net-alias', 'a1', '--netx', 'n1', 'image']),
+        ]
+        for help_text, args in refused:
+            with self.subTest(args=args), patch.object(self.module, 'capture', capture_with(help_text)):
+                with self.assertRaises(ValueError):
+                    self.module.container_args('run', args)
+
     def test_owned_image_with_wrong_source_is_refused_before_use(self):
         def capture(*args):
             if args[-1] == '--help': return ''
