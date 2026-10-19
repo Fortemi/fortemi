@@ -5,6 +5,8 @@
 # KEEP_KEYCLOAK_IT=1 keeps containers/network and the private work/evidence dir.
 set -euo pipefail
 
+remove_docker() { bash "$(dirname "${BASH_SOURCE[0]}")/ci/remove-run-docker.sh" "$@"; }
+
 # Fail before building or starting containers if bind mounts are reintroduced.
 if grep -qE -- '(^|[[:space:]])(-v|--volume|--mount)[[:space:]=]' "${BASH_SOURCE[0]}"; then
   printf '%s\n' 'FAIL: Keycloak harness must copy files instead of bind-mounting them' >&2
@@ -14,7 +16,7 @@ fi
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 KEYCLOAK_IMAGE="quay.io/keycloak/keycloak:26.7.3@sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54"
 TESTDB_IMAGE="${TESTDB_IMAGE:-matric-testdb:local}"
-RUN_ID="keycloak-it-$$-$(date +%s)"
+RUN_ID="keycloak-it-${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}-${CI_RESOURCE_ATTEMPT:-1}-$$-$(date +%s)"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/fortemi-keycloak.XXXXXX")"
 EVIDENCE="${WORK}/evidence"
 NETWORK="${RUN_ID}"
@@ -36,9 +38,9 @@ cleanup() {
     log "kept ${KEYCLOAK_NAME} ${DB_CONTAINER} ${API_CONTAINER}, network ${NETWORK}, evidence ${EVIDENCE}"
     return
   fi
-  docker rm -f "${KEYCLOAK_NAME}" "${DB_CONTAINER}" "${API_CONTAINER}" >/dev/null 2>&1 || true
-  docker network rm "${NETWORK}" >/dev/null 2>&1 || true
-  rm -rf "${WORK}"
+  remove_docker rm -fv "${KEYCLOAK_NAME}" "${DB_CONTAINER}" "${API_CONTAINER}" || true
+  remove_docker network rm "${NETWORK}" || true
+  bash "$ROOT/scripts/ci/cleanup-local-temp.sh" "${WORK}"
 }
 trap cleanup EXIT
 free_port() {
@@ -118,13 +120,13 @@ rm -f "${WORK}/tls/ca.key" "${WORK}/tls/server.csr"
 # Keep the leaf key private on the host and readable only by its container owner.
 chmod 0700 "${WORK}/tls"
 chmod 0400 "${WORK}/tls/server.key"
-docker network create "${NETWORK}" >/dev/null
+docker network create --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}" "${NETWORK}" >/dev/null
 KEYCLOAK_PORT="$(free_port)"
 export KEYCLOAK_NAME KEYCLOAK_PORT
 # No bind mounts: the CI runner's private /tmp (and possibly the checkout) is
 # invisible to the Docker daemon, so host paths would arrive empty. Copy files
 # into each disposable container before starting it instead.
-docker create --name "${KEYCLOAK_NAME}" --network "${NETWORK}" \
+docker create --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}" --name "${KEYCLOAK_NAME}" --network "${NETWORK}" \
   -p "127.0.0.1:${KEYCLOAK_PORT}:8443" --env-file "${WORK}/keycloak.env" \
   -e "KC_HOSTNAME=https://${KEYCLOAK_NAME}:8443" \
   "${KEYCLOAK_IMAGE}" start-dev \
@@ -141,7 +143,7 @@ python3 "${ROOT}/scripts/keycloak-reference-realm/run-cases.py" prepare "${WORK}
 # Reuse the testdb image as the API runtime with the executable's host libraries.
 # Both containers use Docker DNS for the
 # Keycloak hostname; only the API/Keycloak test ports are published on loopback.
-docker run -d --name "${DB_CONTAINER}" --network "${NETWORK}" \
+docker run --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}" -d --name "${DB_CONTAINER}" --network "${NETWORK}" \
   --env-file "${WORK}/db.env" "${TESTDB_IMAGE}" >/dev/null
 # The init server is socket-only and shuts down before the final TCP server.
 for _ in $(seq 1 60); do
@@ -207,7 +209,7 @@ cp "${ROOT}/deploy/identity/claim-policy.example.json" "${WORK}/api-root/fortemi
 cp -a "${WORK}/runtime" "${WORK}/files" "${WORK}/api-root/work/"
 cp "${WORK}/tls/ca.pem" "${WORK}/api-root/work/tls/ca.pem"
 chmod 0700 "${WORK}/api-root/work/files"
-docker create --name "${API_CONTAINER}" --network "${NETWORK}" \
+docker create --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}" --name "${API_CONTAINER}" --network "${NETWORK}" \
   --user "$(id -u):$(id -g)" \
   -p "127.0.0.1:${API_PORT}:3000" --entrypoint "/work/runtime/${LOADER}" \
   --env-file "${WORK}/api.env" \

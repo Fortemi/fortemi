@@ -25,6 +25,29 @@ class ThirdPartyDependencyTests(unittest.TestCase):
     def test_current_repository_passes(self) -> None:
         self.assertEqual(MODULE.verify(ROOT, today=TODAY), [])
 
+    def test_disabled_autoheal_is_absent_from_inventory_and_compose(self) -> None:
+        manifest = json.loads((ROOT / MODULE.MANIFEST).read_text(encoding="utf-8"))
+        self.assertFalse(any("autoheal" in image["tag"] for image in manifest["images"]))
+        compose = (ROOT / "docker-compose.bundle.yml").read_text(encoding="utf-8")
+        self.assertNotRegex(compose, r"(?m)^  autoheal:")
+        self.assertNotIn("FORTEMI_AUTOHEAL_IMAGE", compose)
+        self.assertNotIn("/var/run/docker.sock", compose)
+
+    def test_disabled_autoheal_digest_cannot_be_reintroduced_unreviewed(self) -> None:
+        with self.fixture_root() as root:
+            compose = root / "docker-compose.bundle.yml"
+            compose.write_text(
+                compose.read_text(encoding="utf-8")
+                + "\n  autoheal:\n    image: willfarrell/autoheal:1.2.0"
+                + "@sha256:31f580ef0279eaced5b38d631b08c474d70d8403c1c2fdd6ddcf2e879d5f3f7c\n",
+                encoding="utf-8",
+            )
+
+            errors = MODULE.verify(root, today=TODAY)
+
+            self.assertIn("digest is absent", "\n".join(errors))
+            self.assertIn("willfarrell/autoheal:1.2.0", "\n".join(errors))
+
     def test_unreviewed_mutable_compose_image_is_rejected(self) -> None:
         with self.fixture_root() as root:
             compose = root / "docker-compose.bundle.yml"

@@ -65,3 +65,4 @@ docker-compose.override.yml
 
 # tmux session logs
 tmux-client-*.log
+/zip-exception-metadata.json

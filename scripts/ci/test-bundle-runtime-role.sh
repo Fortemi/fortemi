@@ -17,6 +17,8 @@
 # Environment: RUNTIME_ROLE_TIMEOUT_SECONDS (default 240 per start).
 set -euo pipefail
 
+remove_docker() { bash "$(dirname "${BASH_SOURCE[0]}")/remove-run-docker.sh" "$@"; }
+
 BUNDLE_IMAGE=""
 while (( $# )); do
     case "$1" in
@@ -28,14 +30,12 @@ done
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TIMEOUT="${RUNTIME_ROLE_TIMEOUT_SECONDS:-240}"
-NAME="fortemi-runtime-role-$$"
-VOLUME="${NAME}-db"
+NAME="fortemi-runtime-role-${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}-${CI_RESOURCE_ATTEMPT:-1}-$$"
 POLICY="${ROOT}/deploy/identity/claim-policy.example.json"
 OWNER_PASSWORD="$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
 
 cleanup() {
-    docker rm -f "$NAME" >/dev/null 2>&1 || true
-    docker volume rm "$VOLUME" >/dev/null 2>&1 || true
+    remove_docker rm -fv "$NAME" || true
 }
 trap cleanup EXIT
 
@@ -45,7 +45,7 @@ fail() { echo "FAIL: $*" >&2; docker logs "$NAME" 2>&1 | grep -E 'ERROR|Error:' 
 # grep exits on the first match and docker logs receives SIGPIPE.
 container_log_has() {
     local logs
-    logs="$(docker logs "$NAME" 2>&1)" || return 1
+    logs="$(docker logs --since "$STARTED_AT" "$NAME" 2>&1)" || return 1
     grep -qE -- "$1" <<<"$logs"
 }
 
@@ -62,8 +62,14 @@ external_env=(-v "${POLICY}:/etc/fortemi/claim-policy.json:ro"
 # start <expect: ready|exit> <docker run args...>
 start() {
     local expect="$1"; shift
-    docker rm -f "$NAME" >/dev/null 2>&1 || true
-    docker run -d --name "$NAME" --network none "$@" "$BUNDLE_IMAGE" >/dev/null
+    STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)"
+    if [[ "${1:-}" == --restart ]]; then
+        shift
+        docker restart "$NAME" >/dev/null
+    else
+        remove_docker rm -fv "$NAME" || true
+        docker run --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}" -d --name "$NAME" --network none "$@" "$BUNDLE_IMAGE" >/dev/null
+    fi
     local deadline=$((SECONDS + TIMEOUT))
     while (( SECONDS < deadline )); do
         if [ "$(docker inspect -f '{{.State.Status}}' "$NAME")" != running ]; then
@@ -145,12 +151,12 @@ assert_external_posture() {
 }
 
 echo ">>> external OIDC, fresh volume"
-start ready -v "${VOLUME}:/var/lib/postgresql/data" "${common_env[@]}" "${external_env[@]}"
+start ready -v /var/lib/postgresql/data "${common_env[@]}" "${external_env[@]}"
 assert_external_posture
 first_verifier="$(sql "SELECT md5(rolpassword) FROM pg_authid WHERE rolname = 'fortemi_runtime'")"
 
 echo ">>> external OIDC, restart on the same volume"
-start ready -v "${VOLUME}:/var/lib/postgresql/data" "${common_env[@]}" "${external_env[@]}"
+start ready --restart
 assert_external_posture
 [ "$(sql "SELECT md5(rolpassword) FROM pg_authid WHERE rolname = 'fortemi_runtime'")" != "$first_verifier" ] \
     || fail "runtime password was not rotated on restart"
@@ -159,10 +165,9 @@ container_log_has "MCP credentials valid" || fail "persisted MCP credentials wer
 
 echo ">>> unmarked existing runtime role is refused"
 sql "COMMENT ON ROLE fortemi_runtime IS NULL" >/dev/null
-start exit -v "${VOLUME}:/var/lib/postgresql/data" "${common_env[@]}" "${external_env[@]}"
+start exit --restart
 container_log_has "is not managed by the bundle" || fail "refusal reason missing"
-docker rm -f "$NAME" >/dev/null
-docker volume rm "$VOLUME" >/dev/null
+remove_docker rm -fv "$NAME"
 
 echo ">>> community mode creates no runtime role"
 start ready "${common_env[@]}"

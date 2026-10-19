@@ -38,7 +38,7 @@ Three Docker Compose profiles map to GPU VRAM tiers:
 
 | Service | Container | Profile | GPU | Memory | Port | Disable Via |
 |---------|-----------|---------|-----|--------|------|-------------|
-| **Autoheal** | autoheal | ops-autoheal | No | — | — | Omit `ops-autoheal` (default); enabling grants root-equivalent host control through the Docker socket |
+| **Autoheal (disabled)** | Removed | `ops-autoheal` rejected | No | — | — | Disabled pending Fortemi/fortemi#1240: EOL Alpine 3.13 and unpatched HIGH/CRITICAL advisories; see [dependency trust guide](container-dependency-trust.md#disabled-autoheal) |
 | **Whisper (CPU)** | whisper | edge | No | 4 GB | 8000 | `WHISPER_BASE_URL=` |
 | **Whisper (GPU)** | whisper-gpu | gpu-12gb, gpu-24gb | Yes (all) | 8 GB | 8000 | `WHISPER_BASE_URL=` |
 | **pyannote (CPU)** | pyannote | edge | No | 4 GB | 8001 | `DIARIZATION_BASE_URL=` |

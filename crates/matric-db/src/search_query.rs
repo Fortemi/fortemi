@@ -6,19 +6,25 @@ use matric_core::{Error, Result};
 #[derive(Clone)]
 pub enum Expression {
     Term(String),
+    Phrase(String),
     And(Box<Self>, Box<Self>),
     Or(Box<Self>, Box<Self>),
     Not(Box<Self>),
 }
 
 impl Expression {
-    pub fn tsquery(&self) -> String {
-        match self {
+    pub fn tsquery(&self) -> Result<String> {
+        Ok(match self {
             Self::Term(term) => term.clone(),
-            Self::And(a, b) => format!("({} & {})", a.tsquery(), b.tsquery()),
-            Self::Or(a, b) => format!("({} | {})", a.tsquery(), b.tsquery()),
-            Self::Not(a) => format!("!({})", a.tsquery()),
-        }
+            Self::Phrase(_) => {
+                return Err(Error::InvalidInput(
+                    "phrase must be analyzer-normalized before rendering tsquery".into(),
+                ))
+            }
+            Self::And(a, b) => format!("({} & {})", a.tsquery()?, b.tsquery()?),
+            Self::Or(a, b) => format!("({} | {})", a.tsquery()?, b.tsquery()?),
+            Self::Not(a) => format!("!({})", a.tsquery()?),
+        })
     }
 }
 
@@ -31,6 +37,7 @@ pub struct ParsedQuery {
 #[derive(Clone, PartialEq)]
 enum Token {
     Term(String),
+    Phrase(String),
     And,
     Or,
     Not,
@@ -92,14 +99,7 @@ impl ParsedQuery {
                     if !closed || phrase.trim().is_empty() {
                         return Err(invalid());
                     }
-                    Token::Term(format!(
-                        "({})",
-                        phrase
-                            .split_whitespace()
-                            .map(quote_term)
-                            .collect::<Vec<_>>()
-                            .join(" <-> ")
-                    ))
+                    Token::Phrase(phrase)
                 }
                 _ => {
                     let mut word = String::new();
@@ -182,11 +182,12 @@ impl ParsedQuery {
         })
     }
 
-    pub fn tsquery(&self) -> String {
+    pub fn tsquery(&self) -> Result<String> {
         self.expression
             .as_ref()
             .map(Expression::tsquery)
-            .unwrap_or_default()
+            .transpose()
+            .map(Option::unwrap_or_default)
     }
 }
 
@@ -208,7 +209,7 @@ impl Parser<'_> {
         loop {
             match self.tokens.get(self.position) {
                 Some(Token::And) => self.position += 1,
-                Some(Token::Term(_) | Token::Not | Token::Open) => {}
+                Some(Token::Term(_) | Token::Phrase(_) | Token::Not | Token::Open) => {}
                 _ => break,
             }
             left = Expression::And(Box::new(left), Box::new(self.unary()?));
@@ -220,6 +221,7 @@ impl Parser<'_> {
         self.position += 1;
         match token {
             Token::Term(term) => Ok(Expression::Term(term.clone())),
+            Token::Phrase(phrase) => Ok(Expression::Phrase(phrase.clone())),
             Token::Not => Ok(Expression::Not(Box::new(self.unary()?))),
             Token::Open => {
                 let expression = self.or()?;
@@ -235,9 +237,10 @@ impl Parser<'_> {
 }
 
 impl Expression {
-    pub(crate) fn leaves(&self, output: &mut Vec<String>) {
+    fn leaves<'a>(&'a self, output: &mut Vec<(&'static str, &'a str)>) {
         match self {
-            Self::Term(value) => output.push(value.clone()),
+            Self::Term(value) => output.push(("to_tsquery", value)),
+            Self::Phrase(value) => output.push(("phraseto_tsquery", value)),
             Self::And(a, b) | Self::Or(a, b) => {
                 a.leaves(output);
                 b.leaves(output);
@@ -246,9 +249,30 @@ impl Expression {
         }
     }
 
+    /// Analyze whole phrases and tsquery terms in traversal order. Parameter $1
+    /// is the analyzer configuration; user text is bound starting at $2.
+    pub(crate) fn normalization_query(&self) -> (String, Vec<String>) {
+        let mut leaves = Vec::new();
+        self.leaves(&mut leaves);
+        let queries = leaves
+            .iter()
+            .enumerate()
+            .map(|(index, (function, _))| format!("{function}($1::regconfig, ${})", index + 2))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!("SELECT query::text FROM unnest(ARRAY[{queries}]) WITH ORDINALITY AS t(query, position) ORDER BY position");
+        (
+            sql,
+            leaves
+                .into_iter()
+                .map(|(_, value)| value.to_string())
+                .collect(),
+        )
+    }
+
     pub(crate) fn normalized(&self, leaves: &mut impl Iterator<Item = String>) -> Option<Self> {
         match self {
-            Self::Term(_) => leaves
+            Self::Term(_) | Self::Phrase(_) => leaves
                 .next()
                 .filter(|value| !value.is_empty())
                 .map(Self::Term),
@@ -272,6 +296,46 @@ impl Expression {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn phrases_preserve_punctuation_and_escaped_quotes_as_bound_text() {
+        for (input, expected) in [
+            (r#""alpha , beta""#, "alpha , beta"),
+            (r#""alpha the beta""#, "alpha the beta"),
+            (r#""alpha \"beta\"""#, "alpha \"beta\""),
+            (r#""alpha \'beta\' \\ gamma""#, "alpha 'beta' \\ gamma"),
+            (
+                r#""alpha '); SELECT 1; -- beta""#,
+                "alpha '); SELECT 1; -- beta",
+            ),
+        ] {
+            let parsed = ParsedQuery::parse(input).unwrap();
+            assert!(parsed.explicit);
+            let expression = parsed.expression.unwrap();
+            assert!(matches!(&expression, Expression::Phrase(text) if text == expected));
+            // Rendering a phrase without the database analyzer must fail closed.
+            assert!(expression.tsquery().is_err());
+            let (sql, params) = expression.normalization_query();
+            assert_eq!(params, [expected]);
+            assert!(sql.contains("phraseto_tsquery($1::regconfig, $2)"));
+            assert!(!sql.contains(expected));
+        }
+    }
+
+    #[test]
+    fn mixed_expression_normalizes_terms_and_phrases_in_order() {
+        let parsed =
+            ParsedQuery::parse(r#"alpha AND ("beta , gamma" OR NOT "delta \"epsilon\"")"#).unwrap();
+        let expression = parsed.expression.unwrap();
+        let (sql, params) = expression.normalization_query();
+        assert_eq!(params, ["'alpha'", "beta , gamma", "delta \"epsilon\""]);
+        assert!(sql.contains("ARRAY[to_tsquery($1::regconfig, $2), phraseto_tsquery($1::regconfig, $3), phraseto_tsquery($1::regconfig, $4)]"));
+        let normalized = expression
+            .normalized(&mut ["'alpha'", "'beta'", ""].into_iter().map(String::from))
+            .unwrap();
+        assert_eq!(normalized.tsquery().unwrap(), "('alpha' & 'beta')");
+    }
+
     #[test]
     fn parser_truth_table() {
         for (input, expected, explicit) in [
@@ -288,7 +352,6 @@ mod tests {
                 true,
             ),
             ("alpha -beta", "('alpha' & !('beta'))", true),
-            ("\"alpha the beta\"", "('alpha' <-> 'the' <-> 'beta')", true),
             ("prefix*", "'prefix':*", true),
             ("alpha or beta", "('alpha' | 'beta')", true),
             (r"\OR", "'OR'", true),
@@ -297,7 +360,7 @@ mod tests {
             ("", "", false),
         ] {
             let parsed = ParsedQuery::parse(input).unwrap();
-            assert_eq!(parsed.tsquery(), expected, "{input}");
+            assert_eq!(parsed.tsquery().unwrap(), expected, "{input}");
             assert_eq!(parsed.explicit, explicit, "{input}");
         }
     }

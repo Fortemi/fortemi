@@ -29,10 +29,12 @@
 
 set -euo pipefail
 
+remove_docker() { bash "$(dirname "${BASH_SOURCE[0]}")/ci/remove-run-docker.sh" "$@"; }
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REDIS_IMAGE="redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99"
 TESTDB_IMAGE="${TESTDB_IMAGE:-matric-testdb:local}"
-RUN_ID="mcpoidc-$$-$(date +%s)"
+RUN_ID="mcpoidc-${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}-${CI_RESOURCE_ATTEMPT:-1}-$$-$(date +%s)"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/fortemi-mcp-oidc.XXXXXX")"
 EVIDENCE="${WORK}/evidence"
 DB_CONTAINER="${RUN_ID}-db"
@@ -59,8 +61,8 @@ cleanup() {
     log "kept containers ${DB_CONTAINER} ${REDIS_CONTAINER} and ${WORK}"
     return
   fi
-  docker rm -f "${DB_CONTAINER}" "${REDIS_CONTAINER}" >/dev/null 2>&1 || true
-  rm -rf "${WORK}"
+  remove_docker rm -fv "${DB_CONTAINER}" "${REDIS_CONTAINER}" || true
+  bash "$ROOT/scripts/ci/cleanup-local-temp.sh" "${WORK}"
 }
 trap cleanup EXIT
 
@@ -98,7 +100,7 @@ fi
 
 log "building matric-api --features hosted-auth,kms-vault"
 (cd "${ROOT}" && cargo build -q --locked -p matric-api --features hosted-auth,kms-vault)
-API_BIN="${ROOT}/target/debug/matric-api"
+API_BIN="${CARGO_TARGET_DIR:-${ROOT}/target}/debug/matric-api"
 if [[ ! -d "${ROOT}/mcp-server/node_modules" ]]; then
   (cd "${ROOT}/mcp-server" && npm ci --ignore-scripts --no-fund --no-audit >/dev/null)
 fi
@@ -108,10 +110,10 @@ DB_PORT="$(free_port)"
 REDIS_PORT="$(free_port)"
 DB_PASSWORD="mcp-oidc-$$-$RANDOM"
 RUNTIME_PASSWORD="mcp-oidc-rt-$$-$RANDOM"
-docker run -d --name "${DB_CONTAINER}" -p "127.0.0.1:${DB_PORT}:5432" \
+docker run --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}" -d --name "${DB_CONTAINER}" -p "127.0.0.1:${DB_PORT}:5432" \
   -e POSTGRES_USER=matric -e POSTGRES_PASSWORD="${DB_PASSWORD}" -e POSTGRES_DB=matric_mcp_oidc \
   "${TESTDB_IMAGE}" >/dev/null
-docker run -d --name "${REDIS_CONTAINER}" -p "127.0.0.1:${REDIS_PORT}:6379" "${REDIS_IMAGE}" >/dev/null
+docker run --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}" -d --name "${REDIS_CONTAINER}" -p "127.0.0.1:${REDIS_PORT}:6379" "${REDIS_IMAGE}" >/dev/null
 psql_admin() { docker exec -i "${DB_CONTAINER}" psql -qtAU matric -d matric_mcp_oidc -v ON_ERROR_STOP=1 "$@"; }
 for _ in $(seq 1 60); do
   docker exec "${DB_CONTAINER}" pg_isready -U matric -d matric_mcp_oidc >/dev/null 2>&1 && break

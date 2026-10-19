@@ -382,7 +382,7 @@ MIGRATION_DATABASE_URL=<MIGRATION_DATABASE_URL> \
 
 The command prints the tenant id to emit in the configured tenant claim and
 seeds the tenant's default memory. See
-[Hosted tenant bootstrap](https://git.integrolabs.net/Fortemi/fortemi/src/branch/main/docs/deployment/hosted-bootstrap.md).
+[Hosted tenant bootstrap](https://github.com/fortemi/fortemi/blob/main/docs/deployment/hosted-bootstrap.md).
 
 ### External OIDC (single-tenant)
 
@@ -446,7 +446,7 @@ verified request transaction. Source-upsert commits notes, authors, source
 identities and import receipts together; its contract does not run a pipeline.
 Hosted multi-tenant provisioning remains a separate bootstrap operation that
 copies tenant baselines to new UUIDs; it never adopts L. Community startup
-keeps L. See the [upgrade procedure](external-oidc-upgrade.md) for role setup,
+keeps L. See the [upgrade procedure](https://github.com/fortemi/fortemi/blob/main/docs/content/external-oidc-upgrade.md) for role setup,
 preview bundle configuration, validation and backup-based rollback.
 
 #### Compatibility discovery
@@ -576,7 +576,7 @@ database lookup keyed by its deployment HMAC. It then validates the PAT and
 owning user inside that tenant's RLS scope using the restricted runtime role.
 Request headers and query parameters cannot choose a different tenant.
 Unknown, revoked and expired PATs return the same `401` response.
-See [hosted PostgreSQL roles](../deployment/hosted-postgresql-role.md) for the
+See [hosted PostgreSQL roles](https://github.com/fortemi/fortemi/blob/main/docs/deployment/hosted-postgresql-role.md#application-configuration) for the
 lookup's ownership and execute permissions.
 
 Fortemi checks the owning user's status on every PAT use and revokes active or
@@ -752,7 +752,7 @@ stream tokens remain a personal-profile feature and cannot replace hosted
 canonical identity. Existing TLS, JWT, RLS and durable authorization-audit checks
 remain enforced. These route gates do not enable `hosted_multi_tenant_ready` or
 qualify unrelated routes or worker execution. The suite audit remains NO-GO.
-The generated [hosted route qualification matrix](https://git.integrolabs.net/Fortemi/fortemi/src/branch/main/docs/deployment/hosted-route-qualification.md)
+The generated [hosted route qualification matrix](https://github.com/fortemi/fortemi/blob/main/docs/deployment/hosted-route-qualification.md)
 lists every operation as qualified, gap, excluded or public for a single-tenant
 dedicated deployment; `/api/v1/system/compatibility` reports the same profile as
 `deployment.hosted_profile`.
@@ -1939,7 +1939,7 @@ OIDC CA support alone does not supply the KMS backend.
 
 `FORTEMI_AUTH_DEFAULT_TENANT` owns content, users, archive defaults and jobs in
 external-OIDC single-tenant mode. Before upgrading a 2026.10.5 deployment, stop
-all old writers and follow the [ownership upgrade procedure](external-oidc-upgrade.md).
+all old writers and follow the [ownership upgrade procedure](https://github.com/fortemi/fortemi/blob/main/docs/content/external-oidc-upgrade.md).
 Startup atomically adopts local-owned data and synchronizes legacy archives before
 serving. `MIGRATION_DATABASE_URL` is required for owner credentials;
 `DATABASE_URL` must use a separate non-bypass runtime login that owns no tenant

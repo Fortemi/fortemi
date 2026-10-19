@@ -25,11 +25,13 @@
 
 set -euo pipefail
 
+remove_docker() { bash "$(dirname "${BASH_SOURCE[0]}")/ci/remove-run-docker.sh" "$@"; }
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COLLECTOR_IMAGE="otel/opentelemetry-collector:0.161.0@sha256:b6d2b9a85b1029d05b5ad913150c1f014eed4ae99be81a1813ca5ade4a191913"
 TESTDB_IMAGE="${TESTDB_IMAGE:-matric-testdb:local}"
 PROTOCOLS="${OTEL_IT_PROTOCOLS:-http/protobuf grpc}"
-RUN_ID="otelit-$$-$(date +%s)"
+RUN_ID="otelit-${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}-${CI_RESOURCE_ATTEMPT:-1}-$$-$(date +%s)"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/fortemi-otel-it.XXXXXX")"
 DB_CONTAINER="${RUN_ID}-db"
 COLLECTOR_CONTAINER="${RUN_ID}-collector"
@@ -57,8 +59,8 @@ cleanup() {
     log "kept containers ${DB_CONTAINER} ${COLLECTOR_CONTAINER} and ${WORK}"
     return
   fi
-  docker rm -f "${DB_CONTAINER}" "${COLLECTOR_CONTAINER}" >/dev/null 2>&1 || true
-  rm -rf "${WORK}"
+  remove_docker rm -fv "${DB_CONTAINER}" "${COLLECTOR_CONTAINER}" || true
+  bash "$ROOT/scripts/ci/cleanup-local-temp.sh" "${WORK}"
 }
 trap cleanup EXIT
 
@@ -74,7 +76,7 @@ fi
 # --- PostgreSQL --------------------------------------------------------------
 DB_PORT="$(free_port)"
 DB_PASSWORD="otel-it-$$"
-docker run -d --name "${DB_CONTAINER}" -p "127.0.0.1:${DB_PORT}:5432" \
+docker run --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}" -d --name "${DB_CONTAINER}" -p "127.0.0.1:${DB_PORT}:5432" \
   -e POSTGRES_USER=matric -e POSTGRES_PASSWORD="${DB_PASSWORD}" -e POSTGRES_DB=matric_otel \
   "${TESTDB_IMAGE}" >/dev/null
 for _ in $(seq 1 60); do
@@ -95,7 +97,7 @@ log "bootstrapping schema"
 
 log "building matric-api --features otel"
 (cd "${ROOT}" && cargo build -q --locked -p matric-api --features otel)
-API_BIN="${ROOT}/target/debug/matric-api"
+API_BIN="${CARGO_TARGET_DIR:-${ROOT}/target}/debug/matric-api"
 
 # --- Collector ---------------------------------------------------------------
 GRPC_PORT="$(free_port)"
@@ -127,7 +129,7 @@ YAML
 # No bind mounts: the CI runner's private /tmp is not visible to the Docker
 # daemon, so a host path would arrive as an empty directory. Copy the config in
 # and the export out instead.
-docker create --name "${COLLECTOR_CONTAINER}" \
+docker create --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}" --name "${COLLECTOR_CONTAINER}" \
   -p "127.0.0.1:${GRPC_PORT}:4317" -p "127.0.0.1:${HTTP_PORT}:4318" \
   "${COLLECTOR_IMAGE}" --config /etc/otelcol/config.yaml >/dev/null
 docker cp "${WORK}/collector.yaml" "${COLLECTOR_CONTAINER}:/etc/otelcol/config.yaml"

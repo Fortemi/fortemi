@@ -26,7 +26,8 @@ ignore = [
     # series. This is a package-policy warning, not a RustSec vulnerability;
     # cargo-audit continues to fail on security advisories independently.
     # Remove when axum/multer accepts spin >=0.10.
-    # Owner: maintainers. Expiry: 2026-10-01.
+    # Follow-up: #1230 (#1221(b)); only spin 0.9.8 is exempt.
+    # Owner: maintainers. Expiry: 2026-11-16 (renewed 2026-10-17; <=30 days).
     "spin@0.9.8",
 
     # quick-xml 0.31.0 DoS advisories (RUSTSEC-2026-0194 quadratic attribute
@@ -37,18 +38,30 @@ ignore = [
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
 
-    # zip 2.4.2 (matric-jobs, calamine 0.26.1) and zip 3.0.0 (utoipa-swagger-ui
-    # 9.0.2 build dependency) were yanked on 2026-10-16 with every release
-    # before 9.0.3, after the extraction advisories GHSA-vv5m-jxxh-4627,
-    # GHSA-4v9h-p7m9-rh26 and GHSA-4684-h2q9-2vcp and before further ones.
-    # Those affect extract() to disk. Fortemi and calamine read entries only in
-    # memory. The utoipa-swagger-ui build script writes entries with their
-    # archive modes, so matric-api enables its `vendored` feature: the input
-    # is the Swagger UI zip in utoipa-swagger-ui-vendored, checksum-pinned in
-    # Cargo.lock, not a download. No calamine or utoipa-swagger-ui release
-    # builds on zip 9 yet. These entries exempt only the yank; cargo-audit
-    # still fails on RustSec vulnerability advisories against these versions.
-    # Tracked in fortemi/fortemi#1221. Review by 2026-10-31.
+    # #1221 Option B, PO accepted 2026-10-17. Only these old ZIP paths:
+    # - calamine 0.26.1 -> zip 2.4.2 (runtime):
+    #   calamine reads xlsx/ods in memory via ZipArchive::new + by_name/by_index; never calls extract()
+    #   Source refs in calamine 0.26.1: src/xlsx/mod.rs:915,
+    #   src/ods.rs:137, src/xlsb/mod.rs:453. Follow-up: #1228.
+    # - utoipa-swagger-ui 9.0.2 -> zip 3.0.0 (build time only): no upgraded
+    #   release using zip 9 is adopted in Option B. The vendored feature uses
+    #   checksum-pinned utoipa-swagger-ui-vendored input from Cargo.lock;
+    #   build.rs:84-144 reads by_index/enclosed_name, writes only dist assets
+    #   under OUT_DIR, and applies Unix modes. No untrusted runtime input.
+    #   Follow-up: #1229.
+    # Exact extract-only advisories: RUSTSEC-2026-0367, RUSTSEC-2026-0368,
+    # RUSTSEC-2026-0369. No read-path advisory or other ZIP version is approved.
+    # Owner: maintainers. Expiry: 2026-11-16 (both paths; <=30 days).
+    # Advisory ignores are ID-wide in the tools; enforce the approved scope
+    # with scripts/ci/zip-exception-guard.py before cargo audit in CI (scope,
+    # workspace edges, libbz2 paths, and UTC expiry). EXCEPTION_EXPIRY is the
+    # executable date; its unit test checks that these comments match it.
+    "RUSTSEC-2026-0367",
+    "RUSTSEC-2026-0368",
+    "RUSTSEC-2026-0369",
+
+    # Same approved paths, reasons, owner, expiry and follow-ups above; these
+    # exact package exceptions cover yanks only, not additional advisories.
     "zip@2.4.2",
     "zip@3.0.0",
 ]
@@ -77,7 +90,11 @@ allow = [
     "CDLA-Permissive-2.0",    # webpki-roots / data licenses
     "OpenSSL",
 ]
-exceptions = []
+exceptions = [
+    # zip 9 default bzip2 feature -> pure-Rust libbz2-rs-sys (replaces MIT/Apache bzip2-sys);
+    # permissive BSD-style libbzip2 license, SPDX bzip2-1.0.6; PO-approved 2026-10-17, #1221.
+    { crate = "libbz2-rs-sys@0.2.5", allow = ["bzip2-1.0.6"] },
+]
 # Crate-specific license overrides for crates that don't declare a clean SPDX
 [[licenses.clarify]]
 name = "ring"

@@ -40,7 +40,8 @@ on:
         default: ''
 
 concurrency:
-  group: fortemi-shared-runner
+  # Only an exact-source main-chain dispatch is independent of releases.
+  group: ${{ (startsWith(gitea.ref, 'refs/tags/') || !(gitea.event_name == 'workflow_dispatch' && gitea.ref == 'refs/heads/main' && gitea.event.inputs.source_sha)) && 'fortemi-shared-runner' || format('{0}-run-{1}', gitea.workflow, gitea.run_id) }}
   cancel-in-progress: false
 
 env:
