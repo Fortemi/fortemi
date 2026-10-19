@@ -15,6 +15,13 @@ class VerifyReleaseJobGuardsTests(unittest.TestCase):
         self.tempdir = tempfile.TemporaryDirectory()
         self.workflow = Path(self.tempdir.name) / "ci-builder.yaml"
         shutil.copy2(WORKFLOW, self.workflow)
+        # This verifier applies its release graph checks to PR-enabled workflows.
+        # Keep an explicit legacy PR fixture for its mutation tests now that the
+        # repository workflows have no PR trigger. The actual no-PR workflow and
+        # strict tag guards are covered by test_change_scoped_ci.py.
+        self.workflow.write_text(self.workflow.read_text().replace(
+            "on:\n", "on:\n  pull_request:\n    branches: [main]\n", 1,
+        ))
 
     def tearDown(self) -> None:
         self.tempdir.cleanup()
@@ -34,7 +41,7 @@ class VerifyReleaseJobGuardsTests(unittest.TestCase):
         self.assertIn(old, text)
         self.workflow.write_text(text.replace(old, new, 1))
 
-    def test_current_release_graph_passes(self) -> None:
+    def test_legacy_pr_release_graph_passes(self) -> None:
         result = self.run_verifier()
         self.assertEqual(result.returncode, 0, result.stderr)
 

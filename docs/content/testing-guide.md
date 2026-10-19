@@ -12,6 +12,53 @@ The Fortémi project includes a robust testing infrastructure with:
 - **Coverage Reporting**: Code coverage with llvm-cov
 - **CI Integration**: Automated testing in Gitea workflows
 
+## Change-scoped local verification
+
+Pull requests do not run CI. Before opening or merging a PR, build locally
+and run the tests for the touched crates/files and their direct neighbours
+(callers, consumers, and shared fixtures). Select affected packages with `-p`
+and test targets or filters as appropriate; a full local workspace test run is
+not a pre-PR requirement. Include the CI-equivalent features and environment
+for each selected test, as defined in `.gitea/workflows/ci-builder.yaml` and
+`.gitea/workflows/test.yml`.
+
+For example, for a hosted API/SSE change with crypto neighbours:
+
+```bash
+# Use a disposable PostgreSQL 18 database with CI extensions and migrations.
+export DATABASE_URL="<DATABASE_URL>"
+export REDIS_URL="redis://localhost:6379/0"
+cargo build --locked -p matric-api --features hosted-auth,kms-vault
+cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api sse_tests -- --test-threads=1
+cargo test --locked -p matric-crypto --features kms-vault --lib
+```
+
+Expand that selection to all affected tests and direct neighbours; these commands
+are an example, not a universal minimum. Hosted create/bootstrap tests also need
+`FORTEMI_HOSTED_CREATE_TEST_ADMIN_URL` or
+`FORTEMI_HOSTED_BOOTSTRAP_TEST_ADMIN_URL` for the same disposable database.
+Use `--features migrations` for DB migration tests, keep shared-database tests
+serial (`-- --test-threads=1`), and run worker integration tests separately before
+other database tests, as CI does. Do not skip required infrastructure tests.
+For workflow/Python changes, run `python3 -m unittest discover -s tests --pattern='test_*.py'`
+and the relevant workflow policy verifiers; for docsite changes, run
+`npm ci`, `npm run docs:build`, and `npm run docs:check-assets`.
+
+Record the exact commands, features/environment, selected scope and neighbour
+rationale, and passed/failed/ignored counts in the PR's **Verification** section.
+Record build results and any unavailable checks explicitly.
+
+CI runs after merge on the push to `main`: ci-builder hands off to comprehensive
+`test.yml`. `delivery.require_ci_green` applies to that post-merge main run and
+its test handoff. Record their run IDs and wait for both to pass before declaring
+work complete. Fix a red main forward immediately on a new branch: reproduce,
+fix, verify locally, merge, and monitor the next main run.
+
+Release candidates also require a green ci-builder dispatch with the exact
+main candidate `source_sha`, plus its comprehensive test handoff and a
+`docsite-build` dispatch, with the run IDs recorded before tagging.
+See [Release Process](#/releasing).
+
 ## Test Categories
 
 ### Fast Tests (Unit)
@@ -19,11 +66,9 @@ The Fortémi project includes a robust testing infrastructure with:
 Fast tests run without external dependencies (no database, no network).
 
 ```bash
-# Run only fast tests
-cargo test --lib --doc --workspace
-
-# With environment variable to skip integration
-SKIP_INTEGRATION_TESTS=1 cargo test --workspace
+# Select the affected crate and direct neighbours
+cargo test --lib -p matric-core
+cargo test --doc -p matric-core
 ```
 
 **When to use:**

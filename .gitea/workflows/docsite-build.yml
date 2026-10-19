@@ -1,7 +1,7 @@
 # Doc Site Build Validation
 #
 # Validates that the documentation site builds successfully when docs change.
-# Catches broken links, bad config, and build errors before merge.
+# Catches broken links, bad config, and build errors on a dispatched commit.
 #
 # Uses the public @pagenary/publisher npm package (formerly dbbuilder).
 # Tenant config lives at the repo root (tenants.json); build tooling deps
@@ -10,10 +10,12 @@
 
 name: Docsite Build
 
+# Dispatch-only (#1250): PRs run no CI, and a push trigger would bypass the
+# capacity-one dispatch chain (scripts/ci/verify-mutsu-build-serialization.sh).
+# Docs-touching PRs run `npm run docs:build` and `npm run docs:check-assets`
+# locally; the release validation run dispatches this workflow on the candidate.
 on:
-  pull_request:
-    branches: [main]
-    paths: ['docs/**', 'scheduled-docs/**', 'scripts/docs/**', 'tenants.json', 'package.json', 'package-lock.json']
+  workflow_dispatch:
 
 concurrency:
   group: docsite-build-${{ gitea.head_ref || gitea.ref }}
