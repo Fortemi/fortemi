@@ -423,6 +423,9 @@ class ShellTests(unittest.TestCase):
                         CHAIN_SOURCE_SHA='a' * 40, GITHUB_REF='refs/heads/main', GITHUB_RUN_ID='99',
                         CI_RESOURCE_SCOPE='99', CI_RESOURCE_ATTEMPT='1', CI_TIP_RETRY_DELAY='0', TEST_API_IMAGE='matric-memory:test-99',
                         TEST_TMP=str(self.path))
+        # CI exports CI_DOCKER_REAL (setup-run-resources.sh); inherited, it routes
+        # resources.docker() to the real daemon instead of the PATH mock.
+        self.env.pop('CI_DOCKER_REAL', None)
         self.fake('git', '''#!/usr/bin/env python3
 import os,sys,pathlib
 p=pathlib.Path(os.environ['TEST_TMP']);a=sys.argv[1:]
