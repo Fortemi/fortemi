@@ -111,10 +111,13 @@ bash scripts/ci/search-relevance.sh
 `DATABASE_URL` must select a disposable PostgreSQL 18+ database with pgvector and
 PostGIS available. The command runs the database fixtures, ten repetitions of each
 strict/OR/adaptive golden query, the independent Python metric recomputation, and
-ten gate tests including deliberate regressions. No embedding provider or GPU is
-used. The integration job in `.gitea/workflows/test.yml` runs this command and
-uploads `target/relevance/keyword.json`, including failed per-query results when
-available. The report identifies the fixture SHA-256, baseline SHA-256, source
+twelve gate tests including deliberate regressions and malformed baselines. No
+embedding provider or GPU is used. The report is written to
+`$FORTEMI_RELEVANCE_REPORT` when set (a relative path is resolved against the
+working directory), otherwise to `${CARGO_TARGET_DIR:-target}/relevance/keyword.json`.
+The integration job in `.gitea/workflows/test.yml` runs this command with the
+report under the run-scoped `TMPDIR` and uploads it as the `keyword-relevance`
+artifact, including failed per-query results when available. The report identifies the fixture SHA-256, baseline SHA-256, source
 commit, PostgreSQL/pgvector versions, configuration, route, and evaluator contract.
 
 `keyword_relevance_baseline.json` pins aggregate and per-query metrics for all
