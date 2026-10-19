@@ -16,6 +16,9 @@ OWNER = os.environ['CI_RESOURCE_SCOPE']
 LABEL = f'fortemi.ci.scope={OWNER}'
 ATTEMPT = os.environ['CI_RESOURCE_ATTEMPT']
 LABELS = ['--label', LABEL, '--label', f'fortemi.ci.attempt={ATTEMPT}']
+# Deprecated aliases Docker accepts but hides from `run/create --help`; kind
+# still passes --net. Each is checked as the documented flag it maps to.
+HIDDEN_ALIASES = {'--net': '--network', '--net-alias': '--network-alias'}
 
 
 def capture(*args):
@@ -43,6 +46,8 @@ def container_args(command, args):
             i += 1
             break
         key = arg.split('=', 1)[0]
+        if HIDDEN_ALIASES.get(key) in known:
+            key = HIDDEN_ALIASES[key]
         if key == '--rm':
             automatic_removal.add(i)
         value = arg.split('=', 1)[1] if '=' in arg else None

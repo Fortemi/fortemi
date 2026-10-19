@@ -666,6 +666,32 @@ class OwnershipTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.module.container_args('create', [*mount, 'image'])
 
+    def test_kind_node_run_with_hidden_net_alias_is_labelled(self):
+        # Exact kind v0.31 control-plane invocation from ci-builder run 85870 job 205080;
+        # help text is the real Docker 29.1.3 CLI, which hides the --net alias.
+        help_text = (ROOT / 'tests/fixtures/docker/run-help-29.1.3.txt').read_text()
+        def capture(*args):
+            if args[-1] == '--help': return help_text
+            return '[{"Config":{"Volumes":{"/var":{}}}}]'
+        kind = ['--name', 'fortemi-psa-1-control-plane', '--hostname', 'fortemi-psa-1-control-plane',
+                '--label', 'io.x-k8s.kind.role=control-plane', '--privileged',
+                '--security-opt', 'seccomp=unconfined', '--security-opt', 'apparmor=unconfined',
+                '--tmpfs', '/tmp', '--tmpfs', '/run', '--volume', '/var',
+                '--volume', '/lib/modules:/lib/modules:ro', '-e', 'KIND_EXPERIMENTAL_CONTAINERD_SNAPSHOTTER',
+                '--detach', '--tty', '--label', 'io.x-k8s.kind.cluster=fortemi-psa-1',
+                '--net', 'fortemi-psa-1-net', '--restart=on-failure:1', '--init=false', '--cgroupns=private',
+                '--publish=127.0.0.1:43003:6443/TCP', '-e', 'KUBECONFIG=/etc/kubernetes/admin.conf',
+                'kindest/node:pin']
+        with patch.object(self.module, 'capture', capture), patch.object(self.module.subprocess, 'check_call') as pull:
+            args = self.module.container_args('run', kind)
+        pull.assert_not_called()
+        self.assertEqual(args[:-5], kind[:-1])
+        self.assertEqual(args[-5:], [*self.module.LABELS, 'kindest/node:pin'])
+        with patch.object(self.module, 'capture', capture):
+            for bad in [['--net', 'n', '--bogus-flag', 'image'], ['--net', 'n', '-v', 'named:/var', 'image']]:
+                with self.subTest(bad=bad), self.assertRaises(ValueError):
+                    self.module.container_args('run', bad)
+
     def test_owned_image_with_wrong_source_is_refused_before_use(self):
         def capture(*args):
             if args[-1] == '--help': return ''
