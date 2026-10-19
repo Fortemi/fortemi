@@ -9,7 +9,7 @@
   "allowlist": "scripts/ci/docs-contract.allowlist.json",
   "entries": [
     {
-      "fingerprint": "ac68f9fbbfb6701c",
+      "fingerprint": "b86acd0f0ad97318",
       "rule": "docs-token-placeholder",
       "issue": "#999",
       "pack": "issue-999-auth-placeholders",
@@ -18,7 +18,7 @@
       "severity": "high",
       "category": "fortemi_token_placeholder",
       "file": "scripts/test-otel-collector.sh",
-      "line": 38,
+      "line": 40,
       "classification": "synthetic_redaction_sentinel",
       "reason": "OTLP collector integration test needs a Fortemi access-token-shaped sentinel to prove bearer values never reach exported spans; it is not a credential and is never accepted by any server.",
       "owner_issue": "#1156",
