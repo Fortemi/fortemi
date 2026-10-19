@@ -36,6 +36,19 @@ def close(actual, expected, label):
     require(abs(actual - expected) <= EPSILON, f"{label}: reported {actual}, recomputed {expected}")
 
 
+def validate_baseline(baseline, query_ids):
+    # A NaN or out-of-range floor would make every comparison false and pass silently.
+    for mode in ("strict", "or", "adaptive"):
+        policy = baseline["policies"][mode]
+        require(set(policy["queries"]) == set(query_ids), f"baseline {mode}: query coverage changed")
+        for label, values in [(f"{mode}", policy["metrics"]),
+                              *((f"{mode}/{qid}", policy["queries"][qid]) for qid in sorted(query_ids))]:
+            for metric in METRICS:
+                value = values[metric]
+                require(type(value) in (int, float) and math.isfinite(value) and 0.0 <= value <= 1.0,
+                        f"baseline {label}/{metric}: must be a finite number in [0, 1]")
+
+
 def validate(report, fixture, baseline):
     require(report["evaluator"] == baseline["evaluator"] == "binary-v1", "wrong evaluator")
     require(report["route"] == "SearchRequest::execute_on_connection", "wrong measurement route")
@@ -46,6 +59,7 @@ def validate(report, fixture, baseline):
     notes = {n["id"] for n in fixture["notes"]}
     require(len(queries) == len(fixture["queries"]) == 8, "query coverage changed")
     require(len(notes) == len(fixture["notes"]) == 15, "note coverage changed")
+    validate_baseline(baseline, queries)
     modes = [run["mode"] for run in report["runs"]]
     require(sorted(modes) == ["adaptive", "or", "strict"], "missing, duplicated, or mislabeled policy")
     failures = []

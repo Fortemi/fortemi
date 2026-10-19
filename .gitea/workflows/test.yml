@@ -571,14 +571,17 @@ jobs:
         run: |
           set -euo pipefail
           export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
+          # Run-scoped (#1234) absolute path, shared with the upload step below.
+          export FORTEMI_RELEVANCE_REPORT="${TMPDIR:?}/relevance/keyword.json"
+          echo "FORTEMI_RELEVANCE_REPORT=${FORTEMI_RELEVANCE_REPORT}" >> "$GITHUB_ENV"
           bash scripts/ci/search-relevance.sh
 
       - name: Upload keyword relevance report
-        if: always()
+        if: always() && env.FORTEMI_RELEVANCE_REPORT != ''
         uses: actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5  # v3
         with:
           name: keyword-relevance
-          path: target/relevance/keyword.json
+          path: ${{ env.FORTEMI_RELEVANCE_REPORT }}
           if-no-files-found: warn
 
       - name: Run other integration tests

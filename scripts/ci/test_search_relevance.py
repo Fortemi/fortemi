@@ -68,6 +68,25 @@ class GateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "diagnostic baseline"):
             self.validate(self.report, baseline)
 
+    def test_nonfinite_or_out_of_range_baseline_is_rejected(self):
+        for path in [("adaptive", "metrics", "ndcg10"), ("adaptive", "queries", "q5", "ndcg10"),
+                     ("strict", "metrics", "mrr10"), ("or", "queries", "q1", "recall5")]:
+            for bad in [float("nan"), float("inf"), -0.1, 1.5, "0.9", None]:
+                with self.subTest(path=path, bad=bad):
+                    baseline = copy.deepcopy(self.baseline)
+                    node = baseline["policies"][path[0]][path[1]]
+                    for key in path[2:-1]:
+                        node = node[key]
+                    node[path[-1]] = bad
+                    with self.assertRaisesRegex(ValueError, "must be a finite number"):
+                        self.validate(self.report, baseline)
+
+    def test_baseline_missing_query_is_rejected(self):
+        baseline = copy.deepcopy(self.baseline)
+        del baseline["policies"]["adaptive"]["queries"]["q5"]
+        with self.assertRaisesRegex(ValueError, "query coverage changed"):
+            self.validate(self.report, baseline)
+
     def test_empty_query_result_still_counts(self):
         with self.assertRaises(ValueError):
             self.validate(self.mutated_ranking(lambda ranking: ranking.clear()))
