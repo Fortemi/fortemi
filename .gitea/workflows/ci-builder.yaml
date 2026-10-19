@@ -501,6 +501,12 @@ jobs:
           fi
           docker compose -f docker-compose.whisper.yml config --quiet
           docker compose -f docker-compose.workstation.yml config --quiet
+          python3 -m unittest tests/test_verify_bundle_exposure.py
+
+      - name: Check jobs diagnostic Compose rendering
+        run: |
+          # LOG_FILE is an in-container path rendered into Compose and compared
+          # by the verifier; nothing is written on the runner host.
           POSTGRES_PASSWORD=ci-render-fixture-not-a-runtime-secret \
             FORTEMI_DIAGNOSTIC_PROFILE=jobs \
             RUST_LOG=warn \
@@ -511,7 +517,6 @@ jobs:
             JOB_STALE_REAP_INTERVAL_SECS=7 \
             docker compose -f docker-compose.bundle.yml config --format json | \
             python3 scripts/ci/verify-jobs-diagnostic-compose.py
-          python3 -m unittest tests/test_verify_bundle_exposure.py
 
       - name: Check Docker bundle database secret contract
         run: |
