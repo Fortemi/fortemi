@@ -15,8 +15,6 @@
 name: Tests
 
 on:
-  pull_request:
-    branches: [main]
   workflow_dispatch:
     inputs:
       test_category:
@@ -787,24 +785,6 @@ jobs:
           # Generate human-readable summary
           cargo llvm-cov report --summary-only > "${CARGO_TARGET_DIR}/coverage/summary.txt" || true
           cat "${CARGO_TARGET_DIR}/coverage/summary.txt" || echo "Coverage summary not available"
-
-      - name: Coverage summary in PR comment
-        if: github.event_name == 'pull_request'
-        run: |
-          if [ -f "${CARGO_TARGET_DIR}/coverage/summary.txt" ]; then
-            echo "### Coverage Report" > coverage_comment.md
-            echo '```' >> coverage_comment.md
-            cat "${CARGO_TARGET_DIR}/coverage/summary.txt" >> coverage_comment.md
-            echo '```' >> coverage_comment.md
-
-            # Post comment via API (requires token with repo write access)
-            # This is optional - remove if not configured
-            # curl -X POST \
-            #   -H "Authorization: token ${{ github.token }}" \
-            #   -H "Content-Type: application/json" \
-            #   "https://git.integrolabs.net/api/v1/repos/${GITHUB_REPOSITORY}/pulls/${{ github.event.pull_request.number }}/reviews" \
-            #   -d "{\"body\": $(cat coverage_comment.md | jq -Rs .), \"event\": \"COMMENT\"}" || true
-          fi
 
       - name: Teardown PostgreSQL
         if: always()
