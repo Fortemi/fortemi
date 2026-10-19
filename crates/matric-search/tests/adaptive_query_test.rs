@@ -467,7 +467,18 @@ async fn golden_relevance_report(pool: PgPool) {
             strict_query["id"]
         );
     }
-    let report = json!({"evaluator": "binary-v1", "route": "SearchRequest::execute_on_connection", "fixture_version": "1.0", "repetitions": 10, "runs": runs});
+    let postgres_version: String = sqlx::query_scalar("SHOW server_version")
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    let vector_version: String =
+        sqlx::query_scalar("SELECT extversion FROM pg_extension WHERE extname='vector'")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+    let report = json!({"postgres_version": postgres_version, "pgvector_version": vector_version,
+        "configuration": {"adaptive_policy": matric_search::query_policy::QueryPolicyConfig::default(), "response_limit": 100, "deduplicate": true, "diversity": null},
+        "evaluator": "binary-v1", "route": "SearchRequest::execute_on_connection", "fixture_version": "1.0", "repetitions": 10, "runs": runs});
     println!(
         "RELEVANCE_REPORT={}",
         serde_json::to_string(&report).unwrap()

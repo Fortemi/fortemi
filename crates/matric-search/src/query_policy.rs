@@ -1,7 +1,7 @@
 //! Configurable, bounded relaxation for operator-free English/simple queries.
 use serde::Serialize;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 pub struct QueryPolicyConfig {
     /// Disable adaptive retrieval for strict baseline/rollback.
     pub enabled: bool,

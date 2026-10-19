@@ -99,3 +99,45 @@ reproduce the earlier strict/OR SQL diagnostic aggregates through the production
 engine, without establishing HTTP or semantic/hybrid relevance baselines. No
 parameters were tuned on a development split in this implementation; all eight
 golden queries remain the existing regression set.
+
+## CI regression gate
+
+Run the complete keyword gate with one command:
+
+```sh
+bash scripts/ci/search-relevance.sh
+```
+
+`DATABASE_URL` must select a disposable PostgreSQL 18+ database with pgvector and
+PostGIS available. The command runs the database fixtures, ten repetitions of each
+strict/OR/adaptive golden query, the independent Python metric recomputation, and
+twelve gate tests including deliberate regressions and malformed baselines. No
+embedding provider or GPU is used. The report is written to
+`$FORTEMI_RELEVANCE_REPORT` when set (a relative path is resolved against the
+working directory), otherwise to `${CARGO_TARGET_DIR:-target}/relevance/keyword.json`.
+The integration job in `.gitea/workflows/test.yml` runs this command with the
+report under the run-scoped `TMPDIR` and uploads it as the `keyword-relevance`
+artifact, including failed per-query results when available. The report identifies the fixture SHA-256, baseline SHA-256, source
+commit, PostgreSQL/pgvector versions, configuration, route, and evaluator contract.
+
+`keyword_relevance_baseline.json` pins aggregate and per-query metrics for all
+three policies. The gate allows absolute epsilon `0.000001`; every adaptive
+query and aggregate must meet its accepted baseline, with additional 0.90 nDCG/MRR
+release floors. Strict and OR diagnostic aggregates must reproduce their frozen
+baselines within epsilon. All eight queries are mandatory, including empty runs.
+A fixture/qrels change requires an explicitly reviewed baseline and quality
+report; the gate never updates baselines automatically. Latency is reported, not
+gated on shared-runner timing. The ANN overlap acceptance gate is unchanged.
+
+Outstanding qualification for #1210: add frozen real-model query/document
+embeddings with model/tokenizer/preprocessing revisions and full fixture coverage;
+establish semantic and hybrid relevance baselines without degradation; add an
+HTTP/provider regeneration lane; add disjoint development/held-out natural-language,
+typo, multilingual, and filtered relevance sets. The present gate measures keyword
+relevance through the production engine and functional hybrid constraints only.
+
+The Rust and Python evaluator outputs were independently cross-checked against
+`ir_measures` 0.4.3 with `pytrec-eval-terrier` 0.5.11: all aggregate and per-query
+nDCG@10, MRR@10, and Recall@5/10/100 values agree within `1e-12`, including
+empty strict results. This verification dependency is not needed by fast CI.
+See the [ir-measures API documentation](https://ir-measur.es/en/latest/getting-started.html).
