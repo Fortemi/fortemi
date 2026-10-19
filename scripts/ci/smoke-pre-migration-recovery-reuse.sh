@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TMP_DIR="$(mktemp -d)"
-trap 'rm -rf "$TMP_DIR"' EXIT
+trap 'bash "$ROOT/scripts/ci/cleanup-local-temp.sh" "$TMP_DIR"' EXIT
 
 BACKUP_LIB="$TMP_DIR/backup-lib.sh"
 awk '

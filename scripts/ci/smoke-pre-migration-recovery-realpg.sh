@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+remove_docker() { bash "$(dirname "${BASH_SOURCE[0]}")/remove-run-docker.sh" "$@"; }
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-POSTGRES_IMAGE="${FORTEMI_REALPG_IMAGE:-matric-testdb:local}"
-CLIENT_IMAGE="${FORTEMI_REALPG_CLIENT_IMAGE:-fortemi-pre-migration-recovery-client:local}"
+POSTGRES_IMAGE="${FORTEMI_REALPG_IMAGE:-${TESTDB_IMAGE:-matric-testdb:local}}"
+RUN_SCOPE="${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}-${CI_RESOURCE_ATTEMPT:-1}-$$-${RANDOM}"
+CLIENT_IMAGE="${FORTEMI_REALPG_CLIENT_IMAGE:-fortemi-pre-migration-recovery-client:${RUN_SCOPE}}"
 
 if [[ "${FORTEMI_REALPG_IN_CLIENT:-false}" != "true" && "${FORTEMI_REALPG_USE_HOST_CLIENTS:-false}" != "true" ]]; then
     if ! command -v docker >/dev/null 2>&1; then
@@ -18,23 +21,25 @@ if [[ "${FORTEMI_REALPG_IN_CLIENT:-false}" != "true" && "${FORTEMI_REALPG_USE_HO
         exit 1
     fi
 
-    run_id="${GITHUB_RUN_ID:-$$}-$(date +%s)"
+    run_id="$RUN_SCOPE"
     network="fortemi-issue1133-net-${run_id}"
     db_container="fortemi-issue1133-pg-${run_id}"
+    client_container="fortemi-issue1133-client-${run_id}"
     cleanup_outer() {
-        docker rm -f "$db_container" >/dev/null 2>&1 || true
-        docker network rm "$network" >/dev/null 2>&1 || true
+        remove_docker rm -fv "$client_container" "$db_container" || true
+        remove_docker network rm "$network" || true
+        remove_docker image rm "$CLIENT_IMAGE" || true
     }
     trap cleanup_outer EXIT
 
-    docker network create "$network" >/dev/null
-    docker run -d --rm --name "$db_container" --network "$network" \
+    docker network create --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}" "$network" >/dev/null
+    docker run --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}" -d --rm --name "$db_container" --network "$network" \
         -e POSTGRES_PASSWORD=pass \
         -e POSTGRES_USER=postgres \
         -e POSTGRES_DB=matric \
         "$POSTGRES_IMAGE" >/dev/null
 
-    docker build -t "$CLIENT_IMAGE" -f - . <<DOCKERFILE
+    docker build --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}" -t "$CLIENT_IMAGE" -f - . <<DOCKERFILE
 FROM $POSTGRES_IMAGE
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends python3 gzip ca-certificates coreutils findutils && rm -rf /var/lib/apt/lists/*
@@ -43,7 +48,7 @@ COPY . /work
 ENTRYPOINT ["/bin/bash"]
 DOCKERFILE
 
-    docker run --rm --network "$network" \
+    docker run --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}" --rm --name "$client_container" --network "$network" \
         -e FORTEMI_REALPG_IN_CLIENT=true \
         -e FORTEMI_REALPG_DB_HOST="$db_container" \
         -e FORTEMI_REALPG_DB_PORT=5432 \
@@ -59,15 +64,15 @@ for required_cmd in psql pg_dump pg_restore createdb dropdb gzip sha256sum pytho
     fi
 done
 
-TEST_ROOT="$ROOT/.aiwg/working/issue-1133-realpg-$(date +%s)-$$"
-CONTAINER="${FORTEMI_REALPG_DB_HOST:-fortemi-issue1133-pg-$$}"
+TEST_ROOT="${TMPDIR:-$ROOT/.aiwg/working}/issue-1133-realpg-$(date +%s)-$$"
+CONTAINER="${FORTEMI_REALPG_DB_HOST:-fortemi-issue1133-pg-${RUN_SCOPE}}"
 DB_HOST="${FORTEMI_REALPG_DB_HOST:-127.0.0.1}"
 PORT="${FORTEMI_REALPG_DB_PORT:-}"
 cleanup() {
     if [[ "${FORTEMI_REALPG_IN_CLIENT:-false}" != "true" ]]; then
-        docker stop "$CONTAINER" >/dev/null 2>&1 || true
+        remove_docker rm -fv "$CONTAINER" || true
     fi
-    rm -rf "$TEST_ROOT"
+    bash "$ROOT/scripts/ci/cleanup-local-temp.sh" "$TEST_ROOT"
 }
 container_logs() {
     if command -v docker >/dev/null 2>&1; then
@@ -88,7 +93,7 @@ if [[ "${FORTEMI_REALPG_IN_CLIENT:-false}" != "true" ]]; then
         echo "FAIL: required local PostgreSQL image $POSTGRES_IMAGE is not available" >&2
         exit 1
     fi
-    docker run -d --rm --name "$CONTAINER" \
+    docker run --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}" -d --rm --name "$CONTAINER" \
         -e POSTGRES_PASSWORD=pass \
         -e POSTGRES_USER=postgres \
         -e POSTGRES_DB=matric \

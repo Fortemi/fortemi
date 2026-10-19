@@ -202,10 +202,11 @@ def main() -> None:
     )
     lint_block = ci_builder[ci_builder.index("  lint:"):ci_builder.index("  knowledge-shard-matrix:")]
     build_block = ci_builder[ci_builder.index("  build:"):ci_builder.index("  test-container:")]
+    provision_testdb = 'docker build -f build/Dockerfile.testdb -t "${TESTDB_IMAGE}" .'
     require(
         "smoke-pre-migration-recovery-realpg.sh" not in lint_block
-        and "docker build -f build/Dockerfile.testdb -t matric-testdb:local ." in build_block
-        and build_block.index("docker build -f build/Dockerfile.testdb -t matric-testdb:local .") < build_block.index("smoke-pre-migration-recovery-realpg.sh"),
+        and provision_testdb in build_block
+        and build_block.index(provision_testdb) < build_block.index("smoke-pre-migration-recovery-realpg.sh"),
         "real PostgreSQL recovery smoke must run after reproducible testdb image provisioning, not in lint",
     )
 
