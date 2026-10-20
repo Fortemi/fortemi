@@ -41,7 +41,7 @@ handlers/outbox/all-consumer/CI/delivery/release gates. Full20scope/holds and NO
 remain. See suite Cycle95 source, browser, cleanup and release-reconciliation receipts.
 
 > **Status:** Active — reference until all planned phases are complete.
-> **Created:** 2026-06-24 · **Last updated:** 2026-10-17 (America/New_York)
+> **Created:** 2026-06-24 · **Last updated:** 2026-10-19 (America/New_York)
 > **Tracker:** Gitea `Fortemi/fortemi` (authoritative). Issue numbers below are Gitea issues.
 > **Source:** Synthesized from the 2026-06-21→23 open-issue audit sweep (#746–#1006), the milestone structure, the 2026-06-23 interactive product-decision Q&A (31 decisions recorded on-issue), and the 2026-08-23 full-open-backlog rebaseline.
 
@@ -1025,6 +1025,8 @@ All recorded as "Operator product decision" comments on-issue. Keystones: **#853
 - Current backlog rebaseline: `.aiwg/planning/issue-roadmap-audit-2026-08-23.md`.
 
 ## Progress log
+
+- 2026-10-19 — #1225 / PR #1253: recovered mint-time OIDC client attribution across delegated SSE stream/archive decisions, reconnect and denial; local/API-key and legacy records retain null attribution. Changed-file formatting and seven focused offline cases pass with disposable fixtures. Delivery, exact post-merge main CI and release acceptance remain pending; suite NO-GO is unchanged.
 
 - 2026-09-06 (2026-09-07 UTC receipts) — Lane A: HotM 2026.9.1 is published and installed, mirrored native assets verified, and ten installed desktop/mobile browser checks passed; real hosted-auth reconnection remains open in HotM #304. Server #1132/#1133 passed published Gitea bundle delayed readiness and verified recovery reuse/fresh restore at digest `f463db4e…`; GHCR/native delivery remains pending. React #415 is closed on verified 2026.9.2 publication. [Delivery ledger](lane-a-delivery-2026-09.md) records exact identities and remaining gates.
 

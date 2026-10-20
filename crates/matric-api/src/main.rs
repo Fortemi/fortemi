@@ -7467,7 +7467,7 @@ async fn sse_events(
                 .as_ref()
                 .and_then(|identity| identity.request_principal.as_ref()),
         );
-        let mut input = input;
+        let mut input = apply_identity_audit_attribution(input, identity.as_ref());
         if let Some(user) = identity.as_ref().and_then(sse::stable_user_id) {
             input
                 .context
@@ -13828,6 +13828,13 @@ fn apply_identity_audit_attribution(
     input: route_policy::RoutePolicyInput,
     identity: Option<&ValidatedBearerIdentity>,
 ) -> route_policy::RoutePolicyInput {
+    // Query identities retain only audit attribution, not a reconstructed OIDC
+    // principal. Parent rechecks may reduce authority but never replace azp.
+    if let Some(stream) = identity.and_then(|identity| identity.stream_identity.as_ref()) {
+        let mut input = input;
+        input.audit_azp = stream.audit_azp.clone();
+        return input;
+    }
     #[cfg(feature = "hosted-auth")]
     {
         let mut input = input;
@@ -13893,7 +13900,6 @@ fn auth_decision_audit_event(
         "credential_class",
         "issuer_len",
         "subject_len",
-        "azp_present",
     ] {
         if let Some(value) = input.context.environment.get(key) {
             event = event.with_attr(key, value.clone());
@@ -76295,6 +76301,28 @@ not-json
                 assert_eq!(event.attrs.get("azp"), Some(&serde_json::json!(client)));
                 assert_eq!(event.attrs["azp_present"], client.is_some());
                 token_attribution_tests::assert_no_email(&serde_json::to_value(&event).unwrap());
+            }
+        }
+    }
+
+    #[test]
+    fn auth_decision_audit_event_azp_presence_ignores_environment() {
+        let auth = Auth {
+            principal: AuthPrincipal::Anonymous,
+        };
+        for azp in [None, Some("web-auth")] {
+            let mut input =
+                route_policy::authorization_input_for_request(&Method::GET, "/api/v1/events", None)
+                    .unwrap();
+            input.audit_azp = azp.map(str::to_owned);
+            input
+                .context
+                .environment
+                .insert("azp_present".into(), serde_json::json!(azp.is_none()));
+            for outcome in [AuditOutcome::Success, AuditOutcome::Denied] {
+                let event = auth_decision_audit_event(&auth, &input, outcome, None, "test", "test");
+                assert_eq!(event.attrs["azp"], serde_json::json!(azp));
+                assert_eq!(event.attrs["azp_present"], azp.is_some());
             }
         }
     }

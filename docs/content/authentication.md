@@ -547,9 +547,13 @@ Authorization decision and decision-deny audits record the verified token's
 `azp` (for example `web-auth`, `fortemi-cli` or `fortemi-admin-cli`) and
 `azp_present`, matching just-in-time provisioning records. `azp` is `null` for
 API keys, personal access tokens and other credentials without token
-attribution. Audit-only attribution never feeds the authorization decision,
-and no audit record contains email. The verifier is pinned to signed `fortemi-auth`
-`v2026.10.3`, claim contract `4.0.0`.
+attribution. SSE query tokens retain the verified minting token's `azp` for
+stream and archive decision audits, including reconnects; older token records
+without this field remain valid with `azp: null`.
+Audit-only attribution never feeds the authorization decision. The `email`
+claim is never recorded in audit events or used for authorization. The subject
+identifier is recorded, and an IdP may use an email-shaped `sub`. The verifier
+is pinned to signed `fortemi-auth` `v2026.10.3`, claim contract `4.0.0`.
 
 #### Personal access tokens
 

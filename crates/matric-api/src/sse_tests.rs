@@ -307,6 +307,27 @@ impl AuditSink for UnavailableAuditSink {
     }
 }
 
+#[derive(Default)]
+struct RecordingAuditSink(Mutex<Vec<AuditEvent>>);
+
+impl RecordingAuditSink {
+    fn take_events(&self) -> Vec<AuditEvent> {
+        std::mem::take(&mut *self.0.lock().expect("recording audit lock"))
+    }
+}
+
+#[async_trait::async_trait]
+impl AuditSink for RecordingAuditSink {
+    async fn emit(&self, event: AuditEvent) -> Result<(), matric_core::AuditError> {
+        self.0.lock().expect("recording audit lock").push(event);
+        Ok(())
+    }
+
+    async fn flush(&self) -> Result<(), matric_core::AuditError> {
+        Ok(())
+    }
+}
+
 #[tokio::test]
 async fn audit_failure_remains_fail_closed_with_service_unavailable() {
     let mut state = state().await;
@@ -387,6 +408,37 @@ async fn single_and_multi_tenant_live_and_replay_envelopes_are_consistent() {
         let mut unscoped = envelope;
         unscoped.tenant_id = None;
         assert!(subscription.prepare(&state.db, unscoped).await.is_none());
+    }
+}
+
+#[test]
+fn query_token_audit_attribution_stays_out_of_policy_context() {
+    use matric_api::services::ingest_token_store::{EventStreamIdentity, EventStreamParent};
+    for azp in [
+        None,
+        Some("web-auth"),
+        Some("fortemi-cli"),
+        Some("fortemi-admin-cli"),
+    ] {
+        let mut identity = identity("admin", None, false);
+        identity.stream_identity = Some(EventStreamIdentity {
+            principal: identity.principal.clone(),
+            tenant_id: None,
+            user_id: None,
+            audit_azp: azp.map(str::to_owned),
+            parent_credential: EventStreamParent::OAuthToken(Uuid::nil()),
+            human: false,
+            expires_at: identity.expires_at,
+        });
+        for path in ["/api/v1/events", "/api/v1/archives/public"] {
+            let input =
+                route_policy::authorization_input_for_request(&Method::GET, path, None).unwrap();
+            let attributed = apply_identity_audit_attribution(input.clone(), Some(&identity));
+            assert_eq!(attributed.audit_azp.as_deref(), azp);
+            assert_eq!(attributed.context, input.context);
+            assert_eq!(attributed.action, input.action);
+            assert_eq!(attributed.resource, input.resource);
+        }
     }
 }
 
@@ -770,6 +822,17 @@ async fn oidc_state(scopes: &str) -> (AppState, Uuid) {
 }
 
 #[cfg(feature = "hosted-auth")]
+fn set_oidc_client(state: &mut AppState, tenant: Uuid, scopes: &str, client: &str) {
+    let mut context = identity(scopes, Some(tenant), true)
+        .canonical_context
+        .unwrap();
+    let mut attribution = fortemi_auth_core::TokenAttribution::default();
+    attribution.azp = Some(client.to_string());
+    context.token_attribution = Some(attribution);
+    state.hosted_auth = Some(Arc::new(OidcFixture(context)));
+}
+
+#[cfg(feature = "hosted-auth")]
 #[tokio::test]
 async fn oidc_and_pat_delivery_stops_at_validated_expiry() {
     let (mut state, tenant) = oidc_state("read").await;
@@ -827,6 +890,7 @@ async fn oidc_and_pat_delivery_stops_at_validated_expiry() {
 #[tokio::test]
 async fn query_token_restores_oidc_identity_for_postgres_audit_and_expires() {
     let (mut state, tenant) = oidc_state("admin").await;
+    set_oidc_client(&mut state, tenant, "admin", "web-auth");
     let selected = archive(&state).await;
     let redis_url =
         std::env::var("REDIS_URL").expect("CI must provision disposable Redis and REDIS_URL");
@@ -859,6 +923,7 @@ async fn query_token_restores_oidc_identity_for_postgres_audit_and_expires() {
         .await
         .unwrap();
     let verified = stored.event_identity.as_ref().unwrap();
+    assert_eq!(verified.audit_azp.as_deref(), Some("web-auth"));
     assert_eq!(verified.tenant_id, Some(tenant));
     assert!(verified.user_id.is_some());
     assert!(sse::revalidate_query_identity(&state, verified.clone())
@@ -882,12 +947,17 @@ async fn query_token_restores_oidc_identity_for_postgres_audit_and_expires() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::OK);
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_event WHERE tenant_id=$1 AND outcome='Success' AND attrs->>'action_name'='event_stream:get' AND principal_id='oauth_user:synthetic-reader'")
-        .bind(tenant).fetch_one(&state.db.pool).await.unwrap();
+    let rows: Vec<serde_json::Value> = sqlx::query_scalar("SELECT attrs FROM public.audit_event WHERE tenant_id=$1 AND outcome='Success' AND attrs->>'action_name'='event_stream:get' AND principal_id='oauth_user:synthetic-reader'")
+        .bind(tenant).fetch_all(&state.db.pool).await.unwrap();
     assert_eq!(
-        count, 2,
+        rows.len(),
+        2,
         "query stream and archive decisions must be durably audited under the minting principal"
     );
+    for attrs in rows {
+        assert_eq!(attrs["azp"], "web-auth");
+        assert_eq!(attrs["azp_present"], true);
+    }
     assert_stream_expires(
         &state,
         response,
@@ -1280,6 +1350,140 @@ async fn query_store(state: &mut AppState) {
     state.ingest_token_store = matric_api::services::IngestTokenStore::with_ttl(&redis_url, 60)
         .await
         .unwrap();
+}
+
+#[cfg(feature = "hosted-auth")]
+#[tokio::test]
+async fn query_token_audits_minting_oidc_client_on_subscribe_reconnect_and_deny() {
+    for client in ["web-auth", "fortemi-cli", "fortemi-admin-cli"] {
+        let (mut state, tenant) = oidc_state("admin profile").await;
+        set_oidc_client(&mut state, tenant, "admin profile", client);
+        query_store(&mut state).await;
+        let selected = archive(&state).await;
+        let app = middleware_router(state.clone());
+        let token = mint_query_token(&app, &selected.0, "synthetic-oidc").await;
+        let stored = state
+            .ingest_token_store
+            .validate_event_stream(&token)
+            .await
+            .unwrap();
+        let captured = stored.event_identity.unwrap();
+        assert_eq!(captured.audit_azp.as_deref(), Some(client));
+
+        // A later login/profile update must not relabel the minting client.
+        sqlx::query(
+            "UPDATE public.app_user SET azp='different-client' WHERE tenant_id=$1 AND id=$2",
+        )
+        .bind(tenant)
+        .bind(captured.user_id.unwrap())
+        .execute(&state.db.pool)
+        .await
+        .unwrap();
+        let rechecked = sse::revalidate_query_identity(&state, captured.clone())
+            .await
+            .unwrap();
+        assert_eq!(rechecked.audit_azp.as_deref(), Some(client));
+        let cursor = query_replay_cursor(&state, &app, &selected, &token).await;
+        let response = app
+            .clone()
+            .oneshot(query_request(&selected.0, &token, Some(cursor)))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let mut replay = response.into_body().into_data_stream();
+        assert_eq!(next_frame(&mut replay).await["archive_schema"], selected.1);
+        drop(replay);
+
+        // Keep a captured scope so parent validation succeeds, but remove stream
+        // authority. The policy denial must still identify the original client.
+        sqlx::query("UPDATE public.app_user SET current_scopes=ARRAY['profile'] WHERE tenant_id=$1 AND id=$2")
+            .bind(tenant).bind(captured.user_id.unwrap()).execute(&state.db.pool).await.unwrap();
+        let denied = app
+            .oneshot(query_request(&selected.0, &token, None))
+            .await
+            .unwrap();
+        assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+
+        let rows: Vec<(String, String, serde_json::Value)> = sqlx::query_as(
+            "SELECT action, outcome, attrs FROM public.audit_event WHERE tenant_id=$1
+             AND principal_id='oauth_user:synthetic-reader' AND attrs->>'action_name'='event_stream:get'",
+        ).bind(tenant).fetch_all(&state.db.pool).await.unwrap();
+        assert_eq!(rows.len(), 5, "two stream/archive pairs plus a denial");
+        let mut stream_allows = 0;
+        let mut archive_allows = 0;
+        let mut denials = 0;
+        for (action, outcome, attrs) in rows {
+            assert_eq!(attrs["azp"], client);
+            assert_eq!(attrs["azp_present"], true);
+            match (
+                action.as_str(),
+                outcome.as_str(),
+                attrs["route_template"].as_str().unwrap(),
+            ) {
+                ("decision", "Success", "/api/v1/events") => stream_allows += 1,
+                ("decision", "Success", "/api/v1/archives/{name}") => archive_allows += 1,
+                ("decision_deny", "Denied", "/api/v1/events") => denials += 1,
+                _ => panic!("unexpected query-token decision: {action} {outcome} {attrs}"),
+            }
+        }
+        assert_eq!((stream_allows, archive_allows, denials), (2, 2, 1));
+        remove_archive_fixture(&state, &selected).await;
+    }
+}
+
+#[tokio::test]
+async fn query_token_audits_null_azp_for_local_oauth_and_api_key() {
+    let mut state = state().await;
+    let audit_sink = Arc::new(RecordingAuditSink::default());
+    state.audit_sink = audit_sink.clone();
+    query_store(&mut state).await;
+    let selected = archive(&state).await;
+    let oauth = local_token(&state, "admin", false).await;
+    let key = state
+        .db
+        .oauth
+        .create_api_key(
+            serde_json::from_value(serde_json::json!({
+                "name": "Query audit attribution", "scope": "admin",
+            }))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    let app = middleware_router(state.clone());
+    for bearer in [&oauth, &key.api_key] {
+        let token = mint_query_token(&app, &selected.0, bearer).await;
+        let stored = state
+            .ingest_token_store
+            .validate_event_stream(&token)
+            .await
+            .unwrap();
+        let captured = stored.event_identity.unwrap();
+        assert!(captured.audit_azp.is_none());
+        let response = app
+            .clone()
+            .oneshot(query_request(&selected.0, &token, None))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        drop(response);
+        let principal_id = auth_principal_audit_id(&captured.principal);
+        let events: Vec<_> = audit_sink
+            .take_events()
+            .into_iter()
+            .filter(|event| {
+                event.principal_id.as_deref() == Some(principal_id.as_str())
+                    && event.attrs.get("action_name")
+                        == Some(&serde_json::json!("event_stream:get"))
+            })
+            .collect();
+        assert_eq!(events.len(), 2, "stream and archive decisions");
+        for event in events {
+            assert_eq!(event.attrs.get("azp"), Some(&serde_json::Value::Null));
+            assert_eq!(event.attrs["azp_present"], false);
+        }
+    }
+    remove_archive_fixture(&state, &selected).await;
 }
 
 #[tokio::test]

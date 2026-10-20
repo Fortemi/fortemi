@@ -500,6 +500,12 @@ fn sanitize_optional_string(value: Option<String>, sensitive: bool) -> Option<St
     value.map(|value| sanitize_string(value, sensitive))
 }
 
+/// Bound and sanitize verified attribution before storing it for a later audit.
+/// Uses the same rules as a non-sensitive audit string attribute (such as `azp`).
+pub fn sanitize_audit_attribution(value: String) -> String {
+    sanitize_string(value, false)
+}
+
 fn sanitize_string(mut value: String, sensitive: bool) -> String {
     if sensitive || looks_secret_shaped(&value) {
         return REDACTED.to_string();
@@ -513,7 +519,11 @@ fn sanitize_string(mut value: String, sensitive: bool) -> String {
         })
         .collect();
     if value.len() > MAX_ATTR_STRING_BYTES {
-        value.truncate(MAX_ATTR_STRING_BYTES);
+        let mut end = MAX_ATTR_STRING_BYTES;
+        while !value.is_char_boundary(end) {
+            end -= 1;
+        }
+        value.truncate(end);
         value.push_str(TRUNCATED);
     }
     value
@@ -598,6 +608,26 @@ mod tests {
 
     fn event(action: &str) -> AuditEvent {
         AuditEvent::new("test", action, AuditOutcome::Success)
+    }
+
+    #[test]
+    fn stored_attribution_uses_audit_sanitization_and_utf8_safe_bounds() {
+        for value in [
+            "web-auth".to_string(),
+            "fortemi-cli".to_string(),
+            "fortemi-admin-cli".to_string(),
+            "client\r\n\t|;injection".to_string(),
+            "Bearer secret".to_string(),
+            "x".repeat(1024),
+            "€".repeat(300),
+        ] {
+            let stored = sanitize_audit_attribution(value.clone());
+            assert_eq!(
+                event("decision").with_attr("azp", value).attrs["azp"],
+                stored
+            );
+            assert!(stored.len() <= MAX_ATTR_STRING_BYTES + TRUNCATED.len());
+        }
     }
 
     #[test]
