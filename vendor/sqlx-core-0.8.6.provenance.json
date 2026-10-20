@@ -1,0 +1,15 @@
+{
+  "package": "sqlx-core",
+  "version": "0.8.6",
+  "archive_url": "https://static.crates.io/crates/sqlx-core/sqlx-core-0.8.6.crate",
+  "archive_sha256": "ee6798b1838b6a0f69c007c133b8df5866302197e404e8b6ee8ed3e3a5e68dc6",
+  "archive_files": 100,
+  "archive_uncompressed_bytes": 489397,
+  "upstream_backport": "https://github.com/transact-rs/sqlx/pull/4042",
+  "upstream_merge_commit": "9645a9ad8ddc5041b94bee85287ad29dba8250d1",
+  "change": "Normalized Cargo.toml dependencies.webpki-roots.version: 0.26 to 1; all other archive bytes unchanged",
+  "patched_manifest_sha256": "d4e9ade819224bfa4fff1f08fc726607b3d9bd5a5e61c62f969621735fc0e045",
+  "licenses": ["sqlx-core-0.8.6/LICENSE-APACHE", "sqlx-core-0.8.6/LICENSE-MIT"],
+  "purpose": "Remove the obsolete 0.26 compatibility shim while using the patched 1.0.10 root store for RUSTSEC-2026-0381 without changing SQLx API, native trust policy, or Rust toolchain",
+  "retirement": "Remove this patch when a supported SQLx release provides the same dependency correction and its compatibility gates pass"
+}

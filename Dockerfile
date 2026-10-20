@@ -39,6 +39,7 @@ RUN rust-cross-build install-deps
 # Copy workspace files
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
+COPY vendor ./vendor
 COPY contracts ./contracts
 COPY migrations ./migrations
 
