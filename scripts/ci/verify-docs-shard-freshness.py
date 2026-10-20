@@ -6,6 +6,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import re
 import sys
 import tarfile
 from pathlib import Path
@@ -35,6 +36,62 @@ def manifest_server_version(manifest: dict[str, object]) -> object:
     if isinstance(producer, dict) and producer.get("version"):
         return producer["version"]
     return manifest.get("matric_version")
+
+
+def artifact_failures(receipt: dict[str, object], expected_version: str) -> list[str]:
+    artifact = receipt.get("server_artifact")
+    if "server_artifact" not in receipt:
+        if "runtime_health" in receipt:
+            return ["image receipt must not contain native runtime identity"]
+        if not str(receipt.get("server_image", "")).endswith(f":{expected_version}"):
+            return ["receipt server image is not pinned to the workspace version"]
+        return []
+    if not isinstance(artifact, dict) or artifact.get("kind") != "native-binary":
+        return ["receipt server artifact kind is unsupported"]
+    failures = []
+    if set(artifact) != {"kind", "name", "sha256", "version", "revision"}:
+        failures.append("native receipt artifact fields are incomplete or unsupported")
+    runtime = receipt.get("runtime_health")
+    if (not isinstance(runtime, dict)
+            or set(runtime) != {"version", "git_sha"}
+            or runtime.get("version") != expected_version
+            or runtime.get("git_sha") != artifact.get("revision")):
+        failures.append("native receipt observed runtime identity does not match artifact")
+    if "server_image" in receipt:
+        failures.append("native receipt must not claim a server image")
+    if receipt.get("generator") != "scripts/rebuild-docs-shard.sh":
+        failures.append("native receipt generator is not the documentation importer")
+    if artifact.get("name") != "matric-api":
+        failures.append("native receipt must identify matric-api")
+    if not re.fullmatch(r"[0-9a-f]{64}", str(artifact.get("sha256", ""))):
+        failures.append("native receipt binary SHA-256 is invalid")
+    if artifact.get("version") != expected_version:
+        failures.append("native receipt binary version does not match workspace")
+    revision = artifact.get("revision")
+    if (not re.fullmatch(r"[0-9a-f]{40}", str(revision or ""))
+            or revision != receipt.get("server_commit")
+            or revision != receipt.get("source_commit")):
+        failures.append("native receipt binary revision does not match source")
+    return failures
+
+
+def producer_failures(
+    manifest: dict[str, object], receipt: dict[str, object], expected_version: str,
+) -> list[str]:
+    producer = manifest.get("producer")
+    if "server_artifact" in receipt:
+        if not isinstance(producer, dict):
+            return ["native shard requires a canonical producer"]
+        if producer.get("version") != expected_version:
+            return ["native shard producer version does not match workspace"]
+        revision = producer.get("revision")
+        if (not re.fullmatch(r"[0-9a-f]{40}", str(revision or ""))
+                or revision != receipt.get("server_commit")
+                or revision != receipt.get("source_commit")):
+            return ["native shard producer revision does not match receipt source"]
+    elif isinstance(producer, dict) and producer.get("revision") != receipt.get("server_commit"):
+        return ["receipt server commit does not match shard producer revision"]
+    return []
 
 
 def main() -> int:
@@ -70,8 +127,8 @@ def main() -> int:
         )
     if receipt.get("manifest_version") != manifest.get("version"):
         failures.append("receipt manifest version does not match shard manifest")
-    if not str(receipt.get("server_image", "")).endswith(f":{expected_version}"):
-        failures.append("receipt server image is not pinned to the workspace version")
+    failures.extend(artifact_failures(receipt, expected_version))
+    failures.extend(producer_failures(manifest, receipt, expected_version))
 
     if failures:
         print("documentation shard freshness check failed", file=sys.stderr)

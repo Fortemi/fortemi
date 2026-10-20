@@ -239,6 +239,20 @@ length, manifest version, server image, and workspace release baseline. When
 receipt in the same commit and propagate the exact server-generated artifact to
 downstream conformance suites.
 
+An offline native regeneration may instead use the same documentation importer
+against an exact-source native `matric-api` in a bounded private fixture. Pass
+`--server-binary /path/to/matric-api` instead of `--server-image` to the receipt
+writer, with `--runtime-health` naming the captured health JSON and
+`--expected-binary-sha256` naming the successful-build digest. Observed runtime
+`version` and `git_sha` must match the manifest and source; the binary digest
+must remain unchanged. This records a `native-binary` artifact with binary SHA-256, producer
+version/revision, and the actual importer identity; it does not claim an OCI
+image was used. Freshness checks retain the workspace version gate and reject
+incomplete or mixed artifact identities. Native generation does not qualify
+published images, signatures, deployment behavior, or named-profile portability.
+The runtime revision is supplied at launch, not independent cryptographic proof
+of compilation; retain the clean-source build and binary-digest evidence.
+
 ### build-gliner.yaml
 
 | Trigger | Tags |
