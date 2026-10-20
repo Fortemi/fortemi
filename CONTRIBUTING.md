@@ -26,8 +26,8 @@ psql -U postgres -d matric -c "CREATE EXTENSION vector;"
 cargo install sqlx-cli
 sqlx migrate run
 
-# Run tests
-cargo test --workspace
+# Build the affected crate (see change-scoped verification below)
+cargo build --locked -p matric-api
 ```
 
 API integration tests require `DATABASE_URL` to explicitly select a disposable,
@@ -122,25 +122,68 @@ Examples:
 ### Pull Requests
 1. Create a feature branch: `git checkout -b feat/your-feature`
 2. Make changes with clear commits
-3. Run tests and linters
+3. Build and run change-scoped tests and linters; record commands and counts
 4. Push and open a PR
-5. Address review feedback
+5. Address review feedback, merge, and monitor main CI plus its comprehensive test handoff
 
 Follow project conventions for PR descriptions and commit messages.
 
 ## Testing
 
+### Change-scoped verification
+
+Pull requests do not run CI. Before opening or merging a PR, build locally
+and run the tests for the touched crates/files and their direct neighbours
+(callers, consumers, and shared fixtures). Select affected packages with `-p`
+and test targets or filters as appropriate; a full local workspace test run is
+not a pre-PR requirement. Include the CI-equivalent features and environment
+for each selected test, as defined in `.gitea/workflows/ci-builder.yaml` and
+`.gitea/workflows/test.yml`.
+
+For example, for a hosted API/SSE change with crypto neighbours:
+
+```bash
+# Use a disposable PostgreSQL 18 database with CI extensions and migrations.
+export DATABASE_URL="<DATABASE_URL>"
+export REDIS_URL="redis://localhost:6379/0"
+cargo build --locked -p matric-api --features hosted-auth,kms-vault
+cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api sse_tests -- --test-threads=1
+cargo test --locked -p matric-crypto --features kms-vault --lib
+```
+
+Expand that selection to all affected tests and direct neighbours; these commands
+are an example, not a universal minimum. Hosted create/bootstrap tests also need
+`FORTEMI_HOSTED_CREATE_TEST_ADMIN_URL` or
+`FORTEMI_HOSTED_BOOTSTRAP_TEST_ADMIN_URL` for the same disposable database.
+Use `--features migrations` for DB migration tests, keep shared-database tests
+serial (`-- --test-threads=1`), and run worker integration tests separately before
+other database tests, as CI does. Do not skip required infrastructure tests.
+For workflow/Python changes, run `python3 -m unittest discover -s tests --pattern='test_*.py'`
+and the relevant workflow policy verifiers; for docsite changes, run
+`npm ci`, `npm run docs:build`, and `npm run docs:check-assets`.
+
+Record the exact commands, features/environment, selected scope and neighbour
+rationale, and passed/failed/ignored counts in the PR's **Verification** section.
+Record build results and any unavailable checks explicitly.
+
+CI runs after merge on the push to `main`: ci-builder hands off to comprehensive
+`test.yml`. `delivery.require_ci_green` applies to that post-merge main run and
+its test handoff. Record their run IDs and wait for both to pass before declaring
+work complete. Fix a red main forward immediately on a new branch: reproduce,
+fix, verify locally, merge, and monitor the next main run.
+
+
 ### Unit Tests
 ```bash
 cargo test                  # All tests in current crate
-cargo test --workspace      # All crates
+cargo test --workspace      # Optional comprehensive local run
 cargo test test_name        # Specific test
 ```
 
 ### Integration Tests
 ```bash
 # API integration tests
-cargo test -p matric-api --test '*'
+cargo test -p matric-api --features hosted-auth,kms-vault --test '*'
 
 # Search integration tests
 cargo test -p matric-search --test '*'
@@ -240,16 +283,17 @@ What are the implications?
 Fortémi uses CalVer versioning: `YYYY.M.PATCH`
 
 ### Release Checklist
-1. Run tests: `cargo test --workspace`
-2. Run linters: `cargo clippy -- -D warnings`
-3. Update versions in `Cargo.toml` and `mcp-server/package.json`
-4. Update `CHANGELOG.md` with release notes
-5. Commit: `git commit -m "chore: release vYYYY.M.PATCH"`
-6. Tag: `git tag -a vYYYY.M.PATCH -m "vYYYY.M.PATCH - Release title"`
-7. Push: `git push origin main --tags`
-8. Create GitHub release with highlights
+1. Verify changes locally using the change-scoped rule above.
+2. Align release versions and update the changelog and announcement.
+3. Merge the candidate to main and require green post-merge CI.
+4. Dispatch ci-builder on `main` with the exact candidate `source_sha`, and
+   dispatch `docsite-build`. Require those runs and the comprehensive `test.yml`
+   handoff to be green; record the run IDs in the release PR/notes.
+5. From a clean checkout at that validated current main commit, use
+   `tools/release/cut-tag.sh`, push the signed tag, and verify release publication.
 
-See `docs/content/releasing.md` for full details.
+See [the release process](docs/content/releasing.md) for the exact dispatch and
+signing procedure. Do not cut a tag before the release validation run passes.
 
 ## Code Style
 

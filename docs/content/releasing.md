@@ -18,7 +18,13 @@ Fortémi uses **CalVer** (Calendar Versioning):
 
 ### Pre-Release
 
-- [ ] All tests passing: `cargo test --workspace -- --test-threads=1` with a disposable test database
+- [ ] A green release validation run: ci-builder `workflow_dispatch` on the exact
+      candidate commit on `main`, plus its
+      comprehensive `test.yml` handoff. Record both run IDs and the candidate SHA
+      in the release PR/notes **before `tools/release/cut-tag.sh`**.
+- [ ] A green `docsite-build` `workflow_dispatch` on the same candidate (strict
+      links and asset checks). Ordinary main pushes do not build the docsite;
+      the tag-only chain reaches `docsite-deploy` only after release.
 - [ ] Linting clean: `cargo clippy --all-targets --all-features -- -D warnings`
 - [ ] Format check: `cargo fmt --all -- --check`
 - [ ] Dependency policy: `cargo deny check advisories bans licenses sources`
@@ -34,6 +40,60 @@ Fortémi uses **CalVer** (Calendar Versioning):
 - [ ] If the release touches the Intel overlay or provider routing:
       `./scripts/smoke-intel-vllm.sh` passes (see
       [Intel Arc / vLLM Deployment](#/operations-intel-arc-vllm))
+
+### Dispatch release validation
+
+After the version bump is merged, fetch main and dispatch the exact candidate.
+Use a Gitea token with workflow-dispatch permission (do not record the token):
+
+```bash
+git fetch origin main
+CANDIDATE_SHA=$(git rev-parse origin/main)
+jq -n --arg sha "$CANDIDATE_SHA" \
+  '{ref: "main", inputs: {source_sha: $sha}}' \
+  > /tmp/fortemi-release-validation.json
+curl --fail-with-body --silent --show-error -X POST \
+  -H "Authorization: token ${GITEA_TOKEN:?Set a workflow-dispatch token}" \
+  -H 'Content-Type: application/json' \
+  'https://git.integrolabs.net/api/v1/repos/Fortemi/fortemi/actions/workflows/ci-builder.yaml/dispatches' \
+  --data-binary @/tmp/fortemi-release-validation.json
+```
+
+Dispatch the docsite build on the same candidate (it accepts no inputs, so run it
+while `main` is still the candidate commit):
+
+```bash
+curl --fail-with-body --silent --show-error -X POST \
+  -H "Authorization: token ${GITEA_TOKEN:?Set a workflow-dispatch token}" \
+  -H 'Content-Type: application/json' \
+  'https://git.integrolabs.net/api/v1/repos/Fortemi/fortemi/actions/workflows/docsite-build.yml/dispatches' \
+  --data '{"ref":"main"}'
+```
+
+Alternatively, open **Actions → CI → Run workflow**, select `main`, enter the
+full 40-character candidate commit in `source_sha`, and run it. In Actions, record the ci-builder run ID/URL and the
+comprehensive **Tests** run ID/URL that its handoff creates with
+`test_category=all` and the same `source_sha`. Wait for both runs to finish green.
+Record `candidate SHA`, `ci-builder run ID/result`, and `test.yml run ID/result`
+in the release PR/notes; an accepted dispatch or a skipped run is not validation.
+
+The stale-source guard requires the candidate to remain the current main tip
+at admission and at handoff. If main advances, validate the new candidate again;
+a green superseded run with a skipped handoff does not satisfy the release gate.
+`delivery.require_ci_green` also applies to post-merge main CI and its test
+handoff. Fix red main forward on a new branch.
+
+A main dispatch runs lint, audits, the Rust release build and tests, the
+API/hosted images, container checks, kind Pod Security and GPU integration, then
+hands off to the comprehensive Tests run. It publishes nothing: the publication,
+signing, GHCR verification and finalization jobs are tag-only.
+
+Some release build steps still run only on tags, inside the publication jobs:
+the complete knowledge-shard matrix with remote verification, multiarch
+API/hosted/MCP/bundle builds, docs-shard regeneration on the release image, arm64
+health and both-architecture hosted smoke checks, and per-platform SBOMs. Until
+the no-publish dry-run mode in Fortemi/fortemi#1251 lands, those are first
+exercised by the tag run; a failure there requires a new patch version.
 
 ### Version Bump
 
@@ -62,7 +122,7 @@ git -c user.signingkey=62297562B1C7053088F405DB0117DAAA677A5BF2 \
 git push origin main
 ```
 
-After the required gates pass, use a clean checkout at the exact current
+After both recorded release validation runs pass, use a clean checkout at the exact current
 `origin/main` commit. If the working checkout contains unrelated files, use an
 isolated clean checkout and preserve the original work. The tag wrapper checks
 workspace/MCP versions, changelog, announcement, clean status and `origin/main`,
@@ -145,6 +205,70 @@ release remains incomplete. Require both configured workflows to pass and verify
 the native assets, checksums and provenance before declaring release completion.
 
 > **Sidecar images** (GLiNER, pyannote) are released independently with their own tags. See [CI/CD docs](#/operations-ci-cd) for details.
+
+### Dispatch versus tag job audit (#1250)
+
+The ci-builder push trigger selects `main` only. A `v*` push first runs
+`build-builder.yaml`, which dispatches ci-builder with the tag ref and immutable
+`source_sha`; the tag column below describes that chained ci-builder run.
+These job guards are unchanged by #1250. All jobs also require successful
+`needs` unless their guard explicitly uses `always()`.
+
+On a main dispatch without `source_sha`, `CHAIN_SOURCE_SHA` is the dispatch's
+`github.sha`. With it, that exact commit is fetched. Both take the same job path
+if the SHA is still main's tip; an old SHA fails admission as superseded, and
+heavy jobs/handoff skip. Without `source_sha` the dispatch uses the shared
+concurrency group; with it, it uses the per-run group (#1234).
+
+Guards (verbatim; G0 denotes the implicit default):
+
+- **G0**: `success() (implicit)`
+- **G1**: `needs.admit-source.outputs.current == 'true' && (github.event_name != 'pull_request')`
+- **G2**: `needs.admit-source.outputs.current == 'true'`
+- **G3**: `startsWith(github.ref, 'refs/tags/v')`
+- **G4**: `startsWith(github.ref, 'refs/tags/v') && needs.publish-release.result == 'success' && needs.publish-github.result == 'success'`
+- **G5**: `startsWith(github.ref, 'refs/tags/v') && needs.publish-github.result == 'success'`
+- **G6**: `startsWith(github.ref, 'refs/tags/v') && needs.publish-release.result == 'success' && needs.publish-github.result == 'success' && needs.verify-ghcr-release.result == 'success' && needs.sign-release-images.result == 'success'`
+- **G7**: `needs.admit-source.outputs.current == 'true' && (github.ref == 'refs/heads/main' && github.event_name != 'pull_request')`
+- **G8**: `needs.admit-source.outputs.current == 'true' && (always() && github.event_name != 'pull_request' && ((github.ref == 'refs/heads/main' && needs.main-validation.result == 'success') || (startsWith(github.ref, 'refs/tags/v') && needs.finalize-releases.result == 'success')))`
+- **G9**: `always()`
+
+| ci-builder job | Guard | Main dispatch, with/without current `source_sha` | Tag chain |
+|---|---|---|---|
+| `runner-capacity` | G0 | Yes | Yes |
+| `verify-release-ref` | G0 | Yes; signature check is a no-op | Yes; verifies signed tag |
+| `sync-github-source` | G1 | Yes | Yes |
+| `admit-source` | G0 | Checks current main tip | Admitted (no main-tip check) |
+| `build-testdb` | G2 | Yes | Yes |
+| `lint` | G2 | Yes | Yes |
+| `knowledge-shard-matrix` | G2 | Yes | Yes |
+| `helm-chart` | G2 | Yes | Yes |
+| `audit` | G2 | Yes | Yes |
+| `deny` | G2 | Yes | Yes |
+| `auth-consumer` | G2 | Yes | Yes |
+| `mcp-lockfile-sync` | G2 | Yes | Yes |
+| `mcp-server-tests` | G2 | Yes | Yes |
+| `build` | G2 | Yes | Yes |
+| `build-image` | G2 | Yes | Yes |
+| `hosted-image-smoke` | G2 | Yes | Yes |
+| `pod-security-restricted` | G2 | Yes | Yes |
+| `test-container` | G2 | Yes | Yes |
+| `integration-test` | G2 | Yes | Yes |
+| `publish-release` | G3 | Skipped | Yes |
+| `publish-github` | G3 | Skipped | Yes |
+| `sign-release-images` | G4 | Skipped | Yes |
+| `verify-ghcr-release` | G5 | Skipped | Yes |
+| `finalize-releases` | G6 | Skipped | Yes |
+| `main-validation` | G7 | Yes | Skipped |
+| `handoff-tests` | G8 | After main-validation | After finalize-releases |
+| `cleanup-run-images` | G9 | Always | Always |
+
+The comprehensive main handoff runs `runner-capacity`, `admit-source`,
+`build-testdb`, `fast-tests`, `integration-tests`, `coverage`, `slow-tests`,
+`validate-intel-overlay`, `test-summary` and cleanup. Its `handoff-sidecar` is
+strictly tag-only. Native Linux/macOS release-asset builds therefore still run
+only in the tag chain; they need their dedicated native runners and publication
+handoff and are not represented as pre-tag native-platform qualification.
 
 ### Post-Release
 

@@ -31,17 +31,6 @@ on:
         description: 'Immutable source commit propagated by the release build'
         required: false
         default: ''
-  pull_request:
-    branches: [main]
-    paths-ignore:
-      # Builder image changes trigger build-builder.yaml instead
-      # This prevents race conditions where ci-builder uses stale image
-      - 'build/Dockerfile.builder'
-      - 'build/scripts/**'
-      # GLiNER sidecar built by build-gliner.yaml
-      - 'build/gliner/**'
-      # pyannote sidecar built by build-pyannote.yaml
-      - 'build/pyannote/**'
 
 # Suppress duplicate runs of this workflow. Gitea 1.27 matches concurrency by
 # repository + group (models/actions/run_attempt.go L89-97). Workflow names in
@@ -531,6 +520,14 @@ jobs:
         run: |
           python3 scripts/ci/verify-source-backup-artifacts.py
           python3 -m unittest tests/test_verify_source_backup_artifacts.py
+
+      - name: Check change-scoped workflow policy
+        run: |
+          python3 -c 'import yaml' 2>/dev/null || {
+            echo "::error::Host Python lacks PyYAML (python3-yaml); see build/RUNNER_SETUP.md Prerequisites" >&2
+            exit 1
+          }
+          python3 -m unittest discover -s tests -p 'test_change_scoped_ci.py'
 
       - name: Check release job guards
         run: |
