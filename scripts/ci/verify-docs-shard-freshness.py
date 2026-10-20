@@ -75,6 +75,25 @@ def artifact_failures(receipt: dict[str, object], expected_version: str) -> list
     return failures
 
 
+def producer_failures(
+    manifest: dict[str, object], receipt: dict[str, object], expected_version: str,
+) -> list[str]:
+    producer = manifest.get("producer")
+    if "server_artifact" in receipt:
+        if not isinstance(producer, dict):
+            return ["native shard requires a canonical producer"]
+        if producer.get("version") != expected_version:
+            return ["native shard producer version does not match workspace"]
+        revision = producer.get("revision")
+        if (not re.fullmatch(r"[0-9a-f]{40}", str(revision or ""))
+                or revision != receipt.get("server_commit")
+                or revision != receipt.get("source_commit")):
+            return ["native shard producer revision does not match receipt source"]
+    elif isinstance(producer, dict) and producer.get("revision") != receipt.get("server_commit"):
+        return ["receipt server commit does not match shard producer revision"]
+    return []
+
+
 def main() -> int:
     failures: list[str] = []
     shard_bytes = SHARD.read_bytes()
@@ -109,9 +128,7 @@ def main() -> int:
     if receipt.get("manifest_version") != manifest.get("version"):
         failures.append("receipt manifest version does not match shard manifest")
     failures.extend(artifact_failures(receipt, expected_version))
-    producer = manifest.get("producer")
-    if isinstance(producer, dict) and producer.get("revision") != receipt.get("server_commit"):
-        failures.append("receipt server commit does not match shard producer revision")
+    failures.extend(producer_failures(manifest, receipt, expected_version))
 
     if failures:
         print("documentation shard freshness check failed", file=sys.stderr)

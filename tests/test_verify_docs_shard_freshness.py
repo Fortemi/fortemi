@@ -16,6 +16,27 @@ SPEC.loader.exec_module(MODULE)
 
 
 class ManifestServerVersionTests(unittest.TestCase):
+    def test_native_requires_canonical_producer_not_legacy_fallback(self) -> None:
+        receipt = self.native_receipt()
+        for producer in [None, "malformed", [], {},
+                         {"version": "2026.10.7"},
+                         {"version": "wrong", "revision": "a" * 40},
+                         {"version": "2026.10.7", "revision": "c" * 40},
+                         {"version": "2026.10.7", "revision": "unknown"}]:
+            with self.subTest(producer=producer):
+                manifest = {"matric_version": "2026.10.7", "producer": producer}
+                self.assertTrue(MODULE.producer_failures(manifest, receipt, "2026.10.7"))
+        self.assertTrue(MODULE.producer_failures({"matric_version": "2026.10.7"}, receipt, "2026.10.7"))
+        manifest = {"producer": {"version": "2026.10.7", "revision": "a" * 40}}
+        self.assertEqual(MODULE.producer_failures(manifest, receipt, "2026.10.7"), [])
+        receipt["source_commit"] = "c" * 40
+        self.assertTrue(MODULE.producer_failures(manifest, receipt, "2026.10.7"))
+
+    def test_legacy_image_can_use_legacy_manifest_version(self) -> None:
+        self.assertEqual(MODULE.producer_failures(
+            {"matric_version": "2026.10.7"}, {"server_image": "api:2026.10.7"}, "2026.10.7"
+        ), [])
+
     def native_receipt(self) -> dict:
         return {
             "generator": "scripts/rebuild-docs-shard.sh",
