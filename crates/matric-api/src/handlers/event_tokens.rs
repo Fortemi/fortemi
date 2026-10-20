@@ -38,6 +38,13 @@ pub async fn mint_event_stream_token(
                 principal: identity.principal.clone(),
                 tenant_id: identity.tenant_id,
                 user_id: sse::stable_user_id(&identity),
+                #[cfg(feature = "hosted-auth")]
+                audit_azp: identity
+                    .request_principal
+                    .as_ref()
+                    .and_then(|principal| principal.azp.clone()),
+                #[cfg(not(feature = "hosted-auth"))]
+                audit_azp: None,
                 parent_credential: identity.parent_credential.clone().ok_or_else(|| {
                     ApiError::Unauthorized("Minting credential identity unavailable".into())
                 })?,

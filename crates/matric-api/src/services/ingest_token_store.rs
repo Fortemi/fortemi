@@ -57,10 +57,22 @@ pub struct EventStreamIdentity {
     pub tenant_id: Option<Uuid>,
     /// Stable application user identity, independent of the OIDC subject.
     pub user_id: Option<Uuid>,
+    /// Audit-only attribution from the verified minting RequestPrincipal.
+    /// Older records have no attribution; never recover it from user profiles.
+    #[serde(default, deserialize_with = "deserialize_audit_azp")]
+    pub audit_azp: Option<String>,
     pub parent_credential: EventStreamParent,
     pub human: bool,
     /// A delegated stream cannot outlive its minting credential.
     pub expires_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+fn deserialize_audit_azp<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer)
+        .map(|value| value.map(matric_core::audit::sanitize_audit_attribution))
 }
 
 /// Non-secret identifiers used to recheck the minting credential.
@@ -284,8 +296,11 @@ impl IngestTokenStore {
     pub async fn mint_event_stream(
         &self,
         schema: &str,
-        identity: EventStreamIdentity,
+        mut identity: EventStreamIdentity,
     ) -> Option<MintedIngestToken> {
+        identity.audit_azp = identity
+            .audit_azp
+            .map(matric_core::audit::sanitize_audit_attribution);
         let scope = identity.principal.scope_str().to_string();
         self.mint_for_audience(
             schema,
@@ -510,6 +525,55 @@ fn ingest_token_diagnostic_reason(value: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn event_token_record_accepts_missing_azp_and_sanitizes_stored_attribution() {
+        let original = serde_json::json!({
+            "token_id": "old-token",
+            "schema": "public",
+            "rate_limit": 0,
+            "audience": EVENT_SSE_TOKEN_AUDIENCE,
+            "scope": "admin",
+            "expires_at": "2026-10-19T12:00:00Z",
+            "event_identity": {
+                "principal": matric_core::AuthPrincipal::ApiKey {
+                    key_id: Uuid::nil(), scope: "admin".into(),
+                },
+                "tenant_id": null,
+                "user_id": null,
+                "parent_credential": EventStreamParent::ApiKey(Uuid::nil()),
+                "human": false,
+                "expires_at": "2026-10-19T12:00:00Z",
+            },
+        });
+        let old: IngestTokenData = serde_json::from_value(original.clone()).unwrap();
+        assert!(old.event_identity.as_ref().unwrap().audit_azp.is_none());
+        for azp in [
+            None,
+            Some("web-auth".to_string()),
+            Some("fortemi-cli".to_string()),
+            Some("fortemi-admin-cli".to_string()),
+            Some("client\r\n\t|;injection".to_string()),
+            Some("Bearer secret".to_string()),
+            Some("x".repeat(1024)),
+        ] {
+            let mut record = original.clone();
+            record["event_identity"]["audit_azp"] = serde_json::json!(azp);
+            let mut decoded: IngestTokenData = serde_json::from_value(record).unwrap();
+            let stored = decoded.event_identity.as_mut().unwrap().audit_azp.take();
+            assert_eq!(
+                stored,
+                azp.map(matric_core::audit::sanitize_audit_attribution)
+            );
+            assert!(
+                decoded == old,
+                "attribution must not alter credential fields"
+            );
+        }
+        let mut invalid = original;
+        invalid["event_identity"]["audit_azp"] = serde_json::json!({"client": "untyped"});
+        assert!(serde_json::from_value::<IngestTokenData>(invalid).is_err());
+    }
 
     #[tokio::test]
     async fn disabled_store_is_inert() {
