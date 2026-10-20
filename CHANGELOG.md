@@ -7,6 +7,31 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.10.7] - 2026-10-19
+
+### Added
+
+- Add adaptive keyword retrieval for plain-language searches: strict lexical
+  matching expands to bounded OR retrieval only when results are scarce or the
+  query is long. Explicit Boolean syntax remains strict, with deterministic
+  relevance baselines and CI gates (#1209, #1210, #1223, #1224).
+
+### Changed
+
+- Move archive ingestion to `zip` 9 with narrowly scoped, enforced dependency
+  exceptions. Update the builder to patched Docker CLI/Buildx versions and
+  disable the Docker-socket-bearing `ops-autoheal` profile pending a reviewed
+  replacement (#1221, #1233, #1237, #1240, #1241).
+- Make CI resources and concurrency run-scoped, add change-scoped PR testing,
+  and require post-merge main validation plus exact-source release validation
+  before tag creation (#1234, #1246, #1248, #1249, #1250, #1252).
+
+### Fixed
+
+- Persist the verified OIDC authorized-party claim in authorization decision
+  audits and preserve the minting client attribution for delegated event tokens
+  (#1206, #1225, #1253).
+
 ## [2026.10.6] - 2026-10-16
 
 External-OIDC single-tenant deployments now treat the configured tenant as the
@@ -3333,7 +3358,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.10.6...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.10.7...HEAD
+[2026.10.7]: https://github.com/fortemi/fortemi/compare/v2026.10.6...v2026.10.7
 [2026.10.6]: https://github.com/fortemi/fortemi/compare/v2026.10.5...v2026.10.6
 [2026.10.0]: https://github.com/fortemi/fortemi/compare/v2026.9.11...v2026.10.0
 [2026.9.11]: https://github.com/fortemi/fortemi/compare/v2026.9.10...v2026.9.11
