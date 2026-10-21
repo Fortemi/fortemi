@@ -22,6 +22,7 @@ case "${1:-} ${2:-}" in
     if [[ "$*" == *"--format"* ]]; then cat "$state"; else printf '{}\n'; fi
     ;;
   "network create")
+    printf '%s\0' "$@" > "${state}.argv"
     count_file="${state}.count"
     count=0
     if [[ -f "$count_file" ]]; then count="$(cat "$count_file")"; fi
@@ -70,6 +71,12 @@ class ExplicitDockerNetworkTests(unittest.TestCase):
 
     def run_script(self, name="fortemi-ci-test", seed="48076", **extra_env):
         env = os.environ.copy()
+        env.pop("CI_RESOURCE_SCOPE", None)
+        bash = env.get("FORTEMI_TEST_BASH", "bash")
+        if "FORTEMI_TEST_BASH" in env and (
+            not os.path.isabs(bash) or not os.access(bash, os.X_OK)
+        ):
+            raise ValueError("FORTEMI_TEST_BASH must name an absolute executable path")
         env.update(
             {
                 "PATH": f"{self.bin_dir}:{env['PATH']}",
@@ -79,14 +86,42 @@ class ExplicitDockerNetworkTests(unittest.TestCase):
             }
         )
         return subprocess.run(
-            ["bash", str(SCRIPT), name, seed],
+            [bash, str(SCRIPT), name, seed],
             cwd=ROOT,
             env=env,
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             check=False,
+            timeout=10,
         )
+
+    def assert_create_args(self, expected_labels):
+        arguments = Path(f"{self.state}.argv").read_bytes().split(b"\0")
+        self.assertEqual(arguments.pop(), b"")
+        self.assertEqual(
+            [argument.decode("utf-8") for argument in arguments],
+            [
+                "network", "create", "--driver", "bridge", *expected_labels,
+                "--subnet", "10.251.204.0/24", "fortemi-ci-test",
+            ],
+        )
+        self.assertNotIn(b"", arguments)
+
+    def test_unset_scope_preserves_exact_unlabeled_create_arguments(self):
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_create_args([])
+
+    def test_empty_scope_preserves_exact_unlabeled_create_arguments(self):
+        result = self.run_script(CI_RESOURCE_SCOPE="")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_create_args([])
+
+    def test_populated_scope_preserves_exact_label_pair(self):
+        result = self.run_script(CI_RESOURCE_SCOPE="owned scope 87512")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assert_create_args(["--label", "fortemi.ci.scope=owned scope 87512"])
 
     def test_retries_collisions_and_verifies_selected_subnet(self):
         result = self.run_script(FAKE_DOCKER_CREATE_FAILURES="2")

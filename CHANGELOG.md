@@ -7,6 +7,16 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.10.9] - 2026-10-21
+
+### Fixed
+
+- Preserve strict-mode Docker network creation on Mutsu's Bash 3.2 when the
+  optional CI ownership scope is unset or empty. The network argument array
+  always includes its required driver, while populated scopes retain their
+  ownership label. Subnet verification, bounded retries and cleanup remain
+  unchanged (#1273).
+
 ## [2026.10.8] - 2026-10-21
 
 ### Fixed

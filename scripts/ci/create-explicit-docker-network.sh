@@ -25,9 +25,9 @@ fi
 # 172.16.0.0/12 defaults. Creation is atomic, so concurrent jobs that select
 # the same first candidate safely advance without a check-then-create race.
 network_start=$((network_seed % 4096))
-ci_docker_labels=()
+network_create_args=(--driver bridge)
 if [[ -n "${CI_RESOURCE_SCOPE:-}" ]]; then
-    ci_docker_labels=(--label "fortemi.ci.scope=${CI_RESOURCE_SCOPE}")
+    network_create_args+=(--label "fortemi.ci.scope=${CI_RESOURCE_SCOPE}")
 fi
 
 for network_offset in {0..255}; do
@@ -37,8 +37,7 @@ for network_offset in {0..255}; do
     network_subnet="10.${second_octet}.${third_octet}.0/24"
 
     if ! docker network create \
-        "${ci_docker_labels[@]}" \
-        --driver bridge \
+        "${network_create_args[@]}" \
         --subnet "$network_subnet" \
         "$network_name" >/dev/null 2>&1; then
         continue
