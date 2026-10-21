@@ -1,6 +1,9 @@
 import importlib.util
 import hashlib
 import json
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -378,6 +381,83 @@ class SuitePlatformMatrixTests(unittest.TestCase):
             "\n  cargo test --workspace --exclude matric-jobs\n",
             runner,
         )
+
+    def run_authority_test_block(self, targets, fail_target=None):
+        runner = (ROOT / "scripts/ci/run-suite-platform-contract.sh").read_text(
+            encoding="utf-8"
+        )
+        block = runner.split("start_authority_server\nstop_authority_server\n\n", 1)[1]
+        block = block.split('\npython3 "${ORCHESTRATOR_ROOT}', 1)[0]
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = Path(directory)
+            cargo = runtime / "cargo"
+            cargo.write_text(
+                f"#!{sys.executable}\n"
+                "import json, os, pathlib, sys\n"
+                "arguments = sys.argv[1:]\n"
+                "targets = json.loads(os.environ['TEST_TARGETS'])\n"
+                "selected = []\n"
+                "if '--package' in arguments:\n"
+                "    if '--lib' not in arguments or '--tests' not in arguments:\n"
+                "        sys.exit(91)\n"
+                "    if '--test' in arguments or '--test-threads=1' not in arguments:\n"
+                "        sys.exit(92)\n"
+                "    selected = ['lib', *targets]\n"
+                "with open(os.environ['CARGO_LOG'], 'a') as log:\n"
+                "    log.write(json.dumps({'arguments': arguments, 'targets': selected}) + '\\n')\n"
+                "if os.environ.get('FAIL_TARGET') in selected:\n"
+                "    sys.exit(101)\n",
+                encoding="utf-8",
+            )
+            cargo.chmod(0o755)
+            log = runtime / "cargo.jsonl"
+            receipt = runtime / "authority-receipt.json"
+            environment = {
+                **os.environ,
+                "PATH": f"{runtime}:{os.environ['PATH']}",
+                "AUTHORITY_DIR": str(runtime),
+                "TEST_TARGETS": json.dumps(targets),
+                "CARGO_LOG": str(log),
+                "FAIL_TARGET": fail_target or "",
+            }
+            result = subprocess.run(
+                ["bash", "-c", f"set -euo pipefail\n{block}\nprintf passed > '{receipt}'"],
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            calls = [json.loads(line) for line in log.read_text().splitlines()]
+            return result, calls, receipt.exists()
+
+    def test_authority_test_invocation_discovers_historical_targets(self):
+        targets = [
+            "worker_integration_test",
+            "schema_context_test",
+            "schema_integration_test",
+            "attachment_scan_handler_test",
+        ]
+        result, calls, receipt = self.run_authority_test_block(targets)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls[0]["targets"], ["lib", *targets])
+        self.assertEqual(len(calls), 4)
+        self.assertTrue(receipt)
+
+    def test_authority_test_invocation_retains_current_archive_isolation(self):
+        targets = ["worker_integration_test", "archive_input_isolation_test"]
+        result, calls, receipt = self.run_authority_test_block(targets)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("archive_input_isolation_test", calls[0]["targets"])
+        self.assertTrue(receipt)
+
+    def test_authority_test_failure_prevents_remaining_gates_and_receipt(self):
+        targets = ["worker_integration_test", "archive_input_isolation_test"]
+        result, calls, receipt = self.run_authority_test_block(
+            targets, fail_target="archive_input_isolation_test"
+        )
+        self.assertEqual(result.returncode, 101)
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(receipt)
 
     def test_runner_honors_pinned_asyncapi_fixture_capability(self):
         runner = (

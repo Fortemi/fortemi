@@ -7,6 +7,15 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.10.8] - 2026-10-21
+
+### Fixed
+
+- Discover all unit and integration test targets from the pinned suite authority
+  revision instead of requesting a newer archive-isolation target that does not
+  exist in the historical runtime. Current authorities retain archive-isolation
+  coverage; participant pins and release acceptance gates remain unchanged (#1271).
+
 ## [2026.10.7] - 2026-10-19
 
 ### Added
@@ -3358,7 +3367,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.10.7...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.10.8...HEAD
+[2026.10.8]: https://github.com/fortemi/fortemi/compare/v2026.10.7...v2026.10.8
 [2026.10.7]: https://github.com/fortemi/fortemi/compare/v2026.10.6...v2026.10.7
 [2026.10.6]: https://github.com/fortemi/fortemi/compare/v2026.10.5...v2026.10.6
 [2026.10.0]: https://github.com/fortemi/fortemi/compare/v2026.9.11...v2026.10.0
