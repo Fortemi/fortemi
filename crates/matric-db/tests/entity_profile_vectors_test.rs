@@ -383,8 +383,10 @@ async fn profile_similarity_tenant_archive_eligibility_bounds_and_pool_reuse() {
         for (id, owner) in [(set, tenant), (foreign_set, foreign)] {
             sqlx::query(&format!(
                 "INSERT INTO {schema}.embedding_set
-                (id,tenant_id,name,slug,embedding_config_id,vector_source)
-                VALUES ($1,$2,$1::text,$1::text,$3,'external')"
+                (id,tenant_id,name,slug,embedding_config_id,vector_source,
+                 set_type,mode,criteria,auto_refresh,is_active)
+                VALUES ($1,$2,$1::text,$1::text,$3,'external','full','auto',
+                    '{{\"include_all\":true,\"exclude_archived\":true}}'::jsonb,FALSE,TRUE)"
             ))
             .bind(id)
             .bind(owner)
@@ -431,13 +433,10 @@ async fn profile_similarity_tenant_archive_eligibility_bounds_and_pool_reuse() {
             vector(0.8, 0.6 + index as f32 / 1000.0),
         )
         .await;
-        sqlx::query(&format!("INSERT INTO {a}.embedding_set_member (tenant_id,note_id,embedding_set_id) VALUES ($1,$2,$3)"))
-            .bind(tenant).bind(id).bind(set).execute(&mut *tx).await.unwrap();
     }
-    // Closer than every allowed result, but ineligible before LIMIT: missing
-    // membership, wrong metadata, archived, deleted, wrong dimension, other tenant.
+    // Closer than every allowed result, but ineligible before LIMIT: wrong
+    // metadata, archived, deleted, wrong dimension, tenant, kind or vector set.
     for reason in [
-        "nonmember",
         "metadata",
         "archived",
         "deleted",
@@ -479,10 +478,9 @@ async fn profile_similarity_tenant_archive_eligibility_bounds_and_pool_reuse() {
             .await
             .unwrap();
         }
-        if reason != "nonmember" {
-            sqlx::query(&format!("INSERT INTO {a}.embedding_set_member (tenant_id,note_id,embedding_set_id) VALUES ($1,$2,$3)"))
-                .bind(owner).bind(id).bind(set).execute(&mut *tx).await.unwrap();
-        }
+        // Requested-set membership must not override actual vector ownership.
+        sqlx::query(&format!("INSERT INTO {a}.embedding_set_member (tenant_id,note_id,embedding_set_id) VALUES ($1,$2,$3)"))
+            .bind(owner).bind(id).bind(set).execute(&mut *tx).await.unwrap();
     }
     for (id, owner) in [(eligible[0], tenant), (eligible[1], foreign)] {
         sqlx::query(&format!(
@@ -494,6 +492,23 @@ async fn profile_similarity_tenant_archive_eligibility_bounds_and_pool_reuse() {
         .await
         .unwrap();
     }
+    // Import-owned vectors are eligible without auxiliary membership rows.
+    let mut imported_notes = eligible.clone();
+    imported_notes.push(root);
+    let memberships: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM {a}.embedding_set_member
+        WHERE tenant_id=$1 AND embedding_set_id=$2 AND note_id=ANY($3)"
+    ))
+    .bind(tenant)
+    .bind(set)
+    .bind(&imported_notes)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    assert_eq!(
+        memberships, 0,
+        "imported root and all 105 eligible profiles have no memberships"
+    );
     sqlx::query(&format!("SET LOCAL ROLE {role}"))
         .execute(&mut *tx)
         .await

@@ -277,8 +277,8 @@ pub async fn find_similar_profiles_for_note_tx(
     }
     let limit = limit.clamp(1, 100);
     let contract = profile_contract_for_set_tx(connection, embedding_set_id).await?;
-    // Membership, tenant and active-note predicates are always eligibility
-    // filters, even when the caller supplies no additional filters.
+    // Vector-set ownership, tenant and active-note predicates always filter
+    // eligibility. Imported profiles need not have auxiliary membership rows.
     configure_hnsw(connection, embedding_set_id, true).await?;
     let Some(query_vector) = query_profile_vector(connection, query_note_id, &contract).await?
     else {
@@ -410,7 +410,6 @@ async fn profile_similarity_rows(
         metadata: query.filter.metadata,
         strict: query.filter.strict,
         legacy_filters: query.filter.legacy_filters,
-        embedding_set_id: Some(query.contract.embedding_set_id),
         exclude_archived: true,
         ..Default::default()
     };

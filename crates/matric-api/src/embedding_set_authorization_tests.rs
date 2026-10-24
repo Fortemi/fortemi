@@ -765,6 +765,21 @@ async fn profile_similarity_http_matrix(
         &format!("foreign-{slug}"),
     )
     .await;
+    // Match imported full-set profiles without materialized auto-membership.
+    // Disable refresh before creating notes so triggers cannot add memberships.
+    sqlx::query(&format!(
+        "UPDATE {}.embedding_set
+        SET set_type='full', vector_source='external', is_active=TRUE,
+            mode='auto', criteria='{{\"include_all\":true,\"exclude_archived\":true}}'::jsonb,
+            auto_refresh=FALSE
+        WHERE tenant_id=$1 AND id=$2",
+        archive.schema_name
+    ))
+    .bind(tenant)
+    .bind(set)
+    .execute(admin)
+    .await
+    .unwrap();
     let root = seed_note(admin, &archive.schema_name, tenant).await;
     let near = seed_note(admin, &archive.schema_name, tenant).await;
     let foreign_root = seed_note(admin, &archive.schema_name, foreign_tenant).await;
@@ -829,9 +844,8 @@ async fn profile_similarity_http_matrix(
         .await
         .unwrap();
         sqlx::query(&format!(
-            "INSERT INTO {}.embedding_set_member
-            (tenant_id,note_id,embedding_set_id) VALUES ($1,$2,$3)
-            ON CONFLICT DO NOTHING",
+            "DELETE FROM {}.embedding_set_member
+            WHERE tenant_id=$1 AND note_id=$2 AND embedding_set_id=$3",
             archive.schema_name
         ))
         .bind(tenant)
@@ -857,15 +871,7 @@ async fn profile_similarity_http_matrix(
         seed_embedding_set(admin, &foreign_archive.schema_name, foreign_tenant, &slug).await;
     let mut forbidden_ids = Vec::new();
     let mut forbidden_markers = Vec::new();
-    for reason in [
-        "nonmember",
-        "deleted",
-        "archived",
-        "set",
-        "kind",
-        "dimension",
-        "tenant",
-    ] {
+    for reason in ["deleted", "archived", "set", "kind", "dimension", "tenant"] {
         let id = Uuid::new_v4();
         let owner = if reason == "tenant" {
             foreign_tenant
@@ -894,7 +900,7 @@ async fn profile_similarity_http_matrix(
             } else {
                 "profile"
             },
-            reason != "nonmember",
+            true,
             &marker,
         )
         .await;
@@ -984,6 +990,18 @@ async fn profile_similarity_http_matrix(
     .execute(admin)
     .await
     .unwrap();
+    let memberships: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM {}.embedding_set_member
+        WHERE tenant_id=$1 AND embedding_set_id=$2 AND note_id=ANY($3)",
+        archive.schema_name
+    ))
+    .bind(tenant)
+    .bind(set)
+    .bind(vec![root, near])
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert_eq!(memberships, 0, "imported root and near have no memberships");
     state.authorization_policy = Arc::new(SimilarityArchiveOnly(archive.schema_name.clone()));
     let app = embedding_authorization_router(state.clone(), singleton.clone(), tenant);
     let path = format!("/api/v1/notes/{root}/similar?set={set}&k=1");
