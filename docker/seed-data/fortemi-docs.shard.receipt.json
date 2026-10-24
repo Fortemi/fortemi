@@ -1,22 +1,22 @@
 {
   "artifact": "docker/seed-data/fortemi-docs.shard",
-  "byte_length": 3124764,
-  "generated_at": "2026-10-21T09:39:32.754145646Z",
+  "byte_length": 3125856,
+  "generated_at": "2026-10-24T02:10:15.046330012Z",
   "generator": "scripts/rebuild-docs-shard.sh",
   "manifest_version": "1.2.0",
-  "server_commit": "389f83ff1de572f4df3a4fa880fcebdf41094755",
-  "server_version": "2026.10.9",
-  "sha256": "b4598934e5581340ba222bdf86776177b4106beebc70551c062edf355d90024e",
-  "source_commit": "389f83ff1de572f4df3a4fa880fcebdf41094755",
+  "server_commit": "91e97b0dbda34f232d580fa9ae6b03190022832d",
+  "server_version": "2026.10.10",
+  "sha256": "3130589be4b2dd00341465a9042c6be0cf98b0507ca32075fa4f4b3c384b517e",
+  "source_commit": "91e97b0dbda34f232d580fa9ae6b03190022832d",
   "server_artifact": {
     "kind": "native-binary",
     "name": "matric-api",
-    "sha256": "f755c2e91a33c17dc7333f744345472e998dc9a8bc18d54c91f03304cc87c49d",
-    "version": "2026.10.9",
-    "revision": "389f83ff1de572f4df3a4fa880fcebdf41094755"
+    "sha256": "22a4de497c344c98bd988566213172bb7fcd367d656ed3781ed784d1df65966e",
+    "version": "2026.10.10",
+    "revision": "91e97b0dbda34f232d580fa9ae6b03190022832d"
   },
   "runtime_health": {
-    "version": "2026.10.9",
-    "git_sha": "389f83ff1de572f4df3a4fa880fcebdf41094755"
+    "version": "2026.10.10",
+    "git_sha": "91e97b0dbda34f232d580fa9ae6b03190022832d"
   }
 }
