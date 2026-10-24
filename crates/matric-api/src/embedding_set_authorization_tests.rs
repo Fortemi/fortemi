@@ -50,6 +50,14 @@ async fn inject_fixture_identity(
 fn embedding_authorization_router(state: AppState, pool: sqlx::PgPool, tenant: Uuid) -> Router {
     Router::new()
         .route(
+            "/api/v1/notes/{id}/similar",
+            get(find_similar_note_entities),
+        )
+        .route(
+            "/api/v1/entities/similar",
+            get(find_similar_external_entities),
+        )
+        .route(
             "/api/v1/embedding-sets/{slug}",
             get(get_embedding_set)
                 .patch(update_embedding_set)
@@ -455,6 +463,17 @@ async fn embedding_set_authorization_live_db_http_inventory_and_isolation() {
         tenant_a,
         closed_probe.clone(),
     );
+    profile_similarity_http_matrix(
+        state.clone(),
+        &admin,
+        &runtime,
+        tenant_a,
+        tenant_b,
+        &archive_a,
+        &archive_a_other,
+        &archive_b,
+    )
+    .await;
     let app = embedding_authorization_router(state, runtime.clone(), tenant_a);
     let archive = archive_a.name.as_str();
 
@@ -678,4 +697,349 @@ async fn embedding_set_authorization_live_db_http_inventory_and_isolation() {
         .await
         .expect("drop fixture runtime role");
     admin.close().await;
+}
+
+struct SimilarityArchiveOnly(String);
+
+#[async_trait::async_trait]
+impl matric_core::AuthorizationPolicy for SimilarityArchiveOnly {
+    async fn authorize(
+        &self,
+        principal: &AuthPrincipal,
+        action: &matric_core::Action,
+        resource: &matric_core::Resource,
+        context: &matric_core::AuthzContext,
+    ) -> Result<matric_core::Decision, matric_core::AuthzError> {
+        RoleBasedPolicy
+            .authorize(principal, action, resource, context)
+            .await
+    }
+
+    async fn may_select_archive(
+        &self,
+        _: &AuthPrincipal,
+        archive: &matric_core::Resource,
+        _: &matric_core::AuthzContext,
+    ) -> Result<bool, matric_core::AuthzError> {
+        Ok(archive.attrs["archive_schema"] == self.0)
+    }
+
+    // Retain the production role-policy normalization guard while narrowing
+    // only archive selection. The decision engine remains RoleBasedPolicy.
+    fn policy_id(&self) -> &'static str {
+        "role_based"
+    }
+    fn policy_version(&self) -> &'static str {
+        "1292"
+    }
+}
+
+/// Runs as part of the required live HTTP inventory, against the same private
+/// migrated fixture and powerless runtime role. A one-connection pool makes an
+/// independent pool lookup inside a scoped callback observable as a timeout.
+async fn profile_similarity_http_matrix(
+    mut state: AppState,
+    admin: &sqlx::PgPool,
+    runtime: &sqlx::PgPool,
+    tenant: Uuid,
+    foreign_tenant: Uuid,
+    archive: &matric_core::ArchiveInfo,
+    other_archive: &matric_core::ArchiveInfo,
+    foreign_archive: &matric_core::ArchiveInfo,
+) {
+    let singleton = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with((*runtime.connect_options()).clone())
+        .await
+        .unwrap();
+    state.db = Database::new(singleton.clone());
+    let slug = format!("similarity-{}", Uuid::new_v4().simple());
+    let set = seed_embedding_set(admin, &archive.schema_name, tenant, &slug).await;
+    let other_set = seed_embedding_set(admin, &other_archive.schema_name, tenant, &slug).await;
+    let foreign_set = seed_embedding_set(
+        admin,
+        &archive.schema_name,
+        foreign_tenant,
+        &format!("foreign-{slug}"),
+    )
+    .await;
+    let root = seed_note(admin, &archive.schema_name, tenant).await;
+    let near = seed_note(admin, &archive.schema_name, tenant).await;
+    let foreign_root = seed_note(admin, &archive.schema_name, foreign_tenant).await;
+    let deleted_root = seed_note(admin, &archive.schema_name, tenant).await;
+    let empty_root = seed_note(admin, &archive.schema_name, tenant).await;
+    sqlx::query(&format!(
+        "UPDATE {}.note SET deleted_at=now() WHERE id=$1",
+        archive.schema_name
+    ))
+    .bind(deleted_root)
+    .execute(admin)
+    .await
+    .unwrap();
+    // Duplicate the exact root UUID in a second archive. It has no local vector;
+    // it must never inherit the first archive's root vector or neighbours.
+    sqlx::query(&format!(
+        "INSERT INTO {}.note
+        (id,tenant_id,format,source,created_at_utc,updated_at_utc)
+        VALUES ($1,$2,'markdown','similarity-duplicate',now(),now())",
+        other_archive.schema_name
+    ))
+    .bind(root)
+    .bind(tenant)
+    .execute(admin)
+    .await
+    .unwrap();
+    for (schema, owner, id) in [
+        (&archive.schema_name, tenant, set),
+        (&other_archive.schema_name, tenant, other_set),
+        (&archive.schema_name, foreign_tenant, foreign_set),
+    ] {
+        sqlx::query(&format!("UPDATE {schema}.embedding_set SET embedding_config_id=(
+            SELECT id FROM public.embedding_config WHERE tenant_id=$1 AND is_default IS TRUE LIMIT 1)
+            WHERE id=$2 AND tenant_id=$1"))
+            .bind(owner).bind(id).execute(admin).await.unwrap();
+    }
+    let dimension: i32 = sqlx::query_scalar(
+        "SELECT dimension FROM public.embedding_config
+        WHERE tenant_id=$1 AND is_default IS TRUE LIMIT 1",
+    )
+    .bind(tenant)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    for (id, second) in [(root, 0.0_f32), (near, 0.75)] {
+        let mut values = vec![0.0_f32; dimension as usize];
+        values[0] = 1.0;
+        values[1] = second;
+        sqlx::query(&format!(
+            "INSERT INTO {}.embedding
+            (id,tenant_id,note_id,embedding_set_id,chunk_index,text,vector,model,
+             vector_kind,template_version,profile_hash,profile_text)
+            VALUES ($1,$2,$3,$4,-1,'profile',$5,'fixture','profile','v1','hash','profile')",
+            archive.schema_name
+        ))
+        .bind(Uuid::new_v4())
+        .bind(tenant)
+        .bind(id)
+        .bind(set)
+        .bind(pgvector::Vector::from(values))
+        .execute(admin)
+        .await
+        .unwrap();
+        sqlx::query(&format!(
+            "INSERT INTO {}.embedding_set_member
+            (tenant_id,note_id,embedding_set_id) VALUES ($1,$2,$3)
+            ON CONFLICT DO NOTHING",
+            archive.schema_name
+        ))
+        .bind(tenant)
+        .bind(id)
+        .bind(set)
+        .execute(admin)
+        .await
+        .unwrap();
+    }
+    let tag = format!("similarity-tag-{}", Uuid::new_v4().simple());
+    let foreign_tag = format!("foreign-{tag}");
+    for (owner, name) in [(tenant, &tag), (foreign_tenant, &foreign_tag)] {
+        sqlx::query(&format!(
+            "INSERT INTO {}.tag (tenant_id,name,created_at_utc) VALUES ($1,$2,now())",
+            archive.schema_name
+        ))
+        .bind(owner)
+        .bind(name)
+        .execute(admin)
+        .await
+        .unwrap();
+    }
+    sqlx::query(&format!(
+        "INSERT INTO {}.note_tag (tenant_id,note_id,tag_name) VALUES ($1,$2,$3)",
+        archive.schema_name
+    ))
+    .bind(tenant)
+    .bind(near)
+    .bind(&tag)
+    .execute(admin)
+    .await
+    .unwrap();
+    state.authorization_policy = Arc::new(SimilarityArchiveOnly(archive.schema_name.clone()));
+    let app = embedding_authorization_router(state.clone(), singleton.clone(), tenant);
+    let path = format!("/api/v1/notes/{root}/similar?set={set}&k=1");
+    let (status, body) = similarity_http_call(&app, &path, &archive.name, "read").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["query_note_id"], root.to_string());
+    assert_eq!(body["set_id"], set.to_string());
+    assert_eq!(body["kind"], "profile");
+    assert_eq!(body["results"].as_array().unwrap().len(), 1);
+    assert_eq!(body["results"][0]["note_id"], near.to_string());
+    assert!((body["results"][0]["score"].as_f64().unwrap() - 0.8).abs() < 0.001);
+    for (name, expected) in [(&tag, 1), (&foreign_tag, 0)] {
+        let strict = serde_json::json!({"any_tags":[name]}).to_string();
+        let (status, body) = similarity_http_call(
+            &app,
+            &format!("{path}&strict_filter={}", urlencoding::encode(&strict)),
+            &archive.name,
+            "read",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["results"].as_array().unwrap().len(), expected);
+    }
+    assert_eq!(
+        similarity_http_call(&app, &path, &archive.name, "mcp")
+            .await
+            .0,
+        StatusCode::FORBIDDEN,
+        "read scope remains required"
+    );
+    let missing = similarity_http_call(
+        &app,
+        &format!("/api/v1/notes/{}/similar?set={set}", Uuid::new_v4()),
+        &archive.name,
+        "read",
+    )
+    .await;
+    assert_eq!(missing.0, StatusCode::FORBIDDEN);
+    for id in [foreign_root, deleted_root] {
+        let denied = similarity_http_call(
+            &app,
+            &format!("/api/v1/notes/{id}/similar?set={set}"),
+            &archive.name,
+            "read",
+        )
+        .await;
+        assert_eq!(denied, missing, "non-enumerating root denial");
+    }
+    let unknown_set = similarity_http_call(
+        &app,
+        &format!("/api/v1/notes/{root}/similar?set={}", Uuid::new_v4()),
+        &archive.name,
+        "read",
+    )
+    .await;
+    assert_eq!(unknown_set.0, StatusCode::NOT_FOUND);
+    for id in [foreign_set, other_set] {
+        assert_eq!(
+            similarity_http_call(
+                &app,
+                &format!("/api/v1/notes/{root}/similar?set={id}"),
+                &archive.name,
+                "read"
+            )
+            .await,
+            unknown_set
+        );
+    }
+    for name in [
+        other_archive.name.as_str(),
+        foreign_archive.name.as_str(),
+        "missing-archive",
+    ] {
+        assert_eq!(
+            similarity_http_call(&app, &path, name, "read").await.0,
+            StatusCode::NOT_FOUND
+        );
+    }
+    assert_eq!(
+        similarity_http_call(
+            &app,
+            &format!("/api/v1/entities/similar?source=fixture&external_id=missing&set={set}"),
+            &archive.name,
+            "read"
+        )
+        .await
+        .0,
+        StatusCode::FORBIDDEN,
+        "catalog guard remains"
+    );
+    let response = app
+        .clone()
+        .oneshot(request(Method::HEAD, &path, &archive.name, "read"))
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "HEAD retains catalog admission"
+    );
+    for k in ["0", "-1", "9223372036854775807"] {
+        let (status, body) = similarity_http_call(
+            &app,
+            &format!("/api/v1/notes/{root}/similar?set={set}&k={k}"),
+            &archive.name,
+            "read",
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["results"].as_array().unwrap().len(), 1);
+    }
+    assert_eq!(
+        similarity_http_call(
+            &app,
+            &format!("/api/v1/notes/{root}/similar?set={set}&k=invalid"),
+            &archive.name,
+            "read"
+        )
+        .await
+        .0,
+        StatusCode::BAD_REQUEST
+    );
+    let (status, body) = similarity_http_call(
+        &app,
+        &format!("/api/v1/notes/{empty_root}/similar?set={set}"),
+        &archive.name,
+        "read",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["results"].as_array().unwrap().is_empty());
+    state.authorization_policy = Arc::new(SimilarityArchiveOnly(other_archive.schema_name.clone()));
+    let other_app = embedding_authorization_router(state, singleton.clone(), tenant);
+    let (status, body) = similarity_http_call(
+        &other_app,
+        &format!("/api/v1/notes/{root}/similar?set={other_set}"),
+        &other_archive.name,
+        "read",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["results"].as_array().unwrap().is_empty());
+    // Reuse the same physical pool after successful and denied requests.
+    assert_eq!(
+        similarity_http_call(&app, &path, &archive.name, "read")
+            .await
+            .0,
+        StatusCode::OK
+    );
+    drop(other_app);
+    drop(app);
+    singleton.close().await;
+}
+
+async fn similarity_http_call(
+    app: &Router,
+    path: &str,
+    archive: &str,
+    scope: &str,
+) -> (StatusCode, serde_json::Value) {
+    let mut req = request(Method::GET, path, archive, scope);
+    req.headers_mut().insert(
+        "x-request-id",
+        "00000000-0000-4000-8000-000000000001".parse().unwrap(),
+    );
+    let response =
+        tokio::time::timeout(std::time::Duration::from_secs(12), app.clone().oneshot(req))
+            .await
+            .expect("single-connection request must not deadlock")
+            .unwrap();
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .unwrap();
+    (
+        status,
+        serde_json::from_slice(&body).unwrap_or_else(|_| {
+            serde_json::Value::String(String::from_utf8_lossy(&body).into_owned())
+        }),
+    )
 }

@@ -1793,7 +1793,16 @@ pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
     ),
     r(
         "/api/v1/notes/{id}/similar",
-        &["GET", "HEAD"],
+        &["GET"],
+        TenantObject,
+        "search",
+        Authenticated,
+        PrivateUserData,
+        ArchiveScoped,
+    ),
+    r(
+        "/api/v1/notes/{id}/similar",
+        &["HEAD"],
         TenantObject,
         "search",
         Authenticated,
@@ -2969,6 +2978,21 @@ fn is_template_param(segment: &str) -> bool {
 pub(crate) mod tests {
     use super::*;
     use std::collections::BTreeSet;
+
+    #[test]
+    fn only_note_similarity_get_has_archive_scoped_admission() {
+        for (method, path, isolation) in [
+            (Method::GET, "/api/v1/notes/{id}/similar", ArchiveScoped),
+            (Method::HEAD, "/api/v1/notes/{id}/similar", CompleteCatalog),
+            (Method::GET, "/api/v1/entities/similar", CompleteCatalog),
+            (Method::GET, "/api/v1/graph/{id}", CompleteCatalog),
+        ] {
+            let policy = route_policy_for_matched_path(&method, path).unwrap();
+            assert_eq!(policy.archive_isolation, isolation);
+            assert_eq!(policy.class, TenantObject);
+            assert_eq!(policy.docs, Authenticated);
+        }
+    }
 
     #[test]
     fn every_registered_route_requires_an_archive_isolation_class() {

@@ -3,14 +3,123 @@ use serde_json::{Map, Value};
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
-use matric_core::{new_v7, Error, Result, StrictTagFilter};
+use matric_core::{
+    new_v7, validate_embedding_dimension, EmbeddingVectorType, Error, Result, StrictTagFilter,
+};
 
 use crate::{
-    embedding_storage_contract::{contract_for_set, EmbeddingStorageContract},
+    embedding_storage_contract::{contract_for_set, ContractScope, EmbeddingStorageContract},
     search_candidates::{bind_params, SearchCandidateScope},
     strict_filter::QueryParam,
-    vector_ef_search::apply_ef_search,
+    vector_ef_search::resolve_ef_search,
 };
+
+/// Require archive data to resolve locally, including every relation used by
+/// the strict-tag resolver. Shared embedding configuration is intentionally read
+/// from public; it is tenant configuration, not archive data.
+/// Call inside the selected-schema transaction, before any data lookup. Locks
+/// prevent concurrent DDL from reintroducing search_path fallback after validation.
+pub async fn require_profile_similarity_archive_tx(
+    connection: &mut PgConnection,
+    schema: &str,
+    root_only: bool,
+) -> Result<()> {
+    crate::validate_schema_name(schema)?;
+    let relations: &[&str] = if root_only {
+        &["note"]
+    } else {
+        &[
+            "note",
+            "embedding",
+            "embedding_set",
+            "embedding_set_member",
+            "source_identity",
+            "note_tag",
+            "note_skos_concept",
+            "tag",
+            "skos_concept",
+            "skos_concept_label",
+            "skos_concept_scheme",
+        ]
+    };
+    let tables = relations
+        .iter()
+        .map(|relation| format!("\"{schema}\".\"{relation}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    sqlx::query(&format!("LOCK TABLE {tables} IN ACCESS SHARE MODE"))
+        .execute(&mut *connection)
+        .await?;
+    let local: bool = sqlx::query_scalar(
+        "SELECT current_schema() = $1 AND NOT EXISTS (
+             SELECT 1 FROM unnest($2::text[]) required(name)
+             WHERE NOT EXISTS (
+                 SELECT 1 FROM pg_catalog.pg_class c
+                 JOIN pg_catalog.pg_namespace ns ON ns.oid = c.relnamespace
+                 WHERE ns.nspname = $1 AND c.relname = required.name
+                   AND c.relkind IN ('r', 'p')
+                   AND c.relrowsecurity AND c.relforcerowsecurity
+                   AND c.oid = to_regclass(format('%I', required.name))
+             )
+         )",
+    )
+    .bind(schema)
+    .bind(relations)
+    .fetch_one(&mut *connection)
+    .await?;
+    if !local {
+        return Err(Error::Config(
+            "Profile similarity archive data is unavailable".into(),
+        ));
+    }
+    Ok(())
+}
+
+pub async fn profile_similarity_root_exists_tx(
+    connection: &mut PgConnection,
+    note_id: Uuid,
+) -> Result<bool> {
+    Ok(sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM note WHERE id=$1
+         AND tenant_id=current_setting('app.current_tenant')::uuid
+         AND deleted_at IS NULL AND archived IS NOT TRUE)",
+    )
+    .bind(note_id)
+    .fetch_one(connection)
+    .await?)
+}
+
+async fn profile_contract_for_set_tx(
+    connection: &mut PgConnection,
+    embedding_set_id: Uuid,
+) -> Result<EmbeddingStorageContract> {
+    let row = sqlx::query(
+        "SELECT COALESCE(es.truncate_dim, ec.dimension) AS dimension, ec.vector_type
+         FROM embedding_set es
+         JOIN public.embedding_config ec ON ec.id=es.embedding_config_id
+             AND ec.tenant_id=es.tenant_id
+         WHERE es.id=$1 AND es.tenant_id=current_setting('app.current_tenant')::uuid
+             AND es.is_active IS TRUE",
+    )
+    .bind(embedding_set_id)
+    .fetch_optional(connection)
+    .await?
+    .ok_or_else(|| Error::NotFound("Embedding set not found.".into()))?;
+    let dimension = usize::try_from(row.get::<i32, _>("dimension"))
+        .map_err(|_| Error::InvalidInput("embedding dimension must be positive".into()))?;
+    let vector_type = row
+        .get::<String, _>("vector_type")
+        .parse::<EmbeddingVectorType>()
+        .map_err(|error| Error::InvalidInput(error.to_string()))?;
+    validate_embedding_dimension(dimension, vector_type)
+        .map_err(|error| Error::InvalidInput(error.to_string()))?;
+    Ok(EmbeddingStorageContract {
+        embedding_set_id,
+        dimension,
+        vector_type,
+        scope: ContractScope::Set,
+    })
+}
 
 pub const DEFAULT_ENTITY_SIMILARITY_EF_SEARCH: i32 =
     matric_core::defaults::SEMANTIC_EF_SEARCH_DEFAULT;
@@ -152,6 +261,9 @@ pub async fn delete_profile_vector_tx(
     })
 }
 
+/// Read on the caller's tenant-bound selected-schema connection. Archive-only
+/// HTTP admission must first call `require_profile_similarity_archive_tx` in
+/// this same transaction; the helper never acquires a pool connection.
 pub async fn find_similar_profiles_for_note_tx(
     connection: &mut PgConnection,
     query_note_id: Uuid,
@@ -160,11 +272,14 @@ pub async fn find_similar_profiles_for_note_tx(
     filter: EntitySimilarityFilter,
     metadata_fields: Vec<String>,
 ) -> Result<Vec<EntitySimilarityHit>> {
-    if limit <= 0 {
-        return Ok(Vec::new());
+    if !profile_similarity_root_exists_tx(connection, query_note_id).await? {
+        return Err(Error::NotFound("Note not found".into()));
     }
-    let contract = contract_for_set(&mut *connection, embedding_set_id).await?;
-    configure_hnsw(connection, embedding_set_id, filter.is_filtered()).await?;
+    let limit = limit.clamp(1, 100);
+    let contract = profile_contract_for_set_tx(connection, embedding_set_id).await?;
+    // Membership, tenant and active-note predicates are always eligibility
+    // filters, even when the caller supplies no additional filters.
+    configure_hnsw(connection, embedding_set_id, true).await?;
     let Some(query_vector) = query_profile_vector(connection, query_note_id, &contract).await?
     else {
         return Ok(Vec::new());
@@ -194,8 +309,8 @@ pub async fn explain_similar_profiles_for_note_tx(
     limit: i64,
     filter: EntitySimilarityFilter,
 ) -> Result<Vec<String>> {
-    let contract = contract_for_set(&mut *connection, embedding_set_id).await?;
-    configure_hnsw(connection, embedding_set_id, filter.is_filtered()).await?;
+    let contract = profile_contract_for_set_tx(connection, embedding_set_id).await?;
+    configure_hnsw(connection, embedding_set_id, true).await?;
     let Some(query_vector) = query_profile_vector(connection, query_note_id, &contract).await?
     else {
         return Ok(Vec::new());
@@ -209,7 +324,7 @@ pub async fn explain_similar_profiles_for_note_tx(
         ProfileSimilarityQuery {
             query_note_id,
             query_vector: &query_vector,
-            limit,
+            limit: limit.clamp(1, 100),
             filter,
             metadata_fields: Vec::new(),
             explain: true,
@@ -260,12 +375,18 @@ async fn query_profile_vector(
     query_note_id: Uuid,
     contract: &EmbeddingStorageContract,
 ) -> Result<Option<Vector>> {
-    let set_predicate = contract.set_predicate("q", "$2");
+    let set_predicate = contract.set_predicate("q", "$2").replace(
+        "searchable_set.id = q.embedding_set_id",
+        "searchable_set.id = q.embedding_set_id AND searchable_set.tenant_id = q.tenant_id",
+    );
     let sql = format!(
         r#"
         SELECT q.vector
         FROM embedding q
+        JOIN note root ON root.id = q.note_id AND root.tenant_id = q.tenant_id
         WHERE q.note_id = $1
+          AND root.tenant_id = current_setting('app.current_tenant')::uuid
+          AND root.deleted_at IS NULL AND root.archived IS NOT TRUE
           AND q.vector_kind = 'profile'
           AND q.vector IS NOT NULL
           AND {set_predicate}
@@ -289,15 +410,34 @@ async fn profile_similarity_rows(
         metadata: query.filter.metadata,
         strict: query.filter.strict,
         legacy_filters: query.filter.legacy_filters,
+        embedding_set_id: Some(query.contract.embedding_set_id),
         exclude_archived: true,
         ..Default::default()
     };
     let (cte, candidate, mut params) = scope.build(3);
+    // The shared strict-filter builder relies on RLS. Also correlate its
+    // note/tag identities explicitly for tenant-composite UUIDs.
+    let candidate = candidate
+        .replace(
+            "nsc.note_id = n.id",
+            "nsc.note_id = n.id AND nsc.tenant_id = n.tenant_id",
+        )
+        .replace(
+            "sc.id = nsc.concept_id",
+            "sc.id = nsc.concept_id AND sc.tenant_id = nsc.tenant_id",
+        )
+        .replace(
+            "nt.note_id = n.id",
+            "nt.note_id = n.id AND nt.tenant_id = n.tenant_id",
+        );
     params.push(QueryParam::Uuid(query.contract.embedding_set_id));
     params.push(QueryParam::StringArray(query.metadata_fields));
     let set_placeholder = format!("${}", 3 + params.len() - 1);
     let metadata_placeholder = format!("${}", 3 + params.len());
-    let set_predicate = query.contract.set_predicate("e", &set_placeholder);
+    let set_predicate = query.contract.set_predicate("e", &set_placeholder).replace(
+        "searchable_set.id = e.embedding_set_id",
+        "searchable_set.id = e.embedding_set_id AND searchable_set.tenant_id = e.tenant_id",
+    );
 
     let select = format!(
         r#"
@@ -326,6 +466,7 @@ async fn profile_similarity_rows(
             LIMIT 1
         ) si ON TRUE
         WHERE e.vector_kind = 'profile'
+          AND n.tenant_id = current_setting('app.current_tenant')::uuid
           AND e.vector IS NOT NULL
           AND e.note_id <> $1
           AND {set_predicate}
@@ -356,7 +497,17 @@ async fn configure_hnsw(
     embedding_set_id: Uuid,
     has_filters: bool,
 ) -> Result<()> {
-    apply_ef_search(connection, Some(embedding_set_id)).await?;
+    let stored: Option<i32> = sqlx::query_scalar(
+        "SELECT ef_search FROM embedding_set WHERE id=$1
+         AND tenant_id=current_setting('app.current_tenant')::uuid",
+    )
+    .bind(embedding_set_id)
+    .fetch_one(&mut *connection)
+    .await?;
+    let ef_search = resolve_ef_search(stored);
+    sqlx::query(&format!("SET LOCAL hnsw.ef_search = {ef_search}"))
+        .execute(&mut *connection)
+        .await?;
 
     if has_filters && pgvector_supports_iterative_scan(connection).await? {
         sqlx::query("SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true)")

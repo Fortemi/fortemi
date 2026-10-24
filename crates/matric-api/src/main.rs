@@ -11801,12 +11801,27 @@ async fn normalize_route_policy_input_for_authorization(
     // this arm disconnects real request normalization and the HTTP inventory
     // test fails, rather than merely changing a helper-level test.
     let selected_normalizer = route_policy::backing_resource_normalizer(&input);
+    let active_similarity_root = input.policy.path == "/api/v1/notes/{id}/similar";
     let input = normalize_note_route_policy_input(input, |note_id| async move {
         let schema = archive_ctx
             .map(|context| context.schema.clone())
             .unwrap_or_else(|| "public".to_string());
+        let lookup_schema = schema.clone();
         with_request_schema(state, scope.cloned(), schema, move |connection| {
             Box::pin(async move {
+                if active_similarity_root {
+                    matric_db::entity_vectors::require_profile_similarity_archive_tx(
+                        connection,
+                        &lookup_schema,
+                        true,
+                    )
+                    .await?;
+                    return matric_db::entity_vectors::profile_similarity_root_exists_tx(
+                        connection,
+                        note_id,
+                    )
+                    .await;
+                }
                 sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM note WHERE id=$1 AND tenant_id=current_setting('app.current_tenant')::uuid)")
                     .bind(note_id).fetch_one(connection).await.map_err(matric_core::Error::Database)
             })
@@ -21991,7 +22006,7 @@ struct EntitySimilarityResult {
         ("id" = Uuid, Path, description = "Query note ID"),
         ("set" = String, Query, description = "Embedding set slug or ID"),
         ("kind" = Option<String>, Query, description = "Entity vector kind. Only profile is supported."),
-        ("k" = Option<i64>, Query, description = "Maximum results to return (default 10, max 100)"),
+        ("k" = Option<i64>, Query, description = "Maximum results to return (default 10, clamped to 1..100)"),
         ("filter" = Option<String>, Query, description = "Legacy filter expression or metadata predicate JSON array"),
         ("strict_filter" = Option<String>, Query, description = "SKOS strict filter JSON"),
         ("metadata_predicates" = Option<String>, Query, description = "Typed metadata predicate JSON array"),
@@ -22090,34 +22105,51 @@ async fn find_similar_entities_for_note(
     }
     let limit = query.k.unwrap_or(10).clamp(1, 100);
     let metadata_fields = parse_entity_metadata_fields(query.metadata.as_deref())?;
-    let filter =
-        build_entity_similarity_filter(&state, scope.clone(), &archive_ctx, &query).await?;
+    let (mut filter, strict_input) = build_entity_similarity_filter(&query)?;
     let set_ref = query.embedding_set.clone();
-    let set_id = with_request_schema(
-        &state,
-        scope.clone(),
-        archive_ctx.schema.clone(),
-        move |connection| {
-            Box::pin(async move { resolve_entity_similarity_set_tx(connection, &set_ref).await })
-        },
-    )
-    .await?
-    .ok_or_else(embedding_set_not_found)?;
-
-    let hits = with_request_schema(&state, scope, archive_ctx.schema, move |connection| {
-        Box::pin(async move {
-            matric_db::find_similar_profiles_for_note_tx(
-                connection,
-                note_id,
-                set_id,
-                limit,
-                filter,
-                metadata_fields,
-            )
-            .await
+    let schema = archive_ctx.schema.clone();
+    let (set_id, hits) =
+        with_request_schema(&state, scope, archive_ctx.schema, move |connection| {
+            Box::pin(async move {
+                // Revalidate after admission: auditing may release its preliminary
+                // transaction. No archive data or vector lookup may use the pool.
+                matric_db::entity_vectors::require_profile_similarity_archive_tx(
+                    connection, &schema, true,
+                )
+                .await?;
+                if !matric_db::entity_vectors::profile_similarity_root_exists_tx(
+                    connection, note_id,
+                )
+                .await?
+                {
+                    return Err(matric_core::Error::NotFound("Note not found".into()));
+                }
+                matric_db::entity_vectors::require_profile_similarity_archive_tx(
+                    connection, &schema, false,
+                )
+                .await?;
+                let set_id = resolve_entity_similarity_set_tx(connection, &set_ref)
+                    .await?
+                    .ok_or_else(|| {
+                        matric_core::Error::NotFound("Embedding set not found.".into())
+                    })?;
+                if let Some(input) = strict_input {
+                    filter.strict =
+                        Some(TagResolver::resolve_filter_on_connection(connection, input).await?);
+                }
+                let hits = matric_db::find_similar_profiles_for_note_tx(
+                    connection,
+                    note_id,
+                    set_id,
+                    limit,
+                    filter,
+                    metadata_fields,
+                )
+                .await?;
+                Ok((set_id, hits))
+            })
         })
-    })
-    .await?;
+        .await?;
 
     Ok(Json(EntitySimilarityResponse {
         query_note_id: note_id,
@@ -22137,12 +22169,15 @@ async fn find_similar_entities_for_note(
     }))
 }
 
-async fn build_entity_similarity_filter(
-    state: &AppState,
-    scope: Option<TenantRequestScope>,
-    archive_ctx: &ArchiveContext,
+fn build_entity_similarity_filter(
     query: &EntitySimilarityQuery,
-) -> Result<matric_db::EntitySimilarityFilter, ApiError> {
+) -> Result<
+    (
+        matric_db::EntitySimilarityFilter,
+        Option<StrictTagFilterInput>,
+    ),
+    ApiError,
+> {
     let mut legacy_filters = String::new();
     let mut metadata_raw = query.metadata_predicates.as_deref();
     if let Some(filter) = query
@@ -22159,31 +22194,22 @@ async fn build_entity_similarity_filter(
     }
 
     let metadata = parse_search_metadata_predicates(metadata_raw)?;
-    let strict = if let Some(filter_json) = &query.strict_filter {
+    let strict_input = if let Some(filter_json) = &query.strict_filter {
         let filter_input: StrictTagFilterInput = serde_json::from_str(filter_json)
             .map_err(|_| ApiError::BadRequest("Invalid strict_filter JSON.".to_string()))?;
-        Some(
-            with_request_schema(
-                state,
-                scope,
-                archive_ctx.schema.clone(),
-                move |connection| {
-                    Box::pin(async move {
-                        TagResolver::resolve_filter_on_connection(connection, filter_input).await
-                    })
-                },
-            )
-            .await?,
-        )
+        Some(filter_input)
     } else {
         None
     };
 
-    Ok(matric_db::EntitySimilarityFilter {
-        metadata,
-        strict,
-        legacy_filters,
-    })
+    Ok((
+        matric_db::EntitySimilarityFilter {
+            metadata,
+            strict: None,
+            legacy_filters,
+        },
+        strict_input,
+    ))
 }
 
 async fn resolve_entity_similarity_set_tx(
@@ -22191,13 +22217,13 @@ async fn resolve_entity_similarity_set_tx(
     set_ref: &str,
 ) -> matric_core::Result<Option<Uuid>> {
     if let Ok(id) = Uuid::parse_str(set_ref) {
-        sqlx::query_scalar("SELECT id FROM embedding_set WHERE id = $1")
+        sqlx::query_scalar("SELECT id FROM embedding_set WHERE id = $1 AND tenant_id=current_setting('app.current_tenant')::uuid AND is_active IS TRUE")
             .bind(id)
             .fetch_optional(connection)
             .await
             .map_err(matric_core::Error::Database)
     } else {
-        sqlx::query_scalar("SELECT id FROM embedding_set WHERE slug = $1")
+        sqlx::query_scalar("SELECT id FROM embedding_set WHERE slug = $1 AND tenant_id=current_setting('app.current_tenant')::uuid AND is_active IS TRUE")
             .bind(set_ref)
             .fetch_optional(connection)
             .await
