@@ -770,6 +770,8 @@ jobs:
         run: |
           export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
           export INTEGRATION_TEST_DB=1
+          # Coverage owns the disposable PostgreSQL fixture; run the required native HTTP/RLS test.
+          export FORTEMI_REQUIRE_LIVE_POSTGRES_TESTS=1
 
           # Run all other tests with coverage (accumulate with --no-clean)
           # Exclude matric-inference: its integration tests (behind --all-features)
