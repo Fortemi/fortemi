@@ -752,6 +752,8 @@ async fn profile_similarity_http_matrix(
         .connect_with((*runtime.connect_options()).clone())
         .await
         .unwrap();
+    let initial_scope = similarity_pool_scope(&singleton).await;
+    assert!(initial_scope.2.is_none(), "runtime starts without a tenant");
     state.db = Database::new(singleton.clone());
     let slug = format!("similarity-{}", Uuid::new_v4().simple());
     let set = seed_embedding_set(admin, &archive.schema_name, tenant, &slug).await;
@@ -839,6 +841,126 @@ async fn profile_similarity_http_matrix(
         .await
         .unwrap();
     }
+    // These are real, nearer vectors (cosine 1), not post-query exclusions.
+    // Tenant-qualified FKs require a foreign tenant's own set. Note UUIDs are
+    // unique within a schema, so duplicate UUIDs belong in separate schemas.
+    // These external sets defer index creation: the real untyped vector column
+    // can hold a wrong shape without violating an expression index's cast.
+    let wrong_set = seed_embedding_set(
+        admin,
+        &archive.schema_name,
+        tenant,
+        &format!("wrong-{slug}"),
+    )
+    .await;
+    let foreign_archive_set =
+        seed_embedding_set(admin, &foreign_archive.schema_name, foreign_tenant, &slug).await;
+    let mut forbidden_ids = Vec::new();
+    let mut forbidden_markers = Vec::new();
+    for reason in [
+        "nonmember",
+        "deleted",
+        "archived",
+        "set",
+        "kind",
+        "dimension",
+        "tenant",
+    ] {
+        let id = Uuid::new_v4();
+        let owner = if reason == "tenant" {
+            foreign_tenant
+        } else {
+            tenant
+        };
+        let candidate_set = match reason {
+            "tenant" => foreign_set,
+            "set" => wrong_set,
+            _ => set,
+        };
+        let marker = format!("forbidden-{reason}-{id}");
+        seed_similarity_competitor(
+            admin,
+            &archive.schema_name,
+            owner,
+            id,
+            candidate_set,
+            if reason == "dimension" {
+                dimension + 1
+            } else {
+                dimension
+            },
+            if reason == "kind" {
+                "body_chunk"
+            } else {
+                "profile"
+            },
+            reason != "nonmember",
+            &marker,
+        )
+        .await;
+        if matches!(reason, "deleted" | "archived") {
+            sqlx::query(&format!(
+                "UPDATE {}.note SET archived=$2, deleted_at=CASE WHEN $3 THEN now() END WHERE id=$1",
+                archive.schema_name
+            )).bind(id).bind(reason == "archived").bind(reason == "deleted")
+                .execute(admin).await.unwrap();
+        }
+        if reason == "set" {
+            // Membership in the requested set must not admit another set's vector.
+            sqlx::query(&format!(
+                "INSERT INTO {}.embedding_set_member (tenant_id,note_id,embedding_set_id) VALUES ($1,$2,$3)",
+                archive.schema_name
+            )).bind(tenant).bind(id).bind(set).execute(admin).await.unwrap();
+        }
+        forbidden_ids.push(id);
+        forbidden_markers.push(marker);
+    }
+    for (schema, owner, candidate_set, reason) in [
+        (
+            &other_archive.schema_name,
+            tenant,
+            other_set,
+            "other-archive",
+        ),
+        (
+            &foreign_archive.schema_name,
+            foreign_tenant,
+            foreign_archive_set,
+            "foreign-archive",
+        ),
+    ] {
+        // Duplicate the permitted neighbour UUID, including under another tenant.
+        let marker = format!("forbidden-{reason}-{near}");
+        seed_similarity_competitor(
+            admin,
+            schema,
+            owner,
+            near,
+            candidate_set,
+            dimension,
+            "profile",
+            true,
+            &marker,
+        )
+        .await;
+        forbidden_markers.push(marker);
+        let id = Uuid::new_v4();
+        let marker = format!("forbidden-{reason}-{id}");
+        seed_similarity_competitor(
+            admin,
+            schema,
+            owner,
+            id,
+            candidate_set,
+            dimension,
+            "profile",
+            true,
+            &marker,
+        )
+        .await;
+        forbidden_ids.push(id);
+        forbidden_markers.push(marker);
+    }
     let tag = format!("similarity-tag-{}", Uuid::new_v4().simple());
     let foreign_tag = format!("foreign-{tag}");
     for (owner, name) in [(tenant, &tag), (foreign_tenant, &foreign_tag)] {
@@ -873,6 +995,35 @@ async fn profile_similarity_http_matrix(
     assert_eq!(body["results"].as_array().unwrap().len(), 1);
     assert_eq!(body["results"][0]["note_id"], near.to_string());
     assert!((body["results"][0]["score"].as_f64().unwrap() - 0.8).abs() < 0.001);
+    let (status, projected) = similarity_http_call(
+        &app,
+        &format!("{path}&metadata=fixture_marker"),
+        &archive.name,
+        "read",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{projected}");
+    assert_eq!(projected["results"].as_array().unwrap().len(), 1);
+    assert_eq!(projected["results"][0]["note_id"], near.to_string());
+    assert!((projected["results"][0]["score"].as_f64().unwrap() - 0.8).abs() < 0.001);
+    for response in [&body, &projected] {
+        let serialized = response.to_string();
+        for id in &forbidden_ids {
+            assert!(
+                !serialized.contains(&id.to_string()),
+                "forbidden candidate {id}"
+            );
+        }
+        for marker in &forbidden_markers {
+            assert!(
+                !serialized.contains(marker),
+                "forbidden metadata/identity {marker}"
+            );
+        }
+        assert!(response["results"][0]["source_namespace"].is_null());
+        assert!(response["results"][0]["external_source_id"].is_null());
+        assert_eq!(response["results"][0]["metadata"], serde_json::json!({}));
+    }
     for (name, expected) in [(&tag, 1), (&foreign_tag, 0)] {
         let strict = serde_json::json!({"any_tags":[name]}).to_string();
         let (status, body) = similarity_http_call(
@@ -993,6 +1144,10 @@ async fn profile_similarity_http_matrix(
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(body["results"].as_array().unwrap().is_empty());
+    profile_similarity_http_relation_probes(
+        &app, admin, &singleton, archive, tenant, root, near, set, dimension, &path, &missing,
+    )
+    .await;
     state.authorization_policy = Arc::new(SimilarityArchiveOnly(other_archive.schema_name.clone()));
     let other_app = embedding_authorization_router(state, singleton.clone(), tenant);
     let (status, body) = similarity_http_call(
@@ -1011,9 +1166,289 @@ async fn profile_similarity_http_matrix(
             .0,
         StatusCode::OK
     );
+    assert_eq!(
+        similarity_pool_scope(&singleton).await,
+        initial_scope,
+        "all HTTP outcomes restore the original physical connection scope"
+    );
     drop(other_app);
     drop(app);
     singleton.close().await;
+}
+
+/// Admin-only fixture writes still obey the migrated PKs, composite FKs and
+/// profile/body constraints. Each forbidden row has independently visible
+/// title, projected metadata, and source identity canaries.
+async fn seed_similarity_competitor(
+    admin: &sqlx::PgPool,
+    schema: &str,
+    tenant: Uuid,
+    note: Uuid,
+    set: Uuid,
+    dimension: i32,
+    kind: &str,
+    member: bool,
+    marker: &str,
+) {
+    matric_db::validate_schema_name(schema).unwrap();
+    sqlx::query(&format!(
+        "INSERT INTO {schema}.note
+        (id,tenant_id,format,source,created_at_utc,updated_at_utc,title,metadata)
+        VALUES ($1,$2,'markdown','similarity-adversary',now(),now(),$3,$4)"
+    ))
+    .bind(note)
+    .bind(tenant)
+    .bind(marker)
+    .bind(serde_json::json!({"fixture_marker": marker}))
+    .execute(admin)
+    .await
+    .unwrap();
+    let mut values = vec![0.0_f32; dimension as usize];
+    values[0] = 1.0;
+    sqlx::query(&format!(
+        "INSERT INTO {schema}.embedding
+        (id,tenant_id,note_id,embedding_set_id,chunk_index,text,vector,model,
+         vector_kind,template_version,profile_hash,profile_text)
+        VALUES ($1,$2,$3,$4,$5,'profile',$6,'fixture',$7,'v1','hash','profile')"
+    ))
+    .bind(Uuid::new_v4())
+    .bind(tenant)
+    .bind(note)
+    .bind(set)
+    .bind(if kind == "profile" { -1_i32 } else { 0_i32 })
+    .bind(pgvector::Vector::from(values))
+    .bind(kind)
+    .execute(admin)
+    .await
+    .unwrap();
+    if member {
+        sqlx::query(&format!(
+            "INSERT INTO {schema}.embedding_set_member (tenant_id,note_id,embedding_set_id)
+            VALUES ($1,$2,$3) ON CONFLICT DO NOTHING"
+        ))
+        .bind(tenant)
+        .bind(note)
+        .bind(set)
+        .execute(admin)
+        .await
+        .unwrap();
+    } else {
+        sqlx::query(&format!(
+            "DELETE FROM {schema}.embedding_set_member
+            WHERE tenant_id=$1 AND note_id=$2 AND embedding_set_id=$3"
+        ))
+        .bind(tenant)
+        .bind(note)
+        .bind(set)
+        .execute(admin)
+        .await
+        .unwrap();
+    }
+    sqlx::query(&format!(
+        "INSERT INTO {schema}.source_identity
+        (tenant_id,note_id,source_namespace,external_id,source_id,
+         source_schema_version,content_digest,import_run_id)
+        VALUES ($1,$2,$3,$3,$3,'1.0.0',$4,'similarity-fixture')"
+    ))
+    .bind(tenant)
+    .bind(note)
+    .bind(marker)
+    .bind(format!("sha256:{}", "0".repeat(64)))
+    .execute(admin)
+    .await
+    .unwrap();
+}
+
+async fn similarity_pool_scope(pool: &sqlx::PgPool) -> (i32, String, Option<String>) {
+    sqlx::query_as(
+        "SELECT pg_backend_pid(), current_setting('search_path'),
+         NULLIF(current_setting('app.current_tenant', true),'')",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+/// Exercise the real HTTP handler with committed DDL visible to its runtime
+/// connection. Join errors capture assertion/timeout panics until restoration
+/// and public-decoy cleanup finish; no security constraints are relaxed.
+async fn profile_similarity_http_relation_probes(
+    app: &Router,
+    admin: &sqlx::PgPool,
+    singleton: &sqlx::PgPool,
+    archive: &matric_core::ArchiveInfo,
+    tenant: Uuid,
+    root: Uuid,
+    near: Uuid,
+    set: Uuid,
+    dimension: i32,
+    path: &str,
+    missing_root: &(StatusCode, serde_json::Value),
+) {
+    let schema = &archive.schema_name;
+    let marker = format!("public-decoy-{}", Uuid::new_v4());
+    // Public decoys match the archive's tenant, set and note UUIDs. If a
+    // relation falls back, identity canaries or cosine 1 replace local data.
+    sqlx::query(&format!(
+        "INSERT INTO public.embedding_set
+        (id,tenant_id,name,slug,set_type,mode,criteria,auto_embed_rules,
+         vector_source,defer_index_build,agent_metadata,embedding_config_id)
+        SELECT id,tenant_id,name,slug,set_type,mode,criteria,auto_embed_rules,
+         vector_source,defer_index_build,agent_metadata,embedding_config_id
+        FROM {schema}.embedding_set WHERE id=$1 AND tenant_id=$2"
+    ))
+    .bind(set)
+    .bind(tenant)
+    .execute(admin)
+    .await
+    .unwrap();
+    for id in [root, near] {
+        seed_similarity_competitor(
+            admin,
+            "public",
+            tenant,
+            id,
+            set,
+            dimension,
+            "profile",
+            true,
+            &format!("{marker}-{id}"),
+        )
+        .await;
+    }
+    let baseline = similarity_http_call(app, path, &archive.name, "read").await;
+    let baseline_scope = similarity_pool_scope(singleton).await;
+    let role: String = sqlx::query_scalar("SELECT current_user::text")
+        .fetch_one(singleton)
+        .await
+        .unwrap();
+    let role = format!("\"{}\"", role.replace('"', "\"\""));
+    let hidden_schema = format!("hidden_{}", Uuid::new_v4().simple());
+    let mut faults = Vec::new();
+    for relation in ["source_identity", "embedding", "embedding_set_member"] {
+        faults.push((
+            format!("missing {relation}"),
+            format!("ALTER TABLE {schema}.{relation} RENAME TO similarity_hidden_relation"),
+            format!("ALTER TABLE {schema}.similarity_hidden_relation RENAME TO {relation}"),
+            false,
+        ));
+    }
+    faults.push((
+        "SELECT denied".to_string(),
+        format!("REVOKE SELECT ON {schema}.source_identity FROM {role}"),
+        format!("GRANT SELECT ON {schema}.source_identity TO {role}"),
+        false,
+    ));
+    faults.push((
+        "USAGE denied".to_string(),
+        format!("REVOKE USAGE ON SCHEMA {schema} FROM {role}"),
+        format!("GRANT USAGE ON SCHEMA {schema} TO {role}"),
+        true,
+    ));
+    faults.push((
+        "missing schema".to_string(),
+        format!("ALTER SCHEMA {schema} RENAME TO {hidden_schema}"),
+        format!("ALTER SCHEMA {hidden_schema} RENAME TO {schema}"),
+        true,
+    ));
+    let mut observations = Vec::new();
+    for (label, remove, restore, admission_failure) in faults {
+        sqlx::query(&remove).execute(admin).await.unwrap();
+        let probe_app = app.clone();
+        let probe_path = path.to_string();
+        let probe_archive = archive.name.clone();
+        let failed = tokio::spawn(async move {
+            similarity_http_call(&probe_app, &probe_path, &probe_archive, "read").await
+        })
+        .await;
+        // Restore before interpreting the HTTP result, including task panics.
+        let restored = sqlx::query(&restore).execute(admin).await;
+        if let Err(error) = restored {
+            // Retry restoration before reporting an infrastructure failure.
+            sqlx::query(&restore)
+                .execute(admin)
+                .await
+                .unwrap_or_else(|_| panic!("fixture restoration failed: {error}"));
+        }
+        let after_failure = similarity_pool_scope(singleton).await;
+        let probe_app = app.clone();
+        let probe_path = path.to_string();
+        let probe_archive = archive.name.clone();
+        let recovered = tokio::spawn(async move {
+            similarity_http_call(&probe_app, &probe_path, &probe_archive, "read").await
+        })
+        .await;
+        let after_success = similarity_pool_scope(singleton).await;
+        observations.push((
+            label,
+            admission_failure,
+            failed,
+            recovered,
+            after_failure,
+            after_success,
+        ));
+    }
+    // Delete only this probe's public rows, before asserting observations.
+    sqlx::query("DELETE FROM public.note WHERE tenant_id=$1 AND id=ANY($2)")
+        .bind(tenant)
+        .bind(vec![root, near])
+        .execute(admin)
+        .await
+        .unwrap();
+    sqlx::query("DELETE FROM public.embedding_set WHERE tenant_id=$1 AND id=$2")
+        .bind(tenant)
+        .bind(set)
+        .execute(admin)
+        .await
+        .unwrap();
+    assert_eq!(baseline.0, StatusCode::OK);
+    assert_eq!(baseline.1["results"][0]["note_id"], near.to_string());
+    assert!((baseline.1["results"][0]["score"].as_f64().unwrap() - 0.8).abs() < 0.001);
+    assert!(!baseline.1.to_string().contains(&marker));
+    for (label, admission_failure, failed, recovered, after_failure, after_success) in observations
+    {
+        let failed = failed.expect("HTTP failure probe must complete without panic");
+        if admission_failure {
+            assert_eq!(&failed, missing_root, "private admission failure: {label}");
+        } else {
+            assert_eq!(
+                failed.0,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "{label}: {}",
+                failed.1
+            );
+            assert_eq!(failed.1["detail"], "An internal error occurred.", "{label}");
+        }
+        assert!(failed.1.get("results").is_none(), "{label}");
+        let serialized = failed.1.to_string();
+        for private in [
+            schema.as_str(),
+            hidden_schema.as_str(),
+            marker.as_str(),
+            &root.to_string(),
+            &near.to_string(),
+            &set.to_string(),
+            &tenant.to_string(),
+        ] {
+            assert!(
+                !serialized.contains(private),
+                "private failure detail: {label}"
+            );
+        }
+        assert_eq!(
+            recovered.expect("restored HTTP probe must complete"),
+            baseline,
+            "{label}"
+        );
+        assert_eq!(
+            after_failure, baseline_scope,
+            "failed request scope reset: {label}"
+        );
+        assert_eq!(
+            after_success, baseline_scope,
+            "successful request scope reset: {label}"
+        );
+    }
 }
 
 async fn similarity_http_call(
