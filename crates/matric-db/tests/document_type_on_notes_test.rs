@@ -19,11 +19,13 @@ async fn test_note_with_document_type_id() {
     let repo = PgNoteRepository::new(pool.clone());
 
     // First, get a document type ID from the database
-    let document_type_id: Option<Uuid> =
-        sqlx::query_scalar("SELECT id FROM document_type WHERE name = 'markdown' LIMIT 1")
-            .fetch_optional(&pool)
-            .await
-            .expect("Failed to query document_type");
+    let document_type_id: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM document_type WHERE tenant_id = $1 AND name = 'markdown'",
+    )
+    .bind(Uuid::nil())
+    .fetch_optional(&pool)
+    .await
+    .expect("Failed to query document_type");
 
     let document_type_id = document_type_id.expect("Markdown document type not found in database");
 
