@@ -7,6 +7,19 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.10.10] - 2026-10-23
+
+### Fixed
+
+- Resolve the outer embedding-set slug or UUID against the verified tenant and
+  selected archive before hosted authorization, unblocking valid loader requests
+  while retaining non-enumerating missing-resource responses (#1278).
+- Preserve the request-bound tenant connection for embedding-set reads, member
+  deletion, and vector-run lookup/list operations, avoiding schema-only RLS errors.
+- Keep seven unsupported route templates explicitly closed with inventory
+  regressions and follow-ups #1279 and #1280. Add required hosted PostgreSQL
+  authorization checks to both CI paths.
+
 ## [2026.10.9] - 2026-10-21
 
 ### Fixed
@@ -3377,7 +3390,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.10.8...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.10.10...HEAD
+[2026.10.10]: https://github.com/fortemi/fortemi/compare/v2026.10.9...v2026.10.10
 [2026.10.8]: https://github.com/fortemi/fortemi/compare/v2026.10.7...v2026.10.8
 [2026.10.7]: https://github.com/fortemi/fortemi/compare/v2026.10.6...v2026.10.7
 [2026.10.6]: https://github.com/fortemi/fortemi/compare/v2026.10.5...v2026.10.6
