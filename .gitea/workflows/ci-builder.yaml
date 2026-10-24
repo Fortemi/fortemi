@@ -1277,6 +1277,15 @@ jobs:
           export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
           cargo test --locked -p matric-api --features hosted-auth --bin matric-api sse_tests -- --test-threads=1
 
+      - name: Run hosted embedding authorization and normalization tests
+        run: |
+          set -euo pipefail
+          export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
+          export FORTEMI_REQUIRE_LIVE_POSTGRES_TESTS=1
+          cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api embedding_set_authorization -- --test-threads=1
+          cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api route_policy::tests -- --test-threads=1
+          cargo test --locked -p matric-api --features hosted-auth,kms-vault --bin matric-api embedding_set_authorization_ -- --skip embedding_set_authorization_tests::embedding_set_authorization_live_db_http_inventory_and_isolation --test-threads=1
+
       - name: Capture AL-SYS04/05 asset lifecycle receipt
         run: |
           export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"

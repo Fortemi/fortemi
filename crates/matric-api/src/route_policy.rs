@@ -119,6 +119,66 @@ pub const OPERATOR_DOCS_PATH: &str = "/api/v1/operator/docs";
 pub const OPERATOR_OPENAPI_PATH: &str = "/api/v1/operator/openapi.yaml";
 pub const OPERATOR_ASYNCAPI_PATH: &str = "/api/v1/operator/asyncapi.yaml";
 
+/// A deliberately closed TenantObject route which has no backing-resource
+/// normalizer yet.  These records are exact route identities, not families or
+/// prefixes: the role-based admission guard continues to deny each one before
+/// its handler can run.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ClosedRouteNormalizationException {
+    pub path: &'static str,
+    pub methods: &'static [&'static str],
+    pub reason: &'static str,
+    pub follow_up: &'static str,
+}
+
+/// #1278 is limited to embedding-set normalization.  These existing routes
+/// remain closed until their follow-up has a tenant-scoped lookup and a
+/// non-enumerating handler qualification.
+pub(crate) const CLOSED_ROUTE_NORMALIZATION_EXCEPTIONS: &[ClosedRouteNormalizationException] = &[
+    ClosedRouteNormalizationException {
+        path: "/api/v1/calls/{id}",
+        methods: &["GET", "HEAD"],
+        reason: "Call dispatch lacks a tenant-scoped backing-resource lookup, so role-based admission remains closed.",
+        follow_up: "https://git.integrolabs.net/Fortemi/fortemi/issues/1280",
+    },
+    ClosedRouteNormalizationException {
+        path: "/api/v1/graph/{id}",
+        methods: &["GET", "HEAD"],
+        reason: "Graph traversal needs its own tenant-scoped dispatch qualification, so role-based admission remains closed.",
+        follow_up: "https://git.integrolabs.net/Fortemi/fortemi/issues/1280",
+    },
+    ClosedRouteNormalizationException {
+        path: "/api/v1/notes/{id}/concepts",
+        methods: &["GET", "HEAD", "POST"],
+        reason: "Note-scoped concept operations need a tenant-scoped taxonomy lookup, so role-based admission remains closed.",
+        follow_up: "https://git.integrolabs.net/Fortemi/fortemi/issues/1279",
+    },
+    ClosedRouteNormalizationException {
+        path: "/api/v1/notes/{id}/concepts/{concept_id}",
+        methods: &["DELETE"],
+        reason: "Note-scoped concept removal needs tenant-scoped note and concept qualification, so role-based admission remains closed.",
+        follow_up: "https://git.integrolabs.net/Fortemi/fortemi/issues/1279",
+    },
+    ClosedRouteNormalizationException {
+        path: "/api/v1/notes/{id}/memory-provenance",
+        methods: &["GET", "HEAD"],
+        reason: "Memory provenance needs a tenant-scoped provenance lookup, so role-based admission remains closed.",
+        follow_up: "https://git.integrolabs.net/Fortemi/fortemi/issues/1279",
+    },
+    ClosedRouteNormalizationException {
+        path: "/api/v1/notes/{id}/provenance",
+        methods: &["GET", "HEAD"],
+        reason: "Provenance operations need a tenant-scoped provenance lookup, so role-based admission remains closed.",
+        follow_up: "https://git.integrolabs.net/Fortemi/fortemi/issues/1279",
+    },
+    ClosedRouteNormalizationException {
+        path: "/api/v1/notes/{id}/move",
+        methods: &["POST"],
+        reason: "Moving a note needs tenant-scoped note and target-collection qualification, so role-based admission remains closed.",
+        follow_up: "https://git.integrolabs.net/Fortemi/fortemi/issues/1280",
+    },
+];
+
 pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
     r(
         "/api/v1/operator/docs/",
@@ -2304,6 +2364,36 @@ const fn r(
     }
 }
 
+fn closed_route_normalization_exception(
+    policy: &RoutePolicy,
+    method: &Method,
+) -> Option<&'static ClosedRouteNormalizationException> {
+    CLOSED_ROUTE_NORMALIZATION_EXCEPTIONS
+        .iter()
+        .find(|exception| {
+            exception.path == policy.path && exception.methods.contains(&method.as_str())
+        })
+}
+
+/// True only for one of the exact #1278 closure records and its listed method.
+/// This is intentionally independent of `requires_backing_resource_normalization`:
+/// that flag is false for inventory accounting, but cannot make a closed route
+/// admissible under the hosted role-based policy.
+pub(crate) fn role_based_route_is_intentionally_closed(input: &RoutePolicyInput) -> bool {
+    let Some((_, method)) = input.action.name.rsplit_once(':') else {
+        return false;
+    };
+    CLOSED_ROUTE_NORMALIZATION_EXCEPTIONS
+        .iter()
+        .any(|exception| {
+            exception.path == input.policy.path
+                && exception
+                    .methods
+                    .iter()
+                    .any(|candidate| candidate.eq_ignore_ascii_case(method))
+        })
+}
+
 /// Exact Axum route identity. Unknown templates or methods fail closed at admission.
 pub fn route_policy_for_matched_path(
     method: &Method,
@@ -2672,6 +2762,12 @@ fn requires_backing_resource_normalization(
     method: &Method,
     param_name: &str,
 ) -> bool {
+    if closed_route_normalization_exception(policy, method).is_some() {
+        // The matching role-based guard is intentionally fail-closed.  This
+        // false value keeps the generic normalizer inventory honest without
+        // pretending a nonexistent lookup has qualified the resource.
+        return false;
+    }
     if policy
         .path
         .starts_with("/api/v1/lifecycle-purge/{operation_id}")
@@ -2709,6 +2805,121 @@ fn requires_backing_resource_normalization(
             | "template"
             | "webhook_control"
     ) || matches!(param_name, "id" | "attachment_id" | "name" | "name_or_id")
+}
+
+/// The production dispatcher for a backing-resource authorization lookup.
+///
+/// This is deliberately derived from the executable route-policy input rather
+/// than from a second route list.  The authorization middleware consumes this
+/// selector, and the inventory regression below consumes the same selector, so
+/// a newly parameterized tenant object cannot silently become an unnormalised
+/// role-based resource.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum BackingResourceNormalizer {
+    Note,
+    Credential,
+    Attachment,
+    Archive,
+    Collection,
+    Template,
+    TaxonomyConcept,
+    TaxonomyRelation,
+    TaxonomyScheme,
+    TaxonomyCollection,
+    DocumentType,
+    Job,
+    Webhook,
+    InboundSource,
+    EmbeddingSet,
+    PkeKeyset,
+}
+
+pub(crate) fn backing_resource_normalizer(
+    input: &RoutePolicyInput,
+) -> Option<BackingResourceNormalizer> {
+    let required = input
+        .resource
+        .attrs
+        .get("requires_backing_resource_normalization")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    let normalized = input
+        .resource
+        .attrs
+        .get("resource_id_normalized")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    if !required || normalized {
+        return None;
+    }
+
+    let parameter = input
+        .resource
+        .attrs
+        .get("resource_id_param")
+        .and_then(|value| value.as_str());
+    let template = input
+        .resource
+        .attrs
+        .get("route_template")
+        .and_then(|value| value.as_str())
+        .unwrap_or(input.policy.path);
+
+    match (input.policy.action_family, &input.resource.kind, parameter) {
+        ("embedding_control", _, Some("slug")) => Some(BackingResourceNormalizer::EmbeddingSet),
+        ("credential_management", ResourceKind::ApiKey, Some("id")) => {
+            Some(BackingResourceNormalizer::Credential)
+        }
+        ("attachment", ResourceKind::Attachment, Some("id"))
+            if template.starts_with("/api/v1/notes/") =>
+        {
+            Some(BackingResourceNormalizer::Note)
+        }
+        (_, ResourceKind::Note, Some("id")) => Some(BackingResourceNormalizer::Note),
+        (_, ResourceKind::Attachment, Some("attachment_id")) => {
+            Some(BackingResourceNormalizer::Attachment)
+        }
+        (_, ResourceKind::Archive, Some("name")) => Some(BackingResourceNormalizer::Archive),
+        (_, ResourceKind::Collection, Some("id"))
+            if template.starts_with("/api/v1/collections/{id}") =>
+        {
+            Some(BackingResourceNormalizer::Collection)
+        }
+        (_, ResourceKind::Template, Some("id")) => Some(BackingResourceNormalizer::Template),
+        ("taxonomy", ResourceKind::Taxonomy, Some("id"))
+            if template.starts_with("/api/v1/concepts/{id}/")
+                && template.contains("{target_id}") =>
+        {
+            Some(BackingResourceNormalizer::TaxonomyRelation)
+        }
+        ("taxonomy", ResourceKind::Taxonomy, Some("id"))
+            if template.starts_with("/api/v1/concepts/{id}") =>
+        {
+            Some(BackingResourceNormalizer::TaxonomyConcept)
+        }
+        ("taxonomy", ResourceKind::Taxonomy, Some("id"))
+            if template.starts_with("/api/v1/concepts/schemes/{id}") =>
+        {
+            Some(BackingResourceNormalizer::TaxonomyScheme)
+        }
+        ("taxonomy", ResourceKind::Taxonomy, Some("id"))
+            if template.starts_with("/api/v1/concepts/collections/{id}") =>
+        {
+            Some(BackingResourceNormalizer::TaxonomyCollection)
+        }
+        (_, ResourceKind::DocumentType, Some("name")) => {
+            Some(BackingResourceNormalizer::DocumentType)
+        }
+        (_, ResourceKind::Job, Some("id")) => Some(BackingResourceNormalizer::Job),
+        ("webhook_control", ResourceKind::Webhook, Some("id")) => {
+            Some(BackingResourceNormalizer::Webhook)
+        }
+        ("inbound_connector", ResourceKind::Webhook, Some("name")) => {
+            Some(BackingResourceNormalizer::InboundSource)
+        }
+        ("pke_keyset", _, Some("name_or_id")) => Some(BackingResourceNormalizer::PkeKeyset),
+        _ => None,
+    }
 }
 
 /// OpenAPI path parameters omit Axum's catch-all marker.
@@ -3772,5 +3983,107 @@ pub(crate) mod tests {
             })
             .collect::<Vec<_>>()
             .join("/")
+    }
+
+    #[test]
+    fn tenant_object_backing_normalization_inventory_selects_a_production_dispatcher() {
+        for policy in ROUTE_POLICY_INVENTORY
+            .iter()
+            .filter(|policy| policy.class == TenantObject && policy.path.contains('{'))
+        {
+            let path = materialize_route_template(policy.path);
+            for method_name in policy.methods {
+                let method = Method::from_bytes(method_name.as_bytes())
+                    .expect("route inventory contains a valid HTTP method");
+                let input = authorization_input_for_request(&method, &path, Some("tenant-a"))
+                    .unwrap_or_else(|| panic!("{method} {} has no policy input", policy.path));
+                if input
+                    .resource
+                    .attrs
+                    .get("requires_backing_resource_normalization")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false)
+                {
+                    assert!(
+                        backing_resource_normalizer(&input).is_some(),
+                        "{method} {} requires backing normalization but has no production dispatcher; documented route-policy exceptions must set requires_backing_resource_normalization=false",
+                        policy.path
+                    );
+                } else if let Some(exception) =
+                    closed_route_normalization_exception(policy, &method)
+                {
+                    assert!(
+                        role_based_route_is_intentionally_closed(&input),
+                        "{method} {} is a closed normalization exception without the matching role-based fail-closed guard",
+                        policy.path
+                    );
+                    assert_eq!(exception.path, policy.path);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn closed_normalization_exceptions_are_exact_real_routes_with_follow_ups() {
+        assert_eq!(CLOSED_ROUTE_NORMALIZATION_EXCEPTIONS.len(), 7);
+        assert_eq!(
+            CLOSED_ROUTE_NORMALIZATION_EXCEPTIONS
+                .iter()
+                .map(|exception| exception.methods.len())
+                .sum::<usize>(),
+            13
+        );
+
+        let mut exception_operations = BTreeSet::new();
+        for exception in CLOSED_ROUTE_NORMALIZATION_EXCEPTIONS {
+            assert!(!exception.reason.contains('\n'));
+            assert!(
+                matches!(
+                    exception.follow_up,
+                    "https://git.integrolabs.net/Fortemi/fortemi/issues/1279"
+                        | "https://git.integrolabs.net/Fortemi/fortemi/issues/1280"
+                ),
+                "{} has an unexpected follow-up link",
+                exception.path
+            );
+            let policy = ROUTE_POLICY_INVENTORY
+                .iter()
+                .find(|policy| policy.path == exception.path)
+                .unwrap_or_else(|| panic!("stale closed-route exception: {}", exception.path));
+            assert_eq!(policy.class, TenantObject, "{}", exception.path);
+            assert_eq!(
+                policy.methods, exception.methods,
+                "stale closed-route exception method set: {}",
+                exception.path
+            );
+
+            let path = materialize_route_template(exception.path);
+            for method_name in exception.methods {
+                assert!(
+                    exception_operations.insert((exception.path, *method_name)),
+                    "duplicate closed-route exception {method_name} {}",
+                    exception.path
+                );
+                let method = Method::from_bytes(method_name.as_bytes()).unwrap();
+                let input = authorization_input_for_request(&method, &path, Some("tenant-a"))
+                    .unwrap_or_else(|| panic!("{method} {} has no policy input", exception.path));
+                assert_eq!(
+                    input.resource.attrs["requires_backing_resource_normalization"],
+                    json!(false),
+                    "{method} {} must not claim an unavailable normalizer",
+                    exception.path
+                );
+                assert!(
+                    role_based_route_is_intentionally_closed(&input),
+                    "{method} {} must retain its fail-closed role-based guard",
+                    exception.path
+                );
+                assert!(
+                    backing_resource_normalizer(&input).is_none(),
+                    "{method} {} must not select a fictional normalizer",
+                    exception.path
+                );
+            }
+        }
     }
 }

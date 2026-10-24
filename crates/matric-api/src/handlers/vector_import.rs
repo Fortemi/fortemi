@@ -11,8 +11,13 @@ use axum::{
 };
 use matric_core::AuthPrincipal;
 use serde::Deserialize;
+use sqlx::Row;
+use uuid::Uuid;
 
-use crate::{telemetry_text_len, ApiError, AppState, ArchiveContext, Auth};
+use crate::{
+    telemetry_text_len, with_request_schema, ApiError, AppState, ArchiveContext, Auth,
+    TenantRequestScope,
+};
 #[cfg(feature = "hosted-auth")]
 use matric_api::external_oidc::RequestPrincipal;
 
@@ -109,13 +114,38 @@ pub async fn import_embedding_run(
 )]
 pub async fn list_embedding_runs(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(slug_or_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let repository = matric_db::PgEmbeddingImportRepository::new(state.db.pool.clone());
-    let runs = repository
-        .list_runs(&archive_ctx.schema, &slug_or_id)
-        .await?;
+    let schema = archive_ctx.schema.clone();
+    let set = resolve_embedding_set(&state, scope.clone(), schema.clone(), slug_or_id).await?;
+    let runs = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        schema,
+        move |connection| {
+            Box::pin(async move {
+                let rows = sqlx::query(
+                    r#"
+                SELECT run_id, set_id, previous_run_id, status, started_at, finished_at,
+                       initiated_by_user_id, initiated_by_kind, report
+                FROM embedding_import_run
+                WHERE set_id = $1
+                ORDER BY started_at DESC, run_id DESC
+                "#,
+                )
+                .bind(set.id)
+                .fetch_all(connection)
+                .await
+                .map_err(matric_core::Error::Database)?;
+                rows.into_iter()
+                    .map(embedding_import_run_record)
+                    .collect::<matric_core::Result<Vec<_>>>()
+            })
+        },
+    )
+    .await?;
     Ok(Json(runs))
 }
 
@@ -131,15 +161,99 @@ pub async fn list_embedding_runs(
 )]
 pub async fn get_embedding_run(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path((slug_or_id, run_id)): Path<(String, String)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let repository = matric_db::PgEmbeddingImportRepository::new(state.db.pool.clone());
-    let run = repository
-        .get_run(&archive_ctx.schema, &slug_or_id, &run_id)
-        .await?
-        .ok_or_else(|| ApiError::NotFound("Embedding import run not found".to_string()))?;
+    let schema = archive_ctx.schema.clone();
+    let set = resolve_embedding_set(&state, scope.clone(), schema.clone(), slug_or_id).await?;
+    let run = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        schema,
+        move |connection| {
+            Box::pin(async move {
+                let row = sqlx::query(
+                    r#"
+                SELECT run_id, set_id, previous_run_id, status, started_at, finished_at,
+                       initiated_by_user_id, initiated_by_kind, report
+                FROM embedding_import_run
+                WHERE set_id = $1 AND run_id = $2
+                "#,
+                )
+                .bind(set.id)
+                .bind(run_id)
+                .fetch_optional(connection)
+                .await
+                .map_err(matric_core::Error::Database)?;
+                row.map(embedding_import_run_record).transpose()
+            })
+        },
+    )
+    .await?
+    .ok_or_else(|| ApiError::NotFound("Embedding import run not found".to_string()))?;
     Ok(Json(run))
+}
+
+async fn resolve_embedding_set(
+    state: &AppState,
+    scope: Option<Extension<TenantRequestScope>>,
+    schema: String,
+    slug_or_id: String,
+) -> Result<matric_core::EmbeddingSet, ApiError> {
+    let repository = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+    let set = with_request_schema(
+        state,
+        scope.map(|Extension(scope)| scope),
+        schema,
+        move |connection| {
+            Box::pin(async move {
+                if let Ok(id) = Uuid::parse_str(&slug_or_id) {
+                    repository.get_by_id_connection(connection, id).await
+                } else {
+                    repository.get_by_slug_tx(connection, &slug_or_id).await
+                }
+            })
+        },
+    )
+    .await?;
+    set.ok_or_else(|| ApiError::NotFound("Embedding set not found".to_string()))
+}
+
+fn embedding_import_run_record(
+    row: sqlx::postgres::PgRow,
+) -> matric_core::Result<matric_db::EmbeddingImportRunRecord> {
+    let report = row
+        .try_get("report")
+        .map_err(matric_core::Error::Database)?;
+    Ok(matric_db::EmbeddingImportRunRecord {
+        run_id: row
+            .try_get("run_id")
+            .map_err(matric_core::Error::Database)?,
+        set_id: row
+            .try_get("set_id")
+            .map_err(matric_core::Error::Database)?,
+        previous_run_id: row
+            .try_get("previous_run_id")
+            .map_err(matric_core::Error::Database)?,
+        status: row
+            .try_get("status")
+            .map_err(matric_core::Error::Database)?,
+        started_at: row
+            .try_get("started_at")
+            .map_err(matric_core::Error::Database)?,
+        finished_at: row
+            .try_get("finished_at")
+            .map_err(matric_core::Error::Database)?,
+        initiated_by_user_id: row
+            .try_get("initiated_by_user_id")
+            .map_err(matric_core::Error::Database)?,
+        initiated_by_kind: row
+            .try_get("initiated_by_kind")
+            .map_err(matric_core::Error::Database)?,
+        report: serde_json::from_value(report)
+            .map_err(|error| matric_core::Error::Internal(error.to_string()))?,
+    })
 }
 
 fn is_ndjson_upload(headers: &HeaderMap) -> bool {

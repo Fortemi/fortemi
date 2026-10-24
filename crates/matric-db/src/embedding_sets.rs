@@ -1953,6 +1953,44 @@ impl PgEmbeddingSetRepository {
         }
     }
 
+    /// Get an embedding set by ID on an already tenant-scoped connection.
+    ///
+    /// Hosted request middleware owns the surrounding transaction, so opening
+    /// a schema context here would lose its `app.current_tenant` setting.
+    pub async fn get_by_id_connection(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        id: Uuid,
+    ) -> Result<Option<EmbeddingSet>> {
+        let row = sqlx::query(
+            r#"
+            SELECT
+                es.id, es.name, es.slug, es.description, es.purpose, es.usage_hints, es.keywords,
+                es.set_type::text as set_type, es.vector_source, es.mode::text as mode, es.criteria, es.embedding_config_id,
+                ec.space_contract, ec.space_id,
+                es.truncate_dim, es.query_template, es.auto_embed_rules,
+                es.index_status::text as index_status, es.index_type,
+                COALESCE(es.defer_index_build, FALSE) AS defer_index_build,
+                es.ef_search,
+                es.document_count, es.embedding_count, es.embeddings_current, es.index_size_bytes,
+                es.is_system, es.is_active, es.auto_refresh,
+                es.agent_metadata, es.created_at, es.updated_at, es.created_by
+            FROM embedding_set es
+            LEFT JOIN embedding_config ec ON es.embedding_config_id = ec.id
+            WHERE es.tenant_id = current_setting('app.current_tenant')::uuid AND es.id = $1
+            "#,
+        )
+        .bind(id)
+        .fetch_optional(&mut *connection)
+        .await
+        .map_err(Error::Database)?;
+
+        match row {
+            Some(row) => Ok(Some(self.row_to_embedding_set(row)?)),
+            None => Ok(None),
+        }
+    }
+
     /// Get the default embedding set within a transaction.
     pub async fn get_default_tx(
         &self,

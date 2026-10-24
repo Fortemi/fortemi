@@ -11474,6 +11474,13 @@ async fn authorize_middleware(
     if let Err(response) = authorize_request_policy_input(&state, &auth, &input).await {
         return response;
     }
+    if embedding_set_missing_after_scoped_lookup(&input) {
+        // The action/scope decision above still applies. Once it admits this
+        // request, a selected-archive tenant lookup that found no row has the
+        // same stable response for an absent set and a set outside this tenant
+        // or archive.
+        return embedding_set_not_found().into_response();
+    }
 
     if let Some((admin, tenant, name)) = synchronization {
         if let Err(error) = admin.sync_archive(tenant.tenant_id(), name).await {
@@ -11536,6 +11543,9 @@ async fn authorize_middleware(
                 let _ = emit_auth_decision_audit_event(state.audit_sink.as_ref(), event).await;
             }
             return response;
+        }
+        if embedding_set_missing_after_scoped_lookup(&input) {
+            return embedding_set_not_found().into_response();
         }
         request.extensions_mut().insert(archive);
     }
@@ -11786,6 +11796,11 @@ async fn normalize_route_policy_input_for_authorization(
     scope: Option<&TenantRequestScope>,
 ) -> route_policy::RoutePolicyInput {
     let input = apply_archive_context_to_policy_input(input, archive_ctx);
+    // This selector is the production dispatch contract used by the route
+    // inventory regression.  Keep embedding-set lookup behind it so removing
+    // this arm disconnects real request normalization and the HTTP inventory
+    // test fails, rather than merely changing a helper-level test.
+    let selected_normalizer = route_policy::backing_resource_normalizer(&input);
     let input = normalize_note_route_policy_input(input, |note_id| async move {
         let schema = archive_ctx
             .map(|context| context.schema.clone())
@@ -11873,6 +11888,45 @@ async fn normalize_route_policy_input_for_authorization(
         state.db.inbound_sources.get_by_name(&source_name).await
     })
     .await;
+    let input = if selected_normalizer
+        == Some(route_policy::BackingResourceNormalizer::EmbeddingSet)
+    {
+        normalize_embedding_set_route_policy_input(input, |slug_or_id| async move {
+            let schema = archive_ctx
+                .map(|context| context.schema.clone())
+                .unwrap_or_else(|| "public".to_string());
+            let repository = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+            with_request_schema(state, scope.cloned(), schema, move |connection| {
+                Box::pin(async move {
+                    if let Ok(id) = Uuid::parse_str(&slug_or_id) {
+                        // get_by_id_tx requires a Transaction, while the request scope
+                        // deliberately exposes only its tenant-bound connection. Keep
+                        // the UUID path on that connection and predicate the verified
+                        // tenant explicitly, matching get_by_slug_tx.
+                        let id = sqlx::query_scalar(
+                            "SELECT id FROM embedding_set \
+                             WHERE id = $1 \
+                               AND tenant_id = current_setting('app.current_tenant')::uuid",
+                        )
+                        .bind(id)
+                        .fetch_optional(&mut *connection)
+                        .await
+                        .map_err(matric_core::Error::Database)?;
+                        Ok(id.map(|id| EmbeddingSetResourceMetadata { id }))
+                    } else {
+                        repository
+                            .get_by_slug_tx(connection, &slug_or_id)
+                            .await
+                            .map(|set| set.map(|set| EmbeddingSetResourceMetadata { id: set.id }))
+                    }
+                })
+            })
+            .await
+        })
+        .await
+    } else {
+        input
+    };
     normalize_pke_keyset_route_policy_input(input, |name_or_id| async move {
         let keyset = if let Ok(keyset_id) = Uuid::parse_str(&name_or_id) {
             state.db.pke_keysets.get_by_id(keyset_id).await
@@ -11882,6 +11936,79 @@ async fn normalize_route_policy_input_for_authorization(
         Ok(keyset.map(PkeKeysetResourceMetadata::from))
     })
     .await
+}
+
+#[derive(Clone)]
+struct EmbeddingSetResourceMetadata {
+    id: Uuid,
+}
+
+impl fmt::Debug for EmbeddingSetResourceMetadata {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EmbeddingSetResourceMetadata")
+            .field("id_present", &true)
+            .finish()
+    }
+}
+
+fn embedding_set_normalizer_applies(input: &route_policy::RoutePolicyInput) -> bool {
+    route_policy::backing_resource_normalizer(input)
+        == Some(route_policy::BackingResourceNormalizer::EmbeddingSet)
+}
+
+async fn normalize_embedding_set_route_policy_input<F, Fut>(
+    mut input: route_policy::RoutePolicyInput,
+    embedding_set_lookup: F,
+) -> route_policy::RoutePolicyInput
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = matric_core::Result<Option<EmbeddingSetResourceMetadata>>>,
+{
+    if !embedding_set_normalizer_applies(&input) {
+        return input;
+    }
+
+    let Some(slug_or_id) = input.resource.id.clone() else {
+        return input;
+    };
+
+    match embedding_set_lookup(slug_or_id).await {
+        Ok(Some(embedding_set)) => {
+            route_policy::mark_resource_id_normalized(&mut input);
+            input.resource.attrs.insert(
+                "embedding_set_id".to_string(),
+                serde_json::json!(embedding_set.id),
+            );
+        }
+        Ok(None) => {
+            // This is produced only by the selected archive's tenant-scoped
+            // lookup. It is intentionally not logged or exposed to policy.
+            input
+                .resource
+                .attrs
+                .insert("embedding_set_missing".to_string(), serde_json::json!(true));
+        }
+        Err(err) => {
+            tracing::warn!(
+                error_len = telemetry_text_len(&err.to_string()),
+                detail = API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "normalize_embedding_set_route_policy_input",
+                "authorization embedding set normalization lookup failed"
+            );
+        }
+    }
+
+    input
+}
+
+fn embedding_set_missing_after_scoped_lookup(input: &route_policy::RoutePolicyInput) -> bool {
+    embedding_set_normalizer_applies(input)
+        && input
+            .resource
+            .attrs
+            .get("embedding_set_missing")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
 }
 
 fn apply_archive_context_to_policy_input(
@@ -13586,7 +13713,11 @@ async fn authorize_policy_input_with_challenge(
     resource: Option<&str>,
 ) -> Result<(), axum::response::Response> {
     tracing::debug!(stage = "policy_entered", "Request admission stage");
-    if hosted_policy_requires_normalized_resource(policy, input) {
+    if (hosted_policy_requires_normalized_resource(policy, input)
+        || (policy.policy_id() == "role_based"
+            && route_policy::role_based_route_is_intentionally_closed(input)))
+        && !embedding_set_missing_after_scoped_lookup(input)
+    {
         let _ = emit_auth_decision_audit_event(
             audit_sink,
             auth_decision_audit_event(
@@ -16309,6 +16440,10 @@ async fn create_note_hosted(
 #[cfg(test)]
 #[path = "hosted_create_note_tests.rs"]
 mod hosted_create_note_tests;
+
+#[cfg(all(test, feature = "hosted-auth"))]
+#[path = "embedding_set_authorization_tests.rs"]
+mod embedding_set_authorization_tests;
 
 #[cfg(test)]
 mod job_queue_tests;
@@ -24111,19 +24246,30 @@ async fn list_embedding_sets(
     responses((status = 200, description = "Success", body = matric_core::EmbeddingSet)))]
 async fn get_embedding_set(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(slug_or_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
-    // Try to parse as UUID first, then fall back to slug
-    let set = if let Ok(id) = Uuid::parse_str(&slug_or_id) {
-        ctx.query(move |tx| Box::pin(async move { repo.get_by_id_tx(tx, id).await }))
-            .await?
-    } else {
-        ctx.query(move |tx| Box::pin(async move { repo.get_by_slug_tx(tx, &slug_or_id).await }))
-            .await?
-    };
+    let schema = archive_ctx.schema.clone();
+    // Use the transaction that tenant_scope_middleware bound to the verified
+    // request. A fresh SchemaContext has the archive search_path but not the
+    // hosted tenant setting required by the embedding-set predicate and RLS.
+    let set = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        schema,
+        move |connection| {
+            Box::pin(async move {
+                if let Ok(id) = Uuid::parse_str(&slug_or_id) {
+                    repo.get_by_id_connection(connection, id).await
+                } else {
+                    repo.get_by_slug_tx(connection, &slug_or_id).await
+                }
+            })
+        },
+    )
+    .await?;
     let set = set.ok_or_else(|| ApiError::NotFound("Embedding set not found".to_string()))?;
     Ok(Json(set))
 }
@@ -24336,24 +24482,49 @@ async fn add_embedding_set_members(
     responses((status = 204, description = "Success")))]
 async fn remove_embedding_set_member(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path((slug_or_id, note_id)): Path<(String, Uuid)>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
-    // Resolve to actual slug first
-    let slug = if let Ok(id) = Uuid::parse_str(&slug_or_id) {
-        let repo_clone = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
-        ctx.query(move |tx| Box::pin(async move { repo_clone.get_by_id_tx(tx, id).await }))
-            .await?
-            .ok_or_else(|| ApiError::NotFound("Embedding set not found".to_string()))?
-            .slug
-    } else {
-        slug_or_id
-    };
-    let removed = ctx
-        .execute(move |tx| Box::pin(async move { repo.remove_member_tx(tx, &slug, note_id).await }))
-        .await?;
+    let schema = archive_ctx.schema.clone();
+    let removed = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        schema,
+        move |connection| {
+            Box::pin(async move {
+                let set = if let Ok(id) = Uuid::parse_str(&slug_or_id) {
+                    repo.get_by_id_connection(connection, id).await?
+                } else {
+                    repo.get_by_slug_tx(connection, &slug_or_id).await?
+                }
+                .ok_or_else(|| {
+                    matric_core::Error::NotFound("Embedding set not found".to_string())
+                })?;
+                let removed = sqlx::query(
+                    "DELETE FROM embedding_set_member WHERE embedding_set_id = $1 AND note_id = $2",
+                )
+                .bind(set.id)
+                .bind(note_id)
+                .execute(&mut *connection)
+                .await
+                .map_err(matric_core::Error::Database)?;
+                if removed.rows_affected() > 0 {
+                    sqlx::query(
+                        "DELETE FROM embedding WHERE embedding_set_id = $1 AND note_id = $2",
+                    )
+                    .bind(set.id)
+                    .bind(note_id)
+                    .execute(&mut *connection)
+                    .await
+                    .map_err(matric_core::Error::Database)?;
+                }
+                Ok(removed.rows_affected() > 0)
+            })
+        },
+    )
+    .await?;
     if removed {
         Ok(StatusCode::NO_CONTENT)
     } else {
@@ -79531,6 +79702,229 @@ not-json
         assert_eq!(normalized.policy.action_family, "webhook_control");
         assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
         assert!(!normalized.resource.attrs.contains_key("inbound_source_id"));
+    }
+
+    #[test]
+    fn embedding_set_authorization_metadata_debug_redacts_resource_id() {
+        let id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000009").unwrap();
+        let debug = format!("{:?}", EmbeddingSetResourceMetadata { id });
+
+        assert!(debug.contains("EmbeddingSetResourceMetadata"));
+        assert!(debug.contains("id_present"));
+        assert!(!debug.contains(&id.to_string()));
+    }
+
+    #[tokio::test]
+    async fn embedding_set_authorization_inventory_normalizes_every_parameterized_route() {
+        // This reads the executable route inventory, rather than duplicating a
+        // method/path list. Calling the real normalizer for every entry makes a
+        // disconnected or narrowed normalizer fail this coverage regression.
+        let expected_id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000009").unwrap();
+
+        for policy in route_policy::ROUTE_POLICY_INVENTORY
+            .iter()
+            .filter(|policy| {
+                policy.action_family == "embedding_control" && policy.path.contains("{slug}")
+            })
+        {
+            assert!(matches!(
+                policy.class,
+                route_policy::PolicyClass::TenantObject | route_policy::PolicyClass::AdminOperator
+            ));
+            let path = policy
+                .path
+                .replace("{slug}", "authorized-set")
+                .replace("{note_id}", "018fd1a0-0000-7000-8000-000000000010")
+                .replace("{run_id}", "018fd1a0-0000-7000-8000-000000000011");
+            for method in policy.methods {
+                let method = Method::from_bytes(method.as_bytes()).expect("inventory method");
+                let input =
+                    route_policy::authorization_input_for_request(&method, &path, Some("tenant-a"))
+                        .expect("embedding set route has policy input");
+                assert!(embedding_set_normalizer_applies(&input));
+
+                let normalized =
+                    normalize_embedding_set_route_policy_input(input, |slug_or_id| async move {
+                        assert_eq!(slug_or_id, "authorized-set");
+                        Ok(Some(EmbeddingSetResourceMetadata { id: expected_id }))
+                    })
+                    .await;
+
+                assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+                assert_eq!(
+                    normalized.resource.attrs["embedding_set_id"],
+                    serde_json::json!(expected_id)
+                );
+                assert!(!normalized.resource.attrs.contains_key("embedding_set_slug"));
+                assert!(!hosted_policy_requires_normalized_resource(
+                    &RoleBasedPolicy,
+                    &normalized
+                ));
+
+                let auth = Auth {
+                    principal: AuthPrincipal::ApiKey {
+                        key_id: Uuid::new_v4(),
+                        scope: "read write admin".to_string(),
+                    },
+                };
+                authorize_policy_input(&RoleBasedPolicy, &TracingSink, &auth, &normalized)
+                    .await
+                    .expect("existing set must preserve the inventory's role/scope decision");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn embedding_set_authorization_accepts_uuid_and_never_uses_nested_ids() {
+        let id = Uuid::parse_str("018fd1a0-0000-7000-8000-000000000009").unwrap();
+        let input = route_policy::authorization_input_for_request(
+            &Method::DELETE,
+            &format!("/api/v1/embedding-sets/{id}/members/018fd1a0-0000-7000-8000-000000000010"),
+            Some("tenant-a"),
+        )
+        .expect("embedding set member route has policy input");
+
+        let normalized =
+            normalize_embedding_set_route_policy_input(input, |slug_or_id| async move {
+                assert_eq!(slug_or_id, id.to_string());
+                Ok(Some(EmbeddingSetResourceMetadata { id }))
+            })
+            .await;
+
+        assert_eq!(
+            normalized.resource.attrs["embedding_set_id"],
+            serde_json::json!(id)
+        );
+        assert_eq!(
+            normalized.resource.attrs["route_param_note_id"],
+            "018fd1a0-0000-7000-8000-000000000010"
+        );
+    }
+
+    #[tokio::test]
+    async fn embedding_set_authorization_missing_and_cross_tenant_are_stable_not_found() {
+        for slug in ["missing", "visible-only-to-another-tenant"] {
+            let input = route_policy::authorization_input_for_request(
+                &Method::GET,
+                &format!("/api/v1/embedding-sets/{slug}"),
+                Some("tenant-a"),
+            )
+            .expect("embedding set route has policy input");
+            let normalized = normalize_embedding_set_route_policy_input(
+                input,
+                |_slug_or_id| async move { Ok(None) },
+            )
+            .await;
+
+            assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+            assert_eq!(normalized.resource.attrs["embedding_set_missing"], true);
+            assert!(embedding_set_missing_after_scoped_lookup(&normalized));
+            let authorized = Auth {
+                principal: AuthPrincipal::ApiKey {
+                    key_id: Uuid::new_v4(),
+                    scope: "read".to_string(),
+                },
+            };
+            authorize_policy_input(&RoleBasedPolicy, &TracingSink, &authorized, &normalized)
+                .await
+                .expect("a caller with the route's scope reaches stable not-found handling");
+            let response = embedding_set_not_found().into_response();
+            assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        }
+    }
+
+    #[tokio::test]
+    async fn embedding_set_authorization_lookup_error_stays_fail_closed() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/embedding-sets/authorized-set",
+            Some("tenant-a"),
+        )
+        .expect("embedding set route has policy input");
+        let normalized =
+            normalize_embedding_set_route_policy_input(input, |_slug_or_id| async move {
+                Err(matric_core::Error::Internal("lookup failed".to_string()))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+        assert!(!embedding_set_missing_after_scoped_lookup(&normalized));
+        assert!(hosted_policy_requires_normalized_resource(
+            &RoleBasedPolicy,
+            &normalized
+        ));
+    }
+
+    #[tokio::test]
+    async fn embedding_set_authorization_missing_resource_retains_scope_denial() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/embedding-sets/missing",
+            Some("tenant-a"),
+        )
+        .expect("embedding set route has policy input");
+        let normalized = normalize_embedding_set_route_policy_input(
+            input,
+            |_slug_or_id| async move { Ok(None) },
+        )
+        .await;
+        let unauthorized = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "mcp".to_string(),
+            },
+        };
+
+        let response =
+            authorize_policy_input(&RoleBasedPolicy, &TracingSink, &unauthorized, &normalized)
+                .await
+                .expect_err("missing resources must not bypass the route's required scope");
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn embedding_set_authorization_collection_route_does_not_lookup_a_slug() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::GET,
+            "/api/v1/embedding-sets",
+            Some("tenant-a"),
+        )
+        .expect("embedding set collection route has policy input");
+        let normalized =
+            normalize_embedding_set_route_policy_input(input, |_slug_or_id| async move {
+                panic!("embedding set collection routes must not perform a slug lookup");
+                #[allow(unreachable_code)]
+                Ok(Some(EmbeddingSetResourceMetadata { id: Uuid::new_v4() }))
+            })
+            .await;
+
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        assert!(!normalized.resource.attrs.contains_key("embedding_set_id"));
+    }
+
+    #[tokio::test]
+    async fn embedding_set_authorization_preserves_allow_all_personal_mode() {
+        let input = route_policy::authorization_input_for_request(
+            &Method::PATCH,
+            "/api/v1/embedding-sets/missing",
+            Some("tenant-a"),
+        )
+        .expect("embedding set route has policy input");
+        let normalized = normalize_embedding_set_route_policy_input(
+            input,
+            |_slug_or_id| async move { Ok(None) },
+        )
+        .await;
+        let auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "write".to_string(),
+            },
+        };
+
+        authorize_policy_input(&AllowAllPolicy, &TracingSink, &auth, &normalized)
+            .await
+            .expect("personal mode keeps its allow-all behavior before stable not-found handling");
     }
 
     fn test_pke_keyset_metadata(name: &str) -> PkeKeysetResourceMetadata {
