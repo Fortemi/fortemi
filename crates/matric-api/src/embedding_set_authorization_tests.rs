@@ -469,9 +469,11 @@ async fn embedding_set_authorization_live_db_http_inventory_and_isolation() {
         &runtime,
         tenant_a,
         tenant_b,
-        &archive_a,
-        &archive_a_other,
-        &archive_b,
+        SimilarityArchives {
+            archive: &archive_a,
+            other_archive: &archive_a_other,
+            foreign_archive: &archive_b,
+        },
     )
     .await;
     let app = embedding_authorization_router(state, runtime.clone(), tenant_a);
@@ -734,6 +736,12 @@ impl matric_core::AuthorizationPolicy for SimilarityArchiveOnly {
     }
 }
 
+struct SimilarityArchives<'a> {
+    archive: &'a matric_core::ArchiveInfo,
+    other_archive: &'a matric_core::ArchiveInfo,
+    foreign_archive: &'a matric_core::ArchiveInfo,
+}
+
 /// Runs as part of the required live HTTP inventory, against the same private
 /// migrated fixture and powerless runtime role. A one-connection pool makes an
 /// independent pool lookup inside a scoped callback observable as a timeout.
@@ -743,10 +751,13 @@ async fn profile_similarity_http_matrix(
     runtime: &sqlx::PgPool,
     tenant: Uuid,
     foreign_tenant: Uuid,
-    archive: &matric_core::ArchiveInfo,
-    other_archive: &matric_core::ArchiveInfo,
-    foreign_archive: &matric_core::ArchiveInfo,
+    archives: SimilarityArchives<'_>,
 ) {
+    let SimilarityArchives {
+        archive,
+        other_archive,
+        foreign_archive,
+    } = archives;
     let singleton = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
         .connect_with((*runtime.connect_options()).clone())
@@ -889,16 +900,18 @@ async fn profile_similarity_http_matrix(
             &archive.schema_name,
             owner,
             id,
-            candidate_set,
-            if reason == "dimension" {
-                dimension + 1
-            } else {
-                dimension
-            },
-            if reason == "kind" {
-                "body_chunk"
-            } else {
-                "profile"
+            SimilarityVectorFixture {
+                set: candidate_set,
+                dimension: if reason == "dimension" {
+                    dimension + 1
+                } else {
+                    dimension
+                },
+                kind: if reason == "kind" {
+                    "body_chunk"
+                } else {
+                    "profile"
+                },
             },
             true,
             &marker,
@@ -942,9 +955,11 @@ async fn profile_similarity_http_matrix(
             schema,
             owner,
             near,
-            candidate_set,
-            dimension,
-            "profile",
+            SimilarityVectorFixture {
+                set: candidate_set,
+                dimension,
+                kind: "profile",
+            },
             true,
             &marker,
         )
@@ -957,9 +972,11 @@ async fn profile_similarity_http_matrix(
             schema,
             owner,
             id,
-            candidate_set,
-            dimension,
-            "profile",
+            SimilarityVectorFixture {
+                set: candidate_set,
+                dimension,
+                kind: "profile",
+            },
             true,
             &marker,
         )
@@ -1163,7 +1180,19 @@ async fn profile_similarity_http_matrix(
     assert_eq!(status, StatusCode::OK);
     assert!(body["results"].as_array().unwrap().is_empty());
     profile_similarity_http_relation_probes(
-        &app, admin, &singleton, archive, tenant, root, near, set, dimension, &path, &missing,
+        &app,
+        admin,
+        &singleton,
+        SimilarityProbeFixture {
+            archive,
+            tenant,
+            root,
+            near,
+            set,
+            dimension,
+        },
+        &path,
+        &missing,
     )
     .await;
     state.authorization_policy = Arc::new(SimilarityArchiveOnly(other_archive.schema_name.clone()));
@@ -1194,6 +1223,12 @@ async fn profile_similarity_http_matrix(
     singleton.close().await;
 }
 
+struct SimilarityVectorFixture<'a> {
+    set: Uuid,
+    dimension: i32,
+    kind: &'a str,
+}
+
 /// Admin-only fixture writes still obey the migrated PKs, composite FKs and
 /// profile/body constraints. Each forbidden row has independently visible
 /// title, projected metadata, and source identity canaries.
@@ -1202,12 +1237,15 @@ async fn seed_similarity_competitor(
     schema: &str,
     tenant: Uuid,
     note: Uuid,
-    set: Uuid,
-    dimension: i32,
-    kind: &str,
+    vector: SimilarityVectorFixture<'_>,
     member: bool,
     marker: &str,
 ) {
+    let SimilarityVectorFixture {
+        set,
+        dimension,
+        kind,
+    } = vector;
     matric_db::validate_schema_name(schema).unwrap();
     sqlx::query(&format!(
         "INSERT INTO {schema}.note
@@ -1287,6 +1325,15 @@ async fn similarity_pool_scope(pool: &sqlx::PgPool) -> (i32, String, Option<Stri
     .unwrap()
 }
 
+struct SimilarityProbeFixture<'a> {
+    archive: &'a matric_core::ArchiveInfo,
+    tenant: Uuid,
+    root: Uuid,
+    near: Uuid,
+    set: Uuid,
+    dimension: i32,
+}
+
 /// Exercise the real HTTP handler with committed DDL visible to its runtime
 /// connection. Join errors capture assertion/timeout panics until restoration
 /// and public-decoy cleanup finish; no security constraints are relaxed.
@@ -1294,15 +1341,18 @@ async fn profile_similarity_http_relation_probes(
     app: &Router,
     admin: &sqlx::PgPool,
     singleton: &sqlx::PgPool,
-    archive: &matric_core::ArchiveInfo,
-    tenant: Uuid,
-    root: Uuid,
-    near: Uuid,
-    set: Uuid,
-    dimension: i32,
+    fixture: SimilarityProbeFixture<'_>,
     path: &str,
     missing_root: &(StatusCode, serde_json::Value),
 ) {
+    let SimilarityProbeFixture {
+        archive,
+        tenant,
+        root,
+        near,
+        set,
+        dimension,
+    } = fixture;
     let schema = &archive.schema_name;
     let marker = format!("public-decoy-{}", Uuid::new_v4());
     // Public decoys match the archive's tenant, set and note UUIDs. If a
@@ -1326,9 +1376,11 @@ async fn profile_similarity_http_relation_probes(
             "public",
             tenant,
             id,
-            set,
-            dimension,
-            "profile",
+            SimilarityVectorFixture {
+                set,
+                dimension,
+                kind: "profile",
+            },
             true,
             &format!("{marker}-{id}"),
         )
