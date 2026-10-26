@@ -13,12 +13,17 @@ chmod +x tools/fortemi-login/fortemi_login.py
 
 Without `keyring`, tokens fall back to a file store that requires an explicit
 opt-in on every command: `--allow-file-store` (or `FORTEMI_ALLOW_FILE_STORE=1`).
-The file is mode `0600` inside a `0700` directory, and a file with any other
-mode is refused.
+The fallback is plaintext protected by file permissions, not encrypted. The
+file is mode `0600` inside a `0700` directory, and a file with any other mode
+is refused. An installed `keyring` package with no usable backend uses this
+fallback only with the same explicit opt-in.
 
 ## Configure
 
 Flags or environment, per command:
+
+Common flags work before or after the subcommand. If a flag is given in both
+positions, the value after the subcommand wins.
 
 | Flag | Env | Default |
 |---|---|---|
@@ -58,7 +63,12 @@ fortemi_login.py mcp-config --client vscode
 ## Security notes
 
 - Refresh tokens stay in the OS keychain (macOS Keychain, Windows Credential
-  Manager, Secret Service). The file fallback is explicit and permission-pinned.
+  Manager, Secret Service). Keychain accounts and file sessions are scoped by
+  the complete issuer URL and client ID. A matching legacy keychain entry is
+  copied to its scoped account on first use; another realm's entry is never
+  adopted or deleted. The file fallback is explicit, permission-pinned
+  plaintext. A legacy token file without both identity fields is refused;
+  move it aside and sign in again.
 - `logout` revokes both tokens at the IdP's revocation endpoint before deleting
   local copies.
 - Access tokens are short-lived (5–15 minutes in the reference realm); a lost

@@ -25,8 +25,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 
 try:
     import keyring as _keyring
+    from keyring.errors import NoKeyringError as _NoKeyringError
 except ImportError:
     _keyring = None
+
+    class _NoKeyringError(Exception):
+        """Placeholder used only when the optional keyring package is absent."""
 
 KEYRING_SERVICE = "fortemi-login"
 DEFAULT_CLIENT_ID = "fortemi-cli"
@@ -34,6 +38,7 @@ DEFAULT_FORTEMI_URL = "https://fortemi.example.org"
 MCP_CLIENTS = ("claude-code", "claude-desktop", "cursor", "vscode")
 FILE_MODE = 0o600
 DIR_MODE = 0o700
+FILE_STORE_VERSION = 2
 
 
 class LoginError(Exception):
@@ -60,6 +65,11 @@ def file_store_allowed(args: argparse.Namespace) -> bool:
 
 
 def account_name(issuer_url: str, client: str) -> str:
+    identity = json.dumps([issuer_url, client], separators=(",", ":"), ensure_ascii=False)
+    return "v2:" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+
+def legacy_account_name(issuer_url: str, client: str) -> str:
     host = urllib.parse.urlsplit(issuer_url).netloc or "idp"
     return f"{client}@{host}"
 
@@ -156,43 +166,146 @@ def write_file_store(data: dict) -> None:
     os.replace(tmp, path)
 
 
-def load_tokens(issuer_url: str, client: str, args: argparse.Namespace) -> dict:
-    if _keyring is not None:
-        raw = _keyring.get_password(KEYRING_SERVICE, account_name(issuer_url, client))
-        return json.loads(raw) if raw else {}
+def file_sessions(data: dict) -> dict:
+    """Read a scoped store or a legacy session with verifiable identity."""
+    if not data:
+        return {}
+    if data.get("version") == FILE_STORE_VERSION:
+        sessions = data.get("sessions")
+        if set(data) != {"version", "sessions"} or not isinstance(sessions, dict):
+            raise LoginError("token file has an invalid session format")
+        for issuer_url, clients in sessions.items():
+            if not isinstance(issuer_url, str) or not isinstance(clients, dict):
+                raise LoginError("token file has an invalid session format")
+            for client, session in clients.items():
+                if not isinstance(client, str) or not isinstance(session, dict):
+                    raise LoginError("token file has an invalid session format")
+                if session.get("issuer") != issuer_url or session.get("client_id") != client:
+                    raise LoginError("token file contains a session with mismatched identity")
+        return sessions
+    issuer_url, client = data.get("issuer"), data.get("client_id")
+    if isinstance(issuer_url, str) and issuer_url and isinstance(client, str) and client:
+        return {issuer_url: {client: data}}
+    raise LoginError("legacy token file has no verifiable issuer and client; move it aside and sign in again")
+
+
+def checked_session(session: dict, issuer_url: str, client: str) -> dict:
+    if not isinstance(session, dict) or session.get("issuer") != issuer_url or session.get("client_id") != client:
+        raise LoginError("stored session does not match the requested issuer and client")
+    return session
+
+
+def keyring_session(raw: str, issuer_url: str, client: str, *, legacy: bool = False) -> dict | None:
+    try:
+        session = json.loads(raw)
+    except (TypeError, ValueError):
+        raise LoginError("OS keychain session is invalid") from None
+    if not isinstance(session, dict):
+        raise LoginError("OS keychain session is invalid")
+    stored_issuer, stored_client = session.get("issuer"), session.get("client_id")
+    if not isinstance(stored_issuer, str) or not stored_issuer or not isinstance(stored_client, str) or not stored_client:
+        raise LoginError("OS keychain session has no verifiable issuer and client")
+    if legacy and (stored_issuer != issuer_url or stored_client != client):
+        return None  # A different realm may own the old host-only account.
+    return checked_session(session, issuer_url, client)
+
+
+def require_file_store(args: argparse.Namespace) -> None:
     if not file_store_allowed(args):
         raise LoginError(
-            "no OS keychain is available (install 'keyring' or re-run with "
-            "--allow-file-store for an encrypted-at-rest file fallback)"
+            "no usable OS keychain is available; re-run with --allow-file-store "
+            "for a permission-restricted plaintext file fallback (mode 0600)"
         )
-    return read_file_store()
+
+
+def load_file_tokens(issuer_url: str, client: str) -> dict:
+    session = file_sessions(read_file_store()).get(issuer_url, {}).get(client)
+    return checked_session(session, issuer_url, client) if session is not None else {}
+
+
+def save_file_tokens(issuer_url: str, client: str, data: dict) -> None:
+    checked_session(data, issuer_url, client)
+    sessions = file_sessions(read_file_store())
+    sessions.setdefault(issuer_url, {})[client] = data
+    write_file_store({"version": FILE_STORE_VERSION, "sessions": sessions})
+
+
+def delete_file_tokens(issuer_url: str, client: str) -> None:
+    sessions = file_sessions(read_file_store())
+    clients = sessions.get(issuer_url, {})
+    if client not in clients:
+        return
+    del clients[client]
+    if not clients:
+        del sessions[issuer_url]
+    write_file_store({"version": FILE_STORE_VERSION, "sessions": sessions})
+
+
+def load_tokens(issuer_url: str, client: str, args: argparse.Namespace) -> dict:
+    if _keyring is not None:
+        try:
+            raw = _keyring.get_password(KEYRING_SERVICE, account_name(issuer_url, client))
+            if raw is not None:
+                return keyring_session(raw, issuer_url, client)
+            legacy_raw = _keyring.get_password(KEYRING_SERVICE, legacy_account_name(issuer_url, client))
+            if legacy_raw is None:
+                return {}  # A healthy keyring miss must not select an old file store.
+            legacy = keyring_session(legacy_raw, issuer_url, client, legacy=True)
+            if legacy is None:
+                return {}
+            # Copy only a verified matching legacy session. Leave the old entry until
+            # this same identity logs out, so another realm's entry is never deleted.
+            _keyring.set_password(KEYRING_SERVICE, account_name(issuer_url, client), json.dumps(legacy))
+            return legacy
+        except _NoKeyringError:
+            pass
+        except LoginError:
+            raise
+        except Exception:
+            raise LoginError("OS keychain read failed") from None
+    require_file_store(args)
+    return load_file_tokens(issuer_url, client)
 
 
 def save_tokens(issuer_url: str, client: str, data: dict, args: argparse.Namespace) -> None:
+    checked_session(data, issuer_url, client)
     if _keyring is not None:
-        _keyring.set_password(KEYRING_SERVICE, account_name(issuer_url, client), json.dumps(data))
-        return
-    if not file_store_allowed(args):
-        raise LoginError(
-            "no OS keychain is available (install 'keyring' or re-run with "
-            "--allow-file-store for an encrypted-at-rest file fallback)"
-        )
-    write_file_store(data)
+        try:
+            _keyring.set_password(KEYRING_SERVICE, account_name(issuer_url, client), json.dumps(data))
+        except _NoKeyringError:
+            pass
+        except Exception:
+            raise LoginError("OS keychain write failed") from None
+        else:
+            return
+    require_file_store(args)
+    save_file_tokens(issuer_url, client, data)
 
 
 def delete_tokens(issuer_url: str, client: str, args: argparse.Namespace) -> None:
     if _keyring is not None:
         try:
-            _keyring.delete_password(KEYRING_SERVICE, account_name(issuer_url, client))
-        except Exception:
+            exact_account = account_name(issuer_url, client)
+            legacy_account = legacy_account_name(issuer_url, client)
+            exact_raw = _keyring.get_password(KEYRING_SERVICE, exact_account)
+            legacy_raw = _keyring.get_password(KEYRING_SERVICE, legacy_account)
+            if exact_raw is not None:
+                keyring_session(exact_raw, issuer_url, client)
+            legacy = (keyring_session(legacy_raw, issuer_url, client, legacy=True)
+                      if legacy_raw is not None else None)
+            if exact_raw is not None:
+                _keyring.delete_password(KEYRING_SERVICE, exact_account)
+            if legacy is not None:
+                _keyring.delete_password(KEYRING_SERVICE, legacy_account)
+            return
+        except _NoKeyringError:
             pass
-        return
-    if not file_store_allowed(args):
-        raise LoginError("no OS keychain is available; re-run with --allow-file-store")
-    try:
-        os.remove(token_file())
-    except FileNotFoundError:
-        pass
+        except LoginError:
+            raise
+        except Exception:
+            raise LoginError("OS keychain deletion failed") from None
+    require_file_store(args)
+    delete_file_tokens(issuer_url, client)
 
 
 def store_session(issuer_url: str, client: str, response: dict, args: argparse.Namespace) -> dict:
@@ -449,24 +562,30 @@ def cmd_mcp_config(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    common = argparse.ArgumentParser(add_help=False)
-    common.add_argument("--fortemi-url", default="")
-    common.add_argument("--issuer", default="")
-    common.add_argument("--client-id", default="")
-    common.add_argument("--allow-file-store", action="store_true")
-    parser = argparse.ArgumentParser(prog="fortemi-login", parents=[common])
+    def common_options(*, subcommand: bool) -> argparse.ArgumentParser:
+        common = argparse.ArgumentParser(add_help=False)
+        value_default = argparse.SUPPRESS if subcommand else ""
+        flag_default = argparse.SUPPRESS if subcommand else False
+        common.add_argument("--fortemi-url", default=value_default)
+        common.add_argument("--issuer", default=value_default)
+        common.add_argument("--client-id", default=value_default)
+        common.add_argument("--allow-file-store", action="store_true", default=flag_default)
+        return common
+
+    parser = argparse.ArgumentParser(prog="fortemi-login", parents=[common_options(subcommand=False)])
     sub = parser.add_subparsers(dest="command", required=True)
-    login = sub.add_parser("login", parents=[common], help="sign in and store tokens")
+    sub_common = common_options(subcommand=True)
+    login = sub.add_parser("login", parents=[sub_common], help="sign in and store tokens")
     login.add_argument("--device", action="store_true", help="use the device grant")
     login.set_defaults(func=cmd_login)
-    token = sub.add_parser("token", parents=[common], help="print a fresh access token")
+    token = sub.add_parser("token", parents=[sub_common], help="print a fresh access token")
     token.set_defaults(func=cmd_token)
-    whoami = sub.add_parser("whoami", parents=[common], help="call GET /api/v1/me")
+    whoami = sub.add_parser("whoami", parents=[sub_common], help="call GET /api/v1/me")
     whoami.set_defaults(func=cmd_whoami)
-    logout = sub.add_parser("logout", parents=[common], help="revoke and delete local tokens")
+    logout = sub.add_parser("logout", parents=[sub_common], help="revoke and delete local tokens")
     logout.set_defaults(func=cmd_logout)
     config = sub.add_parser(
-        "mcp-config", parents=[common], help="print MCP client configuration"
+        "mcp-config", parents=[sub_common], help="print MCP client configuration"
     )
     config.add_argument("--client", required=True, choices=MCP_CLIENTS)
     config.set_defaults(func=cmd_mcp_config)
