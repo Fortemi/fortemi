@@ -364,6 +364,175 @@ class CacheTests(unittest.TestCase):
             self.assertEqual(result['retained_entries'], 0)
             self.assertEqual(result['retained_bytes'], 0)
 
+    def test_retention_pressure_totals_and_age_ordering(self):
+        # Charge marker bytes too; no synthetic inventory or mocked deletion.
+        for reason, sizes, cap_count, byte_extra, survivors in [
+                ('none', [100, 100], 6, 1000, [1, 2]),
+                ('count', [100, 100, 100], 2, 1000, [2, 3]),
+                ('bytes', [100, 100, 100], 6, -1, [2, 3]),
+                ('both', [100, 100, 100], 2, -1, [2, 3])]:
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as tmp:
+                root = cache.private_dir(Path(tmp) / 'cache')
+                paths = [self.owned_entry(root, i, size) for i, size in enumerate(sizes, 1)]
+                for i, path in enumerate(paths, 1):
+                    os.utime(path, (i, i))
+                weights = [(p / '.owner.json').stat().st_size + size for p, size in zip(paths, sizes)]
+                total = sum(weights)
+                output = io.StringIO()
+                with cache.locked(root) as guard, patch.object(cache, 'MAX_ENTRIES', cap_count), patch.object(cache, 'MAX_BYTES', total + byte_extra), contextlib.redirect_stderr(output):
+                    result = cache.prune(root, keep=paths[-1], guard=guard)
+                self.assertEqual(result['reason'], reason)
+                self.assertEqual(result['before_entries'], len(paths))
+                self.assertEqual(result['before_bytes'], total)
+                self.assertEqual(result['largest_entry_bytes'], max(weights))
+                self.assertEqual(result['max_bytes'], total + byte_extra)
+                self.assertEqual(result['max_entries'], cap_count)
+                self.assertEqual([i for i, p in enumerate(paths, 1) if p.exists()], survivors)
+                self.assertEqual(result['retained_entries'], len(survivors))
+                self.assertEqual(result['retained_bytes'], sum(weights[i-1] for i in survivors))
+                self.assertEqual(result['evicted_entries'], len(paths) - len(survivors))
+                self.assertEqual(result['evicted_bytes'], total - result['retained_bytes'])
+                self.assertTrue(result['selected_retained'])
+                self.assertEqual(result['oversized_entries_before'], 0)
+                self.assertEqual(result['oversized_entries_after'], 0)
+                records = [json.loads(line) for line in output.getvalue().splitlines()]
+                self.assertEqual([r['cache_retention'] for r in records], ['before', 'complete'])
+                self.assertNotIn(tmp, output.getvalue())
+
+    def test_main_budget_isolation_setup_and_finalizer_hard_ceiling(self):
+        # Every context gets a real selection/finalize with tiny explicit caps.
+        # No budget environment variable can admit a PR or enlarge local/release.
+        for lane, ci, ref, expected_cap in [
+                ('main', True, 'refs/heads/main', 3000),
+                ('release', True, 'refs/tags/v1', 1000),
+                ('local', False, '', 1000)]:
+            with self.subTest(lane=lane), tempfile.TemporaryDirectory() as tmp:
+                workspace = Path(tmp)
+                env = self.selection_env(workspace) if ci else {
+                    'GITHUB_WORKSPACE': tmp, 'FORTEMI_CARGO_CACHE_ROOT': str(workspace / 'cache'), 'TMPDIR': tmp}
+                if ci:
+                    env['FORTEMI_CACHE_REF'] = ref
+                env['FORTEMI_CACHE_MAX_BYTES'] = str(999999999)
+                output = io.StringIO()
+                with patch.object(cache, 'MAX_BYTES', 1000), patch.object(cache, 'CI_MAIN_MAX_BYTES', 3000), patch.object(cache.subprocess, 'check_output', return_value='fixture'), patch.object(cache.shutil, 'which', return_value=None), contextlib.redirect_stderr(output):
+                    selected = cache.setup(env)
+                    entry = Path(selected['FORTEMI_CARGO_CACHE_ENTRY'])
+                    (entry / 'artifact').write_bytes(b'x' * 1500)
+                    self.assertEqual(cache.finalize(dict(env, **selected)), 0)
+                    records = [json.loads(line) for line in output.getvalue().splitlines()]
+                    final = [r for r in records if r.get('phase') == 'finalize' and r.get('cache_retention') == 'complete'][-1]
+                    self.assertEqual(final['max_bytes'], expected_cap)
+                    self.assertEqual(final['reason'], 'none' if lane == 'main' else 'bytes')
+                    self.assertEqual(final['selected_retained'], lane == 'main')
+                    self.assertEqual(final['selected_oversized'], lane != 'main')
+                    self.assertEqual(entry.exists(), lane == 'main')
+                    self.assertEqual(final['oversized_entries_after'], 0)
+                    self.assertEqual(final['evicted_entries'], 0 if lane == 'main' else 1)
+                    self.assertEqual(final['retained_entries'], 1 if lane == 'main' else 0)
+                    if lane == 'main':
+                        self.assertEqual(cache.setup(env), selected)
+                        # Even main loses a single oversized generation: no soft overage.
+                        (entry / 'artifact').write_bytes(b'x' * 3100)
+                        self.assertEqual(cache.finalize(dict(env, **selected)), 0)
+                        self.assertFalse(entry.exists())
+                        records = [json.loads(line) for line in output.getvalue().splitlines()]
+                        oversized = [r for r in records if r.get('phase') == 'finalize' and r.get('cache_retention') == 'complete'][-1]
+                        self.assertTrue(oversized['selected_oversized'])
+                        self.assertFalse(oversized['selected_retained'])
+                        self.assertEqual(oversized['retained_bytes'], 0)
+                        self.assertEqual(oversized['evicted_entries'], 1)
+                    again = cache.setup(env)
+                    self.assertTrue(Path(again['FORTEMI_CARGO_CACHE_ENTRY']).is_dir())
+                    # Recreated markers alone are within the hard ceiling.
+                    self.assertLessEqual(sum(w for _, _, w in cache.entries(entry.parent)), expected_cap)
+                self.assertNotIn(tmp, output.getvalue())
+        self.assertEqual(cache.MAX_BYTES, 24 * 1024**3)
+        self.assertEqual(cache.CI_MAIN_MAX_BYTES, 64 * 1024**3)
+        self.assertEqual(cache.MAX_ENTRIES, 6)
+        self.assertEqual(cache.retention_bytes({'CI': 'true'}, 'main'), cache.MAX_BYTES)
+        self.assertEqual(cache.retention_bytes({'FORTEMI_CACHE_CI': '1', 'FORTEMI_CACHE_EVENT': 'pull_request', 'FORTEMI_CACHE_REF': 'refs/heads/main'}, 'main'), cache.MAX_BYTES)
+
+    def test_sibling_lanes_do_not_borrow_budget_or_evict_each_other(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            main_env = self.selection_env(workspace)
+            release_env = dict(main_env, FORTEMI_CACHE_REF='refs/tags/v1')
+            local_env = {'GITHUB_WORKSPACE': tmp, 'FORTEMI_CARGO_CACHE_ROOT': str(workspace / 'cache'), 'TMPDIR': tmp}
+            with patch.object(cache, 'MAX_BYTES', 1000), patch.object(cache, 'CI_MAIN_MAX_BYTES', 3000), patch.object(cache.subprocess, 'check_output', return_value='fixture'), patch.object(cache.shutil, 'which', return_value=None), contextlib.redirect_stderr(io.StringIO()):
+                selections = [cache.setup(env) for env in [main_env, release_env, local_env]]
+                paths = [Path(s['FORTEMI_CARGO_CACHE_ENTRY']) for s in selections]
+                self.assertEqual([p.parent.name for p in paths], ['main', 'release', 'local'])
+                for entry in paths:
+                    (entry / 'artifact').write_bytes(b'x' * 1500)
+                cache.finalize(dict(release_env, **selections[1]))
+                self.assertTrue(paths[0].exists())
+                self.assertFalse(paths[1].exists())
+                self.assertTrue(paths[2].exists())
+                cache.finalize(dict(local_env, **selections[2]))
+                self.assertTrue(paths[0].exists())
+                self.assertFalse(paths[2].exists())
+                cache.finalize(dict(main_env, **selections[0]))
+                self.assertTrue(paths[0].exists())
+                self.assertEqual(cache.setup(dict(main_env, FORTEMI_CACHE_EVENT='pull_request')), {})
+                self.assertEqual(cache.setup({'CI': 'true', 'GITHUB_WORKSPACE': tmp}), {})
+
+    def test_pressure_preserves_unproven_entries_and_never_follows_links(self):
+        for kind in ['missing-marker', 'entry-symlink', 'marker-symlink']:
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
+                root = cache.private_dir(Path(tmp) / 'cache')
+                valid = self.owned_entry(root, 1)
+                unsafe = self.owned_entry(root, 2)
+                outside = Path(tmp) / 'outside'
+                outside.mkdir()
+                (outside / 'sentinel').write_text('untouched')
+                if kind == 'entry-symlink':
+                    unsafe.rename(root / 'saved')
+                    unsafe.symlink_to(outside, target_is_directory=True)
+                else:
+                    (unsafe / '.owner.json').unlink()
+                    if kind == 'marker-symlink':
+                        (unsafe / '.owner.json').symlink_to(outside / 'sentinel')
+                with cache.locked(root) as guard, patch.object(cache, 'MAX_BYTES', 1), patch.object(cache, 'quarantine_evict') as evict:
+                    with self.assertRaises((OSError, ValueError)):
+                        cache.prune(root, guard=guard)
+                    evict.assert_not_called()
+                self.assertTrue(valid.exists())
+                self.assertTrue(unsafe.exists())
+                self.assertEqual((outside / 'sentinel').read_text(), 'untouched')
+        with tempfile.TemporaryDirectory() as tmp:
+            root = cache.private_dir(Path(tmp) / 'cache')
+            entry = self.owned_entry(root, size=10)
+            outside = Path(tmp) / 'outside'
+            outside.mkdir()
+            (outside / 'sentinel').write_bytes(b'y' * 10000)
+            (entry / 'nested/link').symlink_to(outside, target_is_directory=True)
+            charged = (entry / '.owner.json').stat().st_size + 10
+            with cache.locked(root) as guard, patch.object(cache, 'MAX_BYTES', 1), contextlib.redirect_stderr(io.StringIO()):
+                result = cache.prune(root, selected=entry, guard=guard)
+            self.assertEqual(result['before_bytes'], charged)
+            self.assertEqual(result['evicted_bytes'], charged)
+            self.assertTrue(result['selected_oversized'])
+            self.assertFalse(result['selected_retained'])
+            self.assertEqual(result['retained_entries'], 0)
+            self.assertEqual(result['retained_bytes'], 0)
+            self.assertEqual((outside / 'sentinel').read_bytes(), b'y' * 10000)
+
+    def test_partial_retention_failure_reports_unknown_post_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = cache.private_dir(Path(tmp) / 'cache')
+            entry = self.owned_entry(root)
+            output = io.StringIO()
+            with patch.object(cache, 'MAX_BYTES', 1), patch.object(cache, 'quarantine_evict', side_effect=OSError('private-payload')), contextlib.redirect_stderr(output):
+                self.assertEqual(cache.finalize({'FORTEMI_CARGO_CACHE_ENTRY': str(entry)}), 0)
+            records = [json.loads(line) for line in output.getvalue().splitlines() if line.startswith('{')]
+            self.assertEqual(records[-1]['cache_finalization'], 'unavailable')
+            self.assertIsNone(records[-1]['selected_retained'])
+            self.assertIsNone(records[-1]['retained_bytes'])
+            self.assertFalse(any(r.get('cache_retention') == 'complete' for r in records))
+            self.assertNotIn('private-payload', output.getvalue())
+            self.assertNotIn(tmp, output.getvalue())
+            self.assertTrue(entry.exists())
+
     def test_unsupported_atomic_claim_falls_back_without_deletion(self):
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp)

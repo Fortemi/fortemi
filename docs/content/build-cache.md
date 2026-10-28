@@ -34,7 +34,7 @@ code and elapsed seconds. Explicit message formats and external subcommands are
 preserved; their artifact counts are null unless a nested supported Cargo command
 reports them. Counts measure messages, not unique crates. No arguments or environment
 values are written to Cargo invocation telemetry. The workflow proof step prints
-only the selected target and job identity explicitly. Cargo diagnostics and test
+only boolean target-match, cache-enabled and job-identity-presence results. Cargo diagnostics and test
 output remain visible. Cold/disabled/fallback invocations preserve Cargo's normal
 output format and report null artifact counts. Coverage subcommands still require
 a real acceptance run to establish their full log/lcov behavior.
@@ -60,22 +60,44 @@ unproven `gitea.job` alias, and writes it to `GITHUB_ENV`. Workflow/job environm
 declare only `FORTEMI_CARGO_RUN_TARGET_DIR` as the cold-target input. Setup uses
 that input to register the run root, then writes the selected `CARGO_TARGET_DIR`
 to `GITHUB_ENV`; later steps have no competing workflow/job target value. A
-separate `proof` step prints the effective job identity and target and fails if
+separate `proof` step reports job-identity presence and target matching and fails if
 an enabled entry does not match the effective target. Static workflow fixtures
 enforce this wiring. A real main run must still establish nonempty identity,
 `target_matches_entry: true`, and later Cargo `cache_enabled: true` telemetry;
 source checks do not establish runner expression evaluation or a cache hit.
 
-Private marked cache entries have an LRU retention ceiling of six generations and
-24 GiB per namespace. Setup and each job's always-finalizer enforce retention;
+Private marked cache entries have an LRU retention ceiling of six generations.
+The workflow-trusted CI main namespace has a fixed 64 GiB aggregate byte ceiling;
+release and local namespaces retain their existing 24 GiB ceiling. No environment
+variable configures the budget. This adds at most 40 GiB retention for the one
+trusted main namespace. These limits charge regular-file logical sizes, including
+entry markers; symlink targets are never charged or followed.
+Setup and each job's always-finalizer enforce retention;
 compilation can temporarily exceed this retention ceiling. This is not a filesystem
 quota. Setup validates entries under the root lock before pruning. A missing or
 corrupt marker, changed identity/UID, unsafe symlink, inaccessible root or interrupted
 entry selects a fresh target under the registered run's temporary directory. It
 warns and reports `cache_enabled: false`, `cache_present: false`, and
 `cache_state: unavailable`. Existing unsafe entries stay untouched; repeated runs
-remain able to validate without cache reuse. Finalization is optional and warns
-on bookkeeping errors while preserving the Cargo/workload status (including
+remain able to validate without cache reuse.
+
+Before pruning, bounded public telemetry reports entry count/bytes, count/byte
+limits, largest entry bytes, reservation, count/bytes/both/none pressure, and
+oversized-generation state. Completion reports evicted count/bytes and retained
+count/bytes plus whether the selected generation survived. Setup also reports its
+actual post-creation inventory; finalization reports complete, skipped, or
+unavailable. An unavailable/partial quarantine result has unknown post totals and
+cannot establish useful retention. No cache paths, raw job identities, environment
+values or private payloads are printed by these cache-state/proof records.
+A single generation larger than its lane ceiling is evicted by finalization,
+including the just-used generation: it cannot be warm on the next run. There is
+no overage exception. Setup still protects a current hit; if that prevents meeting
+the ceiling, setup fails closed to the existing fresh run-local target.
+The 64 GiB main ceiling is a bounded optimization, not evidence of adequacy: the
+largest real generation is currently unknown. Require the next actual main CI
+cold/unchanged-warm receipts and finalization totals before claiming cross-run
+reuse or speedup. OpenAPI/source/contract failures remain independent.
+Finalization is optional and warns on bookkeeping errors while preserving the Cargo/workload status (including
 failures). Local finalization has the same rule. There is no automatic purge or
 claim that an invalid retained entry has been repaired. An operator can inspect
 the exact retained entry's ownership before any separately authorized recovery;

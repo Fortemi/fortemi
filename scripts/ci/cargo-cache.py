@@ -17,6 +17,7 @@ import time
 
 SCHEMA = 'fortemi-cargo-cache-v1'
 MAX_BYTES = 24 * 1024**3
+CI_MAIN_MAX_BYTES = 64 * 1024**3
 MAX_ENTRIES = 6
 QUARANTINE = '.evict-quarantine'
 DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
@@ -374,24 +375,62 @@ def entries(root):
     return sorted(found)
 
 
-def prune(root, keep=None, reserve=0, *, guard):
+def retention_bytes(env, lane):
+    # No caller-configurable budget. Only the workflow-trusted main lane grows.
+    return CI_MAIN_MAX_BYTES if lane == 'main' and trust(env) == 'main' else MAX_BYTES
+
+
+def prune(root, keep=None, reserve=0, *, guard, max_bytes=None,
+          selected=None, phase='direct'):
+    # Resolve at call time: local/default callers and small-budget fixtures keep
+    # honoring MAX_BYTES. Never bind the constant as a default argument.
+    limit = MAX_BYTES if max_bytes is None else max_bytes
     verify_lock(root, guard)
     current = entries(root)
     count, size = len(current), sum(e[2] for e in current)
-    removed = 0
-    for _, path, weight in current:
-        if count + reserve <= MAX_ENTRIES and size <= MAX_BYTES:
-            break
-        if path == keep:
-            continue
-        expected = node_identity(path.lstat())
-        quarantine_evict(root, guard, path.name, expected)
-        count -= 1
-        size -= weight
-        removed += 1
-    if count + reserve > MAX_ENTRIES or size > MAX_BYTES:
-        raise ValueError('cache budget unavailable')
-    return {'retained_bytes': size, 'retained_entries': count, 'evicted_entries': removed}
+    selected = keep if selected is None else selected
+    count_pressure, byte_pressure = count + reserve > MAX_ENTRIES, size > limit
+    reason = 'both' if count_pressure and byte_pressure else (
+        'count' if count_pressure else 'bytes' if byte_pressure else 'none')
+    summary = {'cache_retention': 'before', 'phase': phase,
+               'before_entries': count, 'before_bytes': size,
+               'max_entries': MAX_ENTRIES, 'max_bytes': limit,
+               'reserve_entries': reserve, 'largest_entry_bytes': max((e[2] for e in current), default=0),
+               'reason': reason,
+               'oversized_entries_before': sum(e[2] > limit for e in current),
+               'selected_oversized': any(p == selected and w > limit for _, p, w in current)}
+    print(json.dumps(summary), file=sys.stderr)
+    removed = removed_bytes = 0
+    retained = list(current)
+    try:
+        for entry in current:
+            _, path, weight = entry
+            if count + reserve <= MAX_ENTRIES and size <= limit:
+                break
+            if path == keep:
+                continue
+            expected = node_identity(path.lstat())
+            quarantine_evict(root, guard, path.name, expected)
+            count -= 1
+            size -= weight
+            removed += 1
+            removed_bytes += weight
+            retained.remove(entry)
+        if count + reserve > MAX_ENTRIES or size > limit:
+            raise ValueError('cache budget unavailable')
+    except (OSError, ValueError, KeyError, NotImplementedError, RecursionError):
+        # A partial quarantine failure cannot support post-prune totals.
+        print(json.dumps(dict(summary, cache_retention='unavailable',
+                              retained_entries=None, retained_bytes=None,
+                              evicted_entries=None, evicted_bytes=None,
+                              oversized_entries_after=None, selected_retained=None)), file=sys.stderr)
+        raise
+    result = dict(summary, cache_retention='complete', retained_bytes=size,
+                  retained_entries=count, evicted_entries=removed, evicted_bytes=removed_bytes,
+                  oversized_entries_after=sum(w > limit for _, _, w in retained),
+                  selected_retained=any(p == selected for _, p, _ in retained))
+    print(json.dumps(result), file=sys.stderr)
+    return result
 
 
 def warning(operation):
@@ -435,31 +474,46 @@ def select_cache(env):
     with locked(cache) as guard:
         target = cache / key
         hit = target.exists()
-        prune(cache, keep=target if hit else None, reserve=0 if hit else 1, guard=guard)
+        prune(cache, keep=target if hit else None, reserve=0 if hit else 1, guard=guard,
+              max_bytes=retention_bytes(env, lane), selected=target, phase='setup')
         if not hit:
             private_dir(target)
             info = target.stat()
             (target / '.owner.json').write_text(json.dumps([SCHEMA, os.geteuid(), info.st_dev, info.st_ino]))
+            # The marker itself is charged; admitting it must also fit the cap.
+            prune(cache, keep=target, guard=guard, max_bytes=retention_bytes(env, lane),
+                  selected=target, phase='setup-created')
         else:
             entries(cache)  # validate before allowing Cargo to write
         os.utime(target, None)
+        retained = entries(cache)  # actual setup outcome includes the new marker
     print(json.dumps({'cache_schema': SCHEMA, 'cache_enabled': True,
-                      'cache_state': 'present' if hit else 'new', 'cache_present': hit, 'key': key,
-                      'lane': lane, 'variant_hash': digest(variant)}), file=sys.stderr)
+                      'cache_state': 'present' if hit else 'new', 'cache_present': hit,
+                      'retained_entries': len(retained), 'retained_bytes': sum(w for _, _, w in retained),
+                      'max_entries': MAX_ENTRIES, 'max_bytes': retention_bytes(env, lane)}), file=sys.stderr)
     return {'CARGO_TARGET_DIR': str(target / 'target'), 'FORTEMI_CARGO_CACHE_ENTRY': str(target),
             'FORTEMI_CARGO_CACHE_LANE': lane}
 
 
 def finalize(env):
     if not env.get('FORTEMI_CARGO_CACHE_ENTRY'):
+        print(json.dumps({'cache_finalization': 'skipped', 'selected_retained': False,
+                          'workload_status_preserved': True}), file=sys.stderr)
         return 0
     try:
         root = private_dir(Path(env['FORTEMI_CARGO_CACHE_ENTRY']).parent)
         with locked(root) as guard:
-            print(json.dumps(prune(root, guard=guard)), file=sys.stderr)
+            result = prune(root, guard=guard, max_bytes=retention_bytes(env, root.name),
+                           selected=Path(env['FORTEMI_CARGO_CACHE_ENTRY']), phase='finalize')
+            print(json.dumps({'cache_finalization': 'complete',
+                              'selected_retained': result['selected_retained'],
+                              'selected_oversized': result['selected_oversized'],
+                              'workload_status_preserved': True}), file=sys.stderr)
     except (OSError, ValueError, KeyError, NotImplementedError, RecursionError):
         warning('finalization unavailable or invalid')
-        print(json.dumps({'cache_finalization': 'unavailable', 'workload_status_preserved': True}), file=sys.stderr)
+        print(json.dumps({'cache_finalization': 'unavailable', 'selected_retained': None,
+                          'retained_entries': None, 'retained_bytes': None,
+                          'workload_status_preserved': True}), file=sys.stderr)
     return 0
 
 
@@ -468,9 +522,7 @@ def proof(env):
     matched = bool(entry) and env.get('CARGO_TARGET_DIR') == str(Path(entry) / 'target')
     print(json.dumps({'cargo_cache_workflow_proof': 1, 'cache_enabled': bool(entry),
                       'target_matches_entry': matched,
-                      'job_identity_present': bool(env.get('FORTEMI_CACHE_VARIANT')),
-                      'target': env.get('CARGO_TARGET_DIR'),
-                      'variant': env.get('FORTEMI_CACHE_VARIANT')}))
+                      'job_identity_present': bool(env.get('FORTEMI_CACHE_VARIANT'))}))
     if entry and not matched:
         warning('target environment was overridden')
         return 1

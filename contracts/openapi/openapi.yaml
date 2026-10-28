@@ -7336,7 +7336,7 @@ paths:
           type: string
       - name: k
         in: query
-        description: Maximum results to return (default 10, max 100)
+        description: Maximum results to return (default 10, clamped to 1..100)
         required: false
         schema:
           type: integer
@@ -7416,7 +7416,7 @@ paths:
           description: Global request rate limit exceeded
       security:
       - bearerAuth: []
-      x-fortemi-archive-isolation: CompleteCatalog
+      x-fortemi-archive-isolation: ArchiveScoped
   /api/v1/notes/{id}/status:
     patch:
       tags:
