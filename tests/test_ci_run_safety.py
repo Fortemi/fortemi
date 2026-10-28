@@ -1091,16 +1091,24 @@ class RoundFourFilesystemTests(unittest.TestCase):
         self.runs = self.path / 'runs'
         self.root = self.runs / '99-2'
         self.root.mkdir(parents=True)
-        self.env = dict(os.environ, CI_RUNS_ROOT=str(self.runs), CI_RESOURCE_SCOPE='99',
-                        CI_RESOURCE_ATTEMPT='2', CI_SAFETY_TOOLS=str(ROOT),
-                        CARGO_TARGET_DIR=str(self.root / 'target'),
-                        CARGO_INSTALL_ROOT=str(self.root / 'tools'),
-                        DOCKER_CONFIG=str(self.root / 'docker'),
-                        GITHUB_ENV=str(self.path / 'env'), GITHUB_PATH=str(self.path / 'path'))
+        self.env = self.fixture_environment()
         info = self.root.stat()
         self.marker = {reaper.LABEL: '99', reaper.ATTEMPT: '2', 'created': time.time()-4000,
                        'identity': [info.st_dev, info.st_ino]}
         (self.root / 'sentinel').write_text('original retained')
+
+    def fixture_environment(self):
+        env = dict(os.environ, CI_RUNS_ROOT=str(self.runs), CI_RESOURCE_SCOPE='99',
+                   CI_RESOURCE_ATTEMPT='2', CI_SAFETY_TOOLS=str(ROOT),
+                   CARGO_TARGET_DIR=str(self.root / 'target'),
+                   CARGO_INSTALL_ROOT=str(self.root / 'tools'),
+                   DOCKER_CONFIG=str(self.root / 'docker'),
+                   GITHUB_ENV=str(self.path / 'env'), GITHUB_PATH=str(self.path / 'path'))
+        # Live CI's bootstrap target overrides CARGO_TARGET_DIR during setup.
+        # These ownership fixtures use their own paths and never select a cache.
+        env.pop('FORTEMI_CARGO_RUN_TARGET_DIR', None)
+        env.pop('FORTEMI_CACHE_CI', None)
+        return env
 
     def setup(self, marker):
         (self.root / '.owner.json').write_text(json.dumps(marker))
@@ -1109,6 +1117,27 @@ class RoundFourFilesystemTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         values = dict(line.split('=', 1) for line in (self.path / 'env').read_text().splitlines())
         return result, Path(values['TMPDIR']).parent, values
+
+    def test_inherited_ci_targets_do_not_escape_fixture_run_root(self):
+        inherited = {
+            'CARGO_TARGET_DIR': str(self.path / 'persistent-cache/entry/target'),
+            'FORTEMI_CARGO_RUN_TARGET_DIR': str(self.path / 'live-runs/93445-1/target'),
+            'FORTEMI_CACHE_CI': '1',
+            'FORTEMI_CARGO_CACHE_ROOT': str(self.path / 'persistent-cache'),
+        }
+        with patch.dict(os.environ, inherited):
+            self.env = self.fixture_environment()
+        self.assertNotIn('FORTEMI_CARGO_RUN_TARGET_DIR', self.env)
+        self.assertNotIn('FORTEMI_CACHE_CI', self.env)
+        result, chosen, values = self.setup(self.marker)
+        self.assertEqual(chosen, self.root)
+        self.assertNotIn('::warning::', result.stderr)
+        for key, child in [('CARGO_TARGET_DIR', 'target'), ('CARGO_INSTALL_ROOT', 'tools'),
+                           ('DOCKER_CONFIG', 'docker'), ('TMPDIR', 'tmp')]:
+            self.assertEqual(values[key], str(self.root / child))
+        self.assertNotIn('FORTEMI_REAL_CARGO', values)
+        self.assertFalse((self.path / 'persistent-cache').exists())
+        self.assertFalse((self.path / 'live-runs').exists())
 
     def test_existing_marker_requires_owner_attempt_device_and_inode(self):
         bad_markers = [dict(self.marker, **{reaper.LABEL:'88'}),
