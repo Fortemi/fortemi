@@ -415,7 +415,7 @@ def prune(root, keep=None, reserve=0, *, guard, max_bytes=None,
             size -= weight
             removed += 1
             removed_bytes += weight
-            retained.remove(entry)
+            retained = [candidate for candidate in retained if candidate != entry]
         if count + reserve > MAX_ENTRIES or size > limit:
             raise ValueError('cache budget unavailable')
     except (OSError, ValueError, KeyError, NotImplementedError, RecursionError):

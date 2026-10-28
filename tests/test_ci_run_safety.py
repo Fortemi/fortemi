@@ -1428,15 +1428,16 @@ class CleanupStaticTests(unittest.TestCase):
         import hashlib
         audited = {'open_directory', 'node_identity', 'owned', 'verify_lock', 'locked',
                    'cache_marker', 'quarantine_directory', 'no_pending_quarantine',
-                   'rename_noreplace', 'quarantine_evict', 'entries', 'prune'}
-        constants = {'SCHEMA', 'MAX_BYTES', 'MAX_ENTRIES', 'QUARANTINE', 'DIRECTORY'}
+                   'rename_noreplace', 'quarantine_evict', 'entries', 'prune',
+                   'retention_bytes', 'trust'}
+        constants = {'SCHEMA', 'MAX_BYTES', 'CI_MAIN_MAX_BYTES', 'MAX_ENTRIES', 'QUARANTINE', 'DIRECTORY'}
         tree = ast.parse(code)
         selected = [node for node in tree.body if
                     isinstance(node, ast.FunctionDef) and node.name in audited or
                     isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id in constants for t in node.targets)]
         self.assertEqual({n.name for n in selected if isinstance(n, ast.FunctionDef)}, audited)
         payload = ast.dump(ast.Module(body=selected, type_ignores=[]), include_attributes=False)
-        self.assertEqual(hashlib.sha256(payload.encode()).hexdigest(), '35b531562eb62de88cb44423816c28b1fbc7112e70f98b6616e306aba2438160')
+        self.assertEqual(hashlib.sha256(payload.encode()).hexdigest(), '7e8c6aff27f1cd861e5db44ed684467b04c0340adf8792040059ee4ef4034b4b')
         primitive = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'quarantine_evict')
         approved = {id(n) for n in ast.walk(primitive)}
         deletes = []
@@ -1469,6 +1470,8 @@ class CleanupStaticTests(unittest.TestCase):
             code.replace('\n    no_pending_quarantine(root)\n', '\n    pass\n'),
             code + '\ndef unsafe(path):\n    os.unlink(path)\n',
             code + '\nclear_quarantined(123)\n',
+            code.replace('CI_MAIN_MAX_BYTES = 64 * 1024**3', 'CI_MAIN_MAX_BYTES = 65 * 1024**3'),
+            code.replace("lane == 'main' and trust(env) == 'main'", "lane == 'main'"),
         ]
         for number, mutation in enumerate(mutations):
             with self.subTest(mutation=number), self.assertRaises((AssertionError, SyntaxError)):
