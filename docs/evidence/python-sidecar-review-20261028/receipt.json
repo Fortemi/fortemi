@@ -1,0 +1,63 @@
+{
+  "schema": "python-sidecar-retained-input-review-v1",
+  "feeds": [
+    {
+      "url": "https://pypi.org/simple",
+      "finalUrl": "https://pypi.org/simple/",
+      "method": "HEAD",
+      "status": 200,
+      "contentType": "text/html",
+      "observedAt": "2026-10-28T21:32:19.632610+00:00",
+      "bytesDownloaded": 0
+    },
+    {
+      "url": "https://download.pytorch.org/whl/cpu",
+      "finalUrl": "https://download.pytorch.org/whl/cpu",
+      "method": "HEAD",
+      "status": 200,
+      "contentType": "text/html",
+      "observedAt": "2026-10-28T21:32:19.819892+00:00",
+      "bytesDownloaded": 0
+    },
+    {
+      "url": "https://download.pytorch.org/whl/cu126",
+      "finalUrl": "https://download.pytorch.org/whl/cu126",
+      "method": "HEAD",
+      "status": 200,
+      "contentType": "text/html",
+      "observedAt": "2026-10-28T21:32:19.867948+00:00",
+      "bytesDownloaded": 0
+    }
+  ],
+  "locks": [
+    {
+      "service": "gliner",
+      "requirements": "build/gliner/requirements.txt",
+      "requirementsSha256": "37c6599c921668a3d0a251b73b011cd553b0452383af0f58e5b6f4d858733b92",
+      "lock": "build/gliner/requirements.lock",
+      "lockSha256": "b75bafaab1fb1f71fe3bdb4fa4e392d86e463ad329ed991d11206d1d00e45734",
+      "platforms": [
+        "linux/amd64",
+        "linux/arm64"
+      ],
+      "backend": "cpu",
+      "disposition": "retain exact locked inputs, platforms and backend; no regeneration/model execution"
+    },
+    {
+      "service": "pyannote",
+      "requirements": "build/pyannote/requirements.txt",
+      "requirementsSha256": "f4dc075b79ba65f4b986b991ca7313409a63d88d3a248f623bce273bd15e7855",
+      "lock": "build/pyannote/requirements.lock",
+      "lockSha256": "d3452113b7a69889c4cf8f8f4c8944f793a13a87edb19c7bd7524408e5f31868",
+      "platforms": [
+        "linux/amd64"
+      ],
+      "backend": "cu126",
+      "disposition": "retain exact locked inputs, platforms and backend; no regeneration/model execution"
+    }
+  ],
+  "reviewScope": "HTTPS feed identities, exact requirements/lock hashes, source binary-only/platform/backend constraints and existing rollback; no wheel downloads or new runtime acceptance",
+  "vulnerabilityScan": false,
+  "packageOrModelExecution": false,
+  "policyBypass": false
+}

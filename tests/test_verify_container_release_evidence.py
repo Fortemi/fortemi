@@ -1,4 +1,5 @@
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -24,7 +25,7 @@ class VerifyContainerReleaseEvidenceTests(unittest.TestCase):
         (self.root / "docker").mkdir()
         (self.root / "scripts/ci").mkdir(parents=True)
         (self.root / ".gitea/workflows").mkdir(parents=True)
-        for dockerfile in ("Dockerfile", "Dockerfile.bundle"):
+        for dockerfile in ("Dockerfile", "Dockerfile.bundle", "Dockerfile.mcp"):
             shutil.copy2(ROOT / dockerfile, self.root / dockerfile)
         shutil.copy2(POLICY, self.root / POLICY.relative_to(ROOT))
         shutil.copy2(
@@ -58,6 +59,87 @@ class VerifyContainerReleaseEvidenceTests(unittest.TestCase):
     def test_current_policy_and_wiring_pass(self) -> None:
         result = self.run_verifier()
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_public_argument_review_matches_shared_workflow(self) -> None:
+        policy = self.policy()
+        reviewed = policy["build_inputs"]
+        self.assertEqual(
+            set(reviewed["allowed_public_build_args"]),
+            {
+                "VERSION", "GIT_SHA", "BUILD_DATE", "FORTEMI_API_FEATURES",
+                "FORTEMI_CACHE_DISABLE", "FORTEMI_CACHE_FAMILY",
+                "FORTEMI_CACHE_NAMESPACE",
+            },
+        )
+        self.assertIs(reviewed["secrets_as_build_args_allowed"], False)
+        workflow_path = ".gitea/workflows/ci-builder.yaml"
+        workflow = (self.root / workflow_path).read_text()
+        passed = set(re.findall(r"--build-arg\s+[\"']?([A-Z][A-Z0-9_]*)", workflow))
+        self.assertEqual(passed, set(reviewed["allowed_public_build_args"]))
+        associated = {
+            family for family, details in policy["families"].items()
+            if workflow_path in details["workflows"]
+        }
+        review = reviewed["cache_argument_review"]
+        self.assertEqual(set(review["families"]), associated)
+        self.assertEqual(associated, {"api", "hosted", "bundle", "mcp"})
+        self.assertIn("--build-arg FORTEMI_CACHE_NAMESPACE=release-v1", workflow)
+        self.assertIn('--build-arg FORTEMI_CACHE_FAMILY="${label}"', workflow)
+        self.assertIn(
+            '--build-arg FORTEMI_CACHE_DISABLE="${FORTEMI_CACHE_DISABLE:-0}"',
+            workflow,
+        )
+        for family, details in review["families"].items():
+            with self.subTest(family=family):
+                self.assertEqual(details["release_family_value"], family)
+                self.assertIn(f'build_and_push {family} --no-cache', workflow)
+
+    def test_cache_argument_consumers_and_defaults_match_dockerfiles(self) -> None:
+        review = self.policy()["build_inputs"]["cache_argument_review"]
+        self.assertEqual(
+            set(review["arguments"]),
+            {"FORTEMI_CACHE_DISABLE", "FORTEMI_CACHE_FAMILY", "FORTEMI_CACHE_NAMESPACE"},
+        )
+        for family, details in review["families"].items():
+            with self.subTest(family=family):
+                dockerfile = self.root / details["dockerfile"]
+                defaults = dict(re.findall(
+                    r"^ARG (FORTEMI_CACHE_[A-Z_]+)=(\S+)$",
+                    dockerfile.read_text(), re.MULTILINE,
+                ))
+                if family == "mcp":
+                    self.assertIs(details["consumes_cache_arguments"], False)
+                    self.assertIsNone(details["docker_family_default"])
+                    self.assertFalse(set(defaults) & set(review["arguments"]))
+                else:
+                    self.assertIs(details["consumes_cache_arguments"], True)
+                    self.assertEqual(
+                        defaults["FORTEMI_CACHE_FAMILY"], details["docker_family_default"]
+                    )
+                    for name in ("FORTEMI_CACHE_DISABLE", "FORTEMI_CACHE_NAMESPACE"):
+                        self.assertEqual(defaults[name], review["arguments"][name]["docker_default"])
+
+    def test_policy_cannot_self_authorize_unknown_build_arg(self) -> None:
+        policy = self.policy()
+        policy["build_inputs"]["allowed_public_build_args"].append("UNREVIEWED_INPUT")
+        self.write_policy(policy)
+        workflow = self.root / ".gitea/workflows/ci-builder.yaml"
+        workflow.write_text(workflow.read_text().replace(
+            "--build-arg FORTEMI_API_FEATURES=",
+            "--build-arg UNREVIEWED_INPUT=value --build-arg FORTEMI_API_FEATURES=",
+            1,
+        ))
+        result = self.run_verifier()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("public Docker build arguments must use the reviewed allowlist", result.stderr)
+        for family in ("api", "bundle", "hosted", "mcp"):
+            with self.subTest(family=family):
+                diagnostics = [
+                    line for line in result.stderr.splitlines()
+                    if line.startswith(f"- {family}:") and "unreviewed build args" in line
+                ]
+                self.assertTrue(diagnostics, result.stderr)
+                self.assertIn("'UNREVIEWED_INPUT'", diagnostics[0])
 
     def test_unreviewed_build_arg_fails_closed(self) -> None:
         workflow = self.root / ".gitea/workflows/ci-builder.yaml"

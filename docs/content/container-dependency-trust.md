@@ -298,3 +298,15 @@ upstream signatures, fresh runtime acceptance, or suitability for a broader priv
 boundary. Existing dependency audits, runtime package freshness, release validation,
 and signed publication remain required. Review cadence and failure policy remain
 unchanged. Any version/digest update requires its own compatibility validation.
+
+## Retained Python sidecar review 2026-10-28
+
+The two sidecar lock records retain their exact requirements and lock SHA-256
+identities, platforms, CPU/CUDA package sources and rollback procedures. The three
+recorded package-feed endpoints returned HTTPS200 to read-only HEAD requests.
+The source guards continue to require hashes, binary distributions and the declared
+backend/platform split. Public receipt: `docs/evidence/python-sidecar-review-20261028/`.
+No wheel, model or runtime was downloaded or executed, and no lock was regenerated.
+This is a trust-inventory renewal, not a vulnerability scan or new platform/runtime
+qualification. Existing sidecar verification and release gates remain required;
+the 30-day review cadence is unchanged.

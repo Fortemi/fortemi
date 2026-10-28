@@ -15,8 +15,70 @@
     "retention_days": 365
   },
   "build_inputs": {
-    "allowed_public_build_args": ["VERSION", "GIT_SHA", "BUILD_DATE", "FORTEMI_API_FEATURES"],
-    "secrets_as_build_args_allowed": false
+    "allowed_public_build_args": ["VERSION", "GIT_SHA", "BUILD_DATE", "FORTEMI_API_FEATURES", "FORTEMI_CACHE_DISABLE", "FORTEMI_CACHE_FAMILY", "FORTEMI_CACHE_NAMESPACE"],
+    "secrets_as_build_args_allowed": false,
+    "cache_argument_review": {
+      "reviewed_at": "2026-10-28",
+      "scope": "Source review of these three public build arguments only; no new image, signature, cache-hit or performance evidence, and no renewal of other policy reviews or pending controls.",
+      "workflow": ".gitea/workflows/ci-builder.yaml",
+      "job": "publish-release",
+      "scanner_scope": "The verifier scans the complete workflow for each associated family, not an individual Dockerfile or build invocation.",
+      "arguments": {
+        "FORTEMI_CACHE_DISABLE": {
+          "classification": "public build configuration; never a secret",
+          "docker_default": "0",
+          "release_value": "${FORTEMI_CACHE_DISABLE:-0}",
+          "reviewed_values": ["0", "1"],
+          "semantics": "0 permits Cargo mount reuse; exactly 1 selects non-mounted /app/clean-cargo and /app/clean-target while still compiling with Cargo --locked. Other values do not disable reuse; the helper does not validate a boolean. Existing mounts remain attached but are not used for Cargo registry or target output on the disabled path."
+        },
+        "FORTEMI_CACHE_FAMILY": {
+          "classification": "public cache identity; never a secret",
+          "release_value": "${label}",
+          "reviewed_release_values": ["api", "hosted", "bundle", "mcp"],
+          "semantics": "The literal build_and_push family label separates compiled Rust target mounts within a namespace and architecture. Cargo registry mounts are shared across Rust families within the same namespace and architecture. MCP receives the label but does not consume it."
+        },
+        "FORTEMI_CACHE_NAMESPACE": {
+          "classification": "public cache identity; never a secret",
+          "docker_default": "local-v1",
+          "release_value": "release-v1",
+          "semantics": "Selects both registry and compiled-target mount identities. The release namespace on the dedicated release BuildKit builder is separate from standalone local defaults and native main/local/PR cache lanes; it does not import PR caches or provide authorization against code with access to that builder."
+        }
+      },
+      "families": {
+        "api": {
+          "dockerfile": "Dockerfile",
+          "consumes_cache_arguments": true,
+          "docker_family_default": "api",
+          "release_family_value": "api"
+        },
+        "hosted": {
+          "dockerfile": "Dockerfile",
+          "consumes_cache_arguments": true,
+          "docker_family_default": "api",
+          "release_family_value": "hosted"
+        },
+        "bundle": {
+          "dockerfile": "Dockerfile.bundle",
+          "consumes_cache_arguments": true,
+          "docker_family_default": "bundle",
+          "release_family_value": "bundle"
+        },
+        "mcp": {
+          "dockerfile": "Dockerfile.mcp",
+          "consumes_cache_arguments": false,
+          "docker_family_default": null,
+          "release_family_value": "mcp",
+          "rationale": "The shared release wrapper passes all three arguments, and the workflow-wide scanner associates them with MCP. Dockerfile.mcp declares none of them and has no Rust compilation or Cargo mounts; this review makes no compiled-cache reuse claim for MCP."
+        }
+      },
+      "limits": [
+        "Argument names are explicitly enumerated; review metadata documents source semantics and does not itself enforce argument values or expand the verifier's hardcoded allowlist.",
+        "Release --no-cache, immutable base pins, verified APT/TLS and runtime freshness, source/tag checks, smoke checks, signed-publication gates and registry evidence remain required.",
+        "Caches are optional build inputs on trusted builders, not proof of source identity, a cache hit or safe execution of untrusted code; Cargo always runs and successful output copying is required.",
+        "Compiled targets are architecture/family-separated and keyed by toolchain, packages, manifests/locks, SQLx metadata, migrations, features and PKE selection. Cargo fingerprints source and declared build-script inputs; undeclared external inputs remain a risk.",
+        "Retention limits and BuildKit GC are not hard disk quotas. Docker/CI cache reuse and performance still need real acceptance evidence."
+      ]
+    }
   },
   "verification_samples": [
     {

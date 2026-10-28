@@ -163,6 +163,32 @@ or lockfile still selects a new generation; this correction only removes stamp
 overkeying. Docker copies outputs only after successful Cargo completion and
 fails if an expected binary is absent.
 
+The release evidence policy in `docker/container-release-evidence-policy.json`
+explicitly reviews three public cache build arguments alongside the existing
+version, revision, date and feature arguments. They must never carry credentials
+or other secrets. The review covers the `publish-release` wrapper in
+`.gitea/workflows/ci-builder.yaml`:
+
+| Argument | Docker default (API/hosted and bundle) | Release value | Meaning |
+|---|---|---|---|
+| `FORTEMI_CACHE_DISABLE` | `0` | `${FORTEMI_CACHE_DISABLE:-0}` | Exactly `1` uses non-mounted Cargo home and target directories and still compiles; `0` permits mount reuse. Other values do not disable reuse; the helper does not validate a boolean. |
+| `FORTEMI_CACHE_FAMILY` | `api` in `Dockerfile`; `bundle` in `Dockerfile.bundle` | The literal wrapper label: `api`, `hosted`, `bundle`, or `mcp` | Separates compiled Rust target mounts. Hosted must override the API default to `hosted`. Registry mounts remain shared within a namespace and architecture. |
+| `FORTEMI_CACHE_NAMESPACE` | `local-v1` | `release-v1` | Selects registry and target mount identities on the separate release builder. A namespace is not an authorization boundary against code with access to that builder. |
+
+The wrapper also passes all three arguments to standalone MCP. `Dockerfile.mcp`
+does not declare them, compile Rust, or use Cargo mounts. MCP's policy association
+records the shared invocation and the verifier's whole-workflow scan; it does
+not establish compiled-cache use. GLiNER, pyannote, builder and testdb have separate
+workflow associations and are outside this cache-argument review.
+
+The scoped review does not renew the policy's global review date or change its
+pending signature, provenance, SBOM or license gates. These entries document
+reviewed source behavior; they do not enforce argument values. The verifier's
+explicit allowlist now names exactly these seven reviewed arguments. Manifest
+equality and rejection of unknown workflow arguments remain required. Fresh
+validation of this source integration is pending; no cache hit, Docker/CI
+acceptance or speedup follows from this review.
+
 For parent validation, run the Python cache/policy fixtures first in the existing
 bounded runner, then a separate tiny real Rust 1.92 fixture with one already cached,
 pinned registry dependency. Use two linked worktrees, one private cache root and

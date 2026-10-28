@@ -31,7 +31,15 @@ EXPECTED_FAMILIES = {"api", "bundle", "mcp", "hosted", "gliner", "pyannote", "bu
 EXPECTED_REGISTRIES = {"git.integrolabs.net", "ghcr.io"}
 # FORTEMI_API_FEATURES selects compiled Cargo features (hosted variant, #1172);
 # it is public build configuration and never carries a secret.
-EXPECTED_BUILD_ARGS = {"VERSION", "GIT_SHA", "BUILD_DATE", "FORTEMI_API_FEATURES"}
+EXPECTED_BUILD_ARGS = {
+    "VERSION",
+    "GIT_SHA",
+    "BUILD_DATE",
+    "FORTEMI_API_FEATURES",
+    "FORTEMI_CACHE_DISABLE",
+    "FORTEMI_CACHE_FAMILY",
+    "FORTEMI_CACHE_NAMESPACE",
+}
 DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 REVISION_RE = re.compile(r"^[0-9a-f]{40}$")
 
