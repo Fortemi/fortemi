@@ -43,6 +43,12 @@ concurrency:
   cancel-in-progress: ${{ gitea.event_name == 'pull_request' }}
 
 env:
+  FORTEMI_CACHE_CI: '1'
+  FORTEMI_CACHE_EVENT: ${{ gitea.event_name }}
+  FORTEMI_CACHE_REF: ${{ gitea.ref }}
+  # Job identity is evaluated in the setup step through github.job.
+  # Native Titan host runner: persistent disk outside the checkout.
+  FORTEMI_CARGO_CACHE_ROOT: /srv/gitea-runner-fortemi/cache/fortemi-cargo-cache-v1
   CHAIN_SOURCE_SHA: ${{ github.event.inputs.source_sha || github.sha }}
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -250,7 +256,7 @@ jobs:
       CI_ACTIONS_TOKEN: ${{ github.token }}
       CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
       CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
-      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      FORTEMI_CARGO_RUN_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
       CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
       TESTDB_IMAGE: "matric-testdb:ci-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
       DOCKER_CONFIG: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/docker-build-testdb"
@@ -313,14 +319,26 @@ jobs:
           test "$(git rev-parse HEAD)" = "${CHAIN_SOURCE_SHA}"
 
       - name: Reconcile inactive runs and configure owned resources
+        env:
+          FORTEMI_CACHE_VARIANT: ${{ github.job }}
         run: |
           python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
           bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
+      - name: Prove effective Cargo cache selection
+        run: python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" proof
 
       - name: Build testdb image
         run: |
           docker build -f build/Dockerfile.testdb -t "${TESTDB_IMAGE}" .
           echo "Built testdb image for CI"
+
+      - name: Bound retained Cargo cache
+        if: always()
+        run: |
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" ]]; then
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" finalize
+          fi
 
       - name: Cleanup run-local build and Docker state
         if: always()
@@ -338,7 +356,7 @@ jobs:
       CI_ACTIONS_TOKEN: ${{ github.token }}
       CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
       CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
-      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      FORTEMI_CARGO_RUN_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
       CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
       DOCKER_CONFIG: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/docker-lint"
     if: needs.admit-source.outputs.current == 'true'
@@ -395,9 +413,14 @@ jobs:
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Reconcile inactive runs and configure owned resources
+        env:
+          FORTEMI_CACHE_VARIANT: ${{ github.job }}
         run: |
           python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
           bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
+      - name: Prove effective Cargo cache selection
+        run: python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" proof
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -455,7 +478,7 @@ jobs:
         run: |
           # https://github.com/docker/buildx/security/advisories/GHSA-gwr2-q96m-6682 and https://github.com/docker/buildx/security/advisories/GHSA-p54p-jq4x-rc28
           python3 scripts/ci/check-buildx-policy.py
-          python3 -m unittest tests/test_check_buildx_policy.py
+          python3 -m unittest tests/test_check_buildx_policy.py tests/test_cargo_cache.py
 
       - name: Check Docker bundle exposure policy
         run: |
@@ -609,6 +632,13 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+      - name: Bound retained Cargo cache
+        if: always()
+        run: |
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" ]]; then
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" finalize
+          fi
+
       - name: Cleanup run-local build and Docker state
         if: always()
         run: |
@@ -733,7 +763,7 @@ jobs:
       CI_ACTIONS_TOKEN: ${{ github.token }}
       CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
       CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
-      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      FORTEMI_CARGO_RUN_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
       CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
       DOCKER_CONFIG: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/docker-audit"
     if: needs.admit-source.outputs.current == 'true'
@@ -790,9 +820,14 @@ jobs:
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Reconcile inactive runs and configure owned resources
+        env:
+          FORTEMI_CACHE_VARIANT: ${{ github.job }}
         run: |
           python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
           bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
+      - name: Prove effective Cargo cache selection
+        run: python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" proof
 
       - name: Install cargo-audit
         run: |
@@ -830,6 +865,13 @@ jobs:
           npm ci --ignore-scripts
           npm audit --audit-level=high
 
+      - name: Bound retained Cargo cache
+        if: always()
+        run: |
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" ]]; then
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" finalize
+          fi
+
       - name: Cleanup run-local build and Docker state
         if: always()
         run: |
@@ -848,7 +890,7 @@ jobs:
       CI_ACTIONS_TOKEN: ${{ github.token }}
       CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
       CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
-      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      FORTEMI_CARGO_RUN_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
       CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
       DOCKER_CONFIG: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/docker-deny"
     if: needs.admit-source.outputs.current == 'true'
@@ -905,9 +947,14 @@ jobs:
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Reconcile inactive runs and configure owned resources
+        env:
+          FORTEMI_CACHE_VARIANT: ${{ github.job }}
         run: |
           python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
           bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
+      - name: Prove effective Cargo cache selection
+        run: python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" proof
 
       - name: Install cargo-deny
         run: |
@@ -927,6 +974,13 @@ jobs:
             --config tests/fortemi-auth-consumer/deny.toml \
             check
 
+      - name: Bound retained Cargo cache
+        if: always()
+        run: |
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" ]]; then
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" finalize
+          fi
+
       - name: Cleanup run-local build and Docker state
         if: always()
         run: |
@@ -943,7 +997,7 @@ jobs:
       CI_ACTIONS_TOKEN: ${{ github.token }}
       CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
       CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
-      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      FORTEMI_CARGO_RUN_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
       CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
       DOCKER_CONFIG: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/docker-auth-consumer"
     if: needs.admit-source.outputs.current == 'true'
@@ -1000,9 +1054,14 @@ jobs:
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Reconcile inactive runs and configure owned resources
+        env:
+          FORTEMI_CACHE_VARIANT: ${{ github.job }}
         run: |
           python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
           bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
+      - name: Prove effective Cargo cache selection
+        run: python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" proof
 
       - name: Validate the isolated harness
         run: |
@@ -1016,6 +1075,13 @@ jobs:
 
       - name: Execute the locked public auth contract
         run: cargo test --manifest-path tests/fortemi-auth-consumer/Cargo.toml --locked
+
+      - name: Bound retained Cargo cache
+        if: always()
+        run: |
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" ]]; then
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" finalize
+          fi
 
       - name: Cleanup run-local build and Docker state
         if: always()
@@ -1105,7 +1171,7 @@ jobs:
       CI_ACTIONS_TOKEN: ${{ github.token }}
       CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
       CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
-      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      FORTEMI_CARGO_RUN_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
       CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
       TESTDB_IMAGE: "matric-testdb:ci-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
       DOCKER_CONFIG: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/docker-build"
@@ -1163,9 +1229,14 @@ jobs:
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Reconcile inactive runs and configure owned resources
+        env:
+          FORTEMI_CACHE_VARIANT: ${{ github.job }}
         run: |
           python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
           bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
+      - name: Prove effective Cargo cache selection
+        run: python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" proof
 
       - name: Build testdb image
         run: |
@@ -1374,6 +1445,13 @@ jobs:
             echo '::warning::Kept Docker resources: workflow-revision removal helper unavailable.'
           fi
 
+      - name: Bound retained Cargo cache
+        if: always()
+        run: |
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" ]]; then
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" finalize
+          fi
+
       - name: Cleanup run-local build and Docker state
         if: always()
         run: |
@@ -1390,7 +1468,7 @@ jobs:
       CI_ACTIONS_TOKEN: ${{ github.token }}
       CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
       CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
-      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      FORTEMI_CARGO_RUN_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
       CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
       TEST_API_IMAGE: "matric-memory:test-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
       DOCKER_CONFIG: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/docker-build-image"
@@ -1448,9 +1526,14 @@ jobs:
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Reconcile inactive runs and configure owned resources
+        env:
+          FORTEMI_CACHE_VARIANT: ${{ github.job }}
         run: |
           python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
           bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
+      - name: Prove effective Cargo cache selection
+        run: python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" proof
 
       - name: Build Docker image
         run: |
@@ -1465,6 +1548,13 @@ jobs:
 
           echo "Built image: ${TEST_API_IMAGE}"
           docker images "${TEST_API_IMAGE}"
+
+      - name: Bound retained Cargo cache
+        if: always()
+        run: |
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" ]]; then
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" finalize
+          fi
 
       - name: Cleanup run-local build and Docker state
         if: always()
@@ -1486,7 +1576,7 @@ jobs:
       CI_ACTIONS_TOKEN: ${{ github.token }}
       CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
       CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
-      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      FORTEMI_CARGO_RUN_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
       CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
       TESTDB_IMAGE: "matric-testdb:ci-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
       HOSTED_TEST_IMAGE: "matric-memory:hosted-test-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
@@ -1545,9 +1635,14 @@ jobs:
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Reconcile inactive runs and configure owned resources
+        env:
+          FORTEMI_CACHE_VARIANT: ${{ github.job }}
         run: |
           python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
           bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
+      - name: Prove effective Cargo cache selection
+        run: python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" proof
 
       - name: Build hosted image variant
         run: |
@@ -1575,6 +1670,13 @@ jobs:
           path: hosted-image-smoke/
           retention-days: 365
 
+      - name: Bound retained Cargo cache
+        if: always()
+        run: |
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" ]]; then
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" finalize
+          fi
+
       - name: Cleanup run-local build and Docker state
         if: always()
         run: |
@@ -1593,7 +1695,7 @@ jobs:
       CI_ACTIONS_TOKEN: ${{ github.token }}
       CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
       CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
-      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      FORTEMI_CARGO_RUN_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
       CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
       PSA_TEST_IMAGE: "fortemi-bundle:psa-test-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
       DOCKER_CONFIG: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/docker-pod-security-restricted"
@@ -1652,9 +1754,14 @@ jobs:
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Reconcile inactive runs and configure owned resources
+        env:
+          FORTEMI_CACHE_VARIANT: ${{ github.job }}
         run: |
           python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
           bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
+      - name: Prove effective Cargo cache selection
+        run: python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" proof
 
       - name: Setup run-scoped native bundle builder
         run: |
@@ -1696,6 +1803,13 @@ jobs:
             echo '::warning::Kept Docker resources: workflow-revision removal helper unavailable.'
           fi
 
+      - name: Bound retained Cargo cache
+        if: always()
+        run: |
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" ]]; then
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" finalize
+          fi
+
       - name: Cleanup run-local build and Docker state
         if: always()
         run: |
@@ -1712,7 +1826,7 @@ jobs:
       CI_ACTIONS_TOKEN: ${{ github.token }}
       CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
       CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
-      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      FORTEMI_CARGO_RUN_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
       CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
       TESTDB_IMAGE: "matric-testdb:ci-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
       TEST_API_IMAGE: "matric-memory:test-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
@@ -1771,9 +1885,14 @@ jobs:
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Reconcile inactive runs and configure owned resources
+        env:
+          FORTEMI_CACHE_VARIANT: ${{ github.job }}
         run: |
           python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
           bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
+      - name: Prove effective Cargo cache selection
+        run: python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" proof
 
       - name: Build testdb image
         run: |
@@ -1992,6 +2111,13 @@ jobs:
             echo '::warning::Kept Docker resources: workflow-revision removal helper unavailable.'
           fi
 
+      - name: Bound retained Cargo cache
+        if: always()
+        run: |
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" ]]; then
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" finalize
+          fi
+
       - name: Cleanup run-local build and Docker state
         if: always()
         run: |
@@ -2011,7 +2137,7 @@ jobs:
       CI_ACTIONS_TOKEN: ${{ github.token }}
       CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
       CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
-      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      FORTEMI_CARGO_RUN_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
       CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
       DOCKER_CONFIG: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/docker-integration-test"
       INFERENCE_BACKEND: ollama
@@ -2075,9 +2201,14 @@ jobs:
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Reconcile inactive runs and configure owned resources
+        env:
+          FORTEMI_CACHE_VARIANT: ${{ github.job }}
         run: |
           python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
           bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
+      - name: Prove effective Cargo cache selection
+        run: python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" proof
 
       - name: Run integration tests under the Titan GPU lease
         run: |
@@ -2088,7 +2219,11 @@ jobs:
           # than evict a model or count an unavailable GPU as a passing test.
           sudo /usr/local/sbin/titan-gpu-ci-lease run -- env \
             CARGO_TARGET_DIR="${CARGO_TARGET_DIR}" \
-            CARGO_INSTALL_ROOT="${CARGO_INSTALL_ROOT}" bash -lc '
+            CARGO_INSTALL_ROOT="${CARGO_INSTALL_ROOT}" \
+            FORTEMI_CACHE_CI=1 \
+            FORTEMI_REAL_CARGO="${FORTEMI_REAL_CARGO}" \
+            FORTEMI_CARGO_CACHE_ENTRY="${FORTEMI_CARGO_CACHE_ENTRY:-}" \
+            FORTEMI_CARGO_CACHE_HELPER="${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" bash -lc '
             set -euo pipefail
             nvidia-smi
             python3 scripts/ci/check-gpu-test-capacity.py
@@ -2109,7 +2244,7 @@ jobs:
             source ~/.cargo/env
             # Serial execution: parallel GPU requests can cause empty responses
             # when Ollama cannot serve concurrent chat completions.
-            cargo test \
+            python3 "${FORTEMI_CARGO_CACHE_HELPER}" test \
               --package matric-inference \
               --features integration \
               --lib \
@@ -2117,6 +2252,13 @@ jobs:
               -- \
               --test-threads=1
           '
+
+      - name: Bound retained Cargo cache
+        if: always()
+        run: |
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" ]]; then
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" finalize
+          fi
 
       - name: Cleanup run-local build and Docker state
         if: always()
@@ -2178,7 +2320,14 @@ jobs:
             shift
             while true; do
               echo "Building ${label} for ${PLATFORMS} (attempt ${attempt}/3)"
-              if docker buildx build "$@"; then
+              # Keep full layer bypass: signed APT/runtime freshness is not
+              # inferred from a cache hit. Only Cargo mounts are reused.
+              local started=$SECONDS
+              if docker buildx build --progress=plain \
+                --build-arg FORTEMI_CACHE_NAMESPACE=release-v1 \
+                --build-arg FORTEMI_CACHE_FAMILY="${label}" \
+                --build-arg FORTEMI_CACHE_DISABLE="${FORTEMI_CACHE_DISABLE:-0}" "$@"; then
+                echo "build-cache elapsed_seconds=$((SECONDS-started)) family=${label} status=success"
                 return 0
               fi
               if [ "${attempt}" -ge 3 ]; then
@@ -2782,7 +2931,7 @@ jobs:
       CI_ACTIONS_TOKEN: ${{ github.token }}
       CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
       CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
-      CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+      FORTEMI_CARGO_RUN_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
       CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
       TESTDB_IMAGE: "matric-testdb:ci-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
       TEST_API_IMAGE: "matric-memory:test-${{ gitea.run_id }}-${{ gitea.run_attempt }}"

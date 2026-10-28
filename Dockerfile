@@ -13,11 +13,9 @@
 FROM --platform=$BUILDPLATFORM rust:1.92.0-slim-bookworm@sha256:f1f73538ebe623fd3673a35aff3df358ae1084c64c55646516e5b17b321b6c9b AS builder
 
 # Build arguments for version stamping
-ARG VERSION=dev
-ARG GIT_SHA=unknown
-ARG BUILD_DATE=unknown
 # Include the public OIDC verifier and OTLP export (#1156). Hosted runtime
 # admission and telemetry export both stay off until configured at runtime.
+ARG CARGO_BUILD_JOBS=2
 ARG FORTEMI_API_FEATURES=hosted-auth,otel
 # rustc 1.92 can exhaust its default worker-thread stack while compiling the
 # release binary with thin LTO. Keep this configurable while using rustc's
@@ -37,6 +35,7 @@ COPY docker/rust-cross-build.sh /usr/local/bin/rust-cross-build
 RUN rust-cross-build install-deps
 
 # Copy workspace files
+COPY docker/rust-cache-build.sh /usr/local/bin/rust-cache-build
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY vendor ./vendor
@@ -44,13 +43,20 @@ COPY contracts ./contracts
 COPY migrations ./migrations
 
 # Build release binary with version info
+ARG VERSION=dev
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+ARG FORTEMI_CACHE_NAMESPACE=local-v1
+ARG FORTEMI_CACHE_FAMILY=api
+ARG FORTEMI_CACHE_DISABLE=0
+ARG FORTEMI_CACHE_BUILD_PKE=0
 ENV MATRIC_VERSION=${VERSION}
 ENV MATRIC_GIT_SHA=${GIT_SHA}
 ENV MATRIC_BUILD_DATE=${BUILD_DATE}
 
-RUN RUST_MIN_STACK="${RUST_MIN_STACK}" \
-    rust-cross-build cargo build --locked --release --package matric-api --features "${FORTEMI_API_FEATURES}" && \
-    cp "target/$(rust-cross-build triple)/release/matric-api" /app/matric-api
+RUN --mount=type=cache,id=fortemi-registry-${FORTEMI_CACHE_NAMESPACE}-${TARGETARCH},target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=fortemi-rust192-release-${FORTEMI_CACHE_NAMESPACE}-${TARGETARCH}-${FORTEMI_CACHE_FAMILY},target=/cargo-target,sharing=locked \
+    RUST_MIN_STACK="${RUST_MIN_STACK}" rust-cache-build
 
 # Runtime stage
 FROM debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818 AS runtime

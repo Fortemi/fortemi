@@ -16,7 +16,7 @@ BINFMT_IMAGE="tonistiigi/binfmt:qemu-v10.2.3-68@sha256:400a4873b838d1b89194d982c
 BUILDKIT_IMAGE="moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea"
 # The builder name encodes the BuildKit pin so a builder created from another
 # image (for example by an older workflow) is never silently reused.
-BUILDER_NAME="${FORTEMI_BUILDX_BUILDER:-fortemi-multiarch-bk0331}"
+BUILDER_NAME="${FORTEMI_BUILDX_BUILDER:-fortemi-release-cache-bk0331-v1}"
 REQUIRED_PLATFORMS=(linux/amd64 linux/arm64)
 
 if ! docker buildx version >/dev/null 2>&1; then
@@ -39,6 +39,7 @@ else
     docker buildx create \
         --name "$BUILDER_NAME" \
         --driver docker-container \
+        --buildkitd-config build/buildkit-release-cache.toml \
         --driver-opt "image=${BUILDKIT_IMAGE}" \
         --use
 fi

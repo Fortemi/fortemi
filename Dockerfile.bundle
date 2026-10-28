@@ -13,9 +13,6 @@
 # compiles Rust under QEMU emulation (#623).
 FROM --platform=$BUILDPLATFORM rust:1.92.0-slim-bookworm@sha256:f1f73538ebe623fd3673a35aff3df358ae1084c64c55646516e5b17b321b6c9b AS builder
 
-ARG VERSION=dev
-ARG GIT_SHA=unknown
-ARG BUILD_DATE=unknown
 # Include the public OIDC verifier and OTLP export (#1156). Hosted runtime
 # admission and telemetry export both stay off until configured at runtime.
 ARG FORTEMI_API_FEATURES=hosted-auth,otel
@@ -29,22 +26,27 @@ WORKDIR /app
 COPY docker/rust-cross-build.sh /usr/local/bin/rust-cross-build
 RUN rust-cross-build install-deps
 
+COPY docker/rust-cache-build.sh /usr/local/bin/rust-cache-build
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY vendor ./vendor
 COPY contracts ./contracts
 COPY migrations ./migrations
 
+ARG VERSION=dev
+ARG GIT_SHA=unknown
+ARG BUILD_DATE=unknown
+ARG FORTEMI_CACHE_NAMESPACE=local-v1
+ARG FORTEMI_CACHE_FAMILY=bundle
+ARG FORTEMI_CACHE_DISABLE=0
+ARG FORTEMI_CACHE_BUILD_PKE=1
 ENV MATRIC_VERSION=${VERSION}
 ENV MATRIC_GIT_SHA=${GIT_SHA}
 ENV MATRIC_BUILD_DATE=${BUILD_DATE}
 
-RUN --mount=type=cache,id=fortemi-bundle-cargo-registry-${TARGETARCH},target=/usr/local/cargo/registry,sharing=locked \
-    --mount=type=cache,id=fortemi-bundle-target-${TARGETARCH},target=/app/target,sharing=locked \
-    RUST_MIN_STACK="${RUST_MIN_STACK}" \
-    rust-cross-build cargo build --locked --release --jobs ${CARGO_BUILD_JOBS} --package matric-api --package matric-crypto --features "${FORTEMI_API_FEATURES}" && \
-    cp "target/$(rust-cross-build triple)/release/matric-api" /app/matric-api && \
-    cp "target/$(rust-cross-build triple)/release/matric-pke" /app/matric-pke
+RUN --mount=type=cache,id=fortemi-registry-${FORTEMI_CACHE_NAMESPACE}-${TARGETARCH},target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=fortemi-rust192-release-${FORTEMI_CACHE_NAMESPACE}-${TARGETARCH}-${FORTEMI_CACHE_FAMILY},target=/cargo-target,sharing=locked \
+    RUST_MIN_STACK="${RUST_MIN_STACK}" rust-cache-build
 
 # Node runtime source. Copying from the official digest-pinned image avoids
 # adding an external package feed to the final bundle build.
@@ -120,11 +122,12 @@ COPY --from=builder /app/matric-pke /usr/local/bin/matric-pke
 COPY migrations /app/migrations
 
 # Copy MCP server
-COPY mcp-server /app/mcp-server
+COPY mcp-server/package.json mcp-server/package-lock.json /app/mcp-server/
 
-# Install MCP server dependencies
+# Dependency layer is stable across MCP source-only edits.
 WORKDIR /app/mcp-server
 RUN npm ci --omit=dev
+COPY mcp-server /app/mcp-server
 
 # Optional: Open3D 3D renderer for GLB/GLTF/OBJ/STL multi-view extraction
 # Auto-disables on arm64 (no wheel available). Set ENABLE_OPEN3D=false to skip on any platform.

@@ -34,11 +34,17 @@ concurrency:
   cancel-in-progress: ${{ gitea.event_name == 'pull_request' }}
 
 env:
+  FORTEMI_CACHE_CI: '1'
+  FORTEMI_CACHE_EVENT: ${{ gitea.event_name }}
+  FORTEMI_CACHE_REF: ${{ gitea.ref }}
+  # Job identity is evaluated in the setup step through github.job.
+  # Native Titan host runner: persistent disk outside the checkout.
+  FORTEMI_CARGO_CACHE_ROOT: /srv/gitea-runner-fortemi/cache/fortemi-cargo-cache-v1
   # Mutable daemon resources and compiler outputs belong to one run.
   CI_RESOURCE_SCOPE: "${{ gitea.run_id }}"
   CI_RESOURCE_ATTEMPT: "${{ gitea.run_attempt }}"
   TESTDB_IMAGE: "matric-testdb:ci-${{ gitea.run_id }}-${{ gitea.run_attempt }}"
-  CARGO_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
+  FORTEMI_CARGO_RUN_TARGET_DIR: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target"
   CARGO_INSTALL_ROOT: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/tools"
   CHAIN_SOURCE_SHA: ${{ github.event.inputs.source_sha || github.sha }}
   CARGO_TERM_COLOR: always
@@ -139,14 +145,26 @@ jobs:
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Reconcile inactive runs and configure owned resources
+        env:
+          FORTEMI_CACHE_VARIANT: ${{ github.job }}
         run: |
           python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
           bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
+      - name: Prove effective Cargo cache selection
+        run: python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" proof
 
       - name: Build testdb image
         run: |
           docker build -f build/Dockerfile.testdb -t "${TESTDB_IMAGE}" .
           echo "Built testdb image for testing"
+
+      - name: Bound retained Cargo cache
+        if: always()
+        run: |
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" ]]; then
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" finalize
+          fi
 
       - name: Cleanup run-local build and Docker state
         if: always()
@@ -290,15 +308,20 @@ jobs:
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Reconcile inactive runs and configure owned resources
+        env:
+          FORTEMI_CACHE_VARIANT: ${{ github.job }}
         run: |
           python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
           bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
+      - name: Prove effective Cargo cache selection
+        run: python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" proof
 
       - name: Build testdb image
         run: |
           docker build -f build/Dockerfile.testdb -t "${TESTDB_IMAGE}" .
 
-      # Compiler outputs are isolated by run; registry caches stay shared.
+      # Cargo targets use the workflow-revision cache helper; run resources stay isolated.
 
       - name: Setup PostgreSQL
         run: |
@@ -415,6 +438,13 @@ jobs:
             echo '::warning::Kept Docker resources: workflow-revision removal helper unavailable.'
           fi
 
+      - name: Bound retained Cargo cache
+        if: always()
+        run: |
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" ]]; then
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" finalize
+          fi
+
       - name: Cleanup run-local build and Docker state
         if: always()
         run: |
@@ -485,15 +515,20 @@ jobs:
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Reconcile inactive runs and configure owned resources
+        env:
+          FORTEMI_CACHE_VARIANT: ${{ github.job }}
         run: |
           python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
           bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
+      - name: Prove effective Cargo cache selection
+        run: python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" proof
 
       - name: Build testdb image
         run: |
           docker build -f build/Dockerfile.testdb -t "${TESTDB_IMAGE}" .
 
-      # Compiler outputs are isolated by run; registry caches stay shared.
+      # Cargo targets use the workflow-revision cache helper; run resources stay isolated.
 
       - name: Setup PostgreSQL
         run: |
@@ -617,6 +652,13 @@ jobs:
             echo '::warning::Kept Docker resources: workflow-revision removal helper unavailable.'
           fi
 
+      - name: Bound retained Cargo cache
+        if: always()
+        run: |
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" ]]; then
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" finalize
+          fi
+
       - name: Cleanup run-local build and Docker state
         if: always()
         run: |
@@ -687,9 +729,14 @@ jobs:
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Reconcile inactive runs and configure owned resources
+        env:
+          FORTEMI_CACHE_VARIANT: ${{ github.job }}
         run: |
           python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
           bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
+      - name: Prove effective Cargo cache selection
+        run: python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" proof
 
       - name: Build testdb image
         run: |
@@ -810,6 +857,13 @@ jobs:
             echo '::warning::Kept Docker resources: workflow-revision removal helper unavailable.'
           fi
 
+      - name: Bound retained Cargo cache
+        if: always()
+        run: |
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" ]]; then
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" finalize
+          fi
+
       - name: Cleanup run-local build and Docker state
         if: always()
         run: |
@@ -880,9 +934,14 @@ jobs:
           git checkout --quiet --detach FETCH_HEAD
 
       - name: Reconcile inactive runs and configure owned resources
+        env:
+          FORTEMI_CACHE_VARIANT: ${{ github.job }}
         run: |
           python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
           bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
+      - name: Prove effective Cargo cache selection
+        run: python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" proof
 
       - name: Build testdb image
         run: |
@@ -970,6 +1029,13 @@ jobs:
             echo '::warning::Kept Docker resources: workflow-revision removal helper unavailable.'
           fi
 
+      - name: Bound retained Cargo cache
+        if: always()
+        run: |
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" ]]; then
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" finalize
+          fi
+
       - name: Cleanup run-local build and Docker state
         if: always()
         run: |
@@ -1046,9 +1112,14 @@ jobs:
       # plugin. Install it pinned by version + sha256 (supply-chain: no
       # floating tags, checksum verified against the official release).
       - name: Reconcile inactive runs and configure owned resources
+        env:
+          FORTEMI_CACHE_VARIANT: ${{ github.job }}
         run: |
           python3 "${CI_SAFETY_TOOLS}/scripts/ci/reconcile-run-resources.py"
           bash "${CI_SAFETY_TOOLS}/scripts/ci/setup-run-resources.sh"
+
+      - name: Prove effective Cargo cache selection
+        run: python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" proof
 
       - name: Install docker compose plugin (pinned)
         run: |
@@ -1069,6 +1140,13 @@ jobs:
 
       - name: Validate Intel overlay render
         run: ./scripts/validate-intel-overlay.sh
+
+      - name: Bound retained Cargo cache
+        if: always()
+        run: |
+          if [[ -f "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" ]]; then
+            python3 "${CI_SAFETY_TOOLS}/scripts/ci/cargo-cache.py" finalize
+          fi
 
       - name: Cleanup run-local build and Docker state
         if: always()

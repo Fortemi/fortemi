@@ -1387,6 +1387,64 @@ class CIWorkflowToolingTests(unittest.TestCase):
 
 
 class CleanupStaticTests(unittest.TestCase):
+    def assert_cache_quarantine_policy(self, code):
+        """Recognize one audited FD-recursive primitive, never whitelist a file.
+
+        Keep the shell/rmtree prohibition unchanged. Pin the AST of the complete
+        deletion/ownership/rename/lock/budget boundary so removing or reordering
+        a guard requires explicit re-review. Comments/formatting do not matter.
+        Behavior fixtures in test_cargo_cache exercise the pinned semantics.
+        """
+        import ast
+        import hashlib
+        audited = {'open_directory', 'node_identity', 'owned', 'verify_lock', 'locked',
+                   'cache_marker', 'quarantine_directory', 'no_pending_quarantine',
+                   'rename_noreplace', 'quarantine_evict', 'entries', 'prune'}
+        constants = {'SCHEMA', 'MAX_BYTES', 'MAX_ENTRIES', 'QUARANTINE', 'DIRECTORY'}
+        tree = ast.parse(code)
+        selected = [node for node in tree.body if
+                    isinstance(node, ast.FunctionDef) and node.name in audited or
+                    isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id in constants for t in node.targets)]
+        self.assertEqual({n.name for n in selected if isinstance(n, ast.FunctionDef)}, audited)
+        payload = ast.dump(ast.Module(body=selected, type_ignores=[]), include_attributes=False)
+        self.assertEqual(hashlib.sha256(payload.encode()).hexdigest(), '35b531562eb62de88cb44423816c28b1fbc7112e70f98b6616e306aba2438160')
+        primitive = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'quarantine_evict')
+        approved = {id(n) for n in ast.walk(primitive)}
+        deletes = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if isinstance(node.func, ast.Attribute) and node.func.attr in {'unlink', 'remove', 'rmdir', 'rmtree'}:
+                self.assertIn(id(node), approved, 'deletion outside audited cache quarantine')
+                self.assertIsInstance(node.func.value, ast.Name)
+                self.assertEqual(node.func.value.id, 'os')
+                self.assertIn(node.func.attr, {'unlink', 'rmdir'})
+                self.assertTrue(any(k.arg == 'dir_fd' for k in node.keywords))
+                deletes.append(node)
+        self.assertEqual(len(deletes), 4)
+        # The explicit recursive call must stay confined to the audited body.
+        calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call) and
+                 isinstance(n.func, ast.Name) and n.func.id == 'clear_quarantined']
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all(id(n) in approved for n in calls))
+
+    def test_cache_quarantine_guard_mutations_and_extra_deletes_are_rejected(self):
+        code = (ROOT / 'scripts/ci/cargo-cache.py').read_text()
+        self.assert_cache_quarantine_policy(code)
+        mutations = [
+            code.replace('rename_noreplace(parent, name, pending, \'tree\')', 'pass'),
+            code.replace('cache_marker(source) != record', 'False'),
+            code.replace('owned(before, expected[0])', 'pass'),
+            code.replace('\n    verify_lock(root, guard)\n', '\n    pass\n'),
+            code.replace('dir_fd=directory', 'dir_fd=None'),
+            code.replace('\n    no_pending_quarantine(root)\n', '\n    pass\n'),
+            code + '\ndef unsafe(path):\n    os.unlink(path)\n',
+            code + '\nclear_quarantined(123)\n',
+        ]
+        for number, mutation in enumerate(mutations):
+            with self.subTest(mutation=number), self.assertRaises((AssertionError, SyntaxError)):
+                self.assert_cache_quarantine_policy(mutation)
+
     def test_no_recursive_run_path_deletion_outside_quarantine(self):
         import re
         import yaml
@@ -1425,11 +1483,14 @@ class CleanupStaticTests(unittest.TestCase):
             # The in-container apt cache is outside runner run directories.
             code = re.sub(r'^RUN apt-get.*$', '', code, flags=re.M)
             self.assertNotRegex(code, r'\brm\s+(?:[^\n]*?\s)?(?:-[a-zA-Z]*[rR]|--recursive)\b|\brmtree\s*\(',name)
+            if name == 'scripts/ci/cargo-cache.py':
+                self.assert_cache_quarantine_policy(code)
             if name.endswith('.sh'):
                 pending.update(re.findall(r'(?:scripts/ci/|scripts/)[\w/-]+\.(?:sh|py)',code))
         self.assertIn('scripts/ci/smoke-hosted-image.sh', scanned)
         self.assertIn('scripts/test-keycloak-reference-realm.sh', scanned)
         self.assertIn('scripts/ci/cleanup-local-temp.sh', scanned)
+        self.assertIn('scripts/ci/cargo-cache.py', scanned)
 
     def test_all_always_docker_teardown_is_explicit_and_never_falls_back_to_cli(self):
         import re
