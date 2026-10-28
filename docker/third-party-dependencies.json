@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "policy_issue": 990,
-  "reviewed_at": "2026-09-24",
+  "reviewed_at": "2026-10-28",
   "related_package_lock_manifests": [
     {
       "path": "docker/python-sidecar-locks.json",
@@ -16,11 +16,18 @@
       "digest": "sha256:f1f73538ebe623fd3673a35aff3df358ae1084c64c55646516e5b17b321b6c9b",
       "immutable_reference": "rust:1.92.0-slim-bookworm@sha256:f1f73538ebe623fd3673a35aff3df358ae1084c64c55646516e5b17b321b6c9b",
       "role": "build-only",
-      "privilege_boundary": ["build-network", "source-and-lockfile-input"],
+      "privilege_boundary": [
+        "build-network",
+        "source-and-lockfile-input"
+      ],
       "source_class": "docker-official-image",
       "upstream": "https://hub.docker.com/_/rust",
-      "surfaces": ["Dockerfile", "Dockerfile.bundle", "build/Dockerfile.kms-qualification"],
-      "reviewed_at": "2026-09-24",
+      "surfaces": [
+        "Dockerfile",
+        "Dockerfile.bundle",
+        "build/Dockerfile.kms-qualification"
+      ],
+      "reviewed_at": "2026-10-28",
       "update_cadence_days": 30,
       "rollback": "Restore the prior reviewed digest and rebuild all affected Fortemi images.",
       "mirror_policy": "Mirror the exact tag and multi-architecture digest; builds must retain @sha256 verification."
@@ -31,11 +38,17 @@
       "digest": "sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818",
       "immutable_reference": "debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818",
       "role": "required-runtime-base",
-      "privilege_boundary": ["runtime-filesystem", "debian-package-sources"],
+      "privilege_boundary": [
+        "runtime-filesystem",
+        "debian-package-sources"
+      ],
       "source_class": "docker-official-image",
       "upstream": "https://hub.docker.com/_/debian",
-      "surfaces": ["Dockerfile", "build/Dockerfile.kms-qualification"],
-      "reviewed_at": "2026-09-24",
+      "surfaces": [
+        "Dockerfile",
+        "build/Dockerfile.kms-qualification"
+      ],
+      "reviewed_at": "2026-10-28",
       "update_cadence_days": 30,
       "rollback": "Restore the prior reviewed digest and rebuild the API image.",
       "mirror_policy": "Mirror the exact tag and multi-architecture digest; builds must retain @sha256 verification."
@@ -46,11 +59,18 @@
       "digest": "sha256:12a379b47ad65289572ea0756efc11b7c241a6662833e8af7038cd3b73d647e0",
       "immutable_reference": "pgvector/pgvector:pg18@sha256:12a379b47ad65289572ea0756efc11b7c241a6662833e8af7038cd3b73d647e0",
       "role": "required-bundle-and-test-runtime-base",
-      "privilege_boundary": ["database-files", "runtime-filesystem", "debian-package-sources"],
+      "privilege_boundary": [
+        "database-files",
+        "runtime-filesystem",
+        "debian-package-sources"
+      ],
       "source_class": "vendor-community-image",
       "upstream": "https://github.com/pgvector/pgvector",
-      "surfaces": ["Dockerfile.bundle", "build/Dockerfile.testdb"],
-      "reviewed_at": "2026-09-24",
+      "surfaces": [
+        "Dockerfile.bundle",
+        "build/Dockerfile.testdb"
+      ],
+      "reviewed_at": "2026-10-28",
       "update_cadence_days": 30,
       "rollback": "Restore the prior reviewed digest after verifying PostgreSQL data-directory compatibility.",
       "mirror_policy": "Mirror the multi-architecture manifest and preserve the reviewed digest in build inputs."
@@ -61,11 +81,18 @@
       "digest": "sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3",
       "immutable_reference": "node:22-bookworm-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3",
       "role": "build-source",
-      "privilege_boundary": ["copied-runtime-binaries", "npm-toolchain"],
+      "privilege_boundary": [
+        "copied-runtime-binaries",
+        "npm-toolchain"
+      ],
       "source_class": "docker-official-image",
       "upstream": "https://hub.docker.com/_/node",
-      "surfaces": ["Dockerfile.bundle", "Dockerfile.mcp", "build/Dockerfile.builder"],
-      "reviewed_at": "2026-09-24",
+      "surfaces": [
+        "Dockerfile.bundle",
+        "Dockerfile.mcp",
+        "build/Dockerfile.builder"
+      ],
+      "reviewed_at": "2026-10-28",
       "update_cadence_days": 30,
       "rollback": "Restore the prior reviewed Node image digest and rebuild bundle/builder images.",
       "mirror_policy": "Mirror the exact digest; copied Node/npm files must originate from the reviewed image."
@@ -76,11 +103,17 @@
       "digest": "sha256:e90e846de4124376164ddfbaab4b0774c7bdeef5e738866295e5a90a34a307a2",
       "immutable_reference": "rust:1.92-bookworm@sha256:e90e846de4124376164ddfbaab4b0774c7bdeef5e738866295e5a90a34a307a2",
       "role": "ci-only",
-      "privilege_boundary": ["ci-workspace", "optional-docker-daemon-socket", "release-build-network"],
+      "privilege_boundary": [
+        "ci-workspace",
+        "optional-docker-daemon-socket",
+        "release-build-network"
+      ],
       "source_class": "docker-official-image",
       "upstream": "https://hub.docker.com/_/rust",
-      "surfaces": ["build/Dockerfile.builder"],
-      "reviewed_at": "2026-09-24",
+      "surfaces": [
+        "build/Dockerfile.builder"
+      ],
+      "reviewed_at": "2026-10-28",
       "update_cadence_days": 30,
       "rollback": "Restore the prior builder digest and rebuild the internal builder image.",
       "mirror_policy": "Internal registry mirrors must preserve the reviewed upstream digest in provenance."
@@ -91,11 +124,18 @@
       "digest": "sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de",
       "immutable_reference": "python:3.12-slim@sha256:57cd7c3a7a273101a6485ba99423ee568157882804b1124b4dd04266317710de",
       "role": "optional-sidecar-runtime-base",
-      "privilege_boundary": ["model-files", "network-only", "optional-gpu-device"],
+      "privilege_boundary": [
+        "model-files",
+        "network-only",
+        "optional-gpu-device"
+      ],
       "source_class": "docker-official-image",
       "upstream": "https://hub.docker.com/_/python",
-      "surfaces": ["build/gliner/Dockerfile", "build/pyannote/Dockerfile"],
-      "reviewed_at": "2026-09-24",
+      "surfaces": [
+        "build/gliner/Dockerfile",
+        "build/pyannote/Dockerfile"
+      ],
+      "reviewed_at": "2026-10-28",
       "update_cadence_days": 30,
       "rollback": "Restore the prior reviewed digest and rebuild both sidecar image families.",
       "mirror_policy": "Mirror the multi-architecture digest and retain it in each sidecar Dockerfile."
@@ -106,11 +146,16 @@
       "digest": "sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99",
       "immutable_reference": "redis:7-alpine@sha256:6ab0b6e7381779332f97b8ca76193e45b0756f38d4c0dcda72dbb3c32061ab99",
       "role": "required-bundle-runtime",
-      "privilege_boundary": ["bundle-network", "cache-volume"],
+      "privilege_boundary": [
+        "bundle-network",
+        "cache-volume"
+      ],
       "source_class": "docker-official-image",
       "upstream": "https://hub.docker.com/_/redis",
-      "surfaces": ["docker-compose.bundle.yml"],
-      "reviewed_at": "2026-09-24",
+      "surfaces": [
+        "docker-compose.bundle.yml"
+      ],
+      "reviewed_at": "2026-10-28",
       "update_cadence_days": 30,
       "rollback": "Restore the prior digest; Redis cache data may be discarded and rebuilt.",
       "mirror_policy": "Set FORTEMI_REDIS_IMAGE to a mirrored tag@sha256 reference with the same reviewed content."
@@ -121,11 +166,18 @@
       "digest": "sha256:c0da392c37e76a01ba479239b43124c67baf8913ae0f491071d6ac544641dad7",
       "immutable_reference": "ghcr.io/speaches-ai/speaches:latest-cuda-12.6.3@sha256:c0da392c37e76a01ba479239b43124c67baf8913ae0f491071d6ac544641dad7",
       "role": "optional-acceleration-runtime",
-      "privilege_boundary": ["gpu-device", "model-cache-volume", "bundle-network"],
+      "privilege_boundary": [
+        "gpu-device",
+        "model-cache-volume",
+        "bundle-network"
+      ],
       "source_class": "vendor-image",
       "upstream": "https://github.com/speaches-ai/speaches",
-      "surfaces": ["docker-compose.bundle.yml", "docker-compose.whisper.yml"],
-      "reviewed_at": "2026-09-24",
+      "surfaces": [
+        "docker-compose.bundle.yml",
+        "docker-compose.whisper.yml"
+      ],
+      "reviewed_at": "2026-10-28",
       "update_cadence_days": 30,
       "rollback": "Restore the prior digest and retain the model cache; verify CUDA compatibility before update.",
       "mirror_policy": "Set FORTEMI_SPEACHES_CUDA_IMAGE to a complete mirrored tag@sha256 reference."
@@ -136,11 +188,16 @@
       "digest": "sha256:21e3df06d842fb7802ab470dd77c25f0e8c0d22950e8d8c6ae886e851af53ef8",
       "immutable_reference": "ghcr.io/speaches-ai/speaches:latest-cpu@sha256:21e3df06d842fb7802ab470dd77c25f0e8c0d22950e8d8c6ae886e851af53ef8",
       "role": "optional-cpu-runtime",
-      "privilege_boundary": ["model-cache-volume", "bundle-network"],
+      "privilege_boundary": [
+        "model-cache-volume",
+        "bundle-network"
+      ],
       "source_class": "vendor-image",
       "upstream": "https://github.com/speaches-ai/speaches",
-      "surfaces": ["docker-compose.bundle.yml"],
-      "reviewed_at": "2026-09-24",
+      "surfaces": [
+        "docker-compose.bundle.yml"
+      ],
+      "reviewed_at": "2026-10-28",
       "update_cadence_days": 30,
       "rollback": "Restore the prior digest and retain the model cache.",
       "mirror_policy": "Set FORTEMI_SPEACHES_CPU_IMAGE to a complete mirrored tag@sha256 reference."
@@ -151,11 +208,17 @@
       "digest": "sha256:6345fbc18bd73a1e16404be681dbc6fd291a027cab43ed541abe78c4c81051b0",
       "immutable_reference": "ollama/ollama:latest@sha256:6345fbc18bd73a1e16404be681dbc6fd291a027cab43ed541abe78c4c81051b0",
       "role": "workstation-demo-runtime",
-      "privilege_boundary": ["gpu-device", "host-model-path", "published-host-port"],
+      "privilege_boundary": [
+        "gpu-device",
+        "host-model-path",
+        "published-host-port"
+      ],
       "source_class": "vendor-image",
       "upstream": "https://github.com/ollama/ollama",
-      "surfaces": ["docker-compose.workstation.yml"],
-      "reviewed_at": "2026-09-24",
+      "surfaces": [
+        "docker-compose.workstation.yml"
+      ],
+      "reviewed_at": "2026-10-28",
       "update_cadence_days": 30,
       "rollback": "Restore the prior digest; preserve the host model directory.",
       "mirror_policy": "Set FORTEMI_WORKSTATION_OLLAMA_IMAGE to a complete approved tag@sha256 reference."
@@ -166,11 +229,17 @@
       "digest": "sha256:b832a7b7252a90a79a1e8d23d9be3ac5261a33224f60682dff0cade412fa55d3",
       "immutable_reference": "ghcr.io/ggml-org/llama.cpp:server@sha256:b832a7b7252a90a79a1e8d23d9be3ac5261a33224f60682dff0cade412fa55d3",
       "role": "optional-inference-runtime",
-      "privilege_boundary": ["model-host-path-read-only", "published-host-port", "optional-gpu-device"],
+      "privilege_boundary": [
+        "model-host-path-read-only",
+        "published-host-port",
+        "optional-gpu-device"
+      ],
       "source_class": "upstream-project-image",
       "upstream": "https://github.com/ggml-org/llama.cpp",
-      "surfaces": ["docker-compose.llamacpp.yml"],
-      "reviewed_at": "2026-09-24",
+      "surfaces": [
+        "docker-compose.llamacpp.yml"
+      ],
+      "reviewed_at": "2026-10-28",
       "update_cadence_days": 30,
       "rollback": "Restore the prior digest while preserving the operator model directory.",
       "mirror_policy": "Set FORTEMI_LLAMACPP_IMAGE to a complete approved mirror tag@sha256 reference."

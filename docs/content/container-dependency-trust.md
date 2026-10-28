@@ -280,3 +280,21 @@ replace the repository's reviewed defaults.
 - #1075 owns removal of the retired llama.cpp registry namespace.
 - #1076 owns exact, hash-locked Python package graphs, supported sidecar
   platforms, and the PyTorch CPU/CUDA compatibility boundary.
+
+## Retained image review 2026-10-28
+
+The eleven image entries last reviewed on September 24 were reviewed again against
+their recorded origin, privilege boundary, live source surfaces, mirror and rollback
+policy. Their registry manifests were fetched read-only from Docker Hub or GHCR;
+every raw SHA-256 matched its existing immutable pin. The public manifests and
+value-free receipt are retained in `docs/evidence/container-dependency-review-20261028/`.
+No layers were downloaded or executed, and no mutable tags or running services
+were changed. The Keycloak entry and package-feed review dates retain their own
+existing reviews.
+
+The disposition retains these exact revisions for their current declared roles.
+This renews the inventory review; it does not claim current vulnerability freedom,
+upstream signatures, fresh runtime acceptance, or suitability for a broader privilege
+boundary. Existing dependency audits, runtime package freshness, release validation,
+and signed publication remain required. Review cadence and failure policy remain
+unchanged. Any version/digest update requires its own compatibility validation.
