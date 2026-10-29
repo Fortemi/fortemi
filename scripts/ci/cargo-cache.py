@@ -317,6 +317,61 @@ def repository_identity(root):
     return ['directory', str(root)]
 
 
+def ci_repository_authority(root, env):
+    """Validate the existing workflow context and registered tooling checkout.
+
+    These are runner/workflow assertions, not proof against hostile same-uid
+    code. A matching remote alone never admits a local clone to CI reuse.
+    """
+    if (env.get('FORTEMI_CACHE_CI') != '1' or trust(env) not in {'main', 'release'} or
+            env.get('GITHUB_ACTIONS') != 'true' or
+            env.get('GITHUB_SERVER_URL') != 'https://git.integrolabs.net' or
+            env.get('GITHUB_REPOSITORY', '').lower() != 'fortemi/fortemi' or
+            env.get('GITHUB_EVENT_NAME') != env.get('FORTEMI_CACHE_EVENT') or
+            env.get('GITHUB_REF') != env.get('FORTEMI_CACHE_REF')):
+        raise ValueError('CI repository context unavailable')
+    owner, attempt = env.get('CI_RESOURCE_SCOPE', ''), env.get('CI_RESOURCE_ATTEMPT', '')
+    if not all(re.fullmatch(r'[1-9][0-9]*', v) for v in (owner, attempt)):
+        raise ValueError('CI ownership context unavailable')
+    tooling = Path(env.get('CI_SAFETY_TOOLS', ''))
+    base = root / 'target/.ci-tools'
+    if (not tooling.is_absolute() or tooling.parent != base or
+            not re.fullmatch(re.escape(owner + '-' + attempt) + r'\.[0-9a-f]{24}', tooling.name)):
+        raise ValueError('CI tooling registration unavailable')
+    with open_directory(tooling) as fd:
+        info = os.fstat(fd)
+        owned(info, info.st_dev, directory=True)
+        marker_fd = os.open('.owner.json', os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=fd)
+        with os.fdopen(marker_fd) as stream:
+            marker_info = os.fstat(stream.fileno())
+            owned(marker_info, info.st_dev)
+            if not stat.S_ISREG(marker_info.st_mode) or stat.S_IMODE(marker_info.st_mode) & 0o077:
+                raise ValueError('invalid CI registration marker')
+            record = json.loads(stream.read(4096))
+        if (not isinstance(record, dict) or record.get('fortemi.ci.scope') != owner or
+                record.get('fortemi.ci.attempt') != attempt or
+                record.get('identity') != list(node_identity(info))):
+            raise ValueError('CI registration identity changed')
+    # Read the literal local configuration, not get-url (which applies insteadOf).
+    # Never let inherited Git overrides redirect either probe.
+    git_env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+    for checkout in (root, tooling):
+        top = subprocess.run(['git', '-C', str(checkout), 'rev-parse', '--show-toplevel'],
+                             env=git_env, capture_output=True, text=True, timeout=5, check=True)
+        origin = subprocess.run(['git', '-C', str(checkout), 'config', '--local', '--get-all', 'remote.origin.url'],
+                                env=git_env, capture_output=True, text=True, timeout=5, check=True)
+        if (Path(top.stdout.strip()).resolve() != checkout or
+                origin.stdout.strip().lower() != 'https://git.integrolabs.net/fortemi/fortemi.git'):
+            raise ValueError('CI checkout authority mismatch')
+    return ['trusted-ci-repository', 'https://git.integrolabs.net', 'fortemi/fortemi']
+
+
+def cache_repository_identity(root, env):
+    if env.get('FORTEMI_CACHE_CI') == '1':
+        return ci_repository_authority(root, env)
+    return repository_identity(root)
+
+
 def identity(root, compiler, env, variant):
     # Source stays under Cargo fingerprint control. Hash dependency/configuration
     # inputs here, so an ordinary source edit can reuse compiled dependencies.
@@ -338,7 +393,7 @@ def identity(root, compiler, env, variant):
     flags.pop('CARGO_TARGET_DIR', None)
     # Stamps are runtime values in Core today. Cargo tracks env!/option_env!
     # and declared build-script env inputs if a crate embeds them in future.
-    return digest([SCHEMA, repository_identity(root), compiler, variant, inputs, flags])
+    return digest([SCHEMA, cache_repository_identity(root, env), compiler, variant, inputs, flags])
 
 
 def entries(root):
@@ -450,7 +505,7 @@ def fresh_target(env, reason):
 def setup(env):
     try:
         return select_cache(env)
-    except (OSError, ValueError, subprocess.CalledProcessError, KeyError, NotImplementedError, RecursionError):
+    except (OSError, ValueError, subprocess.SubprocessError, KeyError, NotImplementedError, RecursionError):
         warning('unavailable or invalid')
         return fresh_target(env, 'unavailable')
 
@@ -465,6 +520,8 @@ def select_cache(env):
     if env.get('FORTEMI_CACHE_CI') == '1' and not env.get('FORTEMI_CACHE_VARIANT'):
         warning('job identity unavailable')
         return fresh_target(env, 'missing-job-identity')
+    # Admit CI authority before touching the persistent root or probing tools.
+    cache_repository_identity(root, env)
     cache = private_dir(Path(env.get('FORTEMI_CARGO_CACHE_ROOT', root / 'target/.cargo-reuse-v1')) / lane)
     compiler = subprocess.check_output(['rustc', '-vV'], text=True).strip()
     if shutil.which('dpkg-query'):

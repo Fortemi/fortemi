@@ -1429,7 +1429,8 @@ class CleanupStaticTests(unittest.TestCase):
         audited = {'open_directory', 'node_identity', 'owned', 'verify_lock', 'locked',
                    'cache_marker', 'quarantine_directory', 'no_pending_quarantine',
                    'rename_noreplace', 'quarantine_evict', 'entries', 'prune',
-                   'retention_bytes', 'trust'}
+                   'retention_bytes', 'trust', 'private_dir', 'repository_identity',
+                   'ci_repository_authority', 'cache_repository_identity', 'identity', 'select_cache'}
         constants = {'SCHEMA', 'MAX_BYTES', 'CI_MAIN_MAX_BYTES', 'MAX_ENTRIES', 'QUARANTINE', 'DIRECTORY'}
         tree = ast.parse(code)
         selected = [node for node in tree.body if
@@ -1437,7 +1438,9 @@ class CleanupStaticTests(unittest.TestCase):
                     isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id in constants for t in node.targets)]
         self.assertEqual({n.name for n in selected if isinstance(n, ast.FunctionDef)}, audited)
         payload = ast.dump(ast.Module(body=selected, type_ignores=[]), include_attributes=False)
-        self.assertEqual(hashlib.sha256(payload.encode()).hexdigest(), '7e8c6aff27f1cd861e5db44ed684467b04c0340adf8792040059ee4ef4034b4b')
+        # Expanded CI authority boundary independently reviewed by Muse;
+        # Root verified unchanged prior primitives before accepting this pin.
+        self.assertEqual(hashlib.sha256(payload.encode()).hexdigest(), 'f6cc207d0e4513caaee773d9180df2c08d5267c7b5a4c359b1c09a87e0208318')
         primitive = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'quarantine_evict')
         approved = {id(n) for n in ast.walk(primitive)}
         deletes = []
@@ -1470,6 +1473,14 @@ class CleanupStaticTests(unittest.TestCase):
             code.replace('\n    no_pending_quarantine(root)\n', '\n    pass\n'),
             code + '\ndef unsafe(path):\n    os.unlink(path)\n',
             code + '\nclear_quarantined(123)\n',
+            code.replace("env.get('GITHUB_SERVER_URL') != 'https://git.integrolabs.net'", 'False'),
+            code.replace("env.get('GITHUB_REPOSITORY', '').lower() != 'fortemi/fortemi'", 'False'),
+            code.replace("env.get('GITHUB_ACTIONS') != 'true'", 'False'),
+            code.replace("env.get('GITHUB_EVENT_NAME') != env.get('FORTEMI_CACHE_EVENT')", 'False'),
+            code.replace("env.get('GITHUB_REF') != env.get('FORTEMI_CACHE_REF')", 'False'),
+            code.replace("record.get('identity') != list(node_identity(info))", 'False'),
+            code.replace("origin.stdout.strip().lower() != 'https://git.integrolabs.net/fortemi/fortemi.git'", 'False'),
+            code.replace("return ci_repository_authority(root, env)", 'return repository_identity(root)'),
             code.replace('CI_MAIN_MAX_BYTES = 64 * 1024**3', 'CI_MAIN_MAX_BYTES = 65 * 1024**3'),
             code.replace("lane == 'main' and trust(env) == 'main'", "lane == 'main'"),
         ]

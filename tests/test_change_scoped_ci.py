@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+import re
 import unittest
 
 import yaml
@@ -25,6 +26,81 @@ def load(name):
 
 
 class ChangeScopedCITests(unittest.TestCase):
+    def test_workspace_live_postgres_admission_is_step_local(self):
+        workflow = load('ci-builder.yaml')
+        job = workflow['jobs']['build']
+        flag = 'FORTEMI_REQUIRE_LIVE_POSTGRES_TESTS'
+        self.assertNotIn(flag, workflow.get('env', {}))
+        self.assertNotIn(flag, job.get('env', {}))
+        steps = job['steps']
+        workspace = next(s for s in steps if s['name'] == 'Run other tests')
+        # Extract the effective workflow environment, rather than consulting
+        # the test runner's environment or reproducing database test logic.
+        effective = {**workflow.get('env', {}), **job.get('env', {}),
+                     **workspace.get('env', {})}
+        self.assertEqual(effective.get(flag), '1')
+        for step in steps[:steps.index(workspace)]:
+            self.assertNotIn(flag, step.get('env', {}))
+            self.assertNotIn(flag, step.get('run', ''))
+        # Admission must not leak into later build/receipt/doc-test steps.
+        for step in steps:
+            if flag in step.get('env', {}):
+                self.assertEqual(step['name'], 'Run other tests')
+            for line in step.get('run', '').splitlines():
+                if flag in line:
+                    self.assertEqual(step['name'],
+                                     'Run hosted embedding authorization and normalization tests')
+                    self.assertEqual(line.strip(), f'export {flag}=1')
+
+    def test_workspace_live_postgres_admission_follows_owned_setup(self):
+        steps = load('ci-builder.yaml')['jobs']['build']['steps']
+        names = [s['name'] for s in steps]
+        prerequisites = [
+            'Reconcile inactive runs and configure owned resources',
+            'Setup PostgreSQL',
+            'Run migration repair regressions with PostgreSQL',
+            'Setup Redis for SSE token tests',
+            'Run migrations',
+            'Run worker integration tests (serial, first)',
+            'Run other tests',
+            'Run hosted embedding authorization and normalization tests',
+        ]
+        positions = [names.index(name) for name in prerequisites]
+        self.assertEqual(positions, sorted(positions))
+        for position in positions:
+            step = steps[position]
+            # A skipped or tolerated setup failure cannot admit the tests.
+            self.assertNotIn('if', step)
+            self.assertNotIn('continue-on-error', step)
+        setup = steps[names.index('Setup PostgreSQL')]['run']
+        self.assertIn('DB_CONTAINER="matric-build-db-${CI_RESOURCE_SCOPE}-${CI_RESOURCE_ATTEMPT}"', setup)
+        self.assertIn('DB_USER="matric"', setup)
+        self.assertIn('DB_PASSWORD="fortemi-ci-${CI_RESOURCE_SCOPE}-${CI_RESOURCE_ATTEMPT}"', setup)
+        self.assertIn('DB_NAME="matric_test"', setup)
+        self.assertIn('--label "fortemi.ci.scope=${CI_RESOURCE_SCOPE}"', setup)
+        self.assertIn('-p 127.0.0.1::5432', setup)
+        self.assertIn('DB_PORT=$(docker port "${DB_CONTAINER}" 5432/tcp', setup)
+        self.assertIn('pg_isready -U "${DB_USER}"', setup)
+        migrations = steps[names.index('Run migrations')]['run']
+        self.assertIn('set -euo pipefail', migrations)
+        self.assertIn('FORTEMI_CI_DISPOSABLE_DATABASE=1 cargo run --locked -p matric-db', migrations)
+        self.assertIn('--features migrations --example ci_database_bootstrap', migrations)
+        self.assertIn('--test community_migration_test', migrations)
+        workspace = steps[names.index('Run other tests')]['run']
+        # Both commands construct the same loopback URL from the owned setup;
+        # an inherited DATABASE_URL or a production endpoint is inadmissible.
+        database_export = re.compile(r'^export DATABASE_URL=.*$', re.MULTILINE)
+        exported = database_export.findall(workspace)
+        self.assertEqual(len(exported), 1)
+        self.assertEqual(exported, database_export.findall(migrations))
+        self.assertIn("'postgres://'", exported[0])
+        self.assertIn("'%s%s:%s@localhost:%s/%s'", exported[0])
+        for field in ('DB_USER', 'DB_PASSWORD', 'DB_PORT', 'DB_NAME'):
+            self.assertIn('"${' + field + '}"', exported[0])
+        self.assertIn('cargo test --workspace --exclude matric-jobs -- --test-threads=1', workspace)
+        self.assertNotIn('--skip', workspace)
+        self.assertNotIn('--ignored', workspace)
+
     def test_no_workflow_has_a_pull_request_trigger(self):
         paths = sorted(list(WORKFLOWS.glob('*.yml')) + list(WORKFLOWS.glob('*.yaml')))
         self.assertTrue(paths)

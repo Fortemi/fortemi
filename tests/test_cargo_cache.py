@@ -60,8 +60,8 @@ class CacheTests(unittest.TestCase):
             env = dict(self.selection_env(repo), FORTEMI_CARGO_CACHE_ROOT=str(parent / 'cache'))
             with patch.object(cache.subprocess, 'check_output', return_value='compiler'), patch.object(cache.shutil, 'which', return_value=None), contextlib.redirect_stderr(io.StringIO()):
                 selected = cache.setup(env)
-                linked_selection = cache.setup(dict(env, GITHUB_WORKSPACE=str(linked)))
-                release = cache.setup(dict(env, FORTEMI_CACHE_REF='refs/tags/v1'))
+                linked_selection = cache.setup(dict(self.selection_env(linked), FORTEMI_CARGO_CACHE_ROOT=str(parent / 'cache')))
+                release = cache.setup(dict(env, FORTEMI_CACHE_REF='refs/tags/v1', GITHUB_REF='refs/tags/v1'))
                 pr = cache.setup(dict(env, FORTEMI_CACHE_EVENT='pull_request'))
             self.assertEqual(selected, linked_selection)
             self.assertNotEqual(selected['CARGO_TARGET_DIR'], release['CARGO_TARGET_DIR'])
@@ -80,6 +80,95 @@ class CacheTests(unittest.TestCase):
             (linked / 'Cargo.toml').write_text('[workspace]\nresolver="2"\n')
             self.assertNotEqual(key, cache.identity(linked, 'rust1 host-a packages-a', {}, 'build-default'))
 
+    def test_trusted_ci_distinct_real_git_checkouts_share_only_validated_authority(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a, b = Path(tmp) / 'job-221384', Path(tmp) / 'job-221500'
+            a.mkdir()
+            b.mkdir()
+            a, _ = self.git_fixture(a)
+            b, _ = self.git_fixture(b)
+            # Actual independent committed Git checkouts, not mocked probes.
+            ea, eb = self.selection_env(a), self.selection_env(b)
+            for root in (a, b):
+                (root / 'Cargo.toml').write_text('[workspace]\n')
+                (root / 'Cargo.lock').write_text('lock1\n')
+            key = cache.identity(a, 'rust1 host-a packages-a', ea, 'lint')
+            self.assertNotEqual(cache.repository_identity(a), cache.repository_identity(b))
+            self.assertEqual(key, cache.identity(b, 'rust1 host-a packages-a', eb, 'lint'))
+            self.assertNotEqual(cache.identity(a, 'rust', {}, 'lint'), cache.identity(b, 'rust', {}, 'lint'))
+            for compiler, changes, variant in [
+                    ('rust2 host-a packages-a', {}, 'lint'),
+                    ('rust1 host-b packages-a', {}, 'lint'),
+                    ('rust1 host-a packages-b', {}, 'lint'),
+                    ('rust1 host-a packages-a', {'CC': 'other'}, 'lint'),
+                    ('rust1 host-a packages-a', {'RUSTFLAGS': '-Copt-level=1'}, 'lint'),
+                    ('rust1 host-a packages-a', {'CARGO_PROFILE_RELEASE_LTO': 'fat'}, 'lint'),
+                    ('rust1 host-a packages-a', {}, 'hosted-auth')]:
+                self.assertNotEqual(key, cache.identity(b, compiler, dict(eb, **changes), variant))
+            for name in ['Cargo.toml', 'Cargo.lock', '.cargo/config.toml', 'rust-toolchain.toml',
+                         '.gitea/workflows/ci-builder.yaml', '.gitea/workflows/test.yml',
+                         '.sqlx/query.json', 'migrations/001.sql']:
+                path = b / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                before = path.read_bytes() if path.exists() else None
+                path.write_text('changed')
+                self.assertNotEqual(key, cache.identity(b, 'rust1 host-a packages-a', eb, 'lint'))
+                if before is None:
+                    path.unlink()
+                else:
+                    path.write_bytes(before)
+            shared = Path(tmp) / 'shared'
+            with patch.object(cache.subprocess, 'check_output', return_value='compiler'), patch.object(cache.shutil, 'which', return_value=None), contextlib.redirect_stderr(io.StringIO()):
+                first = cache.setup(dict(ea, FORTEMI_CARGO_CACHE_ROOT=str(shared)))
+                second = cache.setup(dict(eb, FORTEMI_CARGO_CACHE_ROOT=str(shared)))
+            self.assertTrue(first['FORTEMI_CARGO_CACHE_ENTRY'])
+            self.assertEqual(first, second)
+
+    def test_ci_authority_negative_contexts_never_enter_persistent_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env = self.selection_env(root)
+            for field, value in [('GITHUB_SERVER_URL', 'https://evil.invalid'),
+                                 ('GITHUB_REPOSITORY', 'fork/fortemi'),
+                                 ('GITHUB_ACTIONS', ''), ('CI_RESOURCE_SCOPE', '2'),
+                                 ('CI_RESOURCE_ATTEMPT', '0'), ('CI_SAFETY_TOOLS', str(root)),
+                                 ('GITHUB_EVENT_NAME', 'pull_request'), ('GITHUB_REF', 'refs/heads/fork')]:
+                for replacement in (value, None):
+                    bad = dict(env)
+                    if replacement is None:
+                        bad.pop(field)
+                    else:
+                        bad[field] = replacement
+                    with self.subTest(field=field, value=replacement), patch.object(cache, 'private_dir', side_effect=AssertionError('persistent entry touched')), contextlib.redirect_stderr(io.StringIO()):
+                        self.assertFalse(cache.setup(bad)['FORTEMI_CARGO_CACHE_ENTRY'])
+            tooling = Path(env['CI_SAFETY_TOOLS'])
+            marker = tooling / '.owner.json'
+            original = marker.read_text()
+            for record in ['{}', '[]', '{broken', json.dumps({'fortemi.ci.scope': '1', 'fortemi.ci.attempt': '1', 'identity': [0, 0]})]:
+                marker.write_text(record)
+                with patch.object(cache, 'private_dir', side_effect=AssertionError('persistent entry touched')), contextlib.redirect_stderr(io.StringIO()):
+                    self.assertFalse(cache.setup(env)['FORTEMI_CARGO_CACHE_ENTRY'])
+            marker.write_text(original)
+            marker.chmod(0o644)
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertFalse(cache.setup(env)['FORTEMI_CARGO_CACHE_ENTRY'])
+            marker.chmod(0o600)
+            marker.rename(tooling / 'saved-marker')
+            marker.symlink_to(tooling / 'saved-marker')
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertFalse(cache.setup(env)['FORTEMI_CARGO_CACHE_ENTRY'])
+            marker.unlink()
+            with contextlib.redirect_stderr(io.StringIO()):
+                self.assertFalse(cache.setup(env)['FORTEMI_CARGO_CACHE_ENTRY'])
+            (tooling / 'saved-marker').rename(marker)
+            for checkout in (root, tooling):
+                subprocess.run(['git', '-C', str(checkout), 'config', '--local', 'remote.origin.url', 'https://evil.invalid/Fortemi/fortemi.git'], check=True, timeout=10)
+                with contextlib.redirect_stderr(io.StringIO()):
+                    self.assertFalse(cache.setup(env)['FORTEMI_CARGO_CACHE_ENTRY'])
+                subprocess.run(['git', '-C', str(checkout), 'config', '--local', 'remote.origin.url', 'https://git.integrolabs.net/Fortemi/fortemi.git'], check=True, timeout=10)
+            for bad in [dict(env, FORTEMI_CACHE_EVENT='pull_request'), {'CI': 'true'}]:
+                self.assertEqual(cache.setup(bad), {})
+
     def test_repository_probe_failure_and_non_git_trees_keep_directory_isolation(self):
         with tempfile.TemporaryDirectory() as tmp:
             a, b = Path(tmp) / 'a', Path(tmp) / 'b'
@@ -96,7 +185,7 @@ class CacheTests(unittest.TestCase):
         self.assertIsNone(cache.trust(base))
         self.assertIsNone(cache.trust({'CI': 'true'}))
         self.assertEqual(cache.trust(dict(base, FORTEMI_CACHE_EVENT='push')), 'main')
-        self.assertEqual(cache.trust(dict(base, FORTEMI_CACHE_EVENT='push', FORTEMI_CACHE_REF='refs/tags/v1')), 'release')
+        self.assertEqual(cache.trust(dict(base, FORTEMI_CACHE_EVENT='push', FORTEMI_CACHE_REF='refs/tags/v1', GITHUB_REF='refs/tags/v1')), 'release')
         self.assertIsNone(cache.trust(dict(base, FORTEMI_CACHE_EVENT='workflow_dispatch', FORTEMI_CACHE_REF='refs/heads/feature')))
 
     def test_inputs_invalidate_but_source_edits_preserve_dependencies(self):
@@ -412,6 +501,7 @@ class CacheTests(unittest.TestCase):
                     'GITHUB_WORKSPACE': tmp, 'FORTEMI_CARGO_CACHE_ROOT': str(workspace / 'cache'), 'TMPDIR': tmp}
                 if ci:
                     env['FORTEMI_CACHE_REF'] = ref
+                    env['GITHUB_REF'] = ref
                 env['FORTEMI_CACHE_MAX_BYTES'] = str(999999999)
                 output = io.StringIO()
                 with patch.object(cache, 'MAX_BYTES', 1000), patch.object(cache, 'CI_MAIN_MAX_BYTES', 3000), patch.object(cache.subprocess, 'check_output', return_value='fixture'), patch.object(cache.shutil, 'which', return_value=None), contextlib.redirect_stderr(output):
@@ -456,7 +546,7 @@ class CacheTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp)
             main_env = self.selection_env(workspace)
-            release_env = dict(main_env, FORTEMI_CACHE_REF='refs/tags/v1')
+            release_env = dict(main_env, FORTEMI_CACHE_REF='refs/tags/v1', GITHUB_REF='refs/tags/v1')
             local_env = {'GITHUB_WORKSPACE': tmp, 'FORTEMI_CARGO_CACHE_ROOT': str(workspace / 'cache'), 'TMPDIR': tmp}
             with patch.object(cache, 'MAX_BYTES', 1000), patch.object(cache, 'CI_MAIN_MAX_BYTES', 3000), patch.object(cache.subprocess, 'check_output', return_value='fixture'), patch.object(cache.shutil, 'which', return_value=None), contextlib.redirect_stderr(io.StringIO()):
                 selections = [cache.setup(env) for env in [main_env, release_env, local_env]]
@@ -759,10 +849,29 @@ class CacheTests(unittest.TestCase):
 
 
     def selection_env(self, root):
+        # Mirror the workflow's registered safety-tool checkout; no network.
+        tooling = root / 'target/.ci-tools' / ('1-1.' + 'a' * 24)
+        tooling.mkdir(parents=True, mode=0o700, exist_ok=True)
+        tooling.chmod(0o700)
+        for checkout in (root, tooling):
+            git_env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}
+            if not (checkout / '.git').exists():
+                subprocess.run(['git', 'init', '-q', str(checkout)], env=git_env, check=True, timeout=10)
+            subprocess.run(['git', '-C', str(checkout), 'config', '--local',
+                            'remote.origin.url', 'https://git.integrolabs.net/Fortemi/fortemi.git'],
+                           env=git_env, check=True, timeout=10)
+        info = tooling.stat()
+        marker = tooling / '.owner.json'
+        marker.write_text(json.dumps({'fortemi.ci.scope': '1', 'fortemi.ci.attempt': '1',
+                                      'identity': [info.st_dev, info.st_ino]}))
+        marker.chmod(0o600)
         return {'GITHUB_WORKSPACE': str(root), 'FORTEMI_CARGO_CACHE_ROOT': str(root / 'cache'),
                 'FORTEMI_CACHE_CI': '1', 'FORTEMI_CACHE_EVENT': 'push',
                 'FORTEMI_CACHE_REF': 'refs/heads/main', 'FORTEMI_CACHE_VARIANT': 'lint',
-                'TMPDIR': str(root)}
+                'GITHUB_ACTIONS': 'true', 'GITHUB_SERVER_URL': 'https://git.integrolabs.net',
+                'GITHUB_REPOSITORY': 'Fortemi/fortemi', 'GITHUB_EVENT_NAME': 'push',
+                'GITHUB_REF': 'refs/heads/main', 'CI_RESOURCE_SCOPE': '1', 'CI_RESOURCE_ATTEMPT': '1',
+                'CI_SAFETY_TOOLS': str(tooling), 'TMPDIR': str(root)}
 
     def test_invalid_entries_select_fresh_target_and_leave_bytes_untouched(self):
         for failure in ['missing-marker', 'corrupt-marker', 'changed-inode', 'foreign-uid', 'entry-symlink', 'marker-symlink']:

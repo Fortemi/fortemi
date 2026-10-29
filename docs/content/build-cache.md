@@ -18,15 +18,32 @@ The existing capacity-one runner serializes jobs; a private cache-root flock als
 serializes Cargo payloads and retention. Nested Cargo subcommands inherit the lock.
 Do not point another runner at this root; the lock is not a cross-host job lease.
 
-Repository identity uses the resolved Git common directory, shared by linked
-worktrees of one local repository, rather than the source checkout path. Independent
-clones remain isolated even with identical manifests or remote URLs. Git overrides
-in the caller's environment cannot select another repository. Non-Git directories,
-subdirectories that are not repository roots, and failed Git probes conservatively
-use the source directory identity. Linked worktrees need the same explicit private
-cache root and command selection to share dependencies; the default checkout-local
-cache root is still separate. Main, release and local trust lanes stay separate,
-and PR/unknown CI contexts still cannot use these persistent targets.
+Local repository identity uses the resolved Git common directory. Linked
+worktrees share only through the same explicit private cache root and command
+selection; independent local clones remain isolated even with identical remotes.
+Non-Git trees and failed local Git probes keep directory isolation. Caller Git
+overrides cannot redirect these probes.
+
+Trusted CI uses a stable authority identity for `https://git.integrolabs.net`,
+`Fortemi/fortemi`, because the native runner creates a new Git common directory
+inside each ephemeral checkout. Admission still requires the existing workflow
+main/version-tag push or dispatch lane, `GITHUB_ACTIONS=true`, exact server and
+repository context, matching event/ref assertions, positive run/attempt IDs, and
+the existing workflow tooling registration at
+`target/.ci-tools/<run>-<attempt>.<24-hex>`. Its private owned directory and regular
+private marker must match run, attempt, device and inode; symlink components are
+rejected. Both source and tooling must be Git repository roots with exactly one
+literal local origin matching the canonical HTTPS repository URL. Repository path
+case is normalized; server, protocol and URL shape are fixed. Missing or mismatched
+context fails cold before touching persistent storage. Remote URLs alone never
+merge local clones. These assertions rely on the existing trusted workflow/runner
+boundary; they do not authenticate hostile same-uid code or locally fabricated CI
+environments. PRs, forks, wrong servers and unknown CI cannot borrow main targets.
+Run IDs, SHAs and paths validate admission but do not enter the stable authority
+key. All previous compiler/native inputs, manifests, locks, configuration,
+workflows, features/flags/profile and variant invalidations remain. Main, release
+and local lanes, permission rules and capacity limits are unchanged. Actual warm
+reuse still needs subsequent CI evidence.
 
 A cache-present event is not a build hit. Wrapper stderr telemetry reports actual
 Cargo compiler-artifact totals, fresh/nonfresh counts, build-finished state, exit

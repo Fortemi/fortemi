@@ -1335,6 +1335,9 @@ jobs:
           cargo test --package matric-jobs --test worker_integration_test --test archive_input_isolation_test -- --test-threads=1
 
       - name: Run other tests
+        # This step uses the owned PostgreSQL fixture after successful migrations.
+        env:
+          FORTEMI_REQUIRE_LIVE_POSTGRES_TESTS: "1"
         run: |
           export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
           # The remaining tests share this PostgreSQL instance and mutate
