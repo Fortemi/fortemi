@@ -982,7 +982,20 @@ cargo test                    # Unit tests
 cargo test --workspace        # All crates
 ```
 
-Tests run against real PostgreSQL (not mocks). CI provides dedicated test containers with pgvector + PostGIS. See [Testing Guide](docs/content/testing-guide.md).
+Cargo's normal incremental target fingerprints reuse compatible artifacts in the checkout's
+`target` directory. For optional private cache selection, artifact telemetry, and bounded
+retention across invocations, see the [Core build reuse guide](docs/content/build-cache.md).
+For example, the helper can wrap a local Cargo command:
+
+```bash
+python3 scripts/ci/cargo-cache.py local build --offline --locked -j1 -p matric-api
+```
+
+The helper defaults to a private cache root in the checkout. Linked worktrees share only when
+you explicitly point them at the same owned private `FORTEMI_CARGO_CACHE_ROOT`. On Titan, run
+builds and tests through the existing detached bounded runner described in the guide. Formatting
+commands such as `cargo fmt` do not invoke the compiler. Tests run against real PostgreSQL (not
+mocks). CI provides dedicated test containers with pgvector + PostGIS. See [Testing Guide](docs/content/testing-guide.md).
 
 ### Versioning
 

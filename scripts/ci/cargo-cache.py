@@ -17,8 +17,9 @@ import time
 
 SCHEMA = 'fortemi-cargo-cache-v1'
 MAX_BYTES = 24 * 1024**3
-CI_MAIN_MAX_BYTES = 64 * 1024**3
+CI_MAIN_MAX_BYTES = 256 * 1024**3
 MAX_ENTRIES = 6
+CI_MAIN_MAX_ENTRIES = 16
 QUARANTINE = '.evict-quarantine'
 DIRECTORY = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 
@@ -435,21 +436,27 @@ def retention_bytes(env, lane):
     return CI_MAIN_MAX_BYTES if lane == 'main' and trust(env) == 'main' else MAX_BYTES
 
 
+def retention_entries(env, lane):
+    # Callers must admit CI repository authority before selecting either limit.
+    return CI_MAIN_MAX_ENTRIES if lane == 'main' and trust(env) == 'main' else MAX_ENTRIES
+
+
 def prune(root, keep=None, reserve=0, *, guard, max_bytes=None,
-          selected=None, phase='direct'):
+          max_entries=None, selected=None, phase='direct'):
     # Resolve at call time: local/default callers and small-budget fixtures keep
     # honoring MAX_BYTES. Never bind the constant as a default argument.
     limit = MAX_BYTES if max_bytes is None else max_bytes
+    entry_limit = MAX_ENTRIES if max_entries is None else max_entries
     verify_lock(root, guard)
     current = entries(root)
     count, size = len(current), sum(e[2] for e in current)
     selected = keep if selected is None else selected
-    count_pressure, byte_pressure = count + reserve > MAX_ENTRIES, size > limit
+    count_pressure, byte_pressure = count + reserve > entry_limit, size > limit
     reason = 'both' if count_pressure and byte_pressure else (
         'count' if count_pressure else 'bytes' if byte_pressure else 'none')
     summary = {'cache_retention': 'before', 'phase': phase,
                'before_entries': count, 'before_bytes': size,
-               'max_entries': MAX_ENTRIES, 'max_bytes': limit,
+               'max_entries': entry_limit, 'max_bytes': limit,
                'reserve_entries': reserve, 'largest_entry_bytes': max((e[2] for e in current), default=0),
                'reason': reason,
                'oversized_entries_before': sum(e[2] > limit for e in current),
@@ -460,7 +467,7 @@ def prune(root, keep=None, reserve=0, *, guard, max_bytes=None,
     try:
         for entry in current:
             _, path, weight = entry
-            if count + reserve <= MAX_ENTRIES and size <= limit:
+            if count + reserve <= entry_limit and size <= limit:
                 break
             if path == keep:
                 continue
@@ -471,7 +478,7 @@ def prune(root, keep=None, reserve=0, *, guard, max_bytes=None,
             removed += 1
             removed_bytes += weight
             retained = [candidate for candidate in retained if candidate != entry]
-        if count + reserve > MAX_ENTRIES or size > limit:
+        if count + reserve > entry_limit or size > limit:
             raise ValueError('cache budget unavailable')
     except (OSError, ValueError, KeyError, NotImplementedError, RecursionError):
         # A partial quarantine failure cannot support post-prune totals.
@@ -532,14 +539,15 @@ def select_cache(env):
         target = cache / key
         hit = target.exists()
         prune(cache, keep=target if hit else None, reserve=0 if hit else 1, guard=guard,
-              max_bytes=retention_bytes(env, lane), selected=target, phase='setup')
+              max_bytes=retention_bytes(env, lane), max_entries=retention_entries(env, lane),
+              selected=target, phase='setup')
         if not hit:
             private_dir(target)
             info = target.stat()
             (target / '.owner.json').write_text(json.dumps([SCHEMA, os.geteuid(), info.st_dev, info.st_ino]))
             # The marker itself is charged; admitting it must also fit the cap.
             prune(cache, keep=target, guard=guard, max_bytes=retention_bytes(env, lane),
-                  selected=target, phase='setup-created')
+                  max_entries=retention_entries(env, lane), selected=target, phase='setup-created')
         else:
             entries(cache)  # validate before allowing Cargo to write
         os.utime(target, None)
@@ -547,7 +555,8 @@ def select_cache(env):
     print(json.dumps({'cache_schema': SCHEMA, 'cache_enabled': True,
                       'cache_state': 'present' if hit else 'new', 'cache_present': hit,
                       'retained_entries': len(retained), 'retained_bytes': sum(w for _, _, w in retained),
-                      'max_entries': MAX_ENTRIES, 'max_bytes': retention_bytes(env, lane)}), file=sys.stderr)
+                      'max_entries': retention_entries(env, lane),
+                      'max_bytes': retention_bytes(env, lane)}), file=sys.stderr)
     return {'CARGO_TARGET_DIR': str(target / 'target'), 'FORTEMI_CARGO_CACHE_ENTRY': str(target),
             'FORTEMI_CARGO_CACHE_LANE': lane}
 
@@ -558,15 +567,20 @@ def finalize(env):
                           'workload_status_preserved': True}), file=sys.stderr)
         return 0
     try:
+        if env.get('FORTEMI_CACHE_CI') == '1':
+            # Finalization is a separate process: re-admit the workflow context
+            # before touching the persistent root or selecting the main policy.
+            cache_repository_identity(Path(env.get('GITHUB_WORKSPACE', os.getcwd())).resolve(), env)
         root = private_dir(Path(env['FORTEMI_CARGO_CACHE_ENTRY']).parent)
         with locked(root) as guard:
             result = prune(root, guard=guard, max_bytes=retention_bytes(env, root.name),
+                           max_entries=retention_entries(env, root.name),
                            selected=Path(env['FORTEMI_CARGO_CACHE_ENTRY']), phase='finalize')
             print(json.dumps({'cache_finalization': 'complete',
                               'selected_retained': result['selected_retained'],
                               'selected_oversized': result['selected_oversized'],
                               'workload_status_preserved': True}), file=sys.stderr)
-    except (OSError, ValueError, KeyError, NotImplementedError, RecursionError):
+    except (OSError, ValueError, subprocess.SubprocessError, KeyError, NotImplementedError, RecursionError):
         warning('finalization unavailable or invalid')
         print(json.dumps({'cache_finalization': 'unavailable', 'selected_retained': None,
                           'retained_entries': None, 'retained_bytes': None,

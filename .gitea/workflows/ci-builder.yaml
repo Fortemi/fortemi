@@ -250,6 +250,8 @@ jobs:
     runs-on: matric-builder
     needs: [admit-source, verify-release-ref]
     env:
+      # No host Cargo: preserve compiler entries; Docker mounts retain reuse.
+      FORTEMI_CACHE_DISABLE: '1'
       CI_WORKFLOW_SHA: ${{ gitea.sha }}
       CI_SAFETY_TOOLS: "${{ github.workspace }}/target/.ci-tools/${{ gitea.run_id }}-${{ gitea.run_attempt }}"
       CI_RUNS_ROOT: "${{ github.workspace }}/target/.ci-runs"
@@ -1465,6 +1467,8 @@ jobs:
     runs-on: matric-builder
     needs: [admit-source, build]
     env:
+      # No host Cargo: preserve compiler entries; Docker mounts retain reuse.
+      FORTEMI_CACHE_DISABLE: '1'
       CI_WORKFLOW_SHA: ${{ gitea.sha }}
       CI_SAFETY_TOOLS: "${{ github.workspace }}/target/.ci-tools/${{ gitea.run_id }}-${{ gitea.run_attempt }}"
       CI_RUNS_ROOT: "${{ github.workspace }}/target/.ci-runs"
@@ -1573,6 +1577,8 @@ jobs:
     runs-on: matric-builder
     needs: [admit-source, build-image]
     env:
+      # No host Cargo: preserve compiler entries; Docker mounts retain reuse.
+      FORTEMI_CACHE_DISABLE: '1'
       CI_WORKFLOW_SHA: ${{ gitea.sha }}
       CI_SAFETY_TOOLS: "${{ github.workspace }}/target/.ci-tools/${{ gitea.run_id }}-${{ gitea.run_attempt }}"
       CI_RUNS_ROOT: "${{ github.workspace }}/target/.ci-runs"
@@ -1652,6 +1658,7 @@ jobs:
           set -euo pipefail
           SHORT_SHA="${CHAIN_SOURCE_SHA:0:7}"
           docker build \
+            --build-arg FORTEMI_CACHE_FAMILY=hosted \
             --build-arg FORTEMI_API_FEATURES=hosted-auth,otel,kms-aws,kms-vault \
             --build-arg VERSION=test-${SHORT_SHA} \
             --build-arg GIT_SHA=${CHAIN_SOURCE_SHA} \
@@ -1692,6 +1699,8 @@ jobs:
     runs-on: matric-builder
     needs: [admit-source, build-image]
     env:
+      # No host Cargo: preserve compiler entries; Docker mounts retain reuse.
+      FORTEMI_CACHE_DISABLE: '1'
       CI_WORKFLOW_SHA: ${{ gitea.sha }}
       CI_SAFETY_TOOLS: "${{ github.workspace }}/target/.ci-tools/${{ gitea.run_id }}-${{ gitea.run_attempt }}"
       CI_RUNS_ROOT: "${{ github.workspace }}/target/.ci-runs"
@@ -1823,6 +1832,8 @@ jobs:
     runs-on: matric-builder
     needs: [admit-source, build-image]
     env:
+      # No host Cargo: preserve compiler entries; Docker mounts retain reuse.
+      FORTEMI_CACHE_DISABLE: '1'
       CI_WORKFLOW_SHA: ${{ gitea.sha }}
       CI_SAFETY_TOOLS: "${{ github.workspace }}/target/.ci-tools/${{ gitea.run_id }}-${{ gitea.run_attempt }}"
       CI_RUNS_ROOT: "${{ github.workspace }}/target/.ci-runs"

@@ -50,8 +50,6 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
   CARGO_INCREMENTAL: 0
-  RUSTFLAGS: "-Cinstrument-coverage"
-  LLVM_PROFILE_FILE: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target/coverage/profile-%p-%m.profraw"
   VAULT_ADDR: ${{ vars.VAULT_ADDR }}
   BUILD_REPO_TOKEN_VAULT_PATH: ${{ vars.BUILD_REPO_TOKEN_VAULT_PATH }}
   BUILD_REPO_TOKEN_VAULT_FIELD: ${{ vars.BUILD_REPO_TOKEN_VAULT_FIELD }}
@@ -87,6 +85,8 @@ jobs:
     needs: [admit-source]
     if: needs.admit-source.outputs.current == 'true'
     env:
+      # No host Cargo: preserve compiler entries; Docker mounts retain reuse.
+      FORTEMI_CACHE_DISABLE: '1'
       CI_WORKFLOW_SHA: ${{ gitea.sha }}
       CI_SAFETY_TOOLS: "${{ github.workspace }}/target/.ci-tools/${{ gitea.run_id }}-${{ gitea.run_attempt }}"
       CI_RUNS_ROOT: "${{ github.workspace }}/target/.ci-runs"
@@ -621,6 +621,8 @@ jobs:
           if-no-files-found: warn
 
       - name: Run other integration tests
+        env:
+          FORTEMI_REQUIRE_LIVE_POSTGRES_TESTS: "1"
         run: |
           export DATABASE_URL="$(printf '%s%s:%s@localhost:%s/%s' 'postgres://' "${DB_USER}" "${DB_PASSWORD}" "${DB_PORT}" "${DB_NAME}")"
           export INTEGRATION_TEST_DB=1
@@ -671,6 +673,8 @@ jobs:
     needs: [admit-source, fast-tests, integration-tests, build-testdb]
     if: needs.admit-source.outputs.current == 'true'
     env:
+      RUSTFLAGS: "-Cinstrument-coverage"
+      LLVM_PROFILE_FILE: "${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target/coverage/profile-%p-%m.profraw"
       CI_WORKFLOW_SHA: ${{ gitea.sha }}
       CI_SAFETY_TOOLS: "${{ github.workspace }}/target/.ci-tools/${{ gitea.run_id }}-${{ gitea.run_attempt }}"
       CI_RUNS_ROOT: "${{ github.workspace }}/target/.ci-runs"
@@ -1051,6 +1055,8 @@ jobs:
     needs: [admit-source, slow-tests]
     if: needs.admit-source.outputs.current == 'true' && (always() && needs.slow-tests.result != 'failure' && needs.slow-tests.result != 'cancelled')
     env:
+      # No host Cargo: preserve compiler entries; Docker mounts retain reuse.
+      FORTEMI_CACHE_DISABLE: '1'
       CI_WORKFLOW_SHA: ${{ gitea.sha }}
       CI_SAFETY_TOOLS: "${{ github.workspace }}/target/.ci-tools/${{ gitea.run_id }}-${{ gitea.run_attempt }}"
       CI_RUNS_ROOT: "${{ github.workspace }}/target/.ci-runs"

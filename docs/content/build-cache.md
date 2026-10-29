@@ -83,11 +83,14 @@ enforce this wiring. A real main run must still establish nonempty identity,
 `target_matches_entry: true`, and later Cargo `cache_enabled: true` telemetry;
 source checks do not establish runner expression evaluation or a cache hit.
 
-Private marked cache entries have an LRU retention ceiling of six generations.
-The workflow-trusted CI main namespace has a fixed 64 GiB aggregate byte ceiling;
-release and local namespaces retain their existing 24 GiB ceiling. No environment
-variable configures the budget. This adds at most 40 GiB retention for the one
-trusted main namespace. These limits charge regular-file logical sizes, including
+Private marked cache entries use fixed LRU retention limits. After the existing
+workflow and repository authority checks admit CI main, that namespace has a
+provisional 256 GiB aggregate byte ceiling and 16 entries. Release and local
+namespaces retain their existing 24 GiB and six-entry ceilings. Finalization
+revalidates CI authority before touching the persistent root. No environment
+variable configures either budget. This increases the former trusted-main
+64 GiB retention ceiling by 192 GiB within existing disk capacity; it provisions
+no storage. These limits charge regular-file logical sizes, including
 entry markers; symlink targets are never charged or followed.
 Setup and each job's always-finalizer enforce retention;
 compilation can temporarily exceed this retention ceiling. This is not a filesystem
@@ -110,10 +113,19 @@ A single generation larger than its lane ceiling is evicted by finalization,
 including the just-used generation: it cannot be warm on the next run. There is
 no overage exception. Setup still protects a current hit; if that prevents meeting
 the ceiling, setup fails closed to the existing fresh run-local target.
-The 64 GiB main ceiling is a bounded optimization, not evidence of adequacy: the
-largest real generation is currently unknown. Require the next actual main CI
-cold/unchanged-warm receipts and finalization totals before claiming cross-run
-reuse or speedup. OpenAPI/source/contract failures remain independent.
+The observed main BuildUnit footprint is 59,281,679,902 bytes; comprehensive Fast
+is 18,764,973,840 bytes and comprehensive Integration is 27,351,784,817 bytes.
+Their sum, 105,398,438,559 bytes, already exceeds the former main 64 GiB ceiling
+(68,719,476,736 bytes). Integration terminated on a required fixture flag; its
+forward source correction does not turn that run into a successful receipt.
+Eight genuine compiler profiles exist in source; coverage and slow profile
+sizes remain unknown. The provisional 256 GiB/16 policy provides bounded
+headroom, but configuration alone does not establish retention adequacy or
+performance. Require actual complete-cycle inventories and finalization totals
+across all compiler profiles, then unchanged-warm receipts with successful
+workload status and compiler freshness before claiming production main reuse
+or speedup. Local 24 GiB adequacy and full-suite performance remain unproven.
+OpenAPI/source/contract failures remain independent.
 Finalization is optional and warns on bookkeeping errors while preserving the Cargo/workload status (including
 failures). Local finalization has the same rule. There is no automatic purge or
 claim that an invalid retained entry has been repaired. An operator can inspect

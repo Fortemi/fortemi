@@ -141,6 +141,10 @@ class CacheTests(unittest.TestCase):
                         bad[field] = replacement
                     with self.subTest(field=field, value=replacement), patch.object(cache, 'private_dir', side_effect=AssertionError('persistent entry touched')), contextlib.redirect_stderr(io.StringIO()):
                         self.assertFalse(cache.setup(bad)['FORTEMI_CARGO_CACHE_ENTRY'])
+                        # A spoofed main finalizer must re-admit authority too.
+                        with patch.object(cache, 'prune') as prune:
+                            self.assertEqual(cache.finalize(dict(bad, FORTEMI_CARGO_CACHE_ENTRY=str(root / 'cache/main' / ('a' * 64)))), 0)
+                            prune.assert_not_called()
             tooling = Path(env['CI_SAFETY_TOOLS'])
             marker = tooling / '.owner.json'
             original = marker.read_text()
@@ -219,6 +223,56 @@ class CacheTests(unittest.TestCase):
             self.assertEqual(cache.setup(env), {})
             self.assertEqual(cache.setup(dict(env, FORTEMI_CACHE_DISABLE='1')), {})
             self.assertEqual(list(Path(tmp).iterdir()), [])
+
+    def test_disabled_setup_preserves_cold_target_before_authority_or_allocation(self):
+        # A trusted Docker-only job must not reserve a slot merely because the
+        # builder has Cargo installed. No real Git/compiler/subprocess here.
+        with tempfile.TemporaryDirectory() as tmp, contextlib.ExitStack() as stack:
+            root = Path(tmp)
+            cold = root / 'run' / 'target'
+            cold.mkdir(parents=True)
+            (cold / 'sentinel').write_text('keep')
+            persistent = root / 'persistent'
+            persistent.mkdir()
+            (persistent / 'sentinel').write_text('compiled target placeholder')
+            # Broken/foreign roots must also remain unexamined when disabled.
+            linked = root / 'linked'
+            linked.symlink_to(persistent, target_is_directory=True)
+            forbidden = [stack.enter_context(patch.object(cache, name,
+                         side_effect=AssertionError(name + ' reached while disabled')))
+                         for name in ['cache_repository_identity', 'private_dir',
+                                      'locked', 'entries', 'prune', 'fresh_target']]
+            forbidden.append(stack.enter_context(patch.object(cache.subprocess, 'check_output',
+                             side_effect=AssertionError('compiler probe while disabled'))))
+            forbidden.append(stack.enter_context(patch.object(cache.subprocess, 'run',
+                             side_effect=AssertionError('authority probe while disabled'))))
+            for event, ref in [('push', 'refs/heads/main'),
+                               ('workflow_dispatch', 'refs/tags/v2026.10.11'),
+                               ('pull_request', 'refs/heads/main')]:
+                for cache_root in [persistent, linked, root / 'missing']:
+                    with self.subTest(event=event, root=cache_root):
+                        env = {'GITHUB_WORKSPACE': tmp, 'FORTEMI_CACHE_CI': '1',
+                               'FORTEMI_CACHE_EVENT': event, 'FORTEMI_CACHE_REF': ref,
+                               'FORTEMI_CACHE_VARIANT': 'build-testdb',
+                               'FORTEMI_CACHE_DISABLE': '1',
+                               'FORTEMI_CARGO_CACHE_ROOT': str(cache_root),
+                               'CARGO_TARGET_DIR': str(cold)}
+                        original = dict(env)
+                        with contextlib.redirect_stderr(io.StringIO()):
+                            updates = cache.setup(env)
+                        self.assertEqual(updates, {})
+                        self.assertEqual(env, original)
+                        self.assertEqual(dict(env, **updates)['CARGO_TARGET_DIR'], str(cold))
+                        with contextlib.redirect_stdout(io.StringIO()):
+                            self.assertEqual(cache.proof(env), 0)
+                            self.assertEqual(cache.finalize(env), 0)
+            for probe in forbidden:
+                probe.assert_not_called()
+            self.assertEqual((cold / 'sentinel').read_text(), 'keep')
+            self.assertEqual((persistent / 'sentinel').read_text(), 'compiled target placeholder')
+            self.assertEqual(list(persistent.iterdir()), [persistent / 'sentinel'])
+            self.assertFalse((root / 'missing').exists())
+            self.assertTrue(linked.is_symlink())
 
     def test_bounded_retention_removes_only_marked_entries(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -512,6 +566,12 @@ class CacheTests(unittest.TestCase):
                     records = [json.loads(line) for line in output.getvalue().splitlines()]
                     final = [r for r in records if r.get('phase') == 'finalize' and r.get('cache_retention') == 'complete'][-1]
                     self.assertEqual(final['max_bytes'], expected_cap)
+                    expected_entries = 16 if lane == 'main' else 6
+                    self.assertEqual(final['max_entries'], expected_entries)
+                    for record in records:
+                        if 'max_entries' in record:
+                            self.assertEqual(record['max_entries'], expected_entries)
+                            self.assertEqual(record['max_bytes'], expected_cap)
                     self.assertEqual(final['reason'], 'none' if lane == 'main' else 'bytes')
                     self.assertEqual(final['selected_retained'], lane == 'main')
                     self.assertEqual(final['selected_oversized'], lane != 'main')
@@ -537,10 +597,89 @@ class CacheTests(unittest.TestCase):
                     self.assertLessEqual(sum(w for _, _, w in cache.entries(entry.parent)), expected_cap)
                 self.assertNotIn(tmp, output.getvalue())
         self.assertEqual(cache.MAX_BYTES, 24 * 1024**3)
-        self.assertEqual(cache.CI_MAIN_MAX_BYTES, 64 * 1024**3)
+        self.assertEqual(cache.CI_MAIN_MAX_BYTES, 256 * 1024**3)
         self.assertEqual(cache.MAX_ENTRIES, 6)
+        self.assertEqual(cache.CI_MAIN_MAX_ENTRIES, 16)
         self.assertEqual(cache.retention_bytes({'CI': 'true'}, 'main'), cache.MAX_BYTES)
         self.assertEqual(cache.retention_bytes({'FORTEMI_CACHE_CI': '1', 'FORTEMI_CACHE_EVENT': 'pull_request', 'FORTEMI_CACHE_REF': 'refs/heads/main'}, 'main'), cache.MAX_BYTES)
+        for env in [{}, {'CI': 'true'}, {'FORTEMI_CACHE_CI': '1', 'FORTEMI_CACHE_EVENT': 'pull_request', 'FORTEMI_CACHE_REF': 'refs/heads/main'}]:
+            self.assertEqual(cache.retention_entries(env, 'main'), 6)
+
+    def test_finalizer_authority_probe_failure_preserves_status_and_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            env = self.selection_env(workspace)
+            root = cache.private_dir(workspace / 'cache/main')
+            entry = self.owned_entry(root, size=1)
+            for failure in [subprocess.CalledProcessError(1, 'git'), subprocess.TimeoutExpired('git', 5)]:
+                with self.subTest(failure=type(failure).__name__), patch.object(cache.subprocess, 'run', side_effect=failure), patch.object(cache, 'private_dir') as private, patch.object(cache, 'prune') as prune, contextlib.redirect_stderr(io.StringIO()) as output:
+                    self.assertEqual(cache.finalize(dict(env, FORTEMI_CARGO_CACHE_ENTRY=str(entry))), 0)
+                    private.assert_not_called()
+                    prune.assert_not_called()
+                self.assertTrue(entry.is_dir())
+                final = json.loads(output.getvalue().splitlines()[-1])
+                self.assertEqual(final['cache_finalization'], 'unavailable')
+                self.assertTrue(final['workload_status_preserved'])
+
+    def test_explicit_entry_and_byte_boundaries_charge_small_real_fixtures(self):
+        for limit in (6, 16):
+            with self.subTest(limit=limit), tempfile.TemporaryDirectory() as tmp:
+                root = cache.private_dir(Path(tmp) / 'cache')
+                paths = [self.owned_entry(root, i, 1) for i in range(1, limit + 1)]
+                for i, path in enumerate(paths, 1):
+                    os.utime(path, (i, i))
+                total = sum(w for _, _, w in cache.entries(root))
+                with cache.locked(root) as guard, contextlib.redirect_stderr(io.StringIO()):
+                    exact = cache.prune(root, guard=guard, max_entries=limit, max_bytes=total)
+                    self.assertEqual(exact['reason'], 'none')
+                    self.assertEqual(exact['evicted_entries'], 0)
+                    count = cache.prune(root, guard=guard, reserve=1, max_entries=limit, max_bytes=total)
+                    self.assertEqual(count['reason'], 'count')
+                    self.assertEqual(count['evicted_entries'], 1)
+                    self.assertFalse(paths[0].exists())
+                    byte = cache.prune(root, guard=guard, max_entries=limit,
+                                       max_bytes=count['retained_bytes'] - 1)
+                self.assertEqual(byte['reason'], 'bytes')
+                self.assertEqual(byte['evicted_entries'], 1)
+                self.assertFalse(paths[1].exists())
+                self.assertEqual(byte['max_entries'], limit)
+                self.assertLessEqual(byte['retained_bytes'], byte['max_bytes'])
+
+    def test_lane_count_policy_setup_reservation_and_finalizer_evict_active_lru(self):
+        for lane, limit in [('main', 16), ('release', 6), ('local', 6)]:
+            with self.subTest(lane=lane), tempfile.TemporaryDirectory() as tmp:
+                workspace = Path(tmp)
+                env = self.selection_env(workspace) if lane != 'local' else {
+                    'GITHUB_WORKSPACE': tmp, 'FORTEMI_CARGO_CACHE_ROOT': str(workspace / 'cache'), 'TMPDIR': tmp}
+                if lane == 'release':
+                    env.update(FORTEMI_CACHE_REF='refs/tags/v1', GITHUB_REF='refs/tags/v1')
+                # Caller settings cannot enlarge either fixed count policy.
+                env['FORTEMI_CACHE_MAX_ENTRIES'] = '99999'
+                root = cache.private_dir(workspace / 'cache' / lane)
+                paths = [self.owned_entry(root, i, 1) for i in range(1, limit + 1)]
+                for i, path in enumerate(paths, 1):
+                    os.utime(path, (i, i))
+                output = io.StringIO()
+                with patch.object(cache.subprocess, 'check_output', return_value='fixture'), patch.object(cache.shutil, 'which', return_value=None), contextlib.redirect_stderr(output):
+                    selected = cache.setup(env)
+                    entry = Path(selected['FORTEMI_CARGO_CACHE_ENTRY'])
+                    self.assertTrue(entry.is_dir())
+                    self.assertFalse(paths[0].exists())
+                    self.assertEqual(len(cache.entries(root)), limit)
+                    os.utime(entry, (0, 0))
+                    self.owned_entry(root, limit + 1, 1)
+                    self.assertEqual(cache.finalize(dict(env, **selected)), 0)
+                self.assertFalse(entry.exists())
+                self.assertEqual(len(cache.entries(root)), limit)
+                records = [json.loads(line) for line in output.getvalue().splitlines()]
+                for record in records:
+                    if 'max_entries' in record:
+                        self.assertEqual(record['max_entries'], limit)
+                        self.assertEqual(record['max_bytes'], (256 if lane == 'main' else 24) * 1024**3)
+                final = [r for r in records if r.get('phase') == 'finalize' and r.get('cache_retention') == 'complete'][-1]
+                self.assertEqual(final['reason'], 'count')
+                self.assertEqual(final['evicted_entries'], 1)
+                self.assertFalse(final['selected_retained'])
 
     def test_sibling_lanes_do_not_borrow_budget_or_evict_each_other(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -628,7 +767,7 @@ class CacheTests(unittest.TestCase):
             workspace = Path(tmp)
             root = cache.private_dir(workspace / 'cache/main')
             entry = self.owned_entry(root)
-            with patch.object(cache, 'MAX_ENTRIES', 0), patch.object(cache, 'rename_noreplace', side_effect=OSError('unsupported')), patch.object(cache.subprocess, 'check_output', return_value='fixture'), patch.object(cache.shutil, 'which', return_value=None), contextlib.redirect_stderr(io.StringIO()) as output:
+            with patch.object(cache, 'MAX_ENTRIES', 0), patch.object(cache, 'CI_MAIN_MAX_ENTRIES', 0), patch.object(cache, 'rename_noreplace', side_effect=OSError('unsupported')), patch.object(cache.subprocess, 'check_output', return_value='fixture'), patch.object(cache.shutil, 'which', return_value=None), contextlib.redirect_stderr(io.StringIO()) as output:
                 selected = cache.setup(self.selection_env(workspace))
             self.assertFalse(selected['FORTEMI_CARGO_CACHE_ENTRY'])
             self.assertIn('::warning::', output.getvalue())
@@ -730,7 +869,7 @@ class CacheTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp)
             env = self.selection_env(workspace)
-            with patch.object(cache, 'MAX_ENTRIES', 2), patch.object(cache.subprocess, 'check_output', return_value='fixture'), patch.object(cache.shutil, 'which', return_value=None), contextlib.redirect_stderr(io.StringIO()):
+            with patch.object(cache, 'MAX_ENTRIES', 2), patch.object(cache, 'CI_MAIN_MAX_ENTRIES', 2), patch.object(cache.subprocess, 'check_output', return_value='fixture'), patch.object(cache.shutil, 'which', return_value=None), contextlib.redirect_stderr(io.StringIO()):
                 first = cache.setup(dict(env, FORTEMI_CACHE_VARIANT='first'))
                 second = cache.setup(dict(env, FORTEMI_CACHE_VARIANT='second'))
                 os.utime(first['FORTEMI_CARGO_CACHE_ENTRY'], (1, 1))
@@ -1052,6 +1191,118 @@ class CacheTests(unittest.TestCase):
                         self.assertEqual(step['env']['FORTEMI_CACHE_VARIANT'], '${{ github.job }}')
                         self.assertIn('cargo-cache.py" proof', steps[index + 1]['run'])
 
+    def test_coverage_instrumentation_is_job_local_and_collection_is_preserved(self):
+        import yaml
+        workflow = yaml.safe_load((HELPER.parents[2] / '.gitea/workflows/test.yml').read_text())
+        instrumentation = {
+            'RUSTFLAGS': '-Cinstrument-coverage',
+            'LLVM_PROFILE_FILE': '${{ github.workspace }}/target/.ci-runs/${{ gitea.run_id }}-${{ gitea.run_attempt }}/target/coverage/profile-%p-%m.profraw',
+        }
+        self.assertEqual(workflow['env']['CARGO_INCREMENTAL'], 0)
+        for name, value in instrumentation.items():
+            self.assertNotIn(name, workflow['env'])
+            self.assertEqual(workflow['jobs']['coverage']['env'][name], value)
+            for job_id, job in workflow['jobs'].items():
+                if job_id != 'coverage':
+                    self.assertNotIn(name, job.get('env', {}), job_id)
+                for step in job.get('steps', []):
+                    self.assertNotIn(name, step.get('env', {}), step.get('name'))
+        coverage = workflow['jobs']['coverage']
+        commands = [line.strip() for step in coverage['steps']
+                    for line in step.get('run', '').splitlines()
+                    if line.strip().startswith('cargo llvm-cov ')]
+        self.assertEqual(commands, [
+            'cargo llvm-cov --all-features --package matric-jobs --test worker_integration_test --test archive_input_isolation_test -- --test-threads=1',
+            'cargo llvm-cov --all-features --package matric-jobs --lib --no-clean',
+            'cargo llvm-cov --all-features --workspace --exclude matric-jobs --exclude matric-inference --no-clean -- --test-threads=1',
+            'cargo llvm-cov --package matric-inference --no-clean --lcov --output-path "${CARGO_TARGET_DIR}/coverage/lcov.info"',
+            'cargo llvm-cov report --summary-only > "${CARGO_TARGET_DIR}/coverage/summary.txt" || true',
+        ])
+        steps = {step['name']: step for step in coverage['steps']}
+        self.assertIn('mkdir -p "${CARGO_TARGET_DIR}/coverage"', steps['Generate coverage (worker tests serial)']['run'])
+        self.assertIn('cat "${CARGO_TARGET_DIR}/coverage/summary.txt" || echo "Coverage summary not available"', steps['Generate coverage report']['run'])
+        self.assertIn('export FORTEMI_REQUIRE_LIVE_POSTGRES_TESTS=1', steps['Generate coverage (other tests)']['run'])
+        self.assertEqual([steps[name]['timeout-minutes'] for name in [
+            'Generate coverage (worker tests serial)', 'Generate coverage (matric-jobs lib tests)',
+            'Generate coverage (other tests)']], [15, 5, 45])
+        ordinary = {
+            'fast-tests': 'cargo test --lib --workspace -- --test-threads=1',
+            'integration-tests': 'cargo test --workspace --tests --exclude matric-jobs -- --test-threads=1',
+            'slow-tests': 'cargo test --workspace --tests -- --ignored --test-threads=1',
+        }
+        for job_id, command in ordinary.items():
+            self.assertIn(command, '\n'.join(step.get('run', '') for step in workflow['jobs'][job_id]['steps']))
+
+    def test_only_verified_docker_jobs_disable_host_cargo_cache(self):
+        import yaml
+        expected = {
+            'ci-builder.yaml': {
+                'docker': {'build-testdb', 'build-image', 'hosted-image-smoke',
+                           'pod-security-restricted', 'test-container'},
+                'cargo': {'lint', 'audit', 'deny', 'auth-consumer', 'build', 'integration-test'}},
+            'test.yml': {
+                'docker': {'build-testdb', 'validate-intel-overlay'},
+                'cargo': {'fast-tests', 'integration-tests', 'coverage', 'slow-tests'}},
+        }
+        for name, groups in expected.items():
+            workflow = yaml.safe_load((HELPER.parents[2] / '.gitea/workflows' / name).read_text())
+            self.assertNotIn('FORTEMI_CACHE_DISABLE', workflow['env'])
+            setup_jobs = set()
+            opted_out = set()
+            for job_id, job in workflow['jobs'].items():
+                with self.subTest(workflow=name, job=job_id):
+                    env = job.get('env', {})
+                    if 'FORTEMI_CACHE_DISABLE' in env:
+                        self.assertEqual(env['FORTEMI_CACHE_DISABLE'], '1')
+                        opted_out.add(job_id)
+                    steps = job.get('steps', [])
+                    for step in steps:
+                        self.assertNotIn('FORTEMI_CACHE_DISABLE', step.get('env', {}))
+                    setup = [i for i, step in enumerate(steps)
+                             if 'setup-run-resources.sh' in step.get('run', '')]
+                    if not setup:
+                        continue
+                    setup_jobs.add(job_id)
+                    self.assertEqual(len(setup), 1)
+                    index = setup[0]
+                    self.assertIn('reconcile-run-resources.py', steps[index]['run'])
+                    self.assertEqual(steps[index]['env']['FORTEMI_CACHE_VARIANT'], '${{ github.job }}')
+                    self.assertIn('cargo-cache.py" proof', steps[index + 1]['run'])
+                    self.assertTrue(any('cargo-cache.py" finalize' in step.get('run', '')
+                                        and step.get('if') == 'always()' for step in steps))
+                    if job_id in groups['cargo']:
+                        self.assertNotIn('FORTEMI_CACHE_DISABLE', env)
+                    else:
+                        self.assertIn(job_id, groups['docker'])
+                        for step in steps:
+                            command = step.get('run', '')
+                            self.assertNotRegex(command, r'\b(?:cargo|rustc)\s')
+                            self.assertNotIn('--build-arg FORTEMI_CACHE_DISABLE', command)
+            self.assertEqual(opted_out, groups['docker'])
+            self.assertEqual(setup_jobs, groups['docker'] | groups['cargo'])
+
+    def test_docker_only_indirect_scripts_keep_host_compilation_out(self):
+        root = HELPER.parents[2]
+        # Audit the actual shell entry points, including their teardown/network
+        # callees. Contract exporters are handled separately by selected mode.
+        for name in ['ci/smoke-hosted-image.sh', 'ci/test-pod-security-restricted.sh',
+                     'ci/test-bundle-runtime-role.sh', 'ci/ensure-run-api-image.sh',
+                     'ci/create-explicit-docker-network.sh', 'ci/remove-run-docker.sh',
+                     'ci/cleanup-local-temp.sh', 'container-api-tests.sh',
+                     'validate-intel-overlay.sh']:
+            with self.subTest(script=name):
+                self.assertNotRegex((root / 'scripts' / name).read_text(), r'\b(?:cargo|rustc)\s')
+        import yaml
+        job = yaml.safe_load((root / '.gitea/workflows/ci-builder.yaml').read_text())['jobs']['test-container']
+        commands = '\n'.join(step.get('run', '') for step in job['steps'])
+        for contract in ['openapi', 'asyncapi']:
+            script = (root / 'scripts/ci' / f'{contract}-contract.sh').read_text()
+            common, modes = script.split('case "${1:-}" in', 1)
+            receipt = modes.split('  receipt)', 1)[1].split(';;', 1)[0]
+            self.assertNotRegex(common + receipt, r'\b(?:cargo|rustc)\s')
+            self.assertIn(f'scripts/ci/{contract}-contract.sh receipt', commands)
+            self.assertNotRegex(commands, rf'{contract}-contract\.sh\s+(?:generate|check)\b')
+
     def test_docker_generation_reuses_stamps_and_requires_successful_output(self):
         # Execute the real shell flow with tool stubs and all mount/image paths
         # redirected into this disposable fixture. This does not prove rustc
@@ -1149,6 +1400,24 @@ if os.environ.get('FIXTURE_MODE') != 'missing':
             self.assertNotIn('${FORTEMI_API_FEATURES}', mount)
         workflow = (root / '.gitea/workflows/ci-builder.yaml').read_text()
         self.assertIn('--build-arg FORTEMI_CACHE_FAMILY="${label}"', workflow)
+        # Inspect the actual main build steps: a release-only family argument
+        # cannot protect main's API and hosted mounts from mutual eviction.
+        def build_step(name):
+            return workflow.split(f'      - name: {name}\n', 1)[1].split('      - name:', 1)[0]
+
+        hosted = build_step('Build hosted image variant')
+        invocation = hosted.split('docker build', 1)[1].split('\n\n', 1)[0]
+        self.assertIn('--build-arg FORTEMI_CACHE_FAMILY=hosted', invocation)
+        self.assertIn('--build-arg FORTEMI_API_FEATURES=hosted-auth,otel,kms-aws,kms-vault', invocation)
+        self.assertIn('-t "${HOSTED_TEST_IMAGE}" .', invocation)
+        api = build_step('Build Docker image')
+        self.assertIn('-t "${TEST_API_IMAGE}" .', api)
+        self.assertNotIn('FORTEMI_CACHE_FAMILY=', api)
+        self.assertNotIn('FORTEMI_API_FEATURES=', api)
+        self.assertIn('ARG FORTEMI_CACHE_FAMILY=api', (root / 'Dockerfile').read_text())
+        self.assertIn('ARG FORTEMI_CACHE_FAMILY=bundle', (root / 'Dockerfile.bundle').read_text())
+        for family in ['api', 'hosted', 'bundle']:
+            self.assertIn(f'build_and_push {family} --no-cache', workflow)
         helper = (root / 'docker/rust-cache-build.sh').read_text()
         self.assertIn('for inputs in .sqlx migrations', helper)
         self.assertNotIn('${MATRIC_VERSION', helper)

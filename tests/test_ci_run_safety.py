@@ -1415,6 +1415,53 @@ class CIWorkflowToolingTests(unittest.TestCase):
         self.assertFalse((self.path / 'io').exists())
 
 
+class ComprehensiveLivePostgresAdmissionTests(unittest.TestCase):
+    def test_workspace_integration_admission_is_local_after_owned_migrations(self):
+        import copy
+        import yaml
+        workflow = yaml.safe_load((ROOT / '.gitea/workflows/test.yml').read_text())
+        job = workflow['jobs']['integration-tests']
+        steps = job['steps']
+        by_name = {step['name']: step for step in steps}
+        target = by_name['Run other integration tests']
+        flag = 'FORTEMI_REQUIRE_LIVE_POSTGRES_TESTS'
+        self.assertNotIn(flag, workflow['env'])
+        for job_id, other in workflow['jobs'].items():
+            self.assertNotIn(flag, other.get('env', {}), job_id)
+        self.assertEqual(target['env'], {flag: '1'})
+        self.assertNotIn('continue-on-error', target)
+        self.assertNotIn('if', target)
+        self.assertEqual(target['timeout-minutes'], 30)
+        setup = by_name['Setup PostgreSQL']['run']
+        migrations = by_name['Run migrations']['run']
+        for text in ['matric-test-db-${CI_RESOURCE_SCOPE}-${CI_RESOURCE_ATTEMPT}',
+                     '--label "fortemi.ci.scope=${CI_RESOURCE_SCOPE}"',
+                     '-p 127.0.0.1::5432', 'pg_isready', 'docker port']:
+            self.assertIn(text, setup)
+        self.assertTrue(migrations.startswith('set -euo pipefail\n'))
+        self.assertIn('FORTEMI_CI_DISPOSABLE_DATABASE=1 cargo run --locked -p matric-db', migrations)
+        self.assertIn('--features migrations --example ci_database_bootstrap', migrations)
+        self.assertNotIn('continue-on-error', by_name['Run migrations'])
+        self.assertLess(steps.index(by_name['Setup PostgreSQL']), steps.index(by_name['Run migrations']))
+        self.assertLess(steps.index(by_name['Run migrations']), steps.index(target))
+        database_export = next(line for line in migrations.splitlines() if line.startswith('export DATABASE_URL='))
+        self.assertIn(database_export, target['run'])
+        self.assertIn('export INTEGRATION_TEST_DB=1', target['run'])
+        self.assertEqual([line.strip() for line in target['run'].splitlines()
+                          if line.strip().startswith('cargo ')], [
+            'cargo test --workspace --tests --exclude matric-jobs -- --test-threads=1'])
+        # Exact prior-step fixture: without the local env, neither enclosing
+        # scope admits the strict entity_profile_vectors integration case.
+        old = copy.deepcopy(workflow)
+        old_target = next(step for step in old['jobs']['integration-tests']['steps']
+                          if step['name'] == target['name'])
+        old_target.pop('env')
+        inherited = dict(old['env'], **old['jobs']['integration-tests'].get('env', {}))
+        inherited.update(old_target.get('env', {}))
+        with self.assertRaises(AssertionError):
+            self.assertEqual(inherited.get(flag), '1')
+
+
 class CleanupStaticTests(unittest.TestCase):
     def assert_cache_quarantine_policy(self, code):
         """Recognize one audited FD-recursive primitive, never whitelist a file.
@@ -1430,17 +1477,19 @@ class CleanupStaticTests(unittest.TestCase):
                    'cache_marker', 'quarantine_directory', 'no_pending_quarantine',
                    'rename_noreplace', 'quarantine_evict', 'entries', 'prune',
                    'retention_bytes', 'trust', 'private_dir', 'repository_identity',
-                   'ci_repository_authority', 'cache_repository_identity', 'identity', 'select_cache'}
-        constants = {'SCHEMA', 'MAX_BYTES', 'CI_MAIN_MAX_BYTES', 'MAX_ENTRIES', 'QUARANTINE', 'DIRECTORY'}
+                   'ci_repository_authority', 'cache_repository_identity', 'identity', 'select_cache',
+                   'retention_entries', 'finalize'}
+        constants = {'SCHEMA', 'MAX_BYTES', 'CI_MAIN_MAX_BYTES', 'MAX_ENTRIES',
+                     'CI_MAIN_MAX_ENTRIES', 'QUARANTINE', 'DIRECTORY'}
         tree = ast.parse(code)
         selected = [node for node in tree.body if
                     isinstance(node, ast.FunctionDef) and node.name in audited or
                     isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id in constants for t in node.targets)]
         self.assertEqual({n.name for n in selected if isinstance(n, ast.FunctionDef)}, audited)
         payload = ast.dump(ast.Module(body=selected, type_ignores=[]), include_attributes=False)
-        # Expanded CI authority boundary independently reviewed by Muse;
-        # Root verified unchanged prior primitives before accepting this pin.
-        self.assertEqual(hashlib.sha256(payload.encode()).hexdigest(), 'f6cc207d0e4513caaee773d9180df2c08d5267c7b5a4c359b1c09a87e0208318')
+        # Proposed retention-policy pin: Root independent acceptance is pending
+        # before execution; exact old/new inventories are in the lane REPORT.md.
+        self.assertEqual(hashlib.sha256(payload.encode()).hexdigest(), '823c2c356598c8594c2b91828f46abbb06dd40d3429775c5d5ef2f9e8a1a8e0e')
         primitive = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'quarantine_evict')
         approved = {id(n) for n in ast.walk(primitive)}
         deletes = []
@@ -1481,7 +1530,11 @@ class CleanupStaticTests(unittest.TestCase):
             code.replace("record.get('identity') != list(node_identity(info))", 'False'),
             code.replace("origin.stdout.strip().lower() != 'https://git.integrolabs.net/fortemi/fortemi.git'", 'False'),
             code.replace("return ci_repository_authority(root, env)", 'return repository_identity(root)'),
-            code.replace('CI_MAIN_MAX_BYTES = 64 * 1024**3', 'CI_MAIN_MAX_BYTES = 65 * 1024**3'),
+            code.replace('CI_MAIN_MAX_BYTES = 256 * 1024**3', 'CI_MAIN_MAX_BYTES = 257 * 1024**3'),
+            code.replace('CI_MAIN_MAX_ENTRIES = 16', 'CI_MAIN_MAX_ENTRIES = 17'),
+            code.replace('max_entries=retention_entries(env, lane)', 'max_entries=999'),
+            code.replace('max_entries=retention_entries(env, root.name)', 'max_entries=999'),
+            code.replace("cache_repository_identity(Path(env.get('GITHUB_WORKSPACE', os.getcwd())).resolve(), env)", 'pass'),
             code.replace("lane == 'main' and trust(env) == 'main'", "lane == 'main'"),
         ]
         for number, mutation in enumerate(mutations):

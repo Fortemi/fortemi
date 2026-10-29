@@ -7,6 +7,33 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.10.11] - 2026-10-28
+
+### Fixed
+
+- Keep note profile-similarity roots and candidates within the selected tenant
+  archive, excluding hidden/deleted notes and ineligible embedding sets. Preserve
+  imported profile vectors without requiring auxiliary set memberships (#1280,
+  #1292); existing graph and external-entity route admission stays unchanged.
+- Scope fortemi-login sessions by complete issuer URL and client ID, refuse
+  mismatched legacy sessions, and preserve explicit opt-in for plaintext fallback
+  storage (#1303, #1304, #1305).
+
+### Build
+
+- Reuse compatible trusted Cargo targets with source admission, fresh-output
+  checks, ownership-safe cleanup and bounded retention. Stabilize CI cache
+  identity and admit only owned disposable PostgreSQL fixtures.
+- Keep Docker-only jobs out of host Cargo target retention and scope coverage
+  instrumentation to the coverage job. Admit strict live PostgreSQL tests in
+  both main and comprehensive validation after owned fixture setup.
+- Separate Docker compiler mounts by image family and architecture, including
+  the main hosted build. Compatible state can be reused while builder storage
+  survives; removing an ephemeral builder leaves subsequent compilation cold.
+  Release builds retain their existing no-cache and publication checks.
+- Refresh retained container-input review receipts and OpenAPI documentation for
+  the merged note-similarity behavior; no dependency upgrade is included.
+
 ## [2026.10.10] - 2026-10-23
 
 ### Fixed
@@ -3390,7 +3417,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.10.10...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.10.11...HEAD
+[2026.10.11]: https://github.com/fortemi/fortemi/compare/v2026.10.10...v2026.10.11
 [2026.10.10]: https://github.com/fortemi/fortemi/compare/v2026.10.9...v2026.10.10
 [2026.10.8]: https://github.com/fortemi/fortemi/compare/v2026.10.7...v2026.10.8
 [2026.10.7]: https://github.com/fortemi/fortemi/compare/v2026.10.6...v2026.10.7
