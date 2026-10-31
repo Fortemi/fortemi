@@ -10,6 +10,7 @@ mod attachments_switch;
 mod audit_policy;
 mod event_scope;
 mod evidence_resolution;
+mod global_rate_quota;
 mod handlers;
 use event_scope::{event_context_for, RequestEvents};
 mod archive_access;
@@ -74,8 +75,11 @@ use axum::{
 };
 use base64::Engine;
 use bigdecimal::BigDecimal;
-use governor::{clock::Clock, Quota, RateLimiter};
+#[cfg(test)]
+use governor::Quota;
+use governor::{clock::Clock, RateLimiter};
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use std::num::NonZeroU32;
 use system_compatibility::{build_compatibility_response, CompatibilityResponse};
 #[cfg(test)]
@@ -5072,14 +5076,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Create rate limiter if enabled
     let rate_limiter = if rate_limit_config.enabled {
-        let quota = Quota::with_period(std::time::Duration::from_secs(
+        let quota = global_rate_quota::quota_for_requests(
+            rate_limit_config.requests,
             rate_limit_config.period_secs,
-        ))
-        .ok_or_else(|| anyhow::anyhow!("RATE_LIMIT_PERIOD_SECS must be greater than zero"))?
-        .allow_burst(
-            NonZeroU32::new(rate_limit_config.requests)
-                .ok_or_else(|| anyhow::anyhow!("RATE_LIMIT_REQUESTS must be greater than zero"))?,
-        );
+        )?;
         Some(Arc::new(RateLimiter::direct(quota)))
     } else {
         None

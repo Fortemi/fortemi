@@ -11,6 +11,11 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Fixed
 
+- Refill the global rate limiter at the configured requests per period while
+  preserving burst capacity (600/60 now refills one request every 100ms). Round
+  fractional nanoseconds up and reject unrepresentable quotas. If the old-binary
+  workaround sets `RATE_LIMIT_PERIOD_SECS=1`, restore `60` atomically with rollout
+  of the corrected binary; leaving `1` would allow 600 requests/second.
 - Keep note profile-similarity roots and candidates within the selected tenant
   archive, excluding hidden/deleted notes and ineligible embedding sets. Preserve
   imported profile vectors without requiring auxiliary set memberships (#1280,
