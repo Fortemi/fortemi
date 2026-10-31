@@ -107,7 +107,7 @@ is historical tenant qualification and does not assert the archive class is
 |---|---|---|---:|---:|---:|---:|
 | `search` | yes | partial | 4 | 6 | 0 | 0 |
 | `notes` | yes | partial | 13 | 23 | 0 | 0 |
-| `links_graph` | yes | partial | 1 | 23 | 0 | 0 |
+| `links_graph` | yes | partial | 2 | 22 | 0 | 0 |
 | `archives_memories` | yes | partial | 2 | 28 | 0 | 0 |
 | `export` | yes | partial | 2 | 15 | 0 | 0 |
 | `jobs_embeddings` | yes | gap | 0 | 46 | 0 | 0 |
@@ -123,7 +123,7 @@ is historical tenant qualification and does not assert the archive class is
 | `knowledge_health` | no | excluded | 0 | 0 | 12 | 0 |
 | `operator` | no | excluded | 0 | 0 | 94 | 2 |
 | `public_protocol` | no | public | 0 | 0 | 0 | 32 |
-| **total** | | | 39 | 149 | 229 | 36 |
+| **total** | | | 40 | 148 | 229 | 36 |
 
 ```json
 {
@@ -190,7 +190,7 @@ is historical tenant qualification and does not assert the archive class is
     {"method":"POST","path":"/api/v1/graph/snn/recompute","class":"links_graph","status":"gap","enforcement":"hosted_503"},
     {"method":"GET","path":"/api/v1/graph/topology/stats","class":"links_graph","status":"gap","enforcement":"hosted_503"},
     {"method":"HEAD","path":"/api/v1/graph/topology/stats","class":"links_graph","status":"gap","enforcement":"hosted_503"},
-    {"method":"GET","path":"/api/v1/graph/{id}","class":"links_graph","status":"gap","enforcement":"hosted_503"},
+    {"method":"GET","path":"/api/v1/graph/{id}","class":"links_graph","status":"qualified","enforcement":"tenant_transaction"},
     {"method":"HEAD","path":"/api/v1/graph/{id}","class":"links_graph","status":"gap","enforcement":"hosted_503"},
     {"method":"GET","path":"/api/v1/notes/{id}/backlinks","class":"links_graph","status":"gap","enforcement":"hosted_503"},
     {"method":"HEAD","path":"/api/v1/notes/{id}/backlinks","class":"links_graph","status":"gap","enforcement":"hosted_503"},

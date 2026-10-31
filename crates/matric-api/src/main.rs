@@ -11810,8 +11810,8 @@ async fn normalize_route_policy_input_for_authorization(
     // test fails, rather than merely changing a helper-level test.
     let selected_normalizer = route_policy::backing_resource_normalizer(&input);
     let active_similarity_root = input.policy.path == "/api/v1/notes/{id}/similar";
-    let active_graph_root = input.policy.path == "/api/v1/graph/{id}"
-        && input.action.name == "graph_control:get";
+    let active_graph_root =
+        input.policy.path == "/api/v1/graph/{id}" && input.action.name == "graph_control:get";
     let note_lookup = |note_id| async move {
         let schema = archive_ctx
             .map(|context| context.schema.clone())
