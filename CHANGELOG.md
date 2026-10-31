@@ -7,14 +7,22 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
-## [2026.10.11] - 2026-10-28
+## [2026.10.11] - 2026-10-31
 
 ### Fixed
 
 - Keep note profile-similarity roots and candidates within the selected tenant
   archive, excluding hidden/deleted notes and ineligible embedding sets. Preserve
   imported profile vectors without requiring auxiliary set memberships (#1280,
-  #1292); existing graph and external-entity route admission stays unchanged.
+  #1292).
+- Qualify `GET /api/v1/graph/{id}` with verified tenant/archive lookups and
+  traversal, excluding hidden and deleted roots and nodes. Missing or foreign
+  roots return 404 after authorization; denied roles retain 403 (#1280, graph GET
+  only). Other closed routes retain their existing admission rules.
+- Keep active embedding-import status readable with complete typed reports and
+  a narrow fallback for legacy unfinished rows. Refuse duplicate active run IDs
+  with 409 and preserve applied replay (#1313). Durable interruption recovery
+  remains tracked separately in #1314.
 - Scope fortemi-login sessions by complete issuer URL and client ID, refuse
   mismatched legacy sessions, and preserve explicit opt-in for plaintext fallback
   storage (#1303, #1304, #1305).
