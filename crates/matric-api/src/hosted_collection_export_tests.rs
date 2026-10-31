@@ -29,7 +29,7 @@ fn collection_router(state: AppState, pool: sqlx::PgPool, tenant: Uuid) -> Route
         )
         .route("/api/v1/collections/{id}/notes", get(get_collection_notes))
         .route("/api/v1/collections/{id}/export", get(export_collection))
-        .route("/api/v1/graph/{id}", get(|| async { StatusCode::OK }))
+        .route("/api/v1/graph/{id}", get(explore_graph))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             authorize_middleware,
@@ -271,15 +271,52 @@ async fn hosted_collections_and_export_are_tenant_bound_for_bootstrapped_tenant(
         assert!(!text_body(denied).await.contains("Tenant A export marker"));
     }
 
-    // Unqualified hosted routes stay closed on this profile.
-    let graph = send(
-        &app_a,
+    // Qualified graph GET uses the real handler on the same tenant-bound
+    // default archive as note creation and collection export.
+    let graph_path = format!("/api/v1/graph/{note_id}");
+    let graph = send(&app_a, Method::GET, &graph_path, serde_json::Value::Null).await;
+    let status = graph.status();
+    let body = json_body(graph).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let graph: matric_db::GraphResult = serde_json::from_value(body).unwrap();
+    assert_eq!(graph.nodes.len(), 1, "only the created root is reachable");
+    let root = &graph.nodes[0];
+    assert_eq!(root.id, Uuid::parse_str(&note_id).unwrap());
+    assert_eq!(root.title.as_deref(), Some("Export"));
+    assert_eq!(
+        root.collection_id,
+        Some(Uuid::parse_str(&collection).unwrap())
+    );
+    assert_eq!(root.depth, 0);
+    assert!(!root.archived);
+    assert!(graph.edges.is_empty());
+
+    // A foreign root is indistinguishable from a missing root, including its
+    // response body; neither may disclose tenant A's note or collection.
+    let foreign_graph = send(&app_b, Method::GET, &graph_path, serde_json::Value::Null).await;
+    assert_eq!(foreign_graph.status(), StatusCode::NOT_FOUND);
+    let foreign_body = text_body(foreign_graph).await;
+    let missing_graph = send(
+        &app_b,
         Method::GET,
-        &format!("/api/v1/graph/{note_id}"),
+        &format!("/api/v1/graph/{}", Uuid::new_v4()),
         serde_json::Value::Null,
     )
     .await;
-    assert_eq!(graph.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(missing_graph.status(), StatusCode::NOT_FOUND);
+    assert_eq!(foreign_body, text_body(missing_graph).await);
+    for secret in [
+        "Tenant A export marker",
+        &note_id,
+        &collection,
+        &a.to_string(),
+    ] {
+        assert!(!foreign_body.contains(secret), "{foreign_body}");
+    }
+
+    // Axum registers HEAD alongside GET, but hosted qualification is GET-only.
+    let graph_head = send(&app_a, Method::HEAD, &graph_path, serde_json::Value::Null).await;
+    assert_eq!(graph_head.status(), StatusCode::SERVICE_UNAVAILABLE);
 
     let non_empty = send(
         &app_a,
