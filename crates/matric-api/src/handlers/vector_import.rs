@@ -74,7 +74,8 @@ pub async fn import_embedding_run(
                 initiated_by_user_id,
                 initiated_by_kind.as_deref(),
             )
-            .await?
+            .await
+            .map_err(import_run_api_error)?
     } else if is_json_request(&headers) {
         require_admin_scope(&auth.principal)?;
         let body = axum::body::to_bytes(body, state.max_upload_size)
@@ -95,7 +96,8 @@ pub async fn import_embedding_run(
                 initiated_by_user_id,
                 initiated_by_kind.as_deref(),
             )
-            .await?
+            .await
+            .map_err(import_run_api_error)?
     } else {
         return Err(ApiError::BadRequest(
             "embedding import requires Content-Type application/x-ndjson or application/json"
@@ -195,6 +197,18 @@ pub async fn get_embedding_run(
     Ok(Json(run))
 }
 
+fn import_run_api_error(error: matric_core::Error) -> ApiError {
+    match &error {
+        matric_core::Error::InvalidInput(message)
+            if message == matric_db::vector_import::IMPORT_RUN_IN_PROGRESS
+                || message == matric_db::vector_import::IMPORT_RUN_RETRY_UNSUPPORTED =>
+        {
+            ApiError::Conflict(message.clone())
+        }
+        _ => ApiError::from(error),
+    }
+}
+
 async fn resolve_embedding_set(
     state: &AppState,
     scope: Option<Extension<TenantRequestScope>>,
@@ -223,36 +237,42 @@ async fn resolve_embedding_set(
 fn embedding_import_run_record(
     row: sqlx::postgres::PgRow,
 ) -> matric_core::Result<matric_db::EmbeddingImportRunRecord> {
-    let report = row
-        .try_get("report")
+    let run_id: String = row
+        .try_get("run_id")
         .map_err(matric_core::Error::Database)?;
-    Ok(matric_db::EmbeddingImportRunRecord {
-        run_id: row
-            .try_get("run_id")
+    let status: String = row
+        .try_get("status")
+        .map_err(matric_core::Error::Database)?;
+    let finished_at: Option<chrono::DateTime<chrono::Utc>> = row
+        .try_get("finished_at")
+        .map_err(matric_core::Error::Database)?;
+    let report = matric_db::EmbeddingImportRunReport::decode_stored(
+        row.try_get("report")
             .map_err(matric_core::Error::Database)?,
+        &run_id,
+        &status,
+        finished_at.as_ref(),
+    )?;
+    Ok(matric_db::EmbeddingImportRunRecord {
+        run_id,
         set_id: row
             .try_get("set_id")
             .map_err(matric_core::Error::Database)?,
         previous_run_id: row
             .try_get("previous_run_id")
             .map_err(matric_core::Error::Database)?,
-        status: row
-            .try_get("status")
-            .map_err(matric_core::Error::Database)?,
+        status,
         started_at: row
             .try_get("started_at")
             .map_err(matric_core::Error::Database)?,
-        finished_at: row
-            .try_get("finished_at")
-            .map_err(matric_core::Error::Database)?,
+        finished_at,
         initiated_by_user_id: row
             .try_get("initiated_by_user_id")
             .map_err(matric_core::Error::Database)?,
         initiated_by_kind: row
             .try_get("initiated_by_kind")
             .map_err(matric_core::Error::Database)?,
-        report: serde_json::from_value(report)
-            .map_err(|error| matric_core::Error::Internal(error.to_string()))?,
+        report,
     })
 }
 
@@ -327,4 +347,28 @@ pub(crate) async fn confined_import_path(path: &str) -> Result<PathBuf, ApiError
         ));
     }
     Ok(canonical)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn import_run_in_progress_and_failed_retry_are_conflicts() {
+        for message in [
+            matric_db::vector_import::IMPORT_RUN_IN_PROGRESS,
+            matric_db::vector_import::IMPORT_RUN_RETRY_UNSUPPORTED,
+        ] {
+            assert!(matches!(
+                import_run_api_error(matric_core::Error::InvalidInput(message.to_string())),
+                ApiError::Conflict(detail) if detail == message
+            ));
+        }
+        assert!(matches!(
+            import_run_api_error(matric_core::Error::InvalidInput(
+                "invalid manifest".to_string()
+            )),
+            ApiError::BadRequest(_)
+        ));
+    }
 }

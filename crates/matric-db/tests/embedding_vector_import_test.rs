@@ -1,5 +1,8 @@
 #![cfg(feature = "migrations")]
 
+#[path = "embedding_vector_import_test/report_lifecycle.rs"]
+mod report_lifecycle;
+
 use std::{fs, path::Path};
 
 use matric_core::embedding_space_id;

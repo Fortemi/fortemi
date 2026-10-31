@@ -791,10 +791,7 @@ impl PgLinkRepository {
     ///
     /// For each community, finds the most frequent preferred SKOS concept label
     /// among its member notes. Requires a transaction for DB access.
-    async fn label_communities_skos(
-        tx: &mut Transaction<'_, Postgres>,
-        nodes: &mut [GraphNode],
-    ) -> Result<()> {
+    async fn label_communities_skos(tx: &mut PgConnection, nodes: &mut [GraphNode]) -> Result<()> {
         use std::collections::HashMap;
 
         // Collect note_ids grouped by community.
@@ -821,10 +818,12 @@ impl PgLinkRepository {
              FROM note_skos_concept nc \
              JOIN skos_concept_label l ON nc.concept_id = l.concept_id \
              WHERE nc.note_id = ANY($1) AND l.label_type = 'pref_label' \
+             AND nc.tenant_id = current_setting('app.current_tenant')::uuid \
+             AND l.tenant_id = nc.tenant_id \
              ORDER BY nc.is_primary DESC, nc.relevance_score DESC",
         )
         .bind(&all_note_ids)
-        .fetch_all(&mut **tx)
+        .fetch_all(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -991,13 +990,49 @@ impl PgLinkRepository {
         Ok(())
     }
 
+    /// Reject search-path fallback when any graph relation is absent from the
+    /// selected archive. The public schema must never stand in for that archive.
+    pub async fn require_graph_archive_tx(
+        connection: &mut PgConnection,
+        schema: &str,
+    ) -> Result<()> {
+        crate::validate_schema_name(schema)?;
+        let bound: bool = sqlx::query_scalar(
+            "SELECT bool_and(to_regclass(format('%I.%I', $1, relation)) IS NOT NULL \
+             AND to_regclass(format('%I.%I', $1, relation)) = to_regclass(format('%I', relation))) \
+             FROM unnest(ARRAY['note','link','note_skos_concept','skos_concept_label']) relation",
+        )
+        .bind(schema)
+        .fetch_one(connection)
+        .await
+        .map_err(Error::Database)?;
+        if !bound {
+            return Err(Error::Config(
+                "graph archive relations are unavailable".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Prove a live graph root on the caller's tenant/archive connection (#1280).
+    pub async fn graph_root_exists_tx(connection: &mut PgConnection, id: Uuid) -> Result<bool> {
+        sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM note WHERE id=$1 AND deleted_at IS NULL \
+             AND tenant_id=current_setting('app.current_tenant')::uuid)",
+        )
+        .bind(id)
+        .fetch_one(connection)
+        .await
+        .map_err(Error::Database)
+    }
+
     /// Traverse the knowledge graph starting from a note within an existing transaction.
     ///
     /// Returns versioned v1 payload with truncation metadata and guardrails (#467, #468, #469).
     #[allow(clippy::too_many_arguments)]
     pub async fn traverse_graph_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         start_id: Uuid,
         max_depth: i32,
         max_nodes: i64,
@@ -1009,14 +1044,21 @@ impl PgLinkRepository {
         let rows = sqlx::query(
             r#"
             WITH RECURSIVE graph AS (
-                SELECT $1::uuid as note_id, 0 as depth
+                SELECT id as note_id, 0 as depth FROM note
+                WHERE id = $1 AND deleted_at IS NULL
+                  AND tenant_id = current_setting('app.current_tenant')::uuid
                 UNION
                 SELECT
                     CASE WHEN l.from_note_id = g.note_id THEN l.to_note_id ELSE l.from_note_id END as note_id,
                     g.depth + 1 as depth
                 FROM graph g
                 JOIN link l ON (l.from_note_id = g.note_id OR l.to_note_id = g.note_id)
+                JOIN note next_note ON next_note.id =
+                    CASE WHEN l.from_note_id = g.note_id THEN l.to_note_id ELSE l.from_note_id END
                 WHERE g.depth < $2
+                  AND l.tenant_id = current_setting('app.current_tenant')::uuid
+                  AND next_note.tenant_id = l.tenant_id
+                  AND next_note.deleted_at IS NULL
             ),
             deduped AS (
                 SELECT DISTINCT ON (g.note_id)
@@ -1026,17 +1068,19 @@ impl PgLinkRepository {
                 FROM graph g
                 JOIN note n ON n.id = g.note_id
                 WHERE n.deleted_at IS NULL
+                  AND n.tenant_id = current_setting('app.current_tenant')::uuid
                 ORDER BY g.note_id, g.depth
             )
             SELECT *, COUNT(*) OVER() as total_reachable
             FROM deduped
+            ORDER BY depth, note_id
             LIMIT $3
             "#,
         )
         .bind(start_id)
         .bind(max_depth)
         .bind(max_nodes)
-        .fetch_all(&mut **tx)
+        .fetch_all(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -1069,6 +1113,7 @@ impl PgLinkRepository {
                 FROM link
                 WHERE from_note_id = ANY($1) AND to_note_id = ANY($1)
                   AND score >= $2
+                  AND tenant_id = current_setting('app.current_tenant')::uuid
             )
             SELECT * FROM ranked
             WHERE ($3::bigint IS NULL OR rn <= $3)
@@ -1077,7 +1122,7 @@ impl PgLinkRepository {
         .bind(&node_ids)
         .bind(min_score)
         .bind(max_edges_per_node)
-        .fetch_all(&mut **tx)
+        .fetch_all(&mut *tx)
         .await
         .map_err(Error::Database)?;
 

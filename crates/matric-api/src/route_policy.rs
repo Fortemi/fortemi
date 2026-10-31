@@ -143,8 +143,8 @@ pub(crate) const CLOSED_ROUTE_NORMALIZATION_EXCEPTIONS: &[ClosedRouteNormalizati
     },
     ClosedRouteNormalizationException {
         path: "/api/v1/graph/{id}",
-        methods: &["GET", "HEAD"],
-        reason: "Graph traversal needs its own tenant-scoped dispatch qualification, so role-based admission remains closed.",
+        methods: &["HEAD"],
+        reason: "Graph HEAD has not completed dispatch qualification and remains closed (#1280).",
         follow_up: "https://git.integrolabs.net/Fortemi/fortemi/issues/1280",
     },
     ClosedRouteNormalizationException {
@@ -2450,6 +2450,7 @@ pub fn hosted_tenant_transaction_ready(method: &Method, path: &str) -> bool {
             )
             | (&Method::GET, "/api/v1/notes/{id}")
             | (&Method::GET, "/api/v1/notes/{id}/similar")
+            | (&Method::GET, "/api/v1/graph/{id}")
             | (&Method::DELETE, "/api/v1/notes/{id}")
             | (&Method::PATCH, "/api/v1/notes/{id}/status")
             | (&Method::GET, "/api/v1/notes/{id}/tags")
@@ -2512,7 +2513,14 @@ pub fn authorization_input_for_request(
         required_scopes: required_scopes_for_policy_class(policy_class, method),
     };
 
-    let mut resource = Resource::new(resource_kind_for_action_family(action_family));
+    // Only the qualified GET graph route binds to its backing note. Other
+    // graph controls keep their existing resource kind and catalog gates (#1280).
+    let kind = if policy.path == "/api/v1/graph/{id}" && method == Method::GET {
+        ResourceKind::Note
+    } else {
+        resource_kind_for_action_family(action_family)
+    };
+    let mut resource = Resource::new(kind);
     if let Some(candidate) = resource_id_for_policy(policy, &params) {
         let requires_backing_normalization =
             requires_backing_resource_normalization(policy, method, candidate.param_name);
@@ -4055,7 +4063,7 @@ pub(crate) mod tests {
                 .iter()
                 .map(|exception| exception.methods.len())
                 .sum::<usize>(),
-            13
+            12
         );
 
         let mut exception_operations = BTreeSet::new();
@@ -4075,8 +4083,11 @@ pub(crate) mod tests {
                 .find(|policy| policy.path == exception.path)
                 .unwrap_or_else(|| panic!("stale closed-route exception: {}", exception.path));
             assert_eq!(policy.class, TenantObject, "{}", exception.path);
-            assert_eq!(
-                policy.methods, exception.methods,
+            assert!(
+                exception
+                    .methods
+                    .iter()
+                    .all(|method| policy.methods.contains(method)),
                 "stale closed-route exception method set: {}",
                 exception.path
             );

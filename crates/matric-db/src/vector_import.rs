@@ -33,6 +33,9 @@ const IMPORT_BATCH_ROWS: usize = 1_000;
 const SOURCE_UPSERT_BATCH_ROWS: usize = matric_core::SOURCE_UPSERT_MAX_ITEMS;
 const REJECTION_SAMPLE_LIMIT: usize = 100;
 pub const DEFAULT_VECTOR_IMPORT_MAX_LINE_BYTES: usize = 1024 * 1024;
+pub const IMPORT_RUN_IN_PROGRESS: &str = "embedding import run is already in progress";
+pub const IMPORT_RUN_RETRY_UNSUPPORTED: &str =
+    "embedding import run already exists and cannot be retried";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct EmbeddingImportManifest {
@@ -82,6 +85,48 @@ pub struct EmbeddingImportRunReport {
     pub unchanged: usize,
     pub deleted: usize,
     pub rejected: EmbeddingImportRejected,
+}
+
+impl EmbeddingImportRunReport {
+    fn applying(run_id: &str) -> Self {
+        Self {
+            run_id: run_id.to_string(),
+            status: "applying".to_string(),
+            ..Self::default()
+        }
+    }
+
+    /// Decode a stored report using its journal row identity and lifecycle state.
+    ///
+    /// Only the legacy unfinished applying `{}` sentinel is synthesized. Its zero
+    /// counts mean unknown progress, not proof that no effects were committed.
+    /// This compatibility read neither updates nor settles the journal row.
+    pub fn decode_stored(
+        report: Value,
+        run_id: &str,
+        status: &str,
+        finished_at: Option<&DateTime<Utc>>,
+    ) -> Result<Self> {
+        if report.as_object().is_some_and(|object| object.is_empty())
+            && status == "applying"
+            && finished_at.is_none()
+        {
+            return Ok(Self::applying(run_id));
+        }
+        let report: Self = serde_json::from_value(report).map_err(|_| {
+            Error::Config("embedding import run report could not be decoded".to_string())
+        })?;
+        // already_applied is the existing successful replay display status.
+        if report.run_id != run_id
+            || (report.status != status
+                && !(status == "applied" && report.status == "already_applied"))
+        {
+            return Err(Error::Config(
+                "embedding import run report does not match journal identity/status".to_string(),
+            ));
+        }
+        Ok(report)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
@@ -273,6 +318,12 @@ impl PgEmbeddingImportRepository {
                 record.report.status = "already_applied".to_string();
                 return Ok(record.report);
             }
+            if record.status == "applying" {
+                return Err(Error::InvalidInput(IMPORT_RUN_IN_PROGRESS.to_string()));
+            }
+            return Err(Error::InvalidInput(
+                IMPORT_RUN_RETRY_UNSUPPORTED.to_string(),
+            ));
         }
         self.ensure_run_order(schema, set.id, manifest.previous_run_id.as_deref())
             .await?;
@@ -354,6 +405,12 @@ impl PgEmbeddingImportRepository {
                 record.report.status = "already_applied".to_string();
                 return Ok(record.report);
             }
+            if record.status == "applying" {
+                return Err(Error::InvalidInput(IMPORT_RUN_IN_PROGRESS.to_string()));
+            }
+            return Err(Error::InvalidInput(
+                IMPORT_RUN_RETRY_UNSUPPORTED.to_string(),
+            ));
         }
         self.ensure_run_order(schema, set.id, manifest.previous_run_id.as_deref())
             .await?;
@@ -890,19 +947,32 @@ impl PgEmbeddingImportRepository {
             INSERT INTO embedding_import_run (
                 set_id, run_id, previous_run_id, status, manifest,
                 profiles_count, deletions_count, initiated_by_user_id,
-                initiated_by_kind
+                initiated_by_kind, report
             )
-            VALUES ($1, $2, $3, 'applying', $4, $5, $6, $7, $8)
+            VALUES ($1, $2, $3, 'applying', $4, $5, $6, $7, $8, $9)
             "#,
         )
         .bind(set_id)
         .bind(&manifest.run_id)
         .bind(&manifest.previous_run_id)
-        .bind(serde_json::to_value(manifest).unwrap_or(Value::Null))
+        .bind(serde_json::to_value(manifest).map_err(|error| {
+            Error::Config(format!(
+                "embedding import manifest could not be serialized: {error}"
+            ))
+        })?)
         .bind(i32::try_from(manifest.counts.profiles).unwrap_or(i32::MAX))
         .bind(i32::try_from(manifest.counts.deletions).unwrap_or(i32::MAX))
         .bind(initiated_by_user_id)
         .bind(initiated_by_kind)
+        .bind(
+            serde_json::to_value(EmbeddingImportRunReport::applying(&manifest.run_id)).map_err(
+                |error| {
+                    Error::Config(format!(
+                        "embedding import run report could not be serialized: {error}"
+                    ))
+                },
+            )?,
+        )
         .execute(&mut *tx)
         .await
         .map_err(Error::Database)?;
@@ -934,7 +1004,11 @@ impl PgEmbeddingImportRepository {
             "#,
         )
         .bind(status)
-        .bind(serde_json::to_value(report).unwrap_or(Value::Null))
+        .bind(serde_json::to_value(report).map_err(|error| {
+            Error::Config(format!(
+                "embedding import run report could not be serialized: {error}"
+            ))
+        })?)
         .bind(i32::try_from(report.inserted).unwrap_or(i32::MAX))
         .bind(i32::try_from(report.updated).unwrap_or(i32::MAX))
         .bind(i32::try_from(report.unchanged).unwrap_or(i32::MAX))
@@ -1260,20 +1334,186 @@ fn normalize_body_sha256(value: &str) -> Result<String> {
 }
 
 fn run_record_from_row(row: sqlx::postgres::PgRow) -> Result<EmbeddingImportRunRecord> {
-    let report: Value = row.try_get("report").map_err(Error::Database)?;
+    let run_id: String = row.try_get("run_id").map_err(Error::Database)?;
+    let status: String = row.try_get("status").map_err(Error::Database)?;
+    let finished_at: Option<DateTime<Utc>> = row.try_get("finished_at").map_err(Error::Database)?;
+    let report = EmbeddingImportRunReport::decode_stored(
+        row.try_get("report").map_err(Error::Database)?,
+        &run_id,
+        &status,
+        finished_at.as_ref(),
+    )?;
     Ok(EmbeddingImportRunRecord {
-        run_id: row.try_get("run_id").map_err(Error::Database)?,
+        run_id,
         set_id: row.try_get("set_id").map_err(Error::Database)?,
         previous_run_id: row.try_get("previous_run_id").map_err(Error::Database)?,
-        status: row.try_get("status").map_err(Error::Database)?,
+        status,
         started_at: row.try_get("started_at").map_err(Error::Database)?,
-        finished_at: row.try_get("finished_at").map_err(Error::Database)?,
+        finished_at,
         initiated_by_user_id: row
             .try_get("initiated_by_user_id")
             .map_err(Error::Database)?,
         initiated_by_kind: row.try_get("initiated_by_kind").map_err(Error::Database)?,
-        report: serde_json::from_value(report).map_err(|_| {
-            Error::Config("embedding import run report could not be decoded".to_string())
-        })?,
+        report,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn stored_report(status: &str) -> Value {
+        json!({
+            "run_id": "run-42",
+            "status": status,
+            "inserted": 12,
+            "updated": 3,
+            "unchanged": 4,
+            "deleted": 2,
+            "rejected": {"total": 1, "rows": [{"entity_id": "bad", "reason": "invalid"}]}
+        })
+    }
+
+    #[test]
+    fn legacy_unfinished_applying_report_uses_actual_row_identity() {
+        for run_id in ["run-42", "other-run"] {
+            let decoded =
+                EmbeddingImportRunReport::decode_stored(json!({}), run_id, "applying", None)
+                    .unwrap();
+            assert_eq!(
+                serde_json::to_value(decoded).unwrap(),
+                json!({
+                    "run_id": run_id, "status": "applying",
+                    "inserted": 0, "updated": 0, "unchanged": 0, "deleted": 0,
+                    "rejected": {"total": 0, "rows": []}
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn complete_reports_preserve_counts_and_rejections() {
+        let finished = Utc::now();
+        for (status, finished_at) in [
+            ("applying", None),
+            ("applied", Some(&finished)),
+            ("failed", Some(&finished)),
+        ] {
+            let original = stored_report(status);
+            let decoded = EmbeddingImportRunReport::decode_stored(
+                original.clone(),
+                "run-42",
+                status,
+                finished_at,
+            )
+            .unwrap();
+            assert_eq!(serde_json::to_value(decoded).unwrap(), original);
+        }
+    }
+
+    #[test]
+    fn legacy_sentinel_requires_unfinished_applying_row() {
+        let finished = Utc::now();
+        for (status, finished_at) in [
+            ("applied", None),
+            ("failed", None),
+            ("applied", Some(&finished)),
+            ("failed", Some(&finished)),
+            ("applying", Some(&finished)),
+        ] {
+            assert!(
+                matches!(
+                    EmbeddingImportRunReport::decode_stored(
+                        json!({}),
+                        "run-42",
+                        status,
+                        finished_at,
+                    ),
+                    Err(Error::Config(_))
+                ),
+                "accepted empty {status} report"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_reports_are_never_replaced_with_zero_counts() {
+        let mut missing_nested = stored_report("applying");
+        missing_nested["rejected"]
+            .as_object_mut()
+            .unwrap()
+            .remove("rows");
+        let mut wrong_count = stored_report("applying");
+        wrong_count["inserted"] = json!("12");
+        let mut negative_count = stored_report("applying");
+        negative_count["updated"] = json!(-1);
+        let mut wrong_nested = stored_report("applying");
+        wrong_nested["rejected"]["rows"] = json!({});
+        let mut null_nested = stored_report("applying");
+        null_nested["rejected"] = Value::Null;
+        let mut missing_reason = stored_report("applying");
+        missing_reason["rejected"]["rows"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("reason");
+        let mut missing_count = stored_report("applying");
+        missing_count.as_object_mut().unwrap().remove("deleted");
+        for value in [
+            Value::Null,
+            json!([]),
+            json!("{}"),
+            json!(0),
+            json!({"run_id": "run-42"}),
+            missing_nested,
+            wrong_count,
+            negative_count,
+            wrong_nested,
+            null_nested,
+            missing_reason,
+            missing_count,
+        ] {
+            for status in ["applying", "applied", "failed"] {
+                assert!(
+                    matches!(
+                        EmbeddingImportRunReport::decode_stored(
+                            value.clone(),
+                            "run-42",
+                            status,
+                            None,
+                        ),
+                        Err(Error::Config(_))
+                    ),
+                    "accepted malformed report: {value}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn report_identity_and_status_must_match_row_except_applied_replay_display() {
+        let mut wrong_id = stored_report("applying");
+        wrong_id["run_id"] = json!("another-run");
+        for (value, status) in [
+            (wrong_id, "applying"),
+            (stored_report("applied"), "applying"),
+            (stored_report("applying"), "failed"),
+            (stored_report("already_applied"), "failed"),
+            (stored_report("already_applied"), "applying"),
+        ] {
+            assert!(matches!(
+                EmbeddingImportRunReport::decode_stored(value, "run-42", status, None,),
+                Err(Error::Config(_))
+            ));
+        }
+        let replay = stored_report("already_applied");
+        let decoded = EmbeddingImportRunReport::decode_stored(
+            replay.clone(),
+            "run-42",
+            "applied",
+            Some(&Utc::now()),
+        )
+        .unwrap();
+        assert_eq!(serde_json::to_value(decoded).unwrap(), replay);
+    }
 }

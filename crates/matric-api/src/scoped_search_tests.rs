@@ -7,6 +7,7 @@ use sqlx::PgPool;
 use tower::ServiceExt;
 
 mod binary_http;
+mod graph_dispatch;
 mod installed_http;
 mod memory_context;
 mod memory_export;

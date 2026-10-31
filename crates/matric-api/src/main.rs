@@ -11483,6 +11483,10 @@ async fn authorize_middleware(
         return embedding_set_not_found().into_response();
     }
 
+    if graph_root_missing_after_scoped_lookup(&input) {
+        return graph_root_not_found().into_response();
+    }
+
     if let Some((admin, tenant, name)) = synchronization {
         if let Err(error) = admin.sync_archive(tenant.tenant_id(), name).await {
             return ApiError::from(error).into_response();
@@ -11547,6 +11551,9 @@ async fn authorize_middleware(
         }
         if embedding_set_missing_after_scoped_lookup(&input) {
             return embedding_set_not_found().into_response();
+        }
+        if graph_root_missing_after_scoped_lookup(&input) {
+            return graph_root_not_found().into_response();
         }
         request.extensions_mut().insert(archive);
     }
@@ -11803,7 +11810,9 @@ async fn normalize_route_policy_input_for_authorization(
     // test fails, rather than merely changing a helper-level test.
     let selected_normalizer = route_policy::backing_resource_normalizer(&input);
     let active_similarity_root = input.policy.path == "/api/v1/notes/{id}/similar";
-    let input = normalize_note_route_policy_input(input, |note_id| async move {
+    let active_graph_root = input.policy.path == "/api/v1/graph/{id}"
+        && input.action.name == "graph_control:get";
+    let note_lookup = |note_id| async move {
         let schema = archive_ctx
             .map(|context| context.schema.clone())
             .unwrap_or_else(|| "public".to_string());
@@ -11823,13 +11832,21 @@ async fn normalize_route_policy_input_for_authorization(
                     )
                     .await;
                 }
+                if active_graph_root {
+                    matric_db::PgLinkRepository::require_graph_archive_tx(connection, &lookup_schema).await?;
+                    return matric_db::PgLinkRepository::graph_root_exists_tx(connection, note_id).await;
+                }
                 sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM note WHERE id=$1 AND tenant_id=current_setting('app.current_tenant')::uuid)")
                     .bind(note_id).fetch_one(connection).await.map_err(matric_core::Error::Database)
             })
         })
         .await
-    })
-    .await;
+    };
+    let input = if active_graph_root {
+        normalize_graph_route_policy_input(input, note_lookup).await
+    } else {
+        normalize_note_route_policy_input(input, note_lookup).await
+    };
     let input = normalize_credential_route_policy_input(input, |api_key_id| {
         state.db.oauth.get_api_key(api_key_id)
     })
@@ -12247,6 +12264,71 @@ where
     }
 
     input
+}
+
+/// Only an actual successful lookup on the selected tenant/archive can admit
+/// the missing-root path. Keep the candidate unnormalized: it proves no row.
+async fn normalize_graph_route_policy_input<F, Fut>(
+    mut input: route_policy::RoutePolicyInput,
+    note_exists: F,
+) -> route_policy::RoutePolicyInput
+where
+    F: FnOnce(Uuid) -> Fut,
+    Fut: std::future::Future<Output = matric_core::Result<bool>>,
+{
+    if !graph_get_normalizer_applies(&input) {
+        return input;
+    }
+    // Never let a prior outcome survive a new lookup (including its failure).
+    input.resource.attrs.remove("graph_root_missing");
+    let Some(note_id) = input
+        .resource
+        .id
+        .as_deref()
+        .and_then(|id| Uuid::parse_str(id).ok())
+    else {
+        return input;
+    };
+    match note_exists(note_id).await {
+        Ok(true) => route_policy::mark_resource_id_normalized(&mut input),
+        Ok(false) => {
+            input
+                .resource
+                .attrs
+                .insert("graph_root_missing".into(), serde_json::json!(true));
+        }
+        Err(err) => {
+            tracing::warn!(
+                error_len = telemetry_text_len(&err.to_string()),
+                detail = API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "normalize_graph_route_policy_input",
+                "authorization graph root normalization lookup failed"
+            );
+        }
+    }
+    input
+}
+
+fn graph_get_normalizer_applies(input: &route_policy::RoutePolicyInput) -> bool {
+    input.policy.path == "/api/v1/graph/{id}"
+        && input.action.name == "graph_control:get"
+        && input.resource.kind == ResourceKind::Note
+        && route_policy::backing_resource_normalizer(input)
+            == Some(route_policy::BackingResourceNormalizer::Note)
+}
+
+fn graph_root_missing_after_scoped_lookup(input: &route_policy::RoutePolicyInput) -> bool {
+    graph_get_normalizer_applies(input)
+        && input
+            .resource
+            .attrs
+            .get("graph_root_missing")
+            .and_then(|value| value.as_bool())
+            == Some(true)
+}
+
+fn graph_root_not_found() -> ApiError {
+    ApiError::from(matric_core::Error::NotFound("Note not found".into()))
 }
 
 async fn normalize_note_route_policy_input<F, Fut>(
@@ -13729,7 +13811,8 @@ async fn authorize_policy_input_with_challenge(
     resource: Option<&str>,
 ) -> Result<(), axum::response::Response> {
     tracing::debug!(stage = "policy_entered", "Request admission stage");
-    if (hosted_policy_requires_normalized_resource(policy, input)
+    if ((hosted_policy_requires_normalized_resource(policy, input)
+        && !graph_root_missing_after_scoped_lookup(input))
         || (policy.policy_id() == "role_based"
             && route_policy::role_based_route_is_intentionally_closed(input)))
         && !embedding_set_missing_after_scoped_lookup(input)
@@ -20420,47 +20503,46 @@ fn default_max_nodes() -> i64 {
     responses((status = 200, description = "Success")))]
 async fn explore_graph(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
     Query(query): Query<GraphQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
-
-    // Verify starting note exists (fixes #388)
-    let notes = matric_db::PgNoteRepository::new(state.db.pool.clone());
-    let exists = ctx
-        .query(move |tx| Box::pin(async move { notes.exists_tx(tx, id).await }))
-        .await?;
-    if !exists {
-        return Err(note_not_found());
-    }
-
     let links = matric_db::PgLinkRepository::new(state.db.pool.clone());
-    // Clamp resource limits to prevent DoS (fixes #218, #469)
     let depth = query.depth.clamp(0, 10);
     let max_nodes = query.max_nodes.clamp(1, 1000);
     let min_score = query.min_score.clamp(0.0, 1.0);
     let max_edges_per_node = query.max_edges_per_node.map(|v| v.clamp(1, 1000));
-    let edge_filter = query.edge_filter.clone();
-    let include_structural = query.include_structural;
-    let result = ctx
-        .query(move |tx| {
+    let graph_schema = archive_ctx.schema.clone();
+    let result = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema,
+        move |connection| {
             Box::pin(async move {
+                matric_db::PgLinkRepository::require_graph_archive_tx(connection, &graph_schema)
+                    .await?;
+                // Admission can release its preliminary transaction. Revalidate on
+                // the handler's verified tenant/archive connection before traversal.
+                if !matric_db::PgLinkRepository::graph_root_exists_tx(connection, id).await? {
+                    return Err(matric_core::Error::NotFound("Note not found".into()));
+                }
                 links
                     .traverse_graph_tx(
-                        tx,
+                        connection,
                         id,
                         depth,
                         max_nodes,
                         min_score,
                         max_edges_per_node,
-                        edge_filter.as_deref(),
-                        include_structural,
+                        query.edge_filter.as_deref(),
+                        query.include_structural,
                     )
                     .await
             })
-        })
-        .await?;
+        },
+    )
+    .await?;
     Ok(Json(result))
 }
 
