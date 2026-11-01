@@ -7,6 +7,19 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.10.12] - 2026-10-31
+
+### Fixed
+
+- Regenerate the AsyncAPI event fixture manifest and producer receipt after
+  release version changes, preserving all 48 event payload fixtures (#1317).
+- Require committed corpus freshness in core tests and cover metadata-only
+  version changes, stale-corpus rejection and native regeneration.
+- Stage the complete generated event corpus during release preparation.
+
+This patch retains the graph-read, import-report and quota corrections from
+2026.10.11. Durable interrupted-import recovery remains open in #1314.
+
 ## [2026.10.11] - 2026-10-31
 
 ### Fixed
@@ -3430,7 +3443,7 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.10.11...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.10.12...HEAD
 [2026.10.11]: https://github.com/fortemi/fortemi/compare/v2026.10.10...v2026.10.11
 [2026.10.10]: https://github.com/fortemi/fortemi/compare/v2026.10.9...v2026.10.10
 [2026.10.8]: https://github.com/fortemi/fortemi/compare/v2026.10.7...v2026.10.8
@@ -3495,3 +3508,5 @@ Tags use `v` prefix: `v2026.1.0`
 [2026.2.0]: https://github.com/fortemi/fortemi/compare/v2026.1.12...v2026.2.0
 [2026.1.12]: https://github.com/fortemi/fortemi/compare/v2026.1.11...v2026.1.12
 [2026.1.0]: https://github.com/fortemi/fortemi/releases/tag/v2026.1.0
+
+[2026.10.12]: https://github.com/Fortemi/fortemi/compare/v2026.10.11...v2026.10.12

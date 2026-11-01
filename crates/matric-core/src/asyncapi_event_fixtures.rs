@@ -627,6 +627,129 @@ fn case(event: ServerEvent) -> FixtureCase {
 mod tests {
     use super::*;
 
+    fn repository_root() -> &'static Path {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+    }
+
+    struct TemporaryCorpus(std::path::PathBuf);
+
+    impl TemporaryCorpus {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "fortemi-event-corpus-{}-{}",
+                std::process::id(),
+                Uuid::new_v4()
+            ));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TemporaryCorpus {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn read_json(root: &Path, relative: &str) -> Value {
+        serde_json::from_slice(&fs::read(root.join(relative)).unwrap()).unwrap()
+    }
+
+    fn event_bytes(root: &Path) -> BTreeMap<String, Vec<u8>> {
+        fixture_cases()
+            .iter()
+            .map(|case| {
+                let relative = case.relative_path();
+                let bytes = fs::read(root.join(&relative)).unwrap();
+                (relative, bytes)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn committed_fixture_corpus_is_fresh() {
+        let summary = check_fixture_corpus(repository_root()).expect(
+            "committed event corpus must match raw AsyncAPI bytes and runtime event schemas",
+        );
+        assert_eq!(summary.event_count, 48);
+    }
+
+    #[test]
+    fn metadata_only_version_change_requires_corpus_regeneration() {
+        // Only the native YAML and corpus outputs are written, all under an owned temp root.
+        let temporary = TemporaryCorpus::new();
+        let root = &temporary.0;
+        let yaml_path = root.join(ASYNCAPI_PATH);
+        fs::create_dir_all(yaml_path.parent().unwrap()).unwrap();
+        let version = env!("CARGO_PKG_VERSION");
+        let spec = crate::asyncapi::build_asyncapi_spec(version, "https://example.com");
+        let yaml_before = serde_yaml::to_string(&spec).unwrap();
+        fs::write(&yaml_path, &yaml_before).unwrap();
+        let before = generate_fixture_corpus(root).unwrap();
+        check_fixture_corpus(root).unwrap();
+        let events_before = event_bytes(root);
+        assert_eq!(before.event_count, 48);
+        assert_eq!(events_before.len(), 48);
+        let manifest_before = read_json(root, MANIFEST_PATH);
+        let receipt_before = read_json(root, RECEIPT_PATH);
+
+        let next_version = format!("{version}-metadata-regression");
+        let next_spec = crate::asyncapi::build_asyncapi_spec(&next_version, "https://example.com");
+        let mut expected_spec = spec.clone();
+        expected_spec["info"]["version"] = json!(next_version);
+        assert_eq!(next_spec, expected_spec, "only release metadata may change");
+        let yaml_after = serde_yaml::to_string(&next_spec).unwrap();
+        assert_ne!(yaml_before, yaml_after);
+        fs::write(&yaml_path, &yaml_after).unwrap();
+
+        let error = check_fixture_corpus(root).unwrap_err();
+        assert!(error.contains(MANIFEST_PATH), "{error}");
+        assert!(error.contains("drifted"), "{error}");
+        assert_eq!(read_json(root, MANIFEST_PATH), manifest_before);
+        assert_eq!(read_json(root, RECEIPT_PATH), receipt_before);
+        assert_eq!(event_bytes(root), events_before);
+
+        let after = generate_fixture_corpus(root).unwrap();
+        let checked = check_fixture_corpus(root).unwrap();
+        assert_eq!(after.event_count, 48);
+        assert_eq!(checked.event_count, 48);
+        assert_eq!(after.corpus_sha256, before.corpus_sha256);
+        assert_eq!(checked.corpus_sha256, before.corpus_sha256);
+        assert_eq!(
+            event_bytes(root),
+            events_before,
+            "all payload bytes must survive"
+        );
+        let manifest_after = read_json(root, MANIFEST_PATH);
+        let receipt_after = read_json(root, RECEIPT_PATH);
+        assert_eq!(manifest_after["fixtures"], manifest_before["fixtures"]);
+        assert_eq!(
+            manifest_after["schema_count"],
+            manifest_before["schema_count"]
+        );
+        assert_eq!(manifest_after["corpus"], manifest_before["corpus"]);
+        assert_eq!(
+            manifest_before["asyncapi_sha256"],
+            json!(sha256_hex(yaml_before.as_bytes()))
+        );
+        let raw_hash = json!(sha256_hex(yaml_after.as_bytes()));
+        assert_ne!(manifest_before["asyncapi_sha256"], raw_hash);
+        assert_eq!(manifest_after["asyncapi_sha256"], raw_hash);
+        assert_eq!(receipt_after["asyncapi_sha256"], raw_hash);
+        assert_ne!(
+            receipt_after["manifest_sha256"],
+            receipt_before["manifest_sha256"]
+        );
+        assert_eq!(
+            receipt_after["manifest_sha256"],
+            json!(sha256_hex(&fs::read(root.join(MANIFEST_PATH)).unwrap()))
+        );
+    }
+
     #[test]
     fn fixture_cases_cover_current_server_event_metadata() {
         let fixture_types: BTreeSet<_> = fixture_cases()

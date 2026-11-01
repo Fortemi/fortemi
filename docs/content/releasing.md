@@ -104,7 +104,21 @@ exercised by the tag run; a failure there requires a new patch version.
    server release. Set `version` and `appVersion` in
    `deploy/helm/fortemi/Chart.yaml` to the same version; the Helm chart lint
    job fails when they differ.
-3. Move the selected `CHANGELOG.md` entries into the dated release section and
+3. Regenerate and check the AsyncAPI YAML/checksum, then immediately regenerate
+   and check the event corpus, including metadata-only version bumps:
+
+   ```bash
+   scripts/ci/asyncapi-contract.sh generate
+   scripts/ci/asyncapi-contract.sh check
+   scripts/ci/asyncapi-event-fixtures.sh generate
+   scripts/ci/asyncapi-event-fixtures.sh check
+   ```
+
+   Commit the YAML, checksum, fixture manifest, producer receipt and all generated
+   event fixtures together. The required core tests check the committed corpus's
+   exact bytes and inventory against the raw YAML, runtime schemas and typed
+   events. A stale corpus fails even when all 48 payload files are unchanged.
+4. Move the selected `CHANGELOG.md` entries into the dated release section and
    update comparison links. Add `docs/releases/vYYYY.M.PATCH-announcement.md`.
 
 ### Create Release
@@ -115,6 +129,9 @@ signing authority. Ordinary commits and release tags use distinct keys:
 ```bash
 git add Cargo.toml Cargo.lock mcp-server/package.json mcp-server/package-lock.json \
   deploy/helm/fortemi/Chart.yaml \
+  contracts/asyncapi/asyncapi.yaml contracts/asyncapi/asyncapi.sha256 \
+  contracts/asyncapi/fixtures/manifest.json contracts/asyncapi/fixtures/events/ \
+  contracts/asyncapi/producer-event-fixture-receipt.json \
   CHANGELOG.md docs/releases/vYYYY.M.PATCH-announcement.md
 git -c user.signingkey=62297562B1C7053088F405DB0117DAAA677A5BF2 \
   -c gpg.program=tools/git/gpg-from-openbao.sh commit -S \
