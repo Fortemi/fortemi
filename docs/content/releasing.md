@@ -41,9 +41,67 @@ Fortémi uses **CalVer** (Calendar Versioning):
       `./scripts/smoke-intel-vllm.sh` passes (see
       [Intel Arc / vLLM Deployment](#/operations-intel-arc-vllm))
 
+### Prepare the native documentation shard
+
+Finish the version bump, AsyncAPI corpus, changelog, announcement and documentation
+sync first. Commit those reviewed source inputs as a source baseline before native
+generation. The `docs-shard-preparation` hard-stop gate in `.aiwg/release.config`
+then generates, verifies and stages both documentation artifacts before local
+validation or delivery. Release validation must target the subsequent commit that
+includes the genuine shard and receipt; tag-time regeneration cannot repair stale
+artifacts already rejected by main lint.
+
+Use the suite's detached bounded native runner with the existing target cache
+explicitly bound by `--cache-dir /var/tmp/fortemi-release-target-2026.9.1`.
+Keep two CPU, at most two Cargo jobs (one is recommended for the API), 8 GiB maximum,
+private network/tmp/devices and no GPU or Docker socket. Build offline with locked
+dependencies: `cargo build --locked --offline -j1 -p matric-api --bin matric-api
+--message-format=json`. An AsyncAPI exporter build does not build this server.
+Retain the successful Cargo compiler-artifact record, clean source commit/tree
+and input inventory, executable length and SHA-256. Preserve the cache; do not
+clean it or enable network to resolve a missing dependency.
+
+Run the source-bound private `matric-api` copy and a disposable PostgreSQL fixture
+in the same bounded unit. The suite's existing `with-ephemeral-postgres.mjs
+--profile hosted-http` provides PostgreSQL 18, PostGIS, a private Unix socket and
+20 connections. Native migrations also require the installed vector/trigram/UUID
+extensions. Use the helper's database URL, private storage and loopback API port;
+never use shared PostgreSQL, Redis or an operational API. The importer deletes
+and recreates the `fortemi-docs` archive. Use the reviewed Community fixture's
+explicit no-auth acknowledgement, disabled workers/scanner/rate limit and
+unreachable inference endpoints. These fixture settings do not qualify hosted
+authentication or broaden any ADR-102 profile claim.
+
+Inside that fixture, provide `DOCS_SHARD_API_URL`, `DOCS_SHARD_SERVER_BINARY`
+(the digest-verified private copy named `matric-api`),
+`DOCS_SHARD_BINARY_SHA256` (from the completed build), and
+`DOCS_SHARD_RUNTIME_HEALTH` (a new owned evidence path). Execute the preparation
+steps in order. The gate observes `/health`, runs the canonical importer (which
+checks tracked-source coverage), invokes the receipt writer with
+`--server-binary`, `--runtime-health`, `--expected-binary-sha256` and
+`--source-commit`, runs freshness verification, then stages exactly:
+
+```bash
+git add -- docker/seed-data/fortemi-docs.shard \
+  docker/seed-data/fortemi-docs.shard.receipt.json
+```
+
+Health version, manifest producer version and workspace version must agree;
+health `git_sha`, producer revision and receipt source must name the source
+baseline. `MATRIC_GIT_SHA` is supplied at launch, so health alone does not prove
+build provenance. Keep the completed build evidence separately. Commit the two
+derived artifacts after acceptance, retaining their actual source baseline in the
+receipt; do not replace it with the later artifact commit. If source inputs change,
+regenerate from the new baseline. Never edit receipt identities or bypass freshness.
+
+Require graceful owned API/PostgreSQL shutdown, stopped-fixture verification,
+private-directory cleanup and terminal runner evidence before acceptance. Preserve
+failure evidence and stop only owned units; never kill a discovered shared service.
+
 ### Dispatch release validation
 
-After the version bump is merged, fetch main and dispatch the exact candidate.
+After the source baseline and generated shard/receipt are merged, fetch main and
+dispatch the exact candidate.
 Use a Gitea token with workflow-dispatch permission (do not record the token):
 
 ```bash
@@ -132,6 +190,7 @@ git add Cargo.toml Cargo.lock mcp-server/package.json mcp-server/package-lock.js
   contracts/asyncapi/asyncapi.yaml contracts/asyncapi/asyncapi.sha256 \
   contracts/asyncapi/fixtures/manifest.json contracts/asyncapi/fixtures/events/ \
   contracts/asyncapi/producer-event-fixture-receipt.json \
+  docker/seed-data/fortemi-docs.shard docker/seed-data/fortemi-docs.shard.receipt.json \
   CHANGELOG.md docs/releases/vYYYY.M.PATCH-announcement.md
 git -c user.signingkey=62297562B1C7053088F405DB0117DAAA677A5BF2 \
   -c gpg.program=tools/git/gpg-from-openbao.sh commit -S \
