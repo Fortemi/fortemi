@@ -17381,7 +17381,7 @@ async fn complete_lifecycle_purge_cleanup(
     path = "/api/v1/lifecycle-purge/preview",
     tag = "Notes",
     request_body = matric_core::PurgeSelector,
-    responses((status = 200, body = matric_core::PurgePreview))
+    responses((status = 200, description = "Lifecycle purge preview", body = matric_core::PurgePreview))
 )]
 async fn lifecycle_purge_preview(
     _auth: Auth,
@@ -17408,7 +17408,7 @@ async fn lifecycle_purge_preview(
     path = "/api/v1/lifecycle-purge",
     tag = "Notes",
     request_body = matric_core::PurgeRequest,
-    responses((status = 202, body = matric_core::PurgeStatus))
+    responses((status = 202, description = "Lifecycle purge accepted", body = matric_core::PurgeStatus))
 )]
 async fn lifecycle_purge_begin(
     _auth: Auth,
@@ -17433,7 +17433,7 @@ async fn lifecycle_purge_begin(
     path = "/api/v1/lifecycle-purge/{operation_id}",
     tag = "Notes",
     params(("operation_id" = Uuid, Path)),
-    responses((status = 200, body = matric_core::PurgeStatus), (status = 404))
+    responses((status = 200, description = "Lifecycle purge status", body = matric_core::PurgeStatus), (status = 404, description = "Lifecycle purge operation not found"))
 )]
 async fn lifecycle_purge_status(
     _auth: Auth,
@@ -17469,7 +17469,7 @@ async fn lifecycle_purge_status(
     path = "/api/v1/lifecycle-purge/{operation_id}/resume",
     tag = "Notes",
     params(("operation_id" = Uuid, Path)),
-    responses((status = 200, body = matric_core::PurgeStatus), (status = 404))
+    responses((status = 200, description = "Lifecycle purge resumed", body = matric_core::PurgeStatus), (status = 404, description = "Lifecycle purge operation not found"))
 )]
 async fn lifecycle_purge_resume(
     _auth: Auth,

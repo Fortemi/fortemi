@@ -102,7 +102,7 @@ blake3.workspace = true
 jsonschema = { version = "0.46", default-features = false }
 
 # OpenAPI schema generation
-utoipa = { version = "5", features = ["chrono", "uuid"] }
+utoipa = { version = "6", features = ["chrono", "uuid"] }
 
 # Error handling
 thiserror.workspace = true

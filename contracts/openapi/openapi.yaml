@@ -4457,8 +4457,8 @@ paths:
           application/json:
             schema:
               oneOf:
-              - type: 'null'
               - $ref: '#/components/schemas/GraphMaintenanceBody'
+              - type: 'null'
       responses:
         '200':
           description: Job already pending (deduplicated)
@@ -5535,7 +5535,7 @@ paths:
         required: true
       responses:
         '202':
-          description: ''
+          description: Lifecycle purge accepted
           content:
             application/json:
               schema:
@@ -5568,7 +5568,7 @@ paths:
         required: true
       responses:
         '200':
-          description: ''
+          description: Lifecycle purge preview
           content:
             application/json:
               schema:
@@ -5602,13 +5602,13 @@ paths:
           format: uuid
       responses:
         '200':
-          description: ''
+          description: Lifecycle purge status
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/PurgeStatus'
         '404':
-          description: ''
+          description: Lifecycle purge operation not found
         '429':
           content:
             application/problem+json:
@@ -5638,13 +5638,13 @@ paths:
           format: uuid
       responses:
         '200':
-          description: ''
+          description: Lifecycle purge resumed
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/PurgeStatus'
         '404':
-          description: ''
+          description: Lifecycle purge operation not found
         '429':
           content:
             application/problem+json:
@@ -6168,8 +6168,8 @@ paths:
           application/json:
             schema:
               oneOf:
-              - type: 'null'
               - $ref: '#/components/schemas/BulkReprocessBody'
+              - type: 'null'
       responses:
         '200':
           description: Jobs queued for bulk reprocessing
@@ -7253,8 +7253,8 @@ paths:
           application/json:
             schema:
               oneOf:
-              - type: 'null'
               - $ref: '#/components/schemas/ReprocessNoteBody'
+              - type: 'null'
       responses:
         '200':
           description: Success
@@ -9627,11 +9627,11 @@ components:
           description: Required sections that must be present
         revision_chunking:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/RevisionChunkingConfig'
             description: |-
               Per-document-type revision chunking configuration (#573).
               When present, overrides system-wide defaults for this document type.
+          - type: 'null'
         template_id:
           type:
           - string
@@ -9697,16 +9697,16 @@ components:
           format: uuid
         extracted_metadata:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/Value'
+          - type: 'null'
         extracted_text:
           type:
           - string
           - 'null'
         extraction_strategy:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/ExtractionStrategy'
+          - type: 'null'
         filename:
           type: string
         has_preview:
@@ -10483,9 +10483,9 @@ components:
       properties:
         context:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/ChatContext'
             description: Optional context for RAG-style grounding.
+          - type: 'null'
         input:
           type: string
           description: The user's message text.
@@ -10713,9 +10713,9 @@ components:
           type: boolean
         hosted_profile:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/HostedProfileSummary'
             description: Route-inventory-derived profile a dedicated hosted deployment can rely on.
+          - type: 'null'
         mode:
           type: string
     CompatibilityLinks:
@@ -10937,8 +10937,8 @@ components:
           - 'null'
         facet_type:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/PmestFacet'
+          - type: 'null'
         language:
           type: string
           description: Language for the preferred label.
@@ -11010,8 +11010,8 @@ components:
       properties:
         agentic_config:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/AgenticConfig'
+          - type: 'null'
         attachment_generates_content:
           type: boolean
         category:
@@ -11024,8 +11024,8 @@ components:
           format: int32
         chunking_config:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/Value'
+          - type: 'null'
         chunking_strategy:
           $ref: '#/components/schemas/ChunkingStrategy'
         content_types:
@@ -11042,8 +11042,8 @@ components:
           - 'null'
         extraction_config:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/Value'
+          - type: 'null'
         extraction_strategy:
           $ref: '#/components/schemas/ExtractionStrategy'
         file_extensions:
@@ -11143,9 +11143,9 @@ components:
           description: Optional raw provider output dimension (stored dimension through 16384).
         space_contract:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/Value'
             description: Optional embedding-space contract JSON. The server computes `space_id`.
+          - type: 'null'
         space_id:
           type:
           - string
@@ -11344,12 +11344,12 @@ components:
           type: string
         schema_doc:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/Value'
             description: |-
               Optional custom JSON Schema document (#821). When provided, incoming
               bodies are validated against it via the `jsonschema` crate. When
               omitted, `schema_ref` must name a built-in schema.
+          - type: 'null'
         schema_ref:
           type: string
         signature_header:
@@ -12520,9 +12520,9 @@ components:
           description: Raw provider output size before truncation; dimension remains the stored size.
         space_contract:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/Value'
             description: Stored embedding-space contract JSON for this config.
+          - type: 'null'
         space_id:
           type:
           - string
@@ -12742,9 +12742,9 @@ components:
           type: string
         space_contract:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/Value'
             description: Space contract inherited from the embedding config, if present.
+          - type: 'null'
         space_id:
           type:
           - string
@@ -12975,9 +12975,9 @@ components:
           type: string
         space_contract:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/Value'
             description: Space contract inherited from the embedding config, if present.
+          - type: 'null'
         space_id:
           type:
           - string
@@ -13679,8 +13679,8 @@ components:
           type: string
         metadata:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/Value'
+          - type: 'null'
         score:
           type: number
           format: float
@@ -13855,8 +13855,8 @@ components:
           $ref: '#/components/schemas/MemoryExportSelection'
         since:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/HighWaterMark'
+          - type: 'null'
         window:
           $ref: '#/components/schemas/MemoryExportWindow'
     MemoryExportMemory:
@@ -13912,9 +13912,9 @@ components:
           $ref: '#/components/schemas/MemoryExportMode'
         since:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/HighWaterMark'
             description: Required for `incremental`; the `high_water_mark` of a previous export.
+          - type: 'null'
       additionalProperties: false
     MemoryExportSelection:
       type: object
@@ -13936,9 +13936,9 @@ components:
       properties:
         from:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/HighWaterMark'
             description: Inclusive lower bound (`since`); absent for full exports.
+          - type: 'null'
         to:
           $ref: '#/components/schemas/HighWaterMark'
           description: Exclusive upper bound; equals `high_water_mark`.
@@ -14265,8 +14265,8 @@ components:
           type: boolean
         chunk_metadata:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/Value'
+          - type: 'null'
         collection_id:
           type:
           - string
@@ -14340,8 +14340,8 @@ components:
           format: date-time
         ai_metadata:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/Value'
+          - type: 'null'
         content:
           type: string
         generation_count:
@@ -14432,9 +14432,9 @@ components:
           description: Human-readable document type name (convenience field)
         embedding_status:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/EmbeddingStatus'
             description: Embedding status for this note
+          - type: 'null'
         has_revision:
           type: boolean
         id:
@@ -14911,8 +14911,8 @@ components:
             format: uuid
         source:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/PurgeSourceSelector'
+          - type: 'null'
     PurgeSourceSelector:
       type: object
       required:
@@ -14949,8 +14949,8 @@ components:
           $ref: '#/components/schemas/PurgeOutcome'
         receipt:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/DeletionReceipt'
+          - type: 'null'
         search_cleanup_pending:
           type: boolean
     ReprocessNoteBody:
@@ -15096,14 +15096,14 @@ components:
       properties:
         facet_type:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/PmestFacet'
             description: Filter by facet type.
+          - type: 'null'
         has_antipattern:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/TagAntipattern'
             description: Filter by antipattern presence.
+          - type: 'null'
         include_deprecated:
           type: boolean
           description: Include deprecated concepts.
@@ -15134,9 +15134,9 @@ components:
           description: Filter by scheme.
         status:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/TagStatus'
             description: Filter by status.
+          - type: 'null'
         top_concepts_only:
           type: boolean
           description: Filter to only top concepts (no broader).
@@ -15270,9 +15270,9 @@ components:
           description: Whether to skip embedding regeneration (use imported embeddings)
         verify_signature:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/ShardSignaturePolicy'
             description: Publisher signature verification policy.
+          - type: 'null'
     ShardSignaturePolicy:
       type: string
       enum:
@@ -15299,8 +15299,8 @@ components:
           type: string
         changes:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/Value'
+          - type: 'null'
         created_at:
           type: string
           format: date-time
@@ -15468,9 +15468,9 @@ components:
           description: Domain/context for the facet.
         facet_type:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/PmestFacet'
             description: Primary facet classification.
+          - type: 'null'
         first_used_at:
           type:
           - string
@@ -16118,9 +16118,9 @@ components:
           description: Facet domain.
         facet_type:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/PmestFacet'
             description: PMEST facet type.
+          - type: 'null'
         hidden_labels:
           type: array
           items:
@@ -16151,9 +16151,9 @@ components:
           description: Scope note (usage guidance).
         status:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/TagStatus'
             description: Initial status (defaults to Candidate).
+          - type: 'null'
     SnapshotRequest:
       type: object
       properties:
@@ -16313,8 +16313,8 @@ components:
         metadata: {}
         policy:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/SourceUpsertPolicy'
+          - type: 'null'
         title:
           type:
           - string
@@ -16781,9 +16781,9 @@ components:
           description: Model names returned by the remote endpoint.
         capabilities:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/DetectedCapabilities'
             description: Inferred capability flags.
+          - type: 'null'
         detected_provider:
           type:
           - string
@@ -17072,8 +17072,8 @@ components:
           - 'null'
         facet_type:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/PmestFacet'
+          - type: 'null'
         notation:
           type:
           - string
@@ -17085,8 +17085,8 @@ components:
           format: uuid
         status:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/TagStatus'
+          - type: 'null'
     UpdateConceptSchemeRequest:
       type: object
       description: Request to update a concept scheme.
@@ -17125,8 +17125,8 @@ components:
       properties:
         agentic_config:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/AgenticConfig'
+          - type: 'null'
         attachment_generates_content:
           type:
           - boolean
@@ -17143,12 +17143,12 @@ components:
           format: int32
         chunking_config:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/Value'
+          - type: 'null'
         chunking_strategy:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/ChunkingStrategy'
+          - type: 'null'
         content_types:
           type:
           - array
@@ -17165,12 +17165,12 @@ components:
           - 'null'
         extraction_config:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/Value'
+          - type: 'null'
         extraction_strategy:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/ExtractionStrategy'
+          - type: 'null'
         file_extensions:
           type:
           - array
@@ -17252,9 +17252,9 @@ components:
           format: int32
         document_composition:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/DocumentComposition'
             description: Document composition override. If `None`, composition is not changed.
+          - type: 'null'
         hnsw_ef_construction:
           type:
           - integer
@@ -17282,12 +17282,12 @@ components:
           - 'null'
         provider:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/EmbeddingProvider'
+          - type: 'null'
         provider_config:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/Value'
+          - type: 'null'
         provider_dimension:
           type:
           - integer
@@ -17296,9 +17296,9 @@ components:
           description: Optional raw provider output dimension (stored dimension through 16384).
         space_contract:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/Value'
             description: Optional embedding-space contract JSON. The server computes `space_id`.
+          - type: 'null'
         space_id:
           type:
           - string
@@ -17310,24 +17310,24 @@ components:
           - 'null'
         vector_type:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/EmbeddingVectorType'
+          - type: 'null'
     UpdateEmbeddingSetRequest:
       type: object
       description: Request to update an embedding set.
       properties:
         agent_metadata:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/EmbeddingSetAgentMetadata'
+          - type: 'null'
         auto_refresh:
           type:
           - boolean
           - 'null'
         criteria:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/EmbeddingSetCriteria'
+          - type: 'null'
         defer_index_build:
           type:
           - boolean
@@ -17354,8 +17354,8 @@ components:
             type: string
         mode:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/EmbeddingSetMode'
+          - type: 'null'
         name:
           type:
           - string
@@ -17376,8 +17376,8 @@ components:
           - 'null'
         vector_source:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/EmbeddingVectorSource'
+          - type: 'null'
     UpdateInferenceConfigRequest:
       type: object
       description: Partial update request body (all fields optional).
@@ -17396,20 +17396,20 @@ components:
             the call is rejected with 400.
         llamacpp:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/PartialLlamaCppConfig'
+          - type: 'null'
         ollama:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/PartialOllamaConfig'
+          - type: 'null'
         openai:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/PartialOpenAIConfig'
+          - type: 'null'
         openrouter:
           oneOf:
-          - type: 'null'
           - $ref: '#/components/schemas/PartialOpenRouterConfig'
+          - type: 'null'
     UpdateMetadataRequest:
       type: object
       properties:

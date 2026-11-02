@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce #1221 Option B against resolved metadata and the full lock graph.
+"""Require patched stable ZIP 9 in resolved metadata and the full lock graph.
 
 Generate input with the audit job's Cargo toolchain:
   cargo metadata --locked --offline --all-features --format-version 1 > metadata.json
@@ -8,7 +8,6 @@ Omit metadata.json (or use '-') to read stdin. Requires Python 3.11+.
 """
 
 import argparse
-from datetime import date, datetime, timezone
 import json
 from pathlib import Path
 import sys
@@ -16,20 +15,12 @@ import re
 import tomllib
 
 
-# Single executable expiry; keep the ZIP comments in both policy files in sync.
-EXCEPTION_EXPIRY = date(2026, 11, 16)
-APPROVED_PARENTS = {
-    "2.4.2": ("calamine", "0.26.1", None),
-    "3.0.0": ("utoipa-swagger-ui", "9.0.2", "build"),
-}
-
-
 class GuardError(ValueError):
     pass
 
 
 # zip 9.0.0-9.0.3 and every prerelease are affected by RUSTSEC-2026-0367..0369 or
-# unreleased; only stable releases from 9.0.4 on are the patched direct edge.
+# unreleased; only stable ZIP 9 releases from 9.0.4 on are allowed.
 MINIMUM_PATCHED_ZIP = (9, 0, 4)
 
 
@@ -37,7 +28,7 @@ def is_zip9(package):
     if package["name"] != "zip":
         return False
     version = package["version"]
-    if not re.fullmatch(r"9\.\d+\.\d+", version):
+    if not re.fullmatch(r"9\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version):
         return False
     return tuple(int(part) for part in version.split(".")) >= MINIMUM_PATCHED_ZIP
 
@@ -62,43 +53,13 @@ def reachable(roots, edges, blocked=()):
     return seen
 
 
-def check_graph(packages, edges, roots, graph_name, approved_edges=None):
-    active = reachable(roots, edges)
-    checked_edges = set()
-    for child in active:
-        package = packages[child]
-        if package["name"] != "zip" or is_zip9(package):
-            continue
-        expected = APPROVED_PARENTS.get(package["version"])
-        if expected is None:
+def check_graph(packages, edges, roots, graph_name):
+    # Check every package, including optional/platform or disconnected entries.
+    # There are no parent, edge-kind, version, or date exemptions.
+    for package in packages.values():
+        if package["name"] == "zip" and not is_zip9(package):
             raise GuardError(f"{graph_name}: unapproved {label(package)}")
-        parents = [
-            (parent, kinds)
-            for parent in active
-            for target, kinds in edges[parent]
-            if target == child
-        ]
-        if child in roots or not parents:
-            raise GuardError(f"{graph_name}: {label(package)} has no approved parent")
-        for parent, kinds in parents:
-            consumer = packages[parent]
-            if parent in roots:
-                raise GuardError(
-                    f"{graph_name}: workspace crate {label(consumer)} depends on {label(package)}"
-                )
-            if (consumer["name"], consumer["version"]) != expected[:2]:
-                raise GuardError(
-                    f"{graph_name}: extra consumer {label(consumer)} -> {label(package)}"
-                )
-            if kinds is not None and set(kinds) != {expected[2]}:
-                raise GuardError(
-                    f"{graph_name}: wrong edge kind {kinds!r} for "
-                    f"{label(consumer)} -> {label(package)}"
-                )
-            edge = identity(consumer), identity(package)
-            if approved_edges is not None and edge not in approved_edges:
-                raise GuardError(f"{graph_name}: old ZIP edge missing from resolved metadata: {edge}")
-            checked_edges.add(edge)
+    active = reachable(roots, edges)
 
     # Every workspace-to-libbz2 path must pass through ZIP 9. Checking only its
     # immediate parent (bzip2) would miss a second consumer of that same parent.
@@ -106,47 +67,96 @@ def check_graph(packages, edges, roots, graph_name, approved_edges=None):
     for node in without_zip9:
         if packages[node]["name"] == "libbz2-rs-sys":
             raise GuardError(f"{graph_name}: libbz2-rs-sys reachable without zip 9")
-    return checked_edges
 
 
-def check(metadata, lockfile, today=None):
-    """Raise GuardError on drift. Date injection is for unit tests only."""
-    if today is None:
-        today = datetime.now(timezone.utc).date()
-    if today > EXCEPTION_EXPIRY:
-        raise GuardError(f"ZIP exceptions expired after {EXCEPTION_EXPIRY} (UTC today: {today})")
+def check(metadata, lockfile):
+    """Raise GuardError on policy drift or incomplete graph input."""
+    try:
+        check_data(metadata, lockfile)
+    except (KeyError, TypeError, AttributeError, IndexError) as error:
+        raise GuardError(f"malformed graph input: {error}") from error
 
-    packages = {p["id"]: p for p in metadata["packages"]}
-    roots = set(metadata["workspace_members"])
+
+def check_data(metadata, lockfile):
+    package_list = metadata["packages"]
     nodes = metadata["resolve"]["nodes"]
-    edges = {
-        node["id"]: [
-            (dep["pkg"], [entry["kind"] for entry in dep["dep_kinds"]])
-            for dep in node["deps"]
-        ]
-        for node in nodes
-    }
+    if not isinstance(package_list, list) or not isinstance(nodes, list):
+        raise GuardError("metadata: packages and nodes must be arrays")
+    packages = {p["id"]: p for p in package_list}
+    if len(packages) != len(package_list):
+        raise GuardError("metadata: duplicate package id")
+    for package in package_list:
+        if not all(isinstance(package[key], str) and package[key]
+                   for key in ("id", "name", "version")):
+            raise GuardError("metadata: invalid package identity")
+        if package.get("source") is not None and not isinstance(package["source"], str):
+            raise GuardError("metadata: invalid package source")
+    if len({identity(p) for p in package_list}) != len(packages):
+        raise GuardError("metadata: duplicate package identity")
+    members = metadata["workspace_members"]
+    if not isinstance(members, list) or len(set(members)) != len(members):
+        raise GuardError("metadata: invalid workspace members")
+    roots = set(members)
+    edges = {}
+    for node in nodes:
+        parent = node["id"]
+        if parent in edges:
+            raise GuardError("metadata: duplicate resolved node")
+        if not isinstance(node["deps"], list):
+            raise GuardError("metadata: dependencies must be an array")
+        dependencies = []
+        for dep in node["deps"]:
+            kinds = dep["dep_kinds"]
+            if not isinstance(kinds, list) or not kinds:
+                raise GuardError(f"metadata: incomplete dependency edge from {parent}")
+            for entry in kinds:
+                if entry["kind"] not in (None, "build", "dev"):
+                    raise GuardError(f"metadata: invalid dependency kind from {parent}")
+                if entry["target"] is not None and not isinstance(entry["target"], str):
+                    raise GuardError(f"metadata: invalid dependency target from {parent}")
+            dependencies.append((dep["pkg"], [entry["kind"] for entry in kinds]))
+        # Cargo supplies both forms. Renamed dependencies use pkg IDs here.
+        if "dependencies" in node:
+            ids = node["dependencies"]
+            if not isinstance(ids, list) or set(ids) != {child for child, _ in dependencies}:
+                raise GuardError("metadata: divergent dependency representations")
+        edges[parent] = dependencies
     if not roots or not roots <= packages.keys() or not roots <= edges.keys():
         raise GuardError("metadata: missing workspace roots or resolved graph")
+    if packages.keys() != edges.keys():
+        raise GuardError("metadata: package/node graph mismatch")
+    if metadata["resolve"].get("root") is not None and metadata["resolve"]["root"] not in roots:
+        raise GuardError("metadata: resolve root is not a workspace member")
     for parent, dependencies in edges.items():
-        if parent not in packages:
-            raise GuardError(f"metadata: unknown package {parent}")
         for child, kinds in dependencies:
-            if child not in packages or child not in edges or not kinds:
+            if child not in packages or child not in edges:
                 raise GuardError(f"metadata: incomplete dependency edge from {parent}")
-    approved = check_graph(packages, edges, roots, "metadata")
+    check_graph(packages, edges, roots, "metadata")
 
+    if not isinstance(lockfile["package"], list):
+        raise GuardError("Cargo.lock: packages must be an array")
+    for package in lockfile["package"]:
+        if not all(isinstance(package[key], str) and package[key]
+                   for key in ("name", "version")):
+            raise GuardError("Cargo.lock: invalid package identity")
+        if package.get("source") is not None and not isinstance(package["source"], str):
+            raise GuardError("Cargo.lock: invalid package source")
     locked = {identity(p): p for p in lockfile["package"]}
     if len(locked) != len(lockfile["package"]):
         raise GuardError("Cargo.lock: duplicate package identity")
-    for node in reachable(roots, edges):
+    for node in packages:
         if identity(packages[node]) not in locked:
             raise GuardError(f"metadata package absent from Cargo.lock: {label(packages[node])}")
 
     lock_edges = {}
     for key, package in locked.items():
         dependencies = []
-        for dependency in package.get("dependencies", []):
+        raw_dependencies = package.get("dependencies", [])
+        if not isinstance(raw_dependencies, list):
+            raise GuardError("Cargo.lock: dependencies must be an array")
+        for dependency in raw_dependencies:
+            if not isinstance(dependency, str):
+                raise GuardError("Cargo.lock: dependency must be a string")
             # Cargo.lock uses name [version] [(source)] to disambiguate packages.
             parts = dependency.split(" ", 2)
             matches = [
@@ -160,10 +170,14 @@ def check(metadata, lockfile, today=None):
             dependencies.append((matches[0], None))
         lock_edges[key] = dependencies
     lock_roots = {identity(packages[root]) for root in roots}
-    # Cargo.lock also covers optional/platform paths absent from this feature
-    # resolution. It cannot prove edge kinds, so old ZIP edges must additionally
-    # have been verified in metadata above.
-    check_graph(locked, lock_edges, lock_roots, "Cargo.lock", approved)
+    # Lock graph can include extra optional/platform paths, but every resolved
+    # metadata edge must exist in it with the same source-qualified identity.
+    for parent, dependencies in edges.items():
+        locked_children = {child for child, _ in lock_edges[identity(packages[parent])]}
+        for child, _ in dependencies:
+            if identity(packages[child]) not in locked_children:
+                raise GuardError("metadata dependency edge absent from Cargo.lock")
+    check_graph(locked, lock_edges, lock_roots, "Cargo.lock")
 
 
 def main(argv=None):
@@ -182,7 +196,7 @@ def main(argv=None):
     except (OSError, ValueError, KeyError, TypeError) as error:
         print(f"ZIP exception guard: FAIL: {error}", file=sys.stderr)
         return 1
-    print(f"ZIP exception guard: PASS (expires {EXCEPTION_EXPIRY}, UTC)")
+    print("ZIP exception guard: PASS (stable ZIP 9 >=9.0.4; no ZIP waivers)")
     return 0
 
 
