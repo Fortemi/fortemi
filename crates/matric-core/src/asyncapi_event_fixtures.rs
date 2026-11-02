@@ -231,7 +231,7 @@ fn render_corpus(root: &Path) -> Result<RenderedCorpus, String> {
         }
 
         let relative_path = case.relative_path();
-        let bytes = pretty_json_bytes(&value)?;
+        let bytes = event_json_bytes(value)?;
         let sha256 = sha256_hex(&bytes);
         fixture_files.insert(relative_path.clone(), bytes);
         manifest_fixtures.push(ManifestFixture {
@@ -402,6 +402,13 @@ fn collect_json_paths(root: &Path, dir: &Path, paths: &mut BTreeSet<String>) -> 
         }
     }
     Ok(())
+}
+
+fn event_json_bytes(mut value: Value) -> Result<Vec<u8>, String> {
+    // Workspace feature unification can enable serde_json/preserve_order.
+    // Canonicalize only events; typed manifest and receipt field order is contractual.
+    value.sort_all_objects();
+    pretty_json_bytes(&value)
 }
 
 fn pretty_json_bytes(value: &impl Serialize) -> Result<Vec<u8>, String> {
@@ -676,6 +683,76 @@ mod tests {
             "committed event corpus must match raw AsyncAPI bytes and runtime event schemas",
         );
         assert_eq!(summary.event_count, 48);
+    }
+
+    #[test]
+    fn event_json_bytes_sorts_objects_recursively_and_preserves_array_order() {
+        let mut first = serde_json::Map::new();
+        first.insert("z".into(), json!(4));
+        first.insert("a".into(), json!(3));
+        let mut second = serde_json::Map::new();
+        second.insert("z".into(), json!(2));
+        second.insert("a".into(), json!(1));
+        let mut nested = serde_json::Map::new();
+        nested.insert("z".into(), json!(false));
+        nested.insert("a".into(), json!(true));
+        let mut event = serde_json::Map::new();
+        event.insert("z".into(), json!("last"));
+        event.insert("n".into(), Value::Object(nested));
+        event.insert(
+            "a".into(),
+            Value::Array(vec![Value::Object(first), Value::Object(second)]),
+        );
+
+        let bytes = event_json_bytes(Value::Object(event)).unwrap();
+        let expected = br#"{
+  "a": [
+    {
+      "a": 3,
+      "z": 4
+    },
+    {
+      "a": 1,
+      "z": 2
+    }
+  ],
+  "n": {
+    "a": true,
+    "z": false
+  },
+  "z": "last"
+}
+"#;
+        assert_eq!(
+            bytes.as_slice(),
+            expected,
+            "event bytes must sort every object, preserve array order and end in one LF"
+        );
+    }
+
+    #[test]
+    fn semantic_event_value_change_is_rejected_by_corpus_freshness() {
+        let temporary = TemporaryCorpus::new();
+        let root = &temporary.0;
+        let yaml_path = root.join(ASYNCAPI_PATH);
+        fs::create_dir_all(yaml_path.parent().unwrap()).unwrap();
+        fs::copy(repository_root().join(ASYNCAPI_PATH), &yaml_path).unwrap();
+        generate_fixture_corpus(root).unwrap();
+        check_fixture_corpus(root).expect("unchanged temporary corpus must be fresh");
+
+        let relative = format!("{FIXTURE_DIR}/archive_created.json");
+        let mut changed = read_json(root, &relative);
+        assert_eq!(changed["payload"]["name"], json!("fixture-memory-alpha"));
+        changed["payload"]["name"] = json!("changed-archive-name");
+        fs::write(root.join(&relative), event_json_bytes(changed).unwrap()).unwrap();
+
+        let error = check_fixture_corpus(root)
+            .expect_err("canonical ordering must not hide semantic event value drift");
+        assert_eq!(
+            error,
+            format!("{relative} drifted; run scripts/ci/asyncapi-event-fixtures.sh generate"),
+            "freshness must reject the modified event file itself"
+        );
     }
 
     #[test]
