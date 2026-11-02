@@ -116,10 +116,10 @@ docker run --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local
 docker run --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local}-${GITHUB_RUN_ATTEMPT:-1}}" -d --name "${REDIS_CONTAINER}" -p "127.0.0.1:${REDIS_PORT}:6379" "${REDIS_IMAGE}" >/dev/null
 psql_admin() { docker exec -i "${DB_CONTAINER}" psql -qtAU matric -d matric_mcp_oidc -v ON_ERROR_STOP=1 "$@"; }
 for _ in $(seq 1 60); do
-  docker exec "${DB_CONTAINER}" pg_isready -U matric -d matric_mcp_oidc >/dev/null 2>&1 && break
+  docker exec "${DB_CONTAINER}" pg_isready -h 127.0.0.1 -U matric -d matric_mcp_oidc >/dev/null 2>&1 && break
   sleep 1
 done
-docker exec "${DB_CONTAINER}" pg_isready -U matric -d matric_mcp_oidc >/dev/null || fail "postgres not ready"
+docker exec "${DB_CONTAINER}" pg_isready -h 127.0.0.1 -U matric -d matric_mcp_oidc >/dev/null || fail "postgres not ready"
 sleep 2
 psql_admin -c "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS postgis;" >/dev/null
 MIGRATION_DATABASE_URL="$(printf '%s%s:%s@127.0.0.1:%s/%s' 'postgres://' matric "${DB_PASSWORD}" "${DB_PORT}" matric_mcp_oidc)"

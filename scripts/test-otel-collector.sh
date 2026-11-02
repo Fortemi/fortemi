@@ -80,10 +80,12 @@ docker run --label "fortemi.ci.scope=${CI_RESOURCE_SCOPE:-${GITHUB_RUN_ID:-local
   -e POSTGRES_USER=matric -e POSTGRES_PASSWORD="${DB_PASSWORD}" -e POSTGRES_DB=matric_otel \
   "${TESTDB_IMAGE}" >/dev/null
 for _ in $(seq 1 60); do
-  docker exec "${DB_CONTAINER}" pg_isready -U matric -d matric_otel >/dev/null 2>&1 && break
+  # The entrypoint's temporary initialization server only accepts Unix sockets.
+  # Wait for the final TCP listener, which is also what DATABASE_URL uses.
+  docker exec "${DB_CONTAINER}" pg_isready -h 127.0.0.1 -U matric -d matric_otel >/dev/null 2>&1 && break
   sleep 1
 done
-docker exec "${DB_CONTAINER}" pg_isready -U matric -d matric_otel >/dev/null || fail "postgres not ready"
+docker exec "${DB_CONTAINER}" pg_isready -h 127.0.0.1 -U matric -d matric_otel >/dev/null || fail "postgres not ready"
 sleep 2
 docker exec "${DB_CONTAINER}" psql -qU matric -d matric_otel -c "CREATE EXTENSION IF NOT EXISTS vector;" >/dev/null
 docker exec "${DB_CONTAINER}" psql -qU matric -d matric_otel -c "CREATE EXTENSION IF NOT EXISTS postgis;" >/dev/null

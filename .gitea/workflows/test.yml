@@ -400,6 +400,9 @@ jobs:
           cargo test --locked -p matric-api --features otel --bin matric-api otel::
           cargo test --doc --workspace
 
+      - name: OTLP PostgreSQL readiness regression
+        run: python3 -B -m unittest discover -s scripts/ci -p test_otel_postgres_readiness.py -v
+
       - name: OTLP collector integration
         run: |
           # Disposable DB + digest-pinned collector (ci/digests.txt) (#1156).
