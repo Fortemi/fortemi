@@ -14,6 +14,8 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 - Reject partial knowledge-shard imports with unavailable destination-note
   references as HTTP 400 before graph writes, preserving tenant boundaries and
   atomic retained state (#1330).
+- Accept numeric `k` in external-entity similarity requests, retaining the
+  note-based route's defaults, limits, filters and validation (#1325).
 
 ### Changed
 

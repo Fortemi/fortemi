@@ -22049,8 +22049,6 @@ impl fmt::Debug for EntitySimilarityQuery {
 struct ExternalEntitySimilarityQuery {
     source: String,
     external_id: String,
-    #[serde(flatten)]
-    similarity: EntitySimilarityQuery,
 }
 
 impl fmt::Debug for ExternalEntitySimilarityQuery {
@@ -22058,7 +22056,6 @@ impl fmt::Debug for ExternalEntitySimilarityQuery {
         f.debug_struct("ExternalEntitySimilarityQuery")
             .field("source_len", &telemetry_text_len(&self.source))
             .field("external_id_len", &telemetry_text_len(&self.external_id))
-            .field("similarity", &self.similarity)
             .finish()
     }
 }
@@ -22156,6 +22153,9 @@ async fn find_similar_external_entities(
     scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Query(query): Query<ExternalEntitySimilarityQuery>,
+    // Extract separately: serde flatten buffers URL values as strings, so a
+    // nested Option<i64> rejects k even though the direct query accepts it.
+    Query(similarity): Query<EntitySimilarityQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
     let scope = scope.map(|Extension(scope)| scope);
     let source = query.source.clone();
@@ -22172,7 +22172,7 @@ async fn find_similar_external_entities(
     )
     .await?;
 
-    find_similar_entities_for_note(state, scope, archive_ctx, note_id, query.similarity).await
+    find_similar_entities_for_note(state, scope, archive_ctx, note_id, similarity).await
 }
 
 async fn find_similar_entities_for_note(
@@ -46455,6 +46455,8 @@ mod embedding_migration_tests;
 mod embedding_ownership_tests;
 #[cfg(test)]
 mod embedding_selection_tests;
+#[cfg(test)]
+mod entity_similarity_query_tests;
 #[cfg(test)]
 mod query_template_tests;
 #[cfg(test)]
