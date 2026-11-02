@@ -37,6 +37,7 @@ mod route_policy;
 mod scoped_search_tests;
 mod search_contract;
 mod shard_embedding_contract;
+mod shard_import_references;
 mod shard_signature;
 mod sse;
 #[cfg(test)]
@@ -42931,6 +42932,13 @@ async fn apply_validated_shard_components(
         .begin_tx()
         .await
         .map_err(|error| shard_operation_failed("begin import transaction", error))?;
+    shard_import_references::validate_destination_notes_tx(
+        &mut tx,
+        &files,
+        selected_components,
+        policy.wipe_before_apply,
+    )
+    .await?;
     let mut imported = ShardImportCounts::default();
     let mut skipped = ShardImportCounts::default();
     let mut queued_note_ids = Vec::new();

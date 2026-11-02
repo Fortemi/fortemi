@@ -7,6 +7,19 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.10.13] - 2026-11-02
+
+### Fixed
+
+- Reject partial knowledge-shard imports with unavailable destination-note
+  references as HTTP 400 before graph writes, preserving tenant boundaries and
+  atomic retained state (#1330).
+
+### Changed
+
+- Advance workspace, MCP, Helm and AsyncAPI release metadata for the forward
+  patch after the failed immutable v2026.10.12 publication.
+
 ## [2026.10.12] - 2026-10-31
 
 ### Fixed
@@ -3443,7 +3456,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.10.12...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.10.13...HEAD
+[2026.10.13]: https://github.com/fortemi/fortemi/compare/v2026.10.12...v2026.10.13
 [2026.10.11]: https://github.com/fortemi/fortemi/compare/v2026.10.10...v2026.10.11
 [2026.10.10]: https://github.com/fortemi/fortemi/compare/v2026.10.9...v2026.10.10
 [2026.10.8]: https://github.com/fortemi/fortemi/compare/v2026.10.7...v2026.10.8
