@@ -113,17 +113,17 @@ is historical tenant qualification and does not assert the archive class is
 | `jobs_embeddings` | yes | gap | 0 | 46 | 0 | 0 |
 | `realtime_mcp` | yes | partial | 1 | 4 | 0 | 0 |
 | `collections` | yes | partial | 6 | 4 | 0 | 0 |
-| `taxonomy` | no | excluded | 0 | 0 | 56 | 0 |
+| `taxonomy` | no | partial | 1 | 0 | 55 | 0 |
 | `inference` | no | partial | 5 | 0 | 11 | 0 |
 | `attachments` | no | excluded | 0 | 0 | 25 | 0 |
-| `provenance` | no | excluded | 0 | 0 | 9 | 0 |
+| `provenance` | no | partial | 1 | 0 | 8 | 0 |
 | `templates` | no | excluded | 0 | 0 | 8 | 0 |
 | `account` | no | partial | 5 | 0 | 12 | 0 |
 | `voice_calls` | no | excluded | 0 | 0 | 2 | 2 |
 | `knowledge_health` | no | excluded | 0 | 0 | 12 | 0 |
 | `operator` | no | excluded | 0 | 0 | 94 | 2 |
 | `public_protocol` | no | public | 0 | 0 | 0 | 32 |
-| **total** | | | 40 | 148 | 229 | 36 |
+| **total** | | | 42 | 148 | 227 | 36 |
 
 ```json
 {
@@ -359,7 +359,7 @@ is historical tenant qualification and does not assert the archive class is
     {"method":"HEAD","path":"/api/v1/concepts/{id}/related","class":"taxonomy","status":"excluded","enforcement":"hosted_503"},
     {"method":"POST","path":"/api/v1/concepts/{id}/related","class":"taxonomy","status":"excluded","enforcement":"hosted_503"},
     {"method":"DELETE","path":"/api/v1/concepts/{id}/related/{target_id}","class":"taxonomy","status":"excluded","enforcement":"hosted_503"},
-    {"method":"GET","path":"/api/v1/notes/{id}/concepts","class":"taxonomy","status":"excluded","enforcement":"hosted_503"},
+    {"method":"GET","path":"/api/v1/notes/{id}/concepts","class":"taxonomy","status":"qualified","enforcement":"tenant_transaction"},
     {"method":"HEAD","path":"/api/v1/notes/{id}/concepts","class":"taxonomy","status":"excluded","enforcement":"hosted_503"},
     {"method":"POST","path":"/api/v1/notes/{id}/concepts","class":"taxonomy","status":"excluded","enforcement":"hosted_503"},
     {"method":"DELETE","path":"/api/v1/notes/{id}/concepts/{concept_id}","class":"taxonomy","status":"excluded","enforcement":"hosted_503"},
@@ -406,7 +406,7 @@ is historical tenant qualification and does not assert the archive class is
     {"method":"POST","path":"/api/v1/notes/{id}/attachments/upload","class":"attachments","status":"excluded","enforcement":"hosted_503"},
     {"method":"GET","path":"/api/v1/notes/{id}/memory-provenance","class":"provenance","status":"excluded","enforcement":"hosted_503"},
     {"method":"HEAD","path":"/api/v1/notes/{id}/memory-provenance","class":"provenance","status":"excluded","enforcement":"hosted_503"},
-    {"method":"GET","path":"/api/v1/notes/{id}/provenance","class":"provenance","status":"excluded","enforcement":"hosted_503"},
+    {"method":"GET","path":"/api/v1/notes/{id}/provenance","class":"provenance","status":"qualified","enforcement":"tenant_transaction"},
     {"method":"HEAD","path":"/api/v1/notes/{id}/provenance","class":"provenance","status":"excluded","enforcement":"hosted_503"},
     {"method":"POST","path":"/api/v1/provenance/devices","class":"provenance","status":"excluded","enforcement":"hosted_503"},
     {"method":"POST","path":"/api/v1/provenance/files","class":"provenance","status":"excluded","enforcement":"hosted_503"},

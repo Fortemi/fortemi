@@ -12342,7 +12342,20 @@ where
 {
     let note_owned_attachment = input.resource.kind == ResourceKind::Attachment
         && input.policy.path.starts_with("/api/v1/notes/");
-    if (input.resource.kind != ResourceKind::Note && !note_owned_attachment)
+    // #1340: note-scoped concept/provenance reads bind to their backing note.
+    let note_scoped_read = matches!(
+        input.policy.path,
+        "/api/v1/notes/{id}/concepts" | "/api/v1/notes/{id}/provenance"
+    ) && matches!(
+        input.resource.kind,
+        ResourceKind::Taxonomy | ResourceKind::Provenance
+    ) && input
+        .resource
+        .attrs
+        .get("resource_id_param")
+        .and_then(|value| value.as_str())
+        == Some("id");
+    if (input.resource.kind != ResourceKind::Note && !note_owned_attachment && !note_scoped_read)
         || !input
             .resource
             .attrs
@@ -19460,14 +19473,20 @@ async fn remove_related(
     responses((status = 200, description = "Success")))]
 async fn get_note_concepts(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
     let skos = matric_db::PgSkosRepository::new(state.db.pool.clone());
-    let concepts = ctx
-        .query(move |tx| Box::pin(async move { skos.get_note_tags_with_labels_tx(tx, id).await }))
-        .await?;
+    let concepts = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema.clone(),
+        move |connection| {
+            Box::pin(async move { skos.get_note_tags_with_labels_tx(connection, id).await })
+        },
+    )
+    .await?;
     Ok(Json(concepts))
 }
 
@@ -22563,38 +22582,28 @@ async fn get_related_notes(
     responses((status = 200, description = "Success")))]
 async fn get_note_provenance(
     State(state): State<AppState>,
+    scope: Option<Extension<TenantRequestScope>>,
     Extension(archive_ctx): Extension<ArchiveContext>,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let ctx = state.db.for_schema(&archive_ctx.schema)?;
-    let pool = state.db.pool.clone();
-    let note_id = id;
-
-    let chain = {
-        let prov = matric_db::PgProvenanceRepository::new(pool.clone());
-        ctx.query(move |tx| Box::pin(async move { prov.get_chain_tx(tx, note_id).await }))
-            .await?
-    };
-
-    let activities = {
-        let prov = matric_db::PgProvenanceRepository::new(pool.clone());
-        ctx.query(move |tx| {
-            Box::pin(async move { prov.get_activities_for_note_tx(tx, note_id).await })
-        })
-        .await?
-    };
-
-    let edges = {
-        let prov = matric_db::PgProvenanceRepository::new(pool.clone());
-        ctx.query(move |tx| Box::pin(async move { prov.get_edges_for_note_tx(tx, note_id).await }))
-            .await?
-    };
-
-    let derived = {
-        let prov = matric_db::PgProvenanceRepository::new(pool.clone());
-        ctx.query(move |tx| Box::pin(async move { prov.get_derived_notes_tx(tx, note_id).await }))
-            .await?
-    };
+    let prov = matric_db::PgProvenanceRepository::new(state.db.pool.clone());
+    // One scoped connection for all four reads keeps them on a single tenant
+    // transaction snapshot.
+    let (chain, activities, edges, derived) = with_request_schema(
+        &state,
+        scope.map(|Extension(scope)| scope),
+        archive_ctx.schema.clone(),
+        move |connection| {
+            Box::pin(async move {
+                let chain = prov.get_chain_tx(connection, id).await?;
+                let activities = prov.get_activities_for_note_tx(connection, id).await?;
+                let edges = prov.get_edges_for_note_tx(connection, id).await?;
+                let derived = prov.get_derived_notes_tx(connection, id).await?;
+                Ok((chain, activities, edges, derived))
+            })
+        },
+    )
+    .await?;
 
     Ok(Json(serde_json::json!({
         "note_id": id,
@@ -77515,6 +77524,106 @@ not-json
             &RoleBasedPolicy,
             &normalized
         ));
+    }
+
+    const NOTE_SCOPED_READ_NOTE_ID: &str = "018fd1a0-0000-7000-8000-000000000001";
+
+    fn note_scoped_read_input(method: Method, suffix: &str) -> route_policy::RoutePolicyInput {
+        route_policy::authorization_input_for_request(
+            &method,
+            &format!("/api/v1/notes/{NOTE_SCOPED_READ_NOTE_ID}{suffix}"),
+            Some("tenant-a"),
+        )
+        .expect("note-scoped route has policy input")
+    }
+
+    fn read_api_key_auth() -> Auth {
+        Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "read".to_string(),
+            },
+        }
+    }
+
+    // #1340: concepts/provenance reads bind to their backing note.
+    #[tokio::test]
+    async fn note_scoped_concepts_and_provenance_reads_allow_owned_note_for_read_principal() {
+        let note_id = Uuid::parse_str(NOTE_SCOPED_READ_NOTE_ID).unwrap();
+        for (method, suffix) in [
+            (Method::GET, "/concepts"),
+            (Method::HEAD, "/concepts"),
+            (Method::GET, "/provenance"),
+            (Method::HEAD, "/provenance"),
+        ] {
+            let input = note_scoped_read_input(method.clone(), suffix);
+            assert_eq!(
+                route_policy::backing_resource_normalizer(&input),
+                Some(route_policy::BackingResourceNormalizer::Note),
+                "{method} {suffix}"
+            );
+            let normalized = normalize_note_route_policy_input(input, |lookup_id| async move {
+                assert_eq!(lookup_id, note_id);
+                Ok(true)
+            })
+            .await;
+            assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+            authorize_policy_input(
+                &RoleBasedPolicy,
+                &TracingSink,
+                &read_api_key_auth(),
+                &normalized,
+            )
+            .await
+            .unwrap_or_else(|_| panic!("{method} {suffix} must allow an owned note"));
+        }
+    }
+
+    #[tokio::test]
+    async fn note_scoped_reads_deny_cross_tenant_or_missing_note_like_note_route() {
+        // The production lookup is tenant-predicated, so a foreign-tenant note
+        // is indistinguishable from a missing one: Ok(false).
+        let mut statuses = Vec::new();
+        for suffix in ["", "/concepts", "/provenance"] {
+            let input = note_scoped_read_input(Method::GET, suffix);
+            let normalized =
+                normalize_note_route_policy_input(input, |_lookup_id| async move { Ok(false) })
+                    .await;
+            assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+            let response = authorize_policy_input(
+                &RoleBasedPolicy,
+                &TracingSink,
+                &read_api_key_auth(),
+                &normalized,
+            )
+            .await
+            .expect_err("missing or cross-tenant note must fail closed");
+            statuses.push(response.status());
+        }
+        assert_eq!(statuses[0], StatusCode::FORBIDDEN);
+        assert!(statuses.iter().all(|status| *status == statuses[0]));
+    }
+
+    #[tokio::test]
+    async fn note_scoped_concept_post_and_memory_provenance_stay_closed_after_note_exists() {
+        for (method, suffix) in [
+            (Method::POST, "/concepts"),
+            (Method::GET, "/memory-provenance"),
+        ] {
+            let input = note_scoped_read_input(method.clone(), suffix);
+            let normalized =
+                normalize_note_route_policy_input(input, |_lookup_id| async move { Ok(true) })
+                    .await;
+            let write_auth = Auth {
+                principal: AuthPrincipal::ApiKey {
+                    key_id: Uuid::new_v4(),
+                    scope: "read write".to_string(),
+                },
+            };
+            authorize_policy_input(&RoleBasedPolicy, &TracingSink, &write_auth, &normalized)
+                .await
+                .expect_err("route must remain closed");
+        }
     }
 
     fn test_api_key(id: Uuid) -> matric_core::ApiKey {

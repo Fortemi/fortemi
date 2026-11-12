@@ -141,7 +141,6 @@ fn closed_route_authorization_router(
             "/api/v1/notes/{id}/memory-provenance",
             any(closed_route_probe),
         )
-        .route("/api/v1/notes/{id}/provenance", any(closed_route_probe))
         .route("/api/v1/notes/{id}/move", any(closed_route_probe))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -158,6 +157,30 @@ fn closed_route_authorization_router(
         .layer(axum::middleware::from_fn(inject_fixture_identity))
         .layer(Extension(FixtureIdentity { tenant_id: tenant }))
         .layer(Extension(probe))
+        .with_state(state)
+}
+
+/// #1340: the real note, concepts and provenance handlers behind the production
+/// identity, tenant-scope, archive-routing and authorization middleware.
+fn note_scoped_read_router(state: AppState, pool: sqlx::PgPool, tenant: Uuid) -> Router {
+    Router::new()
+        .route("/api/v1/notes/{id}", get(get_note))
+        .route("/api/v1/notes/{id}/concepts", get(get_note_concepts))
+        .route("/api/v1/notes/{id}/provenance", get(get_note_provenance))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            authorize_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            archive_routing_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            pool,
+            tenant_scope_middleware,
+        ))
+        .layer(axum::middleware::from_fn(inject_fixture_identity))
+        .layer(Extension(FixtureIdentity { tenant_id: tenant }))
         .with_state(state)
 }
 
@@ -476,7 +499,7 @@ async fn embedding_set_authorization_live_db_http_inventory_and_isolation() {
         },
     )
     .await;
-    let app = embedding_authorization_router(state, runtime.clone(), tenant_a);
+    let app = embedding_authorization_router(state.clone(), runtime.clone(), tenant_a);
     let archive = archive_a.name.as_str();
 
     assert_eq!(
@@ -601,6 +624,59 @@ async fn embedding_set_authorization_live_db_http_inventory_and_isolation() {
         StatusCode::FORBIDDEN,
         "missing-resource handling must not weaken the role-based scope guard"
     );
+
+    // #1340: concepts and provenance reads authorize through their backing
+    // note exactly like GET /notes/{id}. A same-schema row owned by another
+    // tenant and a random id are both invisible under tenant-predicated lookup.
+    let foreign_note_id = seed_note(&admin, &archive_a.schema_name, tenant_b).await;
+    let missing_note_id = Uuid::new_v4();
+    let note_scoped_app = note_scoped_read_router(state.clone(), runtime.clone(), tenant_a);
+    for suffix in ["/concepts", "/provenance"] {
+        let owned = note_scoped_app
+            .clone()
+            .oneshot(request(
+                Method::GET,
+                &format!("/api/v1/notes/{note_id}{suffix}"),
+                archive,
+                "read",
+            ))
+            .await
+            .expect("owned note-scoped response");
+        assert_eq!(owned.status(), StatusCode::OK, "owned note {suffix}");
+        for (label, id) in [
+            ("cross-tenant", foreign_note_id),
+            ("missing", missing_note_id),
+        ] {
+            let note_status = note_scoped_app
+                .clone()
+                .oneshot(request(
+                    Method::GET,
+                    &format!("/api/v1/notes/{id}"),
+                    archive,
+                    "read",
+                ))
+                .await
+                .expect("note baseline response")
+                .status();
+            let status = note_scoped_app
+                .clone()
+                .oneshot(request(
+                    Method::GET,
+                    &format!("/api/v1/notes/{id}{suffix}"),
+                    archive,
+                    "read",
+                ))
+                .await
+                .expect("note-scoped denial response")
+                .status();
+            assert_eq!(status, StatusCode::FORBIDDEN, "{label} note {suffix}");
+            assert_eq!(
+                status, note_status,
+                "{label} {suffix} must match /notes/{{id}}"
+            );
+        }
+    }
+    drop(note_scoped_app);
 
     // Every closed exception is dispatched through the production middleware
     // with an existing fixture object.  The in-tenant note is used by graph,

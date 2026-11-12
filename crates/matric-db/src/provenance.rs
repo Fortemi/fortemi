@@ -6,7 +6,7 @@
 //! - **Activities**: AI processing operations (provenance_activity)
 //! - **Relations**: Derivation chains between source notes and revisions
 
-use sqlx::{Pool, Postgres, Row, Transaction};
+use sqlx::{PgConnection, Pool, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use matric_core::{
@@ -386,7 +386,7 @@ impl PgProvenanceRepository {
     /// Get the full provenance chain for a note's current revision within an existing transaction.
     pub async fn get_chain_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         note_id: Uuid,
     ) -> Result<Option<ProvenanceChain>> {
         // Get the current revision ID
@@ -399,7 +399,7 @@ impl PgProvenanceRepository {
             "#,
         )
         .bind(note_id)
-        .fetch_optional(&mut **tx)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -418,7 +418,7 @@ impl PgProvenanceRepository {
             "#,
         )
         .bind(revision_id)
-        .fetch_all(&mut **tx)
+        .fetch_all(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -447,7 +447,7 @@ impl PgProvenanceRepository {
         )
         .bind(note_id)
         .bind(revision_id)
-        .fetch_optional(&mut **tx)
+        .fetch_optional(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -473,7 +473,7 @@ impl PgProvenanceRepository {
     /// Get activities for a note within an existing transaction.
     pub async fn get_activities_for_note_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         note_id: Uuid,
     ) -> Result<Vec<ProvenanceActivity>> {
         let rows = sqlx::query(
@@ -486,7 +486,7 @@ impl PgProvenanceRepository {
             "#,
         )
         .bind(note_id)
-        .fetch_all(&mut **tx)
+        .fetch_all(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -508,7 +508,7 @@ impl PgProvenanceRepository {
     /// Get provenance edges for all revisions of a note within an existing transaction.
     pub async fn get_edges_for_note_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         note_id: Uuid,
     ) -> Result<Vec<ProvenanceEdge>> {
         let rows = sqlx::query(
@@ -522,7 +522,7 @@ impl PgProvenanceRepository {
             "#,
         )
         .bind(note_id)
-        .fetch_all(&mut **tx)
+        .fetch_all(&mut *tx)
         .await
         .map_err(Error::Database)?;
 
@@ -542,7 +542,7 @@ impl PgProvenanceRepository {
     /// Get notes that cite/derive from a specific source note within an existing transaction.
     pub async fn get_derived_notes_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         source_note_id: Uuid,
     ) -> Result<Vec<Uuid>> {
         let rows = sqlx::query(
@@ -554,7 +554,7 @@ impl PgProvenanceRepository {
             "#,
         )
         .bind(source_note_id)
-        .fetch_all(&mut **tx)
+        .fetch_all(&mut *tx)
         .await
         .map_err(Error::Database)?;
 

@@ -149,8 +149,8 @@ pub(crate) const CLOSED_ROUTE_NORMALIZATION_EXCEPTIONS: &[ClosedRouteNormalizati
     },
     ClosedRouteNormalizationException {
         path: "/api/v1/notes/{id}/concepts",
-        methods: &["GET", "HEAD", "POST"],
-        reason: "Note-scoped concept operations need a tenant-scoped taxonomy lookup, so role-based admission remains closed.",
+        methods: &["POST"],
+        reason: "Note-scoped concept tagging needs tenant-scoped concept qualification, so role-based admission remains closed. GET/HEAD authorize through the backing-note normalizer (#1340).",
         follow_up: "https://git.integrolabs.net/Fortemi/fortemi/issues/1279",
     },
     ClosedRouteNormalizationException {
@@ -163,12 +163,6 @@ pub(crate) const CLOSED_ROUTE_NORMALIZATION_EXCEPTIONS: &[ClosedRouteNormalizati
         path: "/api/v1/notes/{id}/memory-provenance",
         methods: &["GET", "HEAD"],
         reason: "Memory provenance needs a tenant-scoped provenance lookup, so role-based admission remains closed.",
-        follow_up: "https://git.integrolabs.net/Fortemi/fortemi/issues/1279",
-    },
-    ClosedRouteNormalizationException {
-        path: "/api/v1/notes/{id}/provenance",
-        methods: &["GET", "HEAD"],
-        reason: "Provenance operations need a tenant-scoped provenance lookup, so role-based admission remains closed.",
         follow_up: "https://git.integrolabs.net/Fortemi/fortemi/issues/1279",
     },
     ClosedRouteNormalizationException {
@@ -2455,6 +2449,8 @@ pub fn hosted_tenant_transaction_ready(method: &Method, path: &str) -> bool {
             | (&Method::PATCH, "/api/v1/notes/{id}/status")
             | (&Method::GET, "/api/v1/notes/{id}/tags")
             | (&Method::PUT, "/api/v1/notes/{id}/tags")
+            | (&Method::GET, "/api/v1/notes/{id}/concepts")
+            | (&Method::GET, "/api/v1/notes/{id}/provenance")
             | (&Method::POST, "/api/v1/notes/{id}/links")
             | (&Method::GET, "/api/v1/tags")
             | (&Method::GET, "/api/v1/collections")
@@ -2893,6 +2889,18 @@ pub(crate) fn backing_resource_normalizer(
             Some(BackingResourceNormalizer::Note)
         }
         (_, ResourceKind::Note, Some("id")) => Some(BackingResourceNormalizer::Note),
+        // #1340: note-scoped concept and provenance reads are authorized by
+        // their backing note (tenant-scoped existence), like /notes/{id}.
+        ("taxonomy", ResourceKind::Taxonomy, Some("id"))
+            if template == "/api/v1/notes/{id}/concepts" =>
+        {
+            Some(BackingResourceNormalizer::Note)
+        }
+        ("provenance", ResourceKind::Provenance, Some("id"))
+            if template == "/api/v1/notes/{id}/provenance" =>
+        {
+            Some(BackingResourceNormalizer::Note)
+        }
         (_, ResourceKind::Attachment, Some("attachment_id")) => {
             Some(BackingResourceNormalizer::Attachment)
         }
@@ -4057,13 +4065,13 @@ pub(crate) mod tests {
 
     #[test]
     fn closed_normalization_exceptions_are_exact_real_routes_with_follow_ups() {
-        assert_eq!(CLOSED_ROUTE_NORMALIZATION_EXCEPTIONS.len(), 7);
+        assert_eq!(CLOSED_ROUTE_NORMALIZATION_EXCEPTIONS.len(), 6);
         assert_eq!(
             CLOSED_ROUTE_NORMALIZATION_EXCEPTIONS
                 .iter()
                 .map(|exception| exception.methods.len())
                 .sum::<usize>(),
-            12
+            8
         );
 
         let mut exception_operations = BTreeSet::new();

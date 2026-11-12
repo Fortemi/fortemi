@@ -5,7 +5,7 @@
 //! a single database transaction.
 
 use chrono::Utc;
-use sqlx::{Postgres, Row, Transaction};
+use sqlx::{PgConnection, Postgres, Row, Transaction};
 use uuid::Uuid;
 
 use matric_core::{
@@ -1169,7 +1169,7 @@ impl PgSkosRepository {
     /// Get note tags with labels within a transaction.
     pub async fn get_note_tags_with_labels_tx(
         &self,
-        tx: &mut Transaction<'_, Postgres>,
+        tx: &mut PgConnection,
         note_id: Uuid,
     ) -> Result<Vec<(NoteSkosConceptTag, SkosConceptWithLabel)>> {
         let query = format!(
@@ -1190,7 +1190,7 @@ impl PgSkosRepository {
         );
         let rows = sqlx::query(&query)
             .bind(note_id)
-            .fetch_all(&mut **tx)
+            .fetch_all(&mut *tx)
             .await
             .map_err(Error::Database)?;
 

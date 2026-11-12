@@ -8,6 +8,7 @@ use tower::ServiceExt;
 fn entity_similarity_query_numeric_and_required_parameters() {
     for (suffix, expected) in [
         ("", None),
+        ("&k=10", Some(10)),
         ("&k=40", Some(40)),
         ("&k=0", Some(0)),
         ("&k=-1", Some(-1)),
