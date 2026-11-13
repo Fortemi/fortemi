@@ -34,6 +34,22 @@ with the fixes listed here. The last published release remains v2026.10.12.
   `k=10` parse case (#1325, #1340).
 - Document the `delete_attachment` 200 JSON response in the OpenAPI contract
   (#1342).
+- Pin PostGIS to `3.6.4+dfsg-2.pgdg12+1` in the bundle and test database
+  images. The unpinned install had begun resolving a PostGIS 3.7 build for a
+  later PostgreSQL 18 minor, which fails to load on the bundled PostgreSQL 18.4
+  (`undefined symbol: heap_datum_check`) (#1344).
+- Copy the test database init script with an explicit readable mode, so a
+  group-restricted checkout no longer leaves it unreadable to `postgres`
+  (#1344).
+
+### Security
+
+- Upgrade `calamine` to 0.38 for RUSTSEC-2026-0436, with a malformed-CFB
+  regression test.
+- Record two reviewed advisory exceptions, both expiring: RUSTSEC-2026-0459
+  (`libsqlite3-sys`, which is in the lockfile but never compiled or linked)
+  until 2026-12-01, and RUSTSEC-2026-0441 (`pin-utils` unmaintained, via the
+  AWS SDK) until 2026-12-15 (#1343).
 
 ### Changed
 
