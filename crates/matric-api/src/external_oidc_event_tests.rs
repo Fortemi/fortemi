@@ -518,14 +518,17 @@ async fn external_oidc_archive_queue_controls_preserve_operator_authorization(ad
     sqlx::query("INSERT INTO archive_registry(name,schema_name,tenant_id) VALUES('queue_foreign','archive_queue_foreign',$1)")
         .bind(foreign).execute(&admin).await.unwrap();
     let before = bus.replay_buffer_len();
-    // External tenant admins retain their existing denial on operator-only
-    // controls, regardless of whether the path is a name or a schema alias.
+    // #1342: archive job control normalizes its archive in the caller's
+    // tenant. The tenant's own archive, by name or schema alias, is admitted
+    // and reaches the handler; this router carries no pause state, so the
+    // handler answers 503 without changing anything. A foreign archive stays
+    // unnormalized and fails closed, by name or schema alias.
     for action in ["pause", "resume"] {
-        for key in [
-            schema.as_str(),
-            "queue_owned",
-            "queue_foreign",
-            "archive_queue_foreign",
+        for (key, expected) in [
+            (schema.as_str(), StatusCode::SERVICE_UNAVAILABLE),
+            ("queue_owned", StatusCode::SERVICE_UNAVAILABLE),
+            ("queue_foreign", StatusCode::FORBIDDEN),
+            ("archive_queue_foreign", StatusCode::FORBIDDEN),
         ] {
             let (status, body) = tokio::time::timeout(
                 BOUND,
@@ -539,13 +542,13 @@ async fn external_oidc_archive_queue_controls_preserve_operator_authorization(ad
             )
             .await
             .unwrap();
-            assert_eq!(status, StatusCode::FORBIDDEN, "{action}/{key}: {body}");
+            assert_eq!(status, expected, "{action}/{key}: {body}");
         }
     }
     assert_eq!(
         bus.replay_buffer_len(),
         before,
-        "denied controls publish nothing"
+        "controls that change nothing publish nothing"
     );
     assert_eq!(
         PauseState::load(runtime.clone())

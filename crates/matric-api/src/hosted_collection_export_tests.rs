@@ -153,8 +153,9 @@ async fn hosted_collections_and_export_are_tenant_bound_for_bootstrapped_tenant(
     let collection = body["id"].as_str().unwrap().to_string();
     let collection_path = format!("/api/v1/collections/{collection}");
 
-    // Membership is set through tenant-transaction note creation; the legacy
-    // note move route is not qualified on this profile.
+    // Membership is set through tenant-transaction note creation. Note move
+    // is qualified on this profile (#1342): move the note out of the
+    // collection and back, so the membership checks below still apply.
     let note = send(
         &app_a,
         Method::POST,
@@ -172,14 +173,33 @@ async fn hosted_collections_and_export_are_tenant_bound_for_bootstrapped_tenant(
     assert_eq!(status, StatusCode::CREATED, "{body}");
     let note_id = body["id"].as_str().unwrap().to_string();
 
-    let moved = send(
+    let moved_out = send(
         &app_a,
         Method::POST,
         &format!("/api/v1/notes/{note_id}/move"),
         serde_json::json!({"collection_id": null}),
     )
     .await;
-    assert_eq!(moved.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(moved_out.status(), StatusCode::NO_CONTENT);
+    let emptied = json_body(
+        send(
+            &app_a,
+            Method::GET,
+            &format!("{collection_path}/notes"),
+            serde_json::Value::Null,
+        )
+        .await,
+    )
+    .await;
+    assert!(!emptied.to_string().contains(&note_id), "{emptied}");
+    let moved_back = send(
+        &app_a,
+        Method::POST,
+        &format!("/api/v1/notes/{note_id}/move"),
+        serde_json::json!({"collection_id": collection}),
+    )
+    .await;
+    assert_eq!(moved_back.status(), StatusCode::NO_CONTENT);
     let renamed = send(
         &app_a,
         Method::PATCH,
