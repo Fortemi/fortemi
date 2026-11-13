@@ -521,14 +521,17 @@ async fn external_oidc_archive_queue_controls_preserve_operator_authorization(ad
     // #1342: archive job control normalizes its archive in the caller's
     // tenant. The tenant's own archive, by name or schema alias, is admitted
     // and reaches the handler; this router carries no pause state, so the
-    // handler answers 503 without changing anything. A foreign archive stays
-    // unnormalized and fails closed, by name or schema alias.
+    // handler answers 503 without changing anything. A foreign archive, by
+    // name or schema alias, is indistinguishable from a missing one: the same
+    // 404 that discloses nothing.
+    let mut not_found_details = Vec::new();
     for action in ["pause", "resume"] {
         for (key, expected) in [
             (schema.as_str(), StatusCode::SERVICE_UNAVAILABLE),
             ("queue_owned", StatusCode::SERVICE_UNAVAILABLE),
-            ("queue_foreign", StatusCode::FORBIDDEN),
-            ("archive_queue_foreign", StatusCode::FORBIDDEN),
+            ("queue_foreign", StatusCode::NOT_FOUND),
+            ("archive_queue_foreign", StatusCode::NOT_FOUND),
+            ("queue_missing", StatusCode::NOT_FOUND),
         ] {
             let (status, body) = tokio::time::timeout(
                 BOUND,
@@ -543,8 +546,15 @@ async fn external_oidc_archive_queue_controls_preserve_operator_authorization(ad
             .await
             .unwrap();
             assert_eq!(status, expected, "{action}/{key}: {body}");
+            if expected == StatusCode::NOT_FOUND {
+                not_found_details.push(body["detail"].clone());
+            }
         }
     }
+    assert!(
+        not_found_details.windows(2).all(|pair| pair[0] == pair[1]),
+        "foreign and missing archives answer alike: {not_found_details:?}"
+    );
     assert_eq!(
         bus.replay_buffer_len(),
         before,
