@@ -260,7 +260,7 @@
       "surfaces": [
         "scripts/test-keycloak-reference-realm.sh"
       ],
-      "reviewed_at": "2026-10-12",
+      "reviewed_at": "2026-11-13",
       "update_cadence_days": 30,
       "rollback": "Restore the prior reviewed digest and rerun the reference-realm case matrix.",
       "mirror_policy": "Mirror the exact tag and digest; the test must retain @sha256 verification."

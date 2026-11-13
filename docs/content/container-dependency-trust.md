@@ -310,3 +310,25 @@ No wheel, model or runtime was downloaded or executed, and no lock was regenerat
 This is a trust-inventory renewal, not a vulnerability scan or new platform/runtime
 qualification. Existing sidecar verification and release gates remain required;
 the 30-day review cadence is unchanged.
+
+## Keycloak reference-realm image review 2026-11-13
+
+The CI-only `keycloak-reference-realm` entry was reviewed again. The public manifest
+for `quay.io/keycloak/keycloak@sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54`
+was fetched read-only from quay.io and its raw SHA-256 matched the existing pin. The
+manifest and value-free receipt are retained in
+`docs/evidence/container-dependency-review-20261113/`. No layers were downloaded or
+executed, and no mutable tags or running services were changed.
+
+The pin is the `26.7.3-0` build (image created 2026-08-31). The mutable `26.7.3` tag
+has since moved to a rebuild, `26.7.3-1` (`sha256:29be7252...`, created 2026-09-14),
+so the tag no longer identifies the pinned digest; the `@sha256` reference keeps the
+pin exact. Keycloak 26.7.4 and 26.7.5 are published upstream with security fixes
+(for example GHSA-xpwp-2pcm-8xq3 / CVE-2026-90997, fixed in 26.7.4, affects
+26.7.0 through 26.7.3). The pin is retained unchanged for its declared CI-only role
+because the same digest is pinned elsewhere and any version/digest update requires
+its own compatibility validation; moving to 26.7.5 is tracked as follow-up work.
+
+This renews the inventory review; it does not claim current vulnerability freedom,
+upstream signatures, or fresh runtime acceptance. Review cadence and failure policy
+remain unchanged.

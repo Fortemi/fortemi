@@ -1,0 +1,45 @@
+{
+  "schema": "core-upstream-image-read-v1",
+  "results": [
+    {
+      "id": "keycloak-reference-realm",
+      "reference": "quay.io/keycloak/keycloak:26.7.3@sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54",
+      "reviewedAt": "2026-11-13T00:05:45.762773+00:00",
+      "upstream": "https://quay.io/repository/keycloak/keycloak",
+      "operation": "read-only manifest; no layers/image execution",
+      "automaticRetry": false,
+      "status": "PASS",
+      "manifestSha256": "sha256:ff4257d0d64efbe99ed1ddfaf07765cc3c36dc7518bf8324d41961327f441c54",
+      "bytes": 2364,
+      "mediaType": "application/vnd.oci.image.index.v1+json",
+      "platforms": [
+        {
+          "architecture": "amd64",
+          "os": "linux"
+        },
+        {
+          "architecture": "arm64",
+          "os": "linux"
+        },
+        {
+          "architecture": "ppc64le",
+          "os": "linux"
+        },
+        {
+          "architecture": "unknown",
+          "os": "unknown"
+        },
+        {
+          "architecture": "unknown",
+          "os": "unknown"
+        },
+        {
+          "architecture": "unknown",
+          "os": "unknown"
+        }
+      ]
+    }
+  ],
+  "allPassed": true,
+  "scope": "pinned digest availability and raw-byte identity; no vulnerability or runtime qualification"
+}
