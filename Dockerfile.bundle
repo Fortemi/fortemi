@@ -63,6 +63,9 @@ ARG BUILD_DATE=unknown
 # Auto-detected by platform where applicable, or override explicitly
 ARG ENABLE_OPEN3D=auto
 ARG ENABLE_POSTGIS=true
+# Matches the PostgreSQL 18.4 base above; newer PGDG PostGIS builds need a
+# later 18.x minor and fail to load. Bump with the base digest (#1344).
+ARG POSTGIS_VERSION=3.6.4+dfsg-2.pgdg12+1
 ARG ENABLE_OCR=true
 ARG ENABLE_FFMPEG=true
 
@@ -101,7 +104,8 @@ RUN if [ "$ENABLE_FFMPEG" = "true" ]; then \
 # Optional: PostGIS (spatial/geographic queries)
 RUN if [ "$ENABLE_POSTGIS" = "true" ]; then \
         apt-get update && apt-get install -y --no-install-recommends \
-            postgresql-18-postgis-3 postgresql-18-postgis-3-scripts \
+            postgresql-18-postgis-3=${POSTGIS_VERSION} \
+            postgresql-18-postgis-3-scripts=${POSTGIS_VERSION} \
         && rm -rf /var/lib/apt/lists/*; \
     else echo "PostGIS disabled"; fi
 

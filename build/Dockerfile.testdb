@@ -21,11 +21,17 @@ LABEL org.opencontainers.image.title="fortemi-testdb"
 LABEL org.opencontainers.image.description="PostgreSQL 18 with pgvector + PostGIS for Fortémi testing"
 LABEL org.opencontainers.image.source="https://github.com/fortemi/fortemi"
 
+# PostGIS must match the PostgreSQL minor in the pinned base image (18.4).
+# PGDG's newest PostGIS builds target later 18.x minors and fail to load on
+# 18.4 (undefined symbol heap_datum_check), so pin the last compatible build.
+# Bump together with the base digest (#1344).
+ARG POSTGIS_VERSION=3.6.4+dfsg-2.pgdg12+1
+
 # Install PostgreSQL extensions needed for full migration support
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # PostGIS for spatial queries (prov:atLocation)
-    postgresql-18-postgis-3 \
-    postgresql-18-postgis-3-scripts \
+    postgresql-18-postgis-3=${POSTGIS_VERSION} \
+    postgresql-18-postgis-3-scripts=${POSTGIS_VERSION} \
     # PDF text extraction for PdfTextAdapter tests
     poppler-utils \
     && rm -rf /var/lib/apt/lists/*
@@ -33,7 +39,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Auto-create extensions on database initialization.
 # The 000- prefix ensures this runs before any other init scripts.
 # Extensions are created as superuser (postgres) by the entrypoint.
-COPY build/init-extensions.sh /docker-entrypoint-initdb.d/000-init-extensions.sh
+# Set the mode explicitly: COPY keeps the checkout's file mode, and a
+# group-restricted checkout (0770) leaves the script unreadable to postgres.
+COPY --chmod=0755 build/init-extensions.sh /docker-entrypoint-initdb.d/000-init-extensions.sh
 
 # Increase max_locks_per_transaction for archive schema tests.
 # Each archive create/drop acquires locks on ~41 tables + indexes.
