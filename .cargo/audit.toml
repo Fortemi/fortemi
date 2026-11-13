@@ -55,4 +55,14 @@ ignore = [
     # Owner: maintainers
     # Expiry: 2026-12-01 (re-evaluate against sqlx >=0.9 if released)
     "RUSTSEC-2026-0459",
+
+    # RUSTSEC-2026-0441 (pin-utils 0.1.0): informational "unmaintained"
+    # advisory, no vulnerability and no patched release. Pulled only through
+    # aws-smithy-http 0.63.6 <- aws-config 1.8 / aws-sdk-kms 1.111 <-
+    # matric-crypto. No semver-compatible update drops it; the fix is the AWS
+    # SDK line on aws-smithy-http >=0.64. Kept in sync with deny.toml, which
+    # fails on unmaintained crates. Tracked in fortemi/fortemi#1343.
+    # Owner: maintainers
+    # Expiry: 2026-12-15
+    "RUSTSEC-2026-0441",
 ]

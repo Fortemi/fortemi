@@ -44,7 +44,12 @@ ignore = [
     # .cargo/audit.toml. Expiry: 2026-12-01.
     "RUSTSEC-2026-0459",
 
-
+    # RUSTSEC-2026-0441 (pin-utils 0.1.0, informational: unmaintained, no
+    # vulnerability, no patched release). Pulled only via aws-smithy-http 0.63
+    # <- aws-config / aws-sdk-kms <- matric-crypto. Removal needs the AWS SDK
+    # line on aws-smithy-http >=0.64 (breaking). Tracked in fortemi/fortemi#1343.
+    # Owner: maintainers. Expiry: 2026-12-15.
+    "RUSTSEC-2026-0441",
 ]
 
 # ===========================================================================
