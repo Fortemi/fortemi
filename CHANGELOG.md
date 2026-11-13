@@ -7,6 +7,40 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.10.14] - 2026-11-13
+
+Version 2026.10.13 was prepared but never tagged or published. Its changes
+(#1330 and #1325, listed under 2026.10.13 below) ship in 2026.10.14 together
+with the fixes listed here. The last published release remains v2026.10.12.
+
+### Fixed
+
+- Authorize `GET`/`HEAD /api/v1/notes/{id}/concepts` and
+  `/api/v1/notes/{id}/provenance` in hosted mode by mapping both routes to the
+  note backing-resource normalizer, so they authorize like
+  `/api/v1/notes/{id}` instead of returning 403 to every principal. Both
+  handlers run on the request's tenant-scoped connection. `POST` concepts and
+  memory-provenance remain closed (#1340).
+- Add hosted role-based normalizers for routes that were marked for
+  backing-resource normalization but denied every caller: archive job control
+  (`/jobs/{pause,resume}/{archive}`), note move (`/notes/{id}/move`, which now
+  also refuses a target collection outside the same archive), and admin routes
+  for user enable/disable, backup files (strict, traversal-safe names inside
+  `BACKUP_DEST`), per-archive backup, embedding configs, and event and ingest
+  tokens, all failing closed (#1342, #1280).
+- Carry the request's archive schema in the purge job payload so purging a note
+  outside the public archive works (#1342).
+- Accept numeric `k` for external-entity similarity requests, including the
+  `k=10` parse case (#1325, #1340).
+- Document the `delete_attachment` 200 JSON response in the OpenAPI contract
+  (#1342).
+
+### Changed
+
+- Advance workspace, MCP, Helm and AsyncAPI release metadata to 2026.10.14
+  after 2026.10.13 was consumed without publication and v2026.10.12 failed its
+  immutable publication.
+
 ## [2026.10.13] - 2026-11-02
 
 ### Fixed
@@ -3458,7 +3492,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.10.13...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.10.14...HEAD
+[2026.10.14]: https://github.com/fortemi/fortemi/compare/v2026.10.12...v2026.10.14
 [2026.10.13]: https://github.com/fortemi/fortemi/compare/v2026.10.12...v2026.10.13
 [2026.10.11]: https://github.com/fortemi/fortemi/compare/v2026.10.10...v2026.10.11
 [2026.10.10]: https://github.com/fortemi/fortemi/compare/v2026.10.9...v2026.10.10
