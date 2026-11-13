@@ -426,6 +426,19 @@ impl IngestTokenStore {
         .then_some(data)
     }
 
+    /// Look up a live token's bound data by its non-secret `token_id` without
+    /// consuming it. `None` when unknown, expired, or Redis is unavailable.
+    pub async fn describe_by_id(&self, token_id: &str) -> Option<IngestTokenData> {
+        let mut guard = self.inner.connection.write().await;
+        let conn = guard.as_mut()?;
+        let fingerprint: Option<String> = conn.get(self.id_key(token_id)).await.ok()?;
+        let raw: Option<String> = conn
+            .get(self.key_from_fingerprint(&fingerprint?))
+            .await
+            .ok()?;
+        serde_json::from_str(&raw?).ok()
+    }
+
     /// Revoke a token by its non-secret `token_id`, deleting both the primary and
     /// reverse-index keys. Returns `true` when something was deleted, `false`
     /// when the id was unknown/expired or Redis is unavailable.

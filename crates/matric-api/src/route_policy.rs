@@ -165,12 +165,6 @@ pub(crate) const CLOSED_ROUTE_NORMALIZATION_EXCEPTIONS: &[ClosedRouteNormalizati
         reason: "Memory provenance needs a tenant-scoped provenance lookup, so role-based admission remains closed.",
         follow_up: "https://git.integrolabs.net/Fortemi/fortemi/issues/1279",
     },
-    ClosedRouteNormalizationException {
-        path: "/api/v1/notes/{id}/move",
-        methods: &["POST"],
-        reason: "Moving a note needs tenant-scoped note and target-collection qualification, so role-based admission remains closed.",
-        follow_up: "https://git.integrolabs.net/Fortemi/fortemi/issues/1280",
-    },
 ];
 
 pub const ROUTE_POLICY_INVENTORY: &[RoutePolicy] = &[
@@ -2452,6 +2446,7 @@ pub fn hosted_tenant_transaction_ready(method: &Method, path: &str) -> bool {
             | (&Method::GET, "/api/v1/notes/{id}/concepts")
             | (&Method::GET, "/api/v1/notes/{id}/provenance")
             | (&Method::POST, "/api/v1/notes/{id}/links")
+            | (&Method::POST, "/api/v1/notes/{id}/move")
             | (&Method::GET, "/api/v1/tags")
             | (&Method::GET, "/api/v1/collections")
             | (&Method::POST, "/api/v1/collections")
@@ -2470,9 +2465,8 @@ pub fn hosted_tenant_transaction_ready(method: &Method, path: &str) -> bool {
             | (&Method::POST, "/api/v1/user/secrets")
             | (&Method::DELETE, "/api/v1/user/secrets/{id}")
     )
-    // POST /api/v1/notes/{id}/move stays closed: its note ID has no collection
-    // normalizer, so the role-based policy always denies it, and the handler does
-    // not prove note or target-collection visibility (#1154 qualification gap).
+    // POST /api/v1/notes/{id}/move authorizes through its backing note and the
+    // handler proves the target collection in the same scoped transaction (#1280).
 }
 
 pub fn is_operator_docs_route(path: &str) -> bool {
@@ -2833,6 +2827,13 @@ pub(crate) enum BackingResourceNormalizer {
     Credential,
     Attachment,
     Archive,
+    ArchiveParam,
+    AppUser,
+    BackupFile,
+    BackupMemoryArchive,
+    EmbeddingConfig,
+    EventStreamToken,
+    IngestToken,
     Collection,
     Template,
     TaxonomyConcept,
@@ -2878,6 +2879,33 @@ pub(crate) fn backing_resource_normalizer(
         .and_then(|value| value.as_str())
         .unwrap_or(input.policy.path);
 
+    // #1342 follow-up: admin route families with an opaque path parameter are
+    // selected by their exact route template.
+    match (template, parameter) {
+        ("/api/v1/admin/users/{id}/disable" | "/api/v1/admin/users/{id}/enable", Some("id")) => {
+            return Some(BackingResourceNormalizer::AppUser);
+        }
+        (
+            "/api/v1/backup/knowledge-archive/{filename}"
+            | "/api/v1/backup/list/{filename}"
+            | "/api/v1/backup/metadata/{filename}",
+            Some("filename"),
+        ) => return Some(BackingResourceNormalizer::BackupFile),
+        ("/api/v1/backup/memory/{name}", Some("name")) => {
+            return Some(BackingResourceNormalizer::BackupMemoryArchive);
+        }
+        ("/api/v1/embedding-configs/{id}", Some("id")) => {
+            return Some(BackingResourceNormalizer::EmbeddingConfig);
+        }
+        ("/api/v1/events/tokens/{token_id}", Some("token_id")) => {
+            return Some(BackingResourceNormalizer::EventStreamToken);
+        }
+        ("/api/v1/ingest/tokens/{token_id}", Some("token_id")) => {
+            return Some(BackingResourceNormalizer::IngestToken);
+        }
+        _ => {}
+    }
+
     match (input.policy.action_family, &input.resource.kind, parameter) {
         ("embedding_control", _, Some("slug")) => Some(BackingResourceNormalizer::EmbeddingSet),
         ("credential_management", ResourceKind::ApiKey, Some("id")) => {
@@ -2901,10 +2929,22 @@ pub(crate) fn backing_resource_normalizer(
         {
             Some(BackingResourceNormalizer::Note)
         }
+        // #1280: moving a note authorizes by its backing note; the body's target
+        // collection is validated by the handler in the same scoped transaction.
+        ("collection", ResourceKind::Collection, Some("id"))
+            if template == "/api/v1/notes/{id}/move" =>
+        {
+            Some(BackingResourceNormalizer::Note)
+        }
         (_, ResourceKind::Attachment, Some("attachment_id")) => {
             Some(BackingResourceNormalizer::Attachment)
         }
         (_, ResourceKind::Archive, Some("name")) => Some(BackingResourceNormalizer::Archive),
+        // #1342: per-archive job pause/resume name their target archive in the
+        // `archive` path parameter; the archive is the backing resource.
+        ("job_control", ResourceKind::Job, Some("archive")) => {
+            Some(BackingResourceNormalizer::ArchiveParam)
+        }
         (_, ResourceKind::Collection, Some("id"))
             if template.starts_with("/api/v1/collections/{id}") =>
         {
@@ -3576,6 +3616,10 @@ pub(crate) mod tests {
                 Method::POST,
                 "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001/links",
             ),
+            (
+                Method::POST,
+                "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001/move",
+            ),
             (Method::GET, "/api/v1/events"),
             (Method::GET, "/api/v1/search"),
             (Method::POST, "/api/v1/search/evidence/resolve"),
@@ -3625,10 +3669,6 @@ pub(crate) mod tests {
                 "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001/purge",
             ),
             (Method::POST, "/api/v1/notes/reprocess"),
-            (
-                Method::POST,
-                "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001/move",
-            ),
             (Method::GET, "/api/v1/concepts"),
             (Method::GET, "/api/v1/attachments"),
             (Method::GET, "/api/v1/jobs"),
@@ -4064,14 +4104,99 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn admin_operator_backing_normalization_inventory_selects_a_production_dispatcher() {
+        let mut covered = BTreeSet::new();
+        let mut missing = Vec::new();
+        for policy in ROUTE_POLICY_INVENTORY
+            .iter()
+            .filter(|policy| policy.class == AdminOperator && policy.path.contains('{'))
+        {
+            let path = materialize_route_template(policy.path);
+            for method_name in policy.methods {
+                let method = Method::from_bytes(method_name.as_bytes())
+                    .expect("route inventory contains a valid HTTP method");
+                let input = authorization_input_for_request(&method, &path, Some("tenant-a"))
+                    .unwrap_or_else(|| panic!("{method} {} has no policy input", policy.path));
+                if input
+                    .resource
+                    .attrs
+                    .get("requires_backing_resource_normalization")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false)
+                {
+                    if backing_resource_normalizer(&input).is_some() {
+                        covered.insert((policy.path, *method_name));
+                    } else {
+                        missing.push(format!("{method} {}", policy.path));
+                    }
+                }
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "AdminOperator routes require backing normalization but have no production dispatcher: {missing:?}"
+        );
+        // #1342 follow-up: every admin route family with an opaque path parameter.
+        for (path, method) in [
+            ("/api/v1/admin/users/{id}/disable", "POST"),
+            ("/api/v1/admin/users/{id}/enable", "POST"),
+            ("/api/v1/backup/knowledge-archive/{filename}", "GET"),
+            ("/api/v1/backup/list/{filename}", "GET"),
+            ("/api/v1/backup/metadata/{filename}", "PUT"),
+            ("/api/v1/backup/memory/{name}", "GET"),
+            ("/api/v1/embedding-configs/{id}", "DELETE"),
+            ("/api/v1/events/tokens/{token_id}", "DELETE"),
+            ("/api/v1/ingest/tokens/{token_id}", "DELETE"),
+        ] {
+            assert!(
+                covered.contains(&(path, method)),
+                "{method} {path} not covered"
+            );
+        }
+        // #1342: archive-scoped job control must stay covered.
+        for path in [
+            "/api/v1/jobs/pause/{archive}",
+            "/api/v1/jobs/resume/{archive}",
+        ] {
+            assert!(covered.contains(&(path, "POST")), "{path} not covered");
+        }
+    }
+
+    #[test]
+    fn archive_job_control_and_note_move_select_expected_normalizers() {
+        for (path, expected) in [
+            (
+                "/api/v1/jobs/pause/some-archive",
+                BackingResourceNormalizer::ArchiveParam,
+            ),
+            (
+                "/api/v1/jobs/resume/some-archive",
+                BackingResourceNormalizer::ArchiveParam,
+            ),
+            (
+                "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001/move",
+                BackingResourceNormalizer::Note,
+            ),
+        ] {
+            let input = authorization_input_for_request(&Method::POST, path, Some("tenant-a"))
+                .expect("route has policy input");
+            assert_eq!(
+                backing_resource_normalizer(&input),
+                Some(expected),
+                "{path}"
+            );
+        }
+    }
+
+    #[test]
     fn closed_normalization_exceptions_are_exact_real_routes_with_follow_ups() {
-        assert_eq!(CLOSED_ROUTE_NORMALIZATION_EXCEPTIONS.len(), 6);
+        assert_eq!(CLOSED_ROUTE_NORMALIZATION_EXCEPTIONS.len(), 5);
         assert_eq!(
             CLOSED_ROUTE_NORMALIZATION_EXCEPTIONS
                 .iter()
                 .map(|exception| exception.methods.len())
                 .sum::<usize>(),
-            8
+            7
         );
 
         let mut exception_operations = BTreeSet::new();

@@ -5,6 +5,7 @@
 
 use super::*;
 use axum::routing::any;
+use matric_jobs::{JobContext, JobHandler, JobResult};
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
@@ -141,7 +142,6 @@ fn closed_route_authorization_router(
             "/api/v1/notes/{id}/memory-provenance",
             any(closed_route_probe),
         )
-        .route("/api/v1/notes/{id}/move", any(closed_route_probe))
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             authorize_middleware,
@@ -680,7 +680,7 @@ async fn embedding_set_authorization_live_db_http_inventory_and_isolation() {
 
     // Every closed exception is dispatched through the production middleware
     // with an existing fixture object.  The in-tenant note is used by graph,
-    // concepts, provenance, and the explicit POST /move case; the call route
+    // concepts, and provenance cases; the call route
     // uses a real call-session row.  The counting handler proves none reaches
     // dispatch after the exception's false normalization flag.
     for exception in route_policy::CLOSED_ROUTE_NORMALIZATION_EXCEPTIONS {
@@ -1623,4 +1623,715 @@ async fn similarity_http_call(
             serde_json::Value::String(String::from_utf8_lossy(&body).into_owned())
         }),
     )
+}
+
+/// #1342/#1280: the real archive job-control, note purge and note move handlers
+/// behind the production identity, tenant-scope, archive-routing and
+/// authorization middleware.
+fn archive_job_note_router(state: AppState, pool: sqlx::PgPool, tenant: Uuid) -> Router {
+    Router::new()
+        .route("/api/v1/archives/{name}", get(get_archive))
+        .route("/api/v1/notes/{id}", get(get_note))
+        .route("/api/v1/notes/{id}/purge", post(purge_note))
+        .route("/api/v1/notes/{id}/move", post(move_note_to_collection))
+        .route("/api/v1/jobs/pause/{archive}", post(pause_jobs_archive))
+        .route("/api/v1/jobs/resume/{archive}", post(resume_jobs_archive))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            authorize_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            archive_routing_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            pool,
+            tenant_scope_middleware,
+        ))
+        .layer(axum::middleware::from_fn(inject_fixture_identity))
+        .layer(Extension(FixtureIdentity { tenant_id: tenant }))
+        .with_state(state)
+}
+
+async fn seed_collection(admin: &sqlx::PgPool, schema: &str, tenant: Uuid) -> Uuid {
+    matric_db::validate_schema_name(schema).expect("fixture archive schema");
+    let id = Uuid::new_v4();
+    sqlx::query(&format!(
+        "INSERT INTO \"{schema}\".collection (id, name, created_at_utc, tenant_id) \
+         VALUES ($1, $2, now(), $3)"
+    ))
+    .bind(id)
+    .bind(format!("fixture-{id}"))
+    .bind(tenant)
+    .execute(admin)
+    .await
+    .expect("seed synthetic fixture collection");
+    id
+}
+
+fn json_request(
+    method: Method,
+    path: &str,
+    archive: &str,
+    scope: &str,
+    body: &str,
+) -> axum::http::Request<Body> {
+    let mut request = request(method, path, archive, scope);
+    request.headers_mut().insert(
+        header::CONTENT_TYPE,
+        "application/json".parse().expect("content type"),
+    );
+    *request.body_mut() = Body::from(body.to_owned());
+    request
+}
+
+#[tokio::test]
+async fn hosted_archive_job_control_purge_and_note_move_live_db() {
+    assert_eq!(
+        std::env::var("FORTEMI_REQUIRE_LIVE_POSTGRES_TESTS").as_deref(),
+        Ok("1"),
+        "run this required test through with-ephemeral-postgres.mjs"
+    );
+    let database_url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be supplied by the runner-owned ephemeral PostgreSQL fixture");
+    let admin = matric_db::create_pool(&database_url)
+        .await
+        .expect("connect runner-owned PostgreSQL fixture");
+    let admin_db = Database::new(admin.clone());
+    admin_db
+        .migrate()
+        .await
+        .expect("migrate runner-owned PostgreSQL fixture");
+
+    let role = format!("jobmove_{}", Uuid::new_v4().simple());
+    let password = Uuid::new_v4().simple().to_string();
+    sqlx::query(&format!(
+        "CREATE ROLE {role} LOGIN PASSWORD '{password}' \
+         NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT"
+    ))
+    .execute(&admin)
+    .await
+    .expect("create powerless fixture runtime role");
+    for grant in [
+        format!("GRANT USAGE ON SCHEMA public TO {role}"),
+        format!("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {role}"),
+        format!("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}"),
+    ] {
+        sqlx::query(&grant)
+            .execute(&admin)
+            .await
+            .expect("grant fixture runtime role");
+    }
+    let runtime = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(3)
+        .connect_with(
+            database_url
+                .parse::<sqlx::postgres::PgConnectOptions>()
+                .expect("fixture PostgreSQL URL")
+                .username(&role)
+                .password(&password),
+        )
+        .await
+        .expect("connect powerless fixture runtime role");
+    let tenant_a = Uuid::new_v4();
+    bootstrap_tenant(&admin, tenant_a, &format!("jobmove-a-{tenant_a}")).await;
+    let archives = matric_db::administrative::AdministrativeExecutor::new(admin.clone(), &runtime)
+        .await
+        .expect("create tenant-aware archive executor");
+    let archive_a = archives
+        .create_archive(
+            tenant_a,
+            &format!("jobmove-a-{}", Uuid::new_v4().simple()),
+            None,
+        )
+        .await
+        .expect("create synthetic tenant A archive");
+    let archive_other = archives
+        .create_archive(
+            tenant_a,
+            &format!("jobmove-o-{}", Uuid::new_v4().simple()),
+            None,
+        )
+        .await
+        .expect("create second synthetic tenant A archive");
+    assert_ne!(archive_a.schema_name, "public");
+
+    let note_id = seed_note(&admin, &archive_a.schema_name, tenant_a).await;
+    let purge_note_id = seed_note(&admin, &archive_a.schema_name, tenant_a).await;
+    let same_collection = seed_collection(&admin, &archive_a.schema_name, tenant_a).await;
+    let other_collection = seed_collection(&admin, &archive_other.schema_name, tenant_a).await;
+
+    // Single-tenant dedicated deployments run application state on a pool whose
+    // connections are bound to the deployment tenant, while the per-request
+    // middleware uses the unscoped runtime pool for its tenant transactions.
+    let (_, credentials_and_host) = database_url
+        .split_once('@')
+        .expect("fixture PostgreSQL URL has a user");
+    let tenant_pool = matric_db::create_pool_with_config(
+        &format!("postgresql://{role}:{password}@{credentials_and_host}"),
+        matric_db::PoolConfig::new()
+            .max_connections(3)
+            .single_tenant(tenant_a),
+    )
+    .await
+    .expect("connect tenant-bound fixture runtime pool");
+    let db = Database::new(tenant_pool.clone());
+    let mut state = super::tests::build_call_api_test_state(db.clone(), &database_url).await;
+    state.require_auth = true;
+    state.multi_tenant = true;
+    state.authorization_policy = std::sync::Arc::new(RoleBasedPolicy);
+    let pause_state = matric_jobs::PauseState::load(tenant_pool.clone())
+        .await
+        .expect("load pause state");
+    state.pause_state = Some(pause_state.clone());
+    let app = archive_job_note_router(state.clone(), runtime.clone(), tenant_a);
+    let archive = archive_a.name.as_str();
+    let admin_scope = "read write admin";
+
+    // Archive pause/resume as admin on an existing non-public archive.
+    let paused = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            &format!("/api/v1/jobs/pause/{archive}"),
+            archive,
+            admin_scope,
+        ))
+        .await
+        .expect("pause response");
+    assert_eq!(paused.status(), StatusCode::OK, "admin archive pause");
+    assert!(pause_state.is_archive_paused(&archive_a.schema_name).await);
+    let readback = pause_state.state(None).await;
+    assert_eq!(
+        readback
+            .archives
+            .get(&archive_a.schema_name)
+            .map(String::as_str),
+        Some("paused")
+    );
+    let resumed = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            &format!("/api/v1/jobs/resume/{archive}"),
+            archive,
+            admin_scope,
+        ))
+        .await
+        .expect("resume response");
+    assert_eq!(resumed.status(), StatusCode::OK, "admin archive resume");
+    assert!(!pause_state.is_archive_paused(&archive_a.schema_name).await);
+    assert!(!pause_state
+        .state(None)
+        .await
+        .archives
+        .contains_key(&archive_a.schema_name));
+
+    // A missing archive is refused exactly like GET /archives/{name}.
+    let missing = "no-such-archive";
+    let baseline = app
+        .clone()
+        .oneshot(request(
+            Method::GET,
+            &format!("/api/v1/archives/{missing}"),
+            archive,
+            admin_scope,
+        ))
+        .await
+        .expect("archive baseline response")
+        .status();
+    assert!(
+        matches!(baseline, StatusCode::FORBIDDEN | StatusCode::NOT_FOUND),
+        "baseline {baseline}"
+    );
+    for action in ["pause", "resume"] {
+        let status = app
+            .clone()
+            .oneshot(request(
+                Method::POST,
+                &format!("/api/v1/jobs/{action}/{missing}"),
+                archive,
+                admin_scope,
+            ))
+            .await
+            .expect("missing archive response")
+            .status();
+        assert_eq!(
+            status, baseline,
+            "{action} missing archive must match /archives/{{name}}"
+        );
+    }
+
+    // A non-admin principal is refused even for an existing archive.
+    for action in ["pause", "resume"] {
+        let status = app
+            .clone()
+            .oneshot(request(
+                Method::POST,
+                &format!("/api/v1/jobs/{action}/{archive}"),
+                archive,
+                "read write",
+            ))
+            .await
+            .expect("non-admin response")
+            .status();
+        assert_eq!(status, StatusCode::FORBIDDEN, "non-admin {action}");
+    }
+    assert!(!pause_state.is_archive_paused(&archive_a.schema_name).await);
+
+    // Purge of a note in a non-public archive: the queued job carries the
+    // archive schema, succeeds, and the note is gone.
+    let purged = app
+        .clone()
+        .oneshot(request(
+            Method::POST,
+            &format!("/api/v1/notes/{purge_note_id}/purge"),
+            archive,
+            admin_scope,
+        ))
+        .await
+        .expect("purge response");
+    assert_eq!(purged.status(), StatusCode::OK, "purge enqueue");
+    let job_row: (Uuid, serde_json::Value) = sqlx::query_as(
+        "SELECT id, payload FROM job_queue \
+         WHERE note_id = $1 AND job_type = 'purge_note'::job_type",
+    )
+    .bind(purge_note_id)
+    .fetch_one(&admin)
+    .await
+    .expect("queued purge job");
+    assert_eq!(
+        job_row.1["schema"],
+        serde_json::json!(archive_a.schema_name),
+        "purge job must carry the request archive schema"
+    );
+    let job = admin_db
+        .jobs
+        .get(job_row.0)
+        .await
+        .expect("load purge job")
+        .expect("purge job exists");
+    let result = PurgeNoteHandler::new(admin_db.clone())
+        .execute(JobContext::new(job))
+        .await;
+    assert!(
+        matches!(result, JobResult::Success(_)),
+        "purge job must succeed: {result:?}"
+    );
+    let remaining: i64 = sqlx::query_scalar(&format!(
+        "SELECT COUNT(*) FROM \"{}\".note WHERE id = $1",
+        archive_a.schema_name
+    ))
+    .bind(purge_note_id)
+    .fetch_one(&admin)
+    .await
+    .expect("count purged note");
+    assert_eq!(remaining, 0, "purged note must be gone from its archive");
+
+    // Move into a same-archive collection is admitted and applied.
+    let moved = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            &format!("/api/v1/notes/{note_id}/move"),
+            archive,
+            "read write",
+            &serde_json::json!({ "collection_id": same_collection }).to_string(),
+        ))
+        .await
+        .expect("move response");
+    assert_eq!(moved.status(), StatusCode::NO_CONTENT, "same-archive move");
+    let placed: Option<Uuid> = sqlx::query_scalar(&format!(
+        "SELECT collection_id FROM \"{}\".note WHERE id = $1",
+        archive_a.schema_name
+    ))
+    .bind(note_id)
+    .fetch_one(&admin)
+    .await
+    .expect("read back moved note");
+    assert_eq!(placed, Some(same_collection));
+
+    // A collection in another archive, or one that does not exist, is refused
+    // and leaves the membership unchanged.
+    for (label, target) in [
+        ("cross-archive", other_collection),
+        ("missing", Uuid::new_v4()),
+    ] {
+        let status = app
+            .clone()
+            .oneshot(json_request(
+                Method::POST,
+                &format!("/api/v1/notes/{note_id}/move"),
+                archive,
+                "read write",
+                &serde_json::json!({ "collection_id": target }).to_string(),
+            ))
+            .await
+            .expect("refused move response")
+            .status();
+        assert!(
+            status.is_client_error(),
+            "{label} collection move must be refused with 4xx, got {status}"
+        );
+        let still: Option<Uuid> = sqlx::query_scalar(&format!(
+            "SELECT collection_id FROM \"{}\".note WHERE id = $1",
+            archive_a.schema_name
+        ))
+        .bind(note_id)
+        .fetch_one(&admin)
+        .await
+        .expect("read back note after refused move");
+        assert_eq!(
+            still,
+            Some(same_collection),
+            "{label} move changed membership"
+        );
+    }
+
+    // A missing note and a read-only principal are refused before the handler.
+    let missing_note = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            &format!("/api/v1/notes/{}/move", Uuid::new_v4()),
+            archive,
+            "read write",
+            &serde_json::json!({ "collection_id": same_collection }).to_string(),
+        ))
+        .await
+        .expect("missing note move response")
+        .status();
+    assert_eq!(missing_note, StatusCode::FORBIDDEN);
+    let read_only = app
+        .clone()
+        .oneshot(json_request(
+            Method::POST,
+            &format!("/api/v1/notes/{note_id}/move"),
+            archive,
+            "read",
+            &serde_json::json!({ "collection_id": same_collection }).to_string(),
+        ))
+        .await
+        .expect("read-only move response")
+        .status();
+    assert_eq!(read_only, StatusCode::FORBIDDEN);
+
+    drop(app);
+    archives
+        .drop_archive(tenant_a, &archive_a.name)
+        .await
+        .expect("drop archive");
+    archives
+        .drop_archive(tenant_a, &archive_other.name)
+        .await
+        .expect("drop second archive");
+    tenant_pool.close().await;
+    runtime.close().await;
+    sqlx::query(&format!("DROP OWNED BY {role}"))
+        .execute(&admin)
+        .await
+        .expect("drop fixture runtime grants");
+    sqlx::query(&format!("DROP ROLE {role}"))
+        .execute(&admin)
+        .await
+        .expect("drop fixture runtime role");
+    admin.close().await;
+}
+
+/// #1342 follow-up: real backup-file and embedding-config handlers behind the
+/// production identity, tenant-scope, archive-routing and authorization middleware.
+fn admin_resource_router(state: AppState, pool: sqlx::PgPool, tenant: Uuid) -> Router {
+    Router::new()
+        .route("/api/v1/backup/list/{filename}", get(get_backup_info))
+        .route(
+            "/api/v1/backup/metadata/{filename}",
+            get(get_backup_metadata).put(update_backup_metadata),
+        )
+        .route(
+            "/api/v1/backup/knowledge-archive/{filename}",
+            get(knowledge_archive_download),
+        )
+        .route(
+            "/api/v1/embedding-configs/{id}",
+            get(get_embedding_config).delete(delete_embedding_config),
+        )
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            authorize_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            archive_routing_middleware,
+        ))
+        .layer(axum::middleware::from_fn_with_state(
+            pool,
+            tenant_scope_middleware,
+        ))
+        .layer(axum::middleware::from_fn(inject_fixture_identity))
+        .layer(Extension(FixtureIdentity { tenant_id: tenant }))
+        .with_state(state)
+}
+
+struct BackupDestGuard(Option<std::ffi::OsString>);
+
+impl Drop for BackupDestGuard {
+    fn drop(&mut self) {
+        match self.0.take() {
+            Some(value) => std::env::set_var("BACKUP_DEST", value),
+            None => std::env::remove_var("BACKUP_DEST"),
+        }
+    }
+}
+
+#[tokio::test]
+async fn hosted_backup_file_and_embedding_config_routes_live_db() {
+    assert_eq!(
+        std::env::var("FORTEMI_REQUIRE_LIVE_POSTGRES_TESTS").as_deref(),
+        Ok("1"),
+        "run this required test through with-ephemeral-postgres.mjs"
+    );
+    let database_url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be supplied by the runner-owned ephemeral PostgreSQL fixture");
+    let admin = matric_db::create_pool(&database_url)
+        .await
+        .expect("connect runner-owned PostgreSQL fixture");
+    Database::new(admin.clone())
+        .migrate()
+        .await
+        .expect("migrate runner-owned PostgreSQL fixture");
+
+    let role = format!("adminres_{}", Uuid::new_v4().simple());
+    let password = Uuid::new_v4().simple().to_string();
+    sqlx::query(&format!(
+        "CREATE ROLE {role} LOGIN PASSWORD '{password}' \
+         NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOINHERIT"
+    ))
+    .execute(&admin)
+    .await
+    .expect("create powerless fixture runtime role");
+    for grant in [
+        format!("GRANT USAGE ON SCHEMA public TO {role}"),
+        format!("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {role}"),
+        format!("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}"),
+    ] {
+        sqlx::query(&grant)
+            .execute(&admin)
+            .await
+            .expect("grant fixture runtime role");
+    }
+    let runtime = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(3)
+        .connect_with(
+            database_url
+                .parse::<sqlx::postgres::PgConnectOptions>()
+                .expect("fixture PostgreSQL URL")
+                .username(&role)
+                .password(&password),
+        )
+        .await
+        .expect("connect powerless fixture runtime role");
+
+    let tenant_a = Uuid::new_v4();
+    let tenant_b = Uuid::new_v4();
+    bootstrap_tenant(&admin, tenant_a, &format!("adminres-a-{tenant_a}")).await;
+    bootstrap_tenant(&admin, tenant_b, &format!("adminres-b-{tenant_b}")).await;
+    let archives = matric_db::administrative::AdministrativeExecutor::new(admin.clone(), &runtime)
+        .await
+        .expect("create tenant-aware archive executor");
+    let archive_a = archives
+        .create_archive(
+            tenant_a,
+            &format!("adminres-a-{}", Uuid::new_v4().simple()),
+            None,
+        )
+        .await
+        .expect("create synthetic tenant A archive");
+    let config_a: Uuid = sqlx::query_scalar(
+        "SELECT id FROM embedding_config WHERE tenant_id = $1 AND is_default LIMIT 1",
+    )
+    .bind(tenant_a)
+    .fetch_one(&admin)
+    .await
+    .expect("tenant A default embedding config");
+    let config_b: Uuid = sqlx::query_scalar(
+        "SELECT id FROM embedding_config WHERE tenant_id = $1 AND is_default LIMIT 1",
+    )
+    .bind(tenant_b)
+    .fetch_one(&admin)
+    .await
+    .expect("tenant B default embedding config");
+
+    let (_, credentials_and_host) = database_url
+        .split_once('@')
+        .expect("fixture PostgreSQL URL has a user");
+    let tenant_pool = matric_db::create_pool_with_config(
+        &format!("postgresql://{role}:{password}@{credentials_and_host}"),
+        matric_db::PoolConfig::new()
+            .max_connections(3)
+            .single_tenant(tenant_a),
+    )
+    .await
+    .expect("connect tenant-bound fixture runtime pool");
+    let db = Database::new(tenant_pool.clone());
+    let mut state = super::tests::build_call_api_test_state(db, &database_url).await;
+    state.require_auth = true;
+    state.multi_tenant = true;
+    state.authorization_policy = std::sync::Arc::new(RoleBasedPolicy);
+    let app = admin_resource_router(state, runtime.clone(), tenant_a);
+    let archive = archive_a.name.as_str();
+    let admin_scope = "read write admin";
+
+    // The backup directory is a child of a scratch directory that also holds a
+    // secret sibling, so any escape would be observable.
+    let scratch = tempfile::tempdir().expect("scratch dir");
+    let backups = scratch.path().join("backups");
+    std::fs::create_dir(&backups).expect("backup dir");
+    std::fs::write(backups.join("snap_live.sql.gz"), b"backup-bytes").expect("backup file");
+    std::fs::write(scratch.path().join("secret.txt"), b"SECRET-OUTSIDE").expect("secret file");
+    let _restore = BackupDestGuard(std::env::var_os("BACKUP_DEST"));
+    std::env::set_var("BACKUP_DEST", &backups);
+
+    async fn status(
+        app: &Router,
+        method: Method,
+        path: &str,
+        archive: &str,
+        scope: &str,
+    ) -> StatusCode {
+        let mut request = request(method.clone(), path, archive, scope);
+        if method == Method::PUT {
+            request.headers_mut().insert(
+                header::CONTENT_TYPE,
+                "application/json".parse().expect("content type"),
+            );
+            *request.body_mut() = Body::from(r#"{"title":"Live title"}"#);
+        }
+        app.clone()
+            .oneshot(request)
+            .await
+            .expect("response")
+            .status()
+    }
+
+    // An existing backup file is admitted on every filename route.
+    for path in [
+        "/api/v1/backup/list/snap_live.sql.gz",
+        "/api/v1/backup/metadata/snap_live.sql.gz",
+        "/api/v1/backup/knowledge-archive/snap_live.sql.gz",
+    ] {
+        assert_eq!(
+            status(&app, Method::GET, path, archive, admin_scope).await,
+            StatusCode::OK,
+            "admin GET {path}"
+        );
+        // The same route is refused for a non-admin principal.
+        assert_eq!(
+            status(&app, Method::GET, path, archive, "read write").await,
+            StatusCode::FORBIDDEN,
+            "non-admin GET {path}"
+        );
+    }
+    assert_eq!(
+        status(
+            &app,
+            Method::PUT,
+            "/api/v1/backup/metadata/snap_live.sql.gz",
+            archive,
+            admin_scope
+        )
+        .await,
+        StatusCode::OK,
+        "admin PUT metadata"
+    );
+    assert!(backups.join("snap_live.sql.gz.meta.json").exists());
+
+    // Missing files and traversal attempts never reach a handler.
+    for path in [
+        "/api/v1/backup/list/missing.sql.gz",
+        "/api/v1/backup/metadata/missing.sql.gz",
+        "/api/v1/backup/knowledge-archive/missing.sql.gz",
+        "/api/v1/backup/list/..%2Fsecret.txt",
+        "/api/v1/backup/metadata/..%2Fsecret.txt",
+        "/api/v1/backup/knowledge-archive/..%2Fsecret.txt",
+        "/api/v1/backup/knowledge-archive/%2e%2e%2fsecret.txt",
+        "/api/v1/backup/list/%2e%2e",
+        "/api/v1/backup/metadata/snap_live.sql.gz%2f..%2f..%2fsecret.txt",
+        "/api/v1/backup/list/..%5csecret.txt",
+        "/api/v1/backup/list/%2Fetc%2Fpasswd",
+    ] {
+        for method in [Method::GET, Method::PUT] {
+            if method == Method::PUT && !path.contains("/metadata/") {
+                continue;
+            }
+            assert_eq!(
+                status(&app, method.clone(), path, archive, admin_scope).await,
+                StatusCode::FORBIDDEN,
+                "{method} {path} must fail closed before the handler"
+            );
+        }
+    }
+    assert!(
+        !scratch.path().join("secret.txt.meta.json").exists(),
+        "traversal must not create metadata outside the backup directory"
+    );
+    assert_eq!(
+        std::fs::read(scratch.path().join("secret.txt")).unwrap(),
+        b"SECRET-OUTSIDE"
+    );
+
+    // Embedding configs: existing -> admitted, missing/foreign -> 403, non-admin -> 403.
+    let own = format!("/api/v1/embedding-configs/{config_a}");
+    assert_eq!(
+        status(&app, Method::GET, &own, archive, admin_scope).await,
+        StatusCode::OK,
+        "admin GET own embedding config"
+    );
+    assert_eq!(
+        status(&app, Method::GET, &own, archive, "read write").await,
+        StatusCode::FORBIDDEN,
+        "non-admin GET embedding config"
+    );
+    for (label, id) in [("missing", Uuid::new_v4()), ("foreign-tenant", config_b)] {
+        for method in [Method::GET, Method::DELETE] {
+            assert_eq!(
+                status(
+                    &app,
+                    method.clone(),
+                    &format!("/api/v1/embedding-configs/{id}"),
+                    archive,
+                    admin_scope
+                )
+                .await,
+                StatusCode::FORBIDDEN,
+                "{label} embedding config {method}"
+            );
+        }
+    }
+    let foreign_still_there: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM embedding_config WHERE id = $1)")
+            .bind(config_b)
+            .fetch_one(&admin)
+            .await
+            .expect("foreign config readback");
+    assert!(
+        foreign_still_there,
+        "foreign tenant config must be untouched"
+    );
+
+    drop(app);
+    archives
+        .drop_archive(tenant_a, &archive_a.name)
+        .await
+        .expect("drop archive");
+    tenant_pool.close().await;
+    runtime.close().await;
+    sqlx::query(&format!("DROP OWNED BY {role}"))
+        .execute(&admin)
+        .await
+        .expect("drop fixture runtime grants");
+    sqlx::query(&format!("DROP ROLE {role}"))
+        .execute(&admin)
+        .await
+        .expect("drop fixture runtime role");
+    admin.close().await;
 }

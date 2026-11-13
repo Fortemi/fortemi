@@ -112,7 +112,7 @@ is historical tenant qualification and does not assert the archive class is
 | `export` | yes | partial | 2 | 15 | 0 | 0 |
 | `jobs_embeddings` | yes | gap | 0 | 46 | 0 | 0 |
 | `realtime_mcp` | yes | partial | 1 | 4 | 0 | 0 |
-| `collections` | yes | partial | 6 | 4 | 0 | 0 |
+| `collections` | yes | partial | 7 | 3 | 0 | 0 |
 | `taxonomy` | no | partial | 1 | 0 | 55 | 0 |
 | `inference` | no | partial | 5 | 0 | 11 | 0 |
 | `attachments` | no | excluded | 0 | 0 | 25 | 0 |
@@ -123,7 +123,7 @@ is historical tenant qualification and does not assert the archive class is
 | `knowledge_health` | no | excluded | 0 | 0 | 12 | 0 |
 | `operator` | no | excluded | 0 | 0 | 94 | 2 |
 | `public_protocol` | no | public | 0 | 0 | 0 | 32 |
-| **total** | | | 42 | 148 | 227 | 36 |
+| **total** | | | 43 | 147 | 227 | 36 |
 
 ```json
 {
@@ -306,7 +306,7 @@ is historical tenant qualification and does not assert the archive class is
     {"method":"PATCH","path":"/api/v1/collections/{id}","class":"collections","status":"qualified","enforcement":"tenant_transaction"},
     {"method":"GET","path":"/api/v1/collections/{id}/notes","class":"collections","status":"qualified","enforcement":"tenant_transaction"},
     {"method":"HEAD","path":"/api/v1/collections/{id}/notes","class":"collections","status":"gap","enforcement":"hosted_503"},
-    {"method":"POST","path":"/api/v1/notes/{id}/move","class":"collections","status":"gap","enforcement":"hosted_503"},
+    {"method":"POST","path":"/api/v1/notes/{id}/move","class":"collections","status":"qualified","enforcement":"tenant_transaction"},
     {"method":"GET","path":"/api/v1/concepts","class":"taxonomy","status":"excluded","enforcement":"hosted_503"},
     {"method":"HEAD","path":"/api/v1/concepts","class":"taxonomy","status":"excluded","enforcement":"hosted_503"},
     {"method":"POST","path":"/api/v1/concepts","class":"taxonomy","status":"excluded","enforcement":"hosted_503"},
@@ -604,7 +604,7 @@ secret storage, and the matrix check itself).
 | `links_graph` | `POST /api/v1/notes/{id}/links` | `tests::hosted_manual_note_link_enforces_scope_and_tenant_transaction_visibility` |
 | `archives_memories` | `GET /api/v1/memory/context` | `scoped_search_tests::memory_context::hosted_memory_context_is_tenant_bound_and_read_only` |
 | `export` | `GET /api/v1/collections/{id}/export` | `hosted_create_note_tests::collection_export::hosted_collections_and_export_are_tenant_bound_for_bootstrapped_tenant` |
-| `collections` | collection list/create/get/update/delete, collection notes | `hosted_create_note_tests::collection_export::hosted_collections_and_export_are_tenant_bound_for_bootstrapped_tenant` |
+| `collections` | collection list/create/get/update/delete, collection notes, `POST /api/v1/notes/{id}/move` (backing note plus same-tenant, same-archive target collection; Fortemi/fortemi#1342) | `embedding_set_authorization_tests::hosted_archive_job_control_purge_and_note_move_live_db` (move); `hosted_create_note_tests::collection_export::hosted_collections_and_export_are_tenant_bound_for_bootstrapped_tenant` |
 | `realtime_mcp` | `GET /api/v1/events` (SSE, bearer + `mcp` scope) | `hosted_create_note_tests::hosted_creation_postgres_atomicity_and_tenant_isolation` (replay/live tenant filtering, transaction released before streaming); unit `hosted_sse_filters_foreign_and_unattributed_live_and_replay_events` |
 | `inference` | catalog, providers, complete, stream, embed | unit `handlers::inference_complete::tests::hosted_model_policy_is_profile_and_capability_specific`; outside the graph/knowledge workload |
 | `account` | token info, user secrets | unit `handlers::token_info::tests::hosted_contexts_report_hosted_class_expiry_and_tenant_binding`; `route_policy::tests::hosted_user_secret_routes_are_hidden_tenant_objects_without_enumeration_lookup`; `tests/user_secret_storage_test.rs` |
@@ -632,7 +632,6 @@ returns `503` on this profile.
 | `export` | Knowledge Shard and Knowledge Archive export/import, backup export/import, note export | Fortemi/fortemi#959 (note export); proposed: tenant-scoped Knowledge Shard export |
 | `jobs_embeddings` | job control, embedding sets/configs, reprocess | Fortemi/fortemi#955; proposed: hosted job status and embedding execution |
 | `realtime_mcp` | `GET /api/v1/ws`, `POST /api/v1/ingest/stream` (closed in hosted mode: `401`/`503`; no tenant binding yet) | Fortemi/fortemi#1163 |
-| `collections` | `POST /api/v1/notes/{id}/move` | proposed: hosted note move. Set membership with `collection_id` on note creation. |
 
 Related exclusions are tracked by Fortemi/fortemi#961 (attachments) and
 Fortemi/fortemi#962 (document types). The `knowledge_health` diagnostics

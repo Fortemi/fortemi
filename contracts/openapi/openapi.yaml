@@ -684,8 +684,8 @@ paths:
           type: string
           format: uuid
       responses:
-        '204':
-          description: No Content
+        '200':
+          description: Attachment deleted (JSON success message)
         '429':
           content:
             application/problem+json:

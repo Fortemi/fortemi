@@ -274,6 +274,39 @@ pub(crate) fn is_inventory_or_named_path(path: &str) -> bool {
     })
 }
 
+pub(crate) fn is_archive_job_control_path(template: &str) -> bool {
+    matches!(
+        template,
+        "/api/v1/jobs/pause/{archive}" | "/api/v1/jobs/resume/{archive}"
+    )
+}
+
+/// Tenant-scoped archive registry lookup on the request's own connection.
+pub(crate) async fn lookup_in_scope(
+    scope: &TenantRequestScope,
+    key: String,
+    name_or_schema: bool,
+) -> Result<Option<matric_core::ArchiveInfo>, matric_core::Error> {
+    const BY_NAME: &str = "SELECT id,name,schema_name,description,created_at,last_accessed,note_count,size_bytes,is_default,schema_version FROM public.archive_registry WHERE name=$1 AND tenant_id=current_setting('app.current_tenant')::uuid";
+    const BY_NAME_OR_SCHEMA: &str = "SELECT id,name,schema_name,description,created_at,last_accessed,note_count,size_bytes,is_default,schema_version FROM public.archive_registry WHERE (name=$1 OR schema_name=$1) AND tenant_id=current_setting('app.current_tenant')::uuid ORDER BY (schema_name=$1) DESC LIMIT 1";
+    let sql = if name_or_schema {
+        BY_NAME_OR_SCHEMA
+    } else {
+        BY_NAME
+    };
+    scope
+        .with_connection(move |connection| {
+            Box::pin(async move {
+                sqlx::query_as::<_, matric_core::ArchiveInfo>(sql)
+                    .bind(key)
+                    .fetch_optional(connection)
+                    .await
+                    .map_err(matric_core::Error::Database)
+            })
+        })
+        .await
+}
+
 /// Resolve path targets before route policy evaluation; neither denied nor
 /// missing targets reach normalization, maintenance, audit, or the handler.
 pub(crate) async fn path_target(
@@ -281,8 +314,12 @@ pub(crate) async fn path_target(
     extensions: &axum::http::Extensions,
     input: &route_policy::RoutePolicyInput,
 ) -> Result<Option<ArchiveContext>, ApiError> {
+    // #1342: archive-scoped job pause/resume name their target archive (a name or
+    // schema, as the handlers accept) in `{archive}` and resolve like archive routes.
+    let name_or_schema = is_archive_job_control_path(input.policy.path);
     if !(input.policy.action_family == "memory_management" && input.policy.path.contains("{name}"))
         && input.policy.path != "/api/v1/backup/memory/{name}"
+        && !name_or_schema
     {
         return Ok(None);
     }
@@ -290,13 +327,17 @@ pub(crate) async fn path_target(
         .map_err(|_| not_found())?
         .into_owned();
     let archive = if let Some(scope) = extensions.get::<TenantRequestScope>() {
-        scope.with_connection(move |connection| Box::pin(async move {
-            sqlx::query_as::<_, matric_core::ArchiveInfo>("SELECT id,name,schema_name,description,created_at,last_accessed,note_count,size_bytes,is_default,schema_version FROM public.archive_registry WHERE name=$1 AND tenant_id=current_setting('app.current_tenant')::uuid")
-                .bind(name).fetch_optional(connection).await.map_err(matric_core::Error::Database)
-        })).await?
+        lookup_in_scope(scope, name, name_or_schema).await?
+    } else if name_or_schema {
+        state
+            .db
+            .archives
+            .get_archive_by_name_or_schema(&name)
+            .await?
     } else {
         state.db.archives.get_archive_by_name(&name).await?
-    }.ok_or_else(not_found)?;
+    }
+    .ok_or_else(not_found)?;
     if let Some(scope) = extensions.get::<TenantRequestScope>() {
         scope.release_preliminary().await?;
     }

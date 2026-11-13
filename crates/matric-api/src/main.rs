@@ -11874,6 +11874,25 @@ async fn normalize_route_policy_input_for_authorization(
         state.db.archives.get_archive_by_name(&archive_name).await
     })
     .await;
+    let input = normalize_archive_param_route_policy_input(input, |archive_key| async move {
+        // Hosted request lookups use the verified tenant's own connection; the
+        // pool has no ambient tenant there.
+        match scope {
+            Some(scope) => archive_access::lookup_in_scope(scope, archive_key, true).await,
+            None => {
+                state
+                    .db
+                    .archives
+                    .get_archive_by_name_or_schema(&archive_key)
+                    .await
+            }
+        }
+    })
+    .await;
+    let input = normalize_admin_resource_route_policy_input(input, |selected, id, tenant| {
+        lookup_admin_resource_for_authorization(state, scope, selected, id, tenant)
+    })
+    .await;
     let input = normalize_collection_route_policy_input(input, |collection_id| {
         lookup_collection_for_authorization(state, archive_ctx, scope, collection_id)
     })
@@ -12355,7 +12374,19 @@ where
         .get("resource_id_param")
         .and_then(|value| value.as_str())
         == Some("id");
-    if (input.resource.kind != ResourceKind::Note && !note_owned_attachment && !note_scoped_read)
+    // #1280: POST /notes/{id}/move binds to its backing note.
+    let note_move = input.policy.path == "/api/v1/notes/{id}/move"
+        && input.resource.kind == ResourceKind::Collection
+        && input
+            .resource
+            .attrs
+            .get("resource_id_param")
+            .and_then(|value| value.as_str())
+            == Some("id");
+    if (input.resource.kind != ResourceKind::Note
+        && !note_owned_attachment
+        && !note_scoped_read
+        && !note_move)
         || !input
             .resource
             .attrs
@@ -12547,6 +12578,245 @@ where
                 error_len = telemetry_text_len(&err.to_string()),
                 detail = API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
                 operation = "normalize_archive_route_policy_input",
+                "authorization archive normalization lookup failed"
+            );
+        }
+    }
+
+    input
+}
+
+/// Strict backup-storage filename: no separators, no leading dot, no `..`.
+fn is_strict_backup_filename(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 255
+        && !name.starts_with('.')
+        && !name.contains("..")
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
+/// Whether `name` is a regular, non-symlink file directly inside `dir`.
+/// Traversal is rejected by the strict pattern first, then re-proved by
+/// canonical-path containment so a name can never leave the backup directory.
+fn backup_file_exists_in(dir: &std::path::Path, name: &str) -> bool {
+    if !is_strict_backup_filename(name) {
+        return false;
+    }
+    let candidate = dir.join(name);
+    let Ok(meta) = std::fs::symlink_metadata(&candidate) else {
+        return false;
+    };
+    if !meta.is_file() {
+        return false;
+    }
+    match (
+        std::fs::canonicalize(dir),
+        std::fs::canonicalize(&candidate),
+    ) {
+        (Ok(root), Ok(resolved)) => resolved.parent() == Some(root.as_path()),
+        _ => false,
+    }
+}
+
+/// Normalizes the admin route families whose path parameter names a stored
+/// object: application users, backup files, per-archive backups, embedding
+/// configs, and event/ingest stream tokens. The selector is the production
+/// dispatcher; a missing, foreign or malformed object stays unnormalized and
+/// fails closed in the role-based policy exactly like the other normalizers.
+async fn normalize_admin_resource_route_policy_input<F, Fut>(
+    mut input: route_policy::RoutePolicyInput,
+    exists: F,
+) -> route_policy::RoutePolicyInput
+where
+    F: FnOnce(route_policy::BackingResourceNormalizer, String, Option<String>) -> Fut,
+    Fut: std::future::Future<Output = matric_core::Result<bool>>,
+{
+    use route_policy::BackingResourceNormalizer as Selected;
+    let Some(selected) = route_policy::backing_resource_normalizer(&input).filter(|selected| {
+        matches!(
+            selected,
+            Selected::AppUser
+                | Selected::BackupFile
+                | Selected::BackupMemoryArchive
+                | Selected::EmbeddingConfig
+                | Selected::EventStreamToken
+                | Selected::IngestToken
+        )
+    }) else {
+        return input;
+    };
+    let Some(raw_id) = input.resource.id.as_deref() else {
+        return input;
+    };
+    let Ok(id) = urlencoding::decode(raw_id).map(|id| id.into_owned()) else {
+        tracing::warn!("authorization resource normalization skipped: undecodable identifier");
+        return input;
+    };
+    let tenant = input.context.tenant_id.clone();
+    match exists(selected, id, tenant).await {
+        Ok(true) => route_policy::mark_resource_id_normalized(&mut input),
+        Ok(false) => {
+            tracing::warn!("authorization resource normalization skipped: resource not found");
+        }
+        Err(err) => {
+            tracing::warn!(
+                error_len = telemetry_text_len(&err.to_string()),
+                detail = API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "normalize_admin_resource_route_policy_input",
+                "authorization admin resource normalization lookup failed"
+            );
+        }
+    }
+    input
+}
+
+async fn lookup_admin_resource_for_authorization(
+    state: &AppState,
+    scope: Option<&TenantRequestScope>,
+    selected: route_policy::BackingResourceNormalizer,
+    id: String,
+    tenant: Option<String>,
+) -> matric_core::Result<bool> {
+    use route_policy::BackingResourceNormalizer as Selected;
+    match selected {
+        Selected::BackupFile => {
+            let dir = std::env::var("BACKUP_DEST")
+                .unwrap_or_else(|_| "/var/backups/matric-memory".to_string());
+            tokio::task::spawn_blocking(move || {
+                backup_file_exists_in(std::path::Path::new(&dir), &id)
+            })
+            .await
+            .map_err(|_| matric_core::Error::Internal("backup lookup failed".to_string()))
+        }
+        Selected::BackupMemoryArchive => match scope {
+            Some(scope) => archive_access::lookup_in_scope(scope, id, false)
+                .await
+                .map(|archive| archive.is_some()),
+            None => state
+                .db
+                .archives
+                .get_archive_by_name(&id)
+                .await
+                .map(|archive| archive.is_some()),
+        },
+        Selected::EmbeddingConfig => {
+            let Ok(config_id) = Uuid::parse_str(&id) else {
+                return Ok(false);
+            };
+            let repo = matric_db::PgEmbeddingSetRepository::new(state.db.pool.clone());
+            with_request_schema(
+                state,
+                scope.cloned(),
+                "public".to_string(),
+                move |connection| {
+                    Box::pin(async move {
+                        repo.get_config_tx(connection, config_id)
+                            .await
+                            .map(|config| config.is_some())
+                    })
+                },
+            )
+            .await
+        }
+        Selected::AppUser => {
+            // User administration is tenant-bound by definition.
+            let (Some(tenant), Ok(user_id)) = (
+                tenant
+                    .as_deref()
+                    .and_then(|tenant| Uuid::parse_str(tenant).ok()),
+                Uuid::parse_str(&id),
+            ) else {
+                return Ok(false);
+            };
+            state.app_users.exists(tenant, user_id).await
+        }
+        Selected::EventStreamToken | Selected::IngestToken => {
+            let audience = if selected == Selected::EventStreamToken {
+                matric_api::services::ingest_token_store::EVENT_SSE_TOKEN_AUDIENCE
+            } else {
+                matric_api::services::ingest_token_store::INGEST_TOKEN_AUDIENCE
+            };
+            let Some(data) = state.ingest_token_store.describe_by_id(&id).await else {
+                return Ok(false);
+            };
+            if data.audience != audience {
+                return Ok(false);
+            }
+            // Hosted tokens carry their minting tenant; a foreign tenant's token
+            // is indistinguishable from a missing one.
+            let token_tenant = data
+                .event_identity
+                .as_ref()
+                .and_then(|identity| identity.tenant_id)
+                .or_else(|| {
+                    data.ingest_identity
+                        .as_ref()
+                        .and_then(|identity| identity.tenant_id)
+                });
+            Ok(match (tenant.as_deref(), token_tenant) {
+                (Some(request_tenant), Some(token_tenant)) => {
+                    Uuid::parse_str(request_tenant) == Ok(token_tenant)
+                }
+                (Some(_), None) => false,
+                (None, _) => true,
+            })
+        }
+        _ => Ok(false),
+    }
+}
+
+/// #1342: `POST /jobs/{pause,resume}/{archive}` name their target archive in the
+/// `archive` path parameter (a name or schema, as the handlers accept). The
+/// archive is the backing resource and must be visible in the caller's tenant;
+/// a missing or foreign archive stays unnormalized and fails closed exactly
+/// like `/archives/{name}`.
+async fn normalize_archive_param_route_policy_input<F, Fut>(
+    mut input: route_policy::RoutePolicyInput,
+    archive_lookup: F,
+) -> route_policy::RoutePolicyInput
+where
+    F: FnOnce(String) -> Fut,
+    Fut: std::future::Future<Output = matric_core::Result<Option<matric_core::ArchiveInfo>>>,
+{
+    if route_policy::backing_resource_normalizer(&input)
+        != Some(route_policy::BackingResourceNormalizer::ArchiveParam)
+    {
+        return input;
+    }
+    let Some(archive_key) = input.resource.id.clone() else {
+        return input;
+    };
+
+    match archive_lookup(archive_key).await {
+        Ok(Some(archive)) => {
+            route_policy::mark_resource_id_normalized(&mut input);
+            input
+                .context
+                .environment
+                .insert("archive_name".into(), serde_json::json!(archive.name));
+            input.context.environment.insert(
+                "archive_schema".into(),
+                serde_json::json!(archive.schema_name),
+            );
+            input
+                .resource
+                .attrs
+                .insert("archive_id".to_string(), serde_json::json!(archive.id));
+            input.resource.attrs.insert(
+                "archive_schema".to_string(),
+                serde_json::json!(archive.schema_name),
+            );
+        }
+        Ok(None) => {
+            tracing::warn!("authorization resource normalization skipped: archive does not exist");
+        }
+        Err(err) => {
+            tracing::warn!(
+                error_len = telemetry_text_len(&err.to_string()),
+                detail = API_AUTHZ_NORMALIZATION_DIAGNOSTIC_FAILURE_DETAIL,
+                operation = "normalize_archive_param_route_policy_input",
                 "authorization archive normalization lookup failed"
             );
         }
@@ -17543,7 +17813,10 @@ async fn purge_note(
         return Err(note_not_found());
     }
 
-    // Queue a high-priority purge job
+    // Queue a high-priority purge job. The job handler defaults to the public
+    // schema, so carry the request's archive schema in the payload (#1342).
+    let purge_payload = (archive_ctx.schema != "public")
+        .then(|| serde_json::json!({ "schema": &archive_ctx.schema }));
     let job_id = state
         .db
         .jobs
@@ -17551,7 +17824,7 @@ async fn purge_note(
             Some(id),
             JobType::PurgeNote,
             JobType::PurgeNote.default_priority(),
-            None,
+            purge_payload,
             None,
             #[cfg(feature = "hosted-auth")]
             principal
@@ -20449,7 +20722,18 @@ async fn move_note_to_collection(
         scope.map(|Extension(scope)| scope),
         archive_ctx.schema.clone(),
         move |connection| {
-            Box::pin(async move { repo.move_note_tx(connection, note_id, collection_id).await })
+            Box::pin(async move {
+                // #1280: the target collection must exist in this tenant and
+                // archive; the lookup and the move share one scoped transaction.
+                if let Some(target) = collection_id {
+                    if repo.get_tx(connection, target).await?.is_none() {
+                        return Err(matric_core::Error::NotFound(
+                            "Collection not found".to_string(),
+                        ));
+                    }
+                }
+                repo.move_note_tx(connection, note_id, collection_id).await
+            })
         },
     )
     .await?;
@@ -36744,7 +37028,7 @@ fn parse_byte_range(range: &str, total_size: usize) -> Result<(usize, usize), ()
 /// Delete an attachment
 #[utoipa::path(delete, path = "/api/v1/attachments/{attachment_id}", tag = "Attachments",
     params(("attachment_id" = Uuid, Path, description = "Attachment ID")),
-    responses((status = 204, description = "No Content")))]
+    responses((status = 200, description = "Attachment deleted (JSON success message)")))]
 async fn delete_attachment(
     State(state): State<AppState>,
     events: RequestEvents,
@@ -77623,6 +77907,415 @@ not-json
             authorize_policy_input(&RoleBasedPolicy, &TracingSink, &write_auth, &normalized)
                 .await
                 .expect_err("route must remain closed");
+        }
+    }
+
+    fn admin_api_key_auth() -> Auth {
+        Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "read write admin".to_string(),
+            },
+        }
+    }
+
+    // #1342: archive-scoped job pause/resume bind to their target archive.
+    #[tokio::test]
+    async fn archive_job_pause_resume_normalize_existing_archive_for_admin_only() {
+        for action in ["pause", "resume"] {
+            let path = format!("/api/v1/jobs/{action}/research");
+            let input = route_policy::authorization_input_for_request(
+                &Method::POST,
+                &path,
+                Some("tenant-a"),
+            )
+            .expect("archive job route has policy input");
+            assert_eq!(
+                route_policy::backing_resource_normalizer(&input),
+                Some(route_policy::BackingResourceNormalizer::ArchiveParam)
+            );
+            let normalized = normalize_archive_param_route_policy_input(input, |key| async move {
+                assert_eq!(key, "research");
+                Ok(Some(test_archive_info("research")))
+            })
+            .await;
+            assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+            assert_eq!(
+                normalized.resource.attrs["archive_schema"],
+                "archive_research"
+            );
+            authorize_policy_input(
+                &RoleBasedPolicy,
+                &TracingSink,
+                &admin_api_key_auth(),
+                &normalized,
+            )
+            .await
+            .unwrap_or_else(|_| panic!("admin must be admitted for {action}"));
+            // Admin-scope requirement is unchanged: a read/write principal is denied
+            // even though the archive exists.
+            let response = authorize_policy_input(
+                &RoleBasedPolicy,
+                &TracingSink,
+                &Auth {
+                    principal: AuthPrincipal::ApiKey {
+                        key_id: Uuid::new_v4(),
+                        scope: "read write".to_string(),
+                    },
+                },
+                &normalized,
+            )
+            .await
+            .expect_err("non-admin must be denied");
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        }
+    }
+
+    #[tokio::test]
+    async fn archive_job_pause_resume_missing_archive_or_lookup_error_stays_closed() {
+        for lookup in ["missing", "error"] {
+            let input = route_policy::authorization_input_for_request(
+                &Method::POST,
+                "/api/v1/jobs/pause/ghost",
+                Some("tenant-a"),
+            )
+            .expect("archive job route has policy input");
+            let normalized = normalize_archive_param_route_policy_input(input, |_key| async move {
+                if lookup == "missing" {
+                    Ok(None)
+                } else {
+                    Err(matric_core::Error::Internal("lookup failed".to_string()))
+                }
+            })
+            .await;
+            assert_eq!(normalized.resource.attrs["resource_id_normalized"], false);
+            let response = authorize_policy_input(
+                &RoleBasedPolicy,
+                &TracingSink,
+                &admin_api_key_auth(),
+                &normalized,
+            )
+            .await
+            .expect_err("unnormalized archive must fail closed");
+            assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        }
+    }
+
+    #[tokio::test]
+    async fn archive_param_normalizer_ignores_global_pause_and_other_routes() {
+        for path in [
+            "/api/v1/jobs/pause",
+            "/api/v1/jobs/resume",
+            "/api/v1/archives/research",
+        ] {
+            let input = route_policy::authorization_input_for_request(
+                &Method::POST,
+                path,
+                Some("tenant-a"),
+            )
+            .expect("route has policy input");
+            let before = input.resource.attrs.clone();
+            let normalized = normalize_archive_param_route_policy_input(input, |_key| async move {
+                panic!("archive param lookup must not run for {path}");
+                #[allow(unreachable_code)]
+                Ok(None)
+            })
+            .await;
+            assert_eq!(normalized.resource.attrs, before, "{path}");
+        }
+    }
+
+    // #1280: POST /notes/{id}/move binds to its backing note.
+    #[tokio::test]
+    async fn note_move_authorizes_through_backing_note_like_note_route() {
+        let note_id = Uuid::parse_str(NOTE_SCOPED_READ_NOTE_ID).unwrap();
+        let input = note_scoped_read_input(Method::POST, "/move");
+        assert_eq!(
+            route_policy::backing_resource_normalizer(&input),
+            Some(route_policy::BackingResourceNormalizer::Note)
+        );
+        let normalized = normalize_note_route_policy_input(input, |lookup_id| async move {
+            assert_eq!(lookup_id, note_id);
+            Ok(true)
+        })
+        .await;
+        assert_eq!(normalized.resource.attrs["resource_id_normalized"], true);
+        let write_auth = Auth {
+            principal: AuthPrincipal::ApiKey {
+                key_id: Uuid::new_v4(),
+                scope: "read write".to_string(),
+            },
+        };
+        authorize_policy_input(&RoleBasedPolicy, &TracingSink, &write_auth, &normalized)
+            .await
+            .expect("write principal may move an owned note");
+        authorize_policy_input(
+            &RoleBasedPolicy,
+            &TracingSink,
+            &read_api_key_auth(),
+            &normalized,
+        )
+        .await
+        .expect_err("read-only principal must not move a note");
+
+        let missing = normalize_note_route_policy_input(
+            note_scoped_read_input(Method::POST, "/move"),
+            |_lookup_id| async move { Ok(false) },
+        )
+        .await;
+        assert_eq!(missing.resource.attrs["resource_id_normalized"], false);
+        let denied = authorize_policy_input(&RoleBasedPolicy, &TracingSink, &write_auth, &missing)
+            .await
+            .expect_err("missing or foreign note must fail closed");
+        assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn note_move_is_hosted_ready_and_no_longer_a_closed_exception() {
+        assert!(route_policy::hosted_tenant_transaction_ready(
+            &Method::POST,
+            "/api/v1/notes/{id}/move"
+        ));
+        assert!(route_policy::CLOSED_ROUTE_NORMALIZATION_EXCEPTIONS
+            .iter()
+            .all(|exception| exception.path != "/api/v1/notes/{id}/move"));
+    }
+
+    // Admin route families: (method, concrete path, selected normalizer).
+    fn admin_resource_routes() -> Vec<(Method, String, route_policy::BackingResourceNormalizer)> {
+        use route_policy::BackingResourceNormalizer as N;
+        let id = "018fd1a0-0000-7000-8000-000000000011";
+        vec![
+            (
+                Method::POST,
+                format!("/api/v1/admin/users/{id}/disable"),
+                N::AppUser,
+            ),
+            (
+                Method::POST,
+                format!("/api/v1/admin/users/{id}/enable"),
+                N::AppUser,
+            ),
+            (
+                Method::GET,
+                "/api/v1/backup/knowledge-archive/snap_1.tar.gz".into(),
+                N::BackupFile,
+            ),
+            (
+                Method::HEAD,
+                "/api/v1/backup/knowledge-archive/snap_1.tar.gz".into(),
+                N::BackupFile,
+            ),
+            (
+                Method::GET,
+                "/api/v1/backup/list/snap_1.tar.gz".into(),
+                N::BackupFile,
+            ),
+            (
+                Method::HEAD,
+                "/api/v1/backup/list/snap_1.tar.gz".into(),
+                N::BackupFile,
+            ),
+            (
+                Method::GET,
+                "/api/v1/backup/metadata/snap_1.tar.gz".into(),
+                N::BackupFile,
+            ),
+            (
+                Method::HEAD,
+                "/api/v1/backup/metadata/snap_1.tar.gz".into(),
+                N::BackupFile,
+            ),
+            (
+                Method::PUT,
+                "/api/v1/backup/metadata/snap_1.tar.gz".into(),
+                N::BackupFile,
+            ),
+            (
+                Method::GET,
+                "/api/v1/backup/memory/research".into(),
+                N::BackupMemoryArchive,
+            ),
+            (
+                Method::HEAD,
+                "/api/v1/backup/memory/research".into(),
+                N::BackupMemoryArchive,
+            ),
+            (
+                Method::GET,
+                format!("/api/v1/embedding-configs/{id}"),
+                N::EmbeddingConfig,
+            ),
+            (
+                Method::HEAD,
+                format!("/api/v1/embedding-configs/{id}"),
+                N::EmbeddingConfig,
+            ),
+            (
+                Method::PATCH,
+                format!("/api/v1/embedding-configs/{id}"),
+                N::EmbeddingConfig,
+            ),
+            (
+                Method::DELETE,
+                format!("/api/v1/embedding-configs/{id}"),
+                N::EmbeddingConfig,
+            ),
+            (
+                Method::DELETE,
+                "/api/v1/events/tokens/tok-1".into(),
+                N::EventStreamToken,
+            ),
+            (
+                Method::DELETE,
+                "/api/v1/ingest/tokens/tok-1".into(),
+                N::IngestToken,
+            ),
+        ]
+    }
+
+    #[tokio::test]
+    async fn admin_resource_families_normalize_existing_and_fail_closed_otherwise() {
+        for (method, path, expected) in admin_resource_routes() {
+            let input =
+                route_policy::authorization_input_for_request(&method, &path, Some("tenant-a"))
+                    .expect("admin route has policy input");
+            assert_eq!(
+                route_policy::backing_resource_normalizer(&input),
+                Some(expected),
+                "{method} {path}"
+            );
+            // Existing resource: normalized, admin admitted, non-admin denied.
+            let found = normalize_admin_resource_route_policy_input(
+                input.clone(),
+                |selected, _id, tenant| async move {
+                    assert_eq!(selected, expected);
+                    assert_eq!(tenant.as_deref(), Some("tenant-a"));
+                    Ok(true)
+                },
+            )
+            .await;
+            assert_eq!(
+                found.resource.attrs["resource_id_normalized"], true,
+                "{method} {path}"
+            );
+            authorize_policy_input(
+                &RoleBasedPolicy,
+                &TracingSink,
+                &admin_api_key_auth(),
+                &found,
+            )
+            .await
+            .unwrap_or_else(|_| panic!("admin admitted for {method} {path}"));
+            let denied = authorize_policy_input(
+                &RoleBasedPolicy,
+                &TracingSink,
+                &Auth {
+                    principal: AuthPrincipal::ApiKey {
+                        key_id: Uuid::new_v4(),
+                        scope: "read write".to_string(),
+                    },
+                },
+                &found,
+            )
+            .await
+            .expect_err("non-admin stays denied");
+            assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+
+            // Missing resource and lookup error both fail closed with 403.
+            for lookup_error in [false, true] {
+                let unfound = normalize_admin_resource_route_policy_input(
+                    input.clone(),
+                    |_selected, _id, _tenant| async move {
+                        if lookup_error {
+                            Err(matric_core::Error::Internal("lookup failed".to_string()))
+                        } else {
+                            Ok(false)
+                        }
+                    },
+                )
+                .await;
+                assert_eq!(unfound.resource.attrs["resource_id_normalized"], false);
+                let response = authorize_policy_input(
+                    &RoleBasedPolicy,
+                    &TracingSink,
+                    &admin_api_key_auth(),
+                    &unfound,
+                )
+                .await
+                .expect_err("missing resource must fail closed");
+                assert_eq!(response.status(), StatusCode::FORBIDDEN, "{method} {path}");
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn admin_resource_normalizer_ignores_unrelated_routes() {
+        for path in [
+            "/api/v1/admin/users",
+            "/api/v1/backup/list",
+            "/api/v1/embedding-configs/default",
+            "/api/v1/notes/018fd1a0-0000-7000-8000-000000000001",
+        ] {
+            let input =
+                route_policy::authorization_input_for_request(&Method::GET, path, Some("tenant-a"))
+                    .expect("route has policy input");
+            let before = input.resource.attrs.clone();
+            let normalized = normalize_admin_resource_route_policy_input(
+                input,
+                |_selected, _id, _tenant| async move {
+                    panic!("admin lookup must not run for {path}");
+                    #[allow(unreachable_code)]
+                    Ok(true)
+                },
+            )
+            .await;
+            assert_eq!(normalized.resource.attrs, before, "{path}");
+        }
+    }
+
+    #[test]
+    fn backup_filenames_are_strict_and_cannot_escape_the_backup_directory() {
+        let dir = tempfile::tempdir().expect("backup dir");
+        let outside = tempfile::tempdir().expect("outside dir");
+        std::fs::write(dir.path().join("snap_1.tar.gz"), b"x").unwrap();
+        std::fs::write(dir.path().join("snap_1.tar.gz.meta.json"), b"{}").unwrap();
+        std::fs::write(outside.path().join("secret.txt"), b"x").unwrap();
+        std::fs::create_dir(dir.path().join("subdir")).unwrap();
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(
+                outside.path().join("secret.txt"),
+                dir.path().join("link.tar.gz"),
+            )
+            .unwrap();
+        }
+
+        assert!(backup_file_exists_in(dir.path(), "snap_1.tar.gz"));
+        assert!(backup_file_exists_in(dir.path(), "snap_1.tar.gz.meta.json"));
+        let secret = outside.path().join("secret.txt");
+        for bad in [
+            "",
+            ".",
+            "..",
+            "../secret.txt",
+            "..%2fsecret.txt",
+            "subdir/../snap_1.tar.gz",
+            "subdir",
+            "snap_1.tar.gz/",
+            "/etc/passwd",
+            secret.to_str().unwrap(),
+            "snap_1.tar.gz\\..\\x",
+            "snap\0.tar.gz",
+            ".hidden",
+            "missing.tar.gz",
+            "link.tar.gz",
+            "spaced name.tar.gz",
+        ] {
+            assert!(
+                !backup_file_exists_in(dir.path(), bad),
+                "{bad:?} must be refused"
+            );
         }
     }
 

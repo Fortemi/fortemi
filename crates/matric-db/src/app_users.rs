@@ -71,6 +71,22 @@ impl PgAppUserRepository {
         row.map(row_to_app_user).transpose()
     }
 
+    /// Whether `id` is an application user of `tenant_id`.
+    pub async fn exists(&self, tenant_id: Uuid, id: Uuid) -> Result<bool> {
+        let mut tx = self.pool.begin().await.map_err(Error::Database)?;
+        bind_tenant(&mut tx, tenant_id).await?;
+        let found = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM public.app_user WHERE tenant_id = $1 AND id = $2)",
+        )
+        .bind(tenant_id)
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(Error::Database)?;
+        tx.commit().await.map_err(Error::Database)?;
+        Ok(found)
+    }
+
     pub async fn list(&self, tenant_id: Uuid) -> Result<Vec<AppUser>> {
         let mut tx = self.pool.begin().await.map_err(Error::Database)?;
         bind_tenant(&mut tx, tenant_id).await?;
