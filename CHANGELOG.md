@@ -46,6 +46,8 @@ with the fixes listed here. The last published release remains v2026.10.12.
 
 - Upgrade `calamine` to 0.38 for RUSTSEC-2026-0436, with a malformed-CFB
   regression test.
+- Upgrade `quinn-udp` to 0.5.16 for RUSTSEC-2026-0538 (receive-loop spin after
+  a truncated datagram), and `rustix` to 1.1.6 for RUSTSEC-2026-0486.
 - Record two reviewed advisory exceptions, both expiring: RUSTSEC-2026-0459
   (`libsqlite3-sys`, which is in the lockfile but never compiled or linked)
   until 2026-12-01, and RUSTSEC-2026-0441 (`pin-utils` unmaintained, via the
