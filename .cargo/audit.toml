@@ -43,5 +43,16 @@ ignore = [
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
 
-
+    # RUSTSEC-2026-0459 (libsqlite3-sys 0.30.1): bundled C SQLite carries
+    # CVE-2026-119375. Fix is libsqlite3-sys >=0.39.0, but sqlx-sqlite 0.8.6
+    # (the only consumer) pins libsqlite3-sys ^0.30.1, so no compatible
+    # upgrade exists on sqlx 0.8.x. Lock-only, compile-never: sqlx-sqlite is an
+    # optional dependency of sqlx / sqlx-macros-core that Cargo records in
+    # Cargo.lock, but no workspace crate enables a sqlx sqlite feature
+    # (`cargo tree -i libsqlite3-sys --all-features` reports nothing), so no
+    # SQLite code is compiled or linked. Fortemi runs PostgreSQL exclusively.
+    # Same class as RUSTSEC-2023-0071 above.
+    # Owner: maintainers
+    # Expiry: 2026-12-01 (re-evaluate against sqlx >=0.9 if released)
+    "RUSTSEC-2026-0459",
 ]

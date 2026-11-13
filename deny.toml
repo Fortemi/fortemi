@@ -38,6 +38,12 @@ ignore = [
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
 
+    # RUSTSEC-2026-0459 (libsqlite3-sys 0.30.1, lock-only via optional
+    # sqlx-sqlite; no sqlite feature is enabled, nothing compiled). Fix needs
+    # libsqlite3-sys >=0.39 which sqlx-sqlite 0.8.6 cannot accept. See
+    # .cargo/audit.toml. Expiry: 2026-12-01.
+    "RUSTSEC-2026-0459",
+
 
 ]
 

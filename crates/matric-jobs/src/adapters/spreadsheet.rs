@@ -733,6 +733,48 @@ mod tests {
         assert!(!err.contains("sk-live"));
     }
 
+    /// RUSTSEC-2026-0436 (calamine <0.38): malformed CFB/OLE2 containers could
+    /// panic or allocate without bound. Malformed legacy `.xls` input must be
+    /// rejected as invalid input, never panic.
+    #[tokio::test]
+    async fn test_spreadsheet_malformed_cfb_is_rejected_without_panic() {
+        const CFB_MAGIC: [u8; 8] = [0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1];
+
+        let mut truncated = CFB_MAGIC.to_vec();
+        truncated.extend_from_slice(&[0u8; 24]);
+
+        // Valid magic, then hostile header fields: huge sector shift, huge
+        // FAT/directory/mini-FAT counts and 0xFFFFFFFF sector pointers.
+        let mut hostile = vec![0u8; 512];
+        hostile[..8].copy_from_slice(&CFB_MAGIC);
+        hostile[24..26].copy_from_slice(&0x003Eu16.to_le_bytes());
+        hostile[26..28].copy_from_slice(&0x0003u16.to_le_bytes());
+        hostile[28..30].copy_from_slice(&0xFFFEu16.to_le_bytes());
+        hostile[30..32].copy_from_slice(&0x00FFu16.to_le_bytes());
+        for off in (44..76).step_by(4) {
+            hostile[off..off + 4].copy_from_slice(&0xFFFF_FFFFu32.to_le_bytes());
+        }
+        let mut garbage = CFB_MAGIC.to_vec();
+        garbage.extend(std::iter::repeat_n(0xFFu8, 4096));
+
+        for (label, data) in [
+            ("truncated", truncated),
+            ("hostile_header", hostile),
+            ("garbage", garbage),
+        ] {
+            let adapter = SpreadsheetAdapter;
+            let result = adapter
+                .extract(
+                    &data,
+                    "malformed.xls",
+                    "application/vnd.ms-excel",
+                    &serde_json::json!({}),
+                )
+                .await;
+            assert!(result.is_err(), "{label}: malformed CFB must be rejected");
+        }
+    }
+
     // ── Integration tests using real xlsx bytes ───────────────────────────
     //
     // A minimal valid xlsx is a zip archive containing specific XML files.
