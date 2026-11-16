@@ -33,6 +33,32 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   `CONCURRENTLY` (one statement each); `20261115040000` adds them to existing
   archive schemas, and new archives receive them with schema-qualified
   configuration names.
+- Cross-memory federated search (`POST /api/v1/search/federated`) used the same
+  cross-table `OR` per memory and now uses the same index-backed union of the
+  stored `tsv` and title expression, keyed by `(tenant_id, note_id)`.
+
+### Upgrade notes
+
+- The three public-schema index migrations build `CONCURRENTLY`. A failed
+  concurrent build can leave an invalid index that `IF NOT EXISTS` will not
+  repair: after deploy, check `SELECT indexrelid::regclass, indisvalid FROM
+  pg_index WHERE indexrelid::regclass::text IN
+  ('idx_note_title_tsv_english','idx_attachment_extracted_fts_english',
+  'idx_attachment_extracted_fts_simple')` and `DROP INDEX` and re-run any that
+  are invalid.
+- `20261115040000` builds the same indexes in existing archive schemas with
+  plain `CREATE INDEX`, which blocks writes to those archive tables while it
+  runs. It is a one-time startup cost; schedule the upgrade accordingly.
+
+### Known limitations
+
+- A plain multi-word query is unit-local: every word must match inside one
+  unit (title, current content or one attachment). Explicit `AND` matches
+  across units.
+- Trigram and bigram strategies have no index on attachment text, so that arm
+  still scans attachments.
+- The bigram strategy falls back to trigram when `pg_bigm` is not installed;
+  the bigram path itself is not exercised by the test fixture.
 
 ## [2026.10.14] - 2026-11-13
 

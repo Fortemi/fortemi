@@ -475,3 +475,177 @@ async fn candidate_plan_uses_bitmap_index_scans_and_no_content_seq_scan(pool: Pg
     }
     tx.rollback().await.unwrap();
 }
+
+async fn federated_ids(tx: &mut PgConnection, query: &str) -> BTreeSet<Uuid> {
+    sqlx::query_scalar::<_, Uuid>(matric_db::search::FEDERATED_FTS_SQL)
+        .bind(query)
+        .bind(100_i64)
+        .fetch_all(tx)
+        .await
+        .unwrap()
+        .into_iter()
+        .collect()
+}
+
+/// The federated handler's statement (title arm + stored-tsv content arm, no
+/// attachments) keeps its results, tenant isolation and archive scoping.
+#[sqlx::test(migrations = false)]
+async fn federated_search_union_matches_isolates_tenants_and_scopes_archives(pool: PgPool) {
+    use matric_core::ArchiveRepository;
+    let db = migrated(&pool).await;
+    let tenant_b = Uuid::new_v4();
+    sqlx::query("INSERT INTO tenant_registry (id, slug, display_name, status) VALUES ($1, $2, $2, 'active')")
+        .bind(tenant_b)
+        .bind(format!("fts-fed-{}", tenant_b.simple()))
+        .execute(&pool)
+        .await
+        .unwrap();
+    let role = format!("fts_fed_{}", Uuid::new_v4().simple());
+    for statement in [
+        format!("CREATE ROLE {role} NOSUPERUSER NOBYPASSRLS NOLOGIN"),
+        format!("GRANT USAGE ON SCHEMA public TO {role}"),
+        format!("GRANT SELECT ON ALL TABLES IN SCHEMA public TO {role}"),
+    ] {
+        sqlx::query(&statement).execute(&pool).await.unwrap();
+    }
+    // Archive DDL reads `app.current_tenant` from the session, like `create_pool`.
+    let archive_pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .after_connect(|connection, _| {
+            Box::pin(async move {
+                sqlx::query("SELECT set_config('app.current_tenant', $1, false)")
+                    .bind(TENANT_A.to_string())
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect_with((*pool.connect_options()).clone())
+        .await
+        .unwrap();
+    let archive_db = Database::new(archive_pool);
+    let archive_name = format!("fed-{}", Uuid::new_v4());
+    let archive = archive_db
+        .archives
+        .create_archive_schema(&archive_name, None)
+        .await
+        .unwrap();
+
+    let mut tx = pool.begin().await.unwrap();
+    use_tenant(&mut tx, tenant_b).await;
+    let b_title = add_note(&db, &mut tx, "fedtitle only", "filler").await;
+    let b_content = add_note(&db, &mut tx, "heading", "fedbody only").await;
+    use_tenant(&mut tx, TENANT_A).await;
+    let a_title = add_note(&db, &mut tx, "fedtitle mine", "filler").await;
+    let a_content = add_note(&db, &mut tx, "heading", "fedbody mine").await;
+    let a_both = add_note(&db, &mut tx, "fedtitle fedbody", "fedbody").await;
+    let a_deleted = add_note(&db, &mut tx, "fedtitle gone", "fedbody gone").await;
+    sqlx::query("UPDATE note SET deleted_at = now() WHERE id = $1")
+        .bind(a_deleted)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+    // Superuser view: both arms match, deleted notes excluded.
+    assert_eq!(
+        federated_ids(&mut tx, "fedtitle").await,
+        set(&[a_title, a_both, b_title])
+    );
+    assert_eq!(
+        federated_ids(&mut tx, "fedbody").await,
+        set(&[a_content, a_both, b_content])
+    );
+    // websearch operators keep working.
+    assert_eq!(
+        federated_ids(&mut tx, "fedtitle OR fedbody").await,
+        set(&[a_title, a_content, a_both, b_title, b_content])
+    );
+    assert_eq!(
+        // Unit-local NOT: a_both's content (without "fedtitle") still matches.
+        federated_ids(&mut tx, "fedbody -fedtitle").await,
+        set(&[a_content, a_both, b_content])
+    );
+
+    // Tenant isolation per arm under a NOBYPASSRLS role.
+    sqlx::query(&format!("SET LOCAL ROLE {role}"))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    use_tenant(&mut tx, TENANT_A).await;
+    assert_eq!(
+        federated_ids(&mut tx, "fedtitle").await,
+        set(&[a_title, a_both])
+    );
+    assert_eq!(
+        federated_ids(&mut tx, "fedbody").await,
+        set(&[a_content, a_both])
+    );
+    use_tenant(&mut tx, tenant_b).await;
+    assert_eq!(federated_ids(&mut tx, "fedtitle").await, set(&[b_title]));
+    assert_eq!(federated_ids(&mut tx, "fedbody").await, set(&[b_content]));
+    tx.rollback().await.unwrap();
+
+    // Archive scoping: with the memory's search_path only that schema's notes match.
+    let mut tx = pool.begin().await.unwrap();
+    use_tenant(&mut tx, TENANT_A).await;
+    let public_note = add_note(&db, &mut tx, "scopeword public", "filler").await;
+    sqlx::query(&format!(
+        "SET LOCAL search_path TO {}, public",
+        archive.schema_name
+    ))
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    let archived_note = add_note(&db, &mut tx, "scopeword archived", "filler").await;
+    assert_eq!(
+        federated_ids(&mut tx, "scopeword").await,
+        set(&[archived_note])
+    );
+    assert!(!federated_ids(&mut tx, "scopeword")
+        .await
+        .contains(&public_note));
+    tx.rollback().await.unwrap();
+
+    archive_db
+        .archives
+        .drop_archive_schema(&archive_name)
+        .await
+        .unwrap();
+    for statement in [format!("DROP OWNED BY {role}"), format!("DROP ROLE {role}")] {
+        sqlx::query(&statement).execute(&pool).await.unwrap();
+    }
+}
+
+#[sqlx::test(migrations = false)]
+async fn federated_plan_uses_bitmap_index_scans(pool: PgPool) {
+    let _db = migrated(&pool).await;
+    seed_scale(&pool).await;
+    let mut tx = pool.begin().await.unwrap();
+    use_tenant(&mut tx, TENANT_A).await;
+    for setting in ["enable_seqscan", "enable_indexscan", "enable_indexonlyscan"] {
+        sqlx::query(&format!("SET LOCAL {setting} = off"))
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+    }
+    let explain = format!(
+        "EXPLAIN (FORMAT JSON) {}",
+        matric_db::search::FEDERATED_FTS_SQL
+    );
+    let plan: Value = sqlx::query_scalar(&explain)
+        .bind("plantitle")
+        .bind(10_i64)
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    let mut nodes = Vec::new();
+    collect(&plan, &mut nodes);
+    for index in ["idx_note_revised_tsv", "idx_note_title_tsv_english"] {
+        assert!(has_bitmap_index(&nodes, index), "{index}: {nodes:?}");
+    }
+    assert!(
+        seq_scans_on(&nodes, &["note", "note_revised_current"]).is_empty(),
+        "{nodes:?}"
+    );
+    tx.rollback().await.unwrap();
+}

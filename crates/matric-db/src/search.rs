@@ -13,6 +13,37 @@ use matric_core::{Error, Result, SearchHit, StrictTagFilter};
 use crate::escape_like;
 use crate::strict_filter::{QueryParam, StrictFilterQueryBuilder};
 
+/// Per-memory federated full-text search (`$1` query text, `$2` limit).
+///
+/// Candidates are the union of two index-backed arms keyed by
+/// `(tenant_id, note_id)`: the stored `note_revised_current.tsv`
+/// (`idx_note_revised_tsv`) and the title expression
+/// (`idx_note_title_tsv_english`). Unqualified table names resolve through the
+/// caller's per-memory `search_path`; tenant policies apply to every arm.
+pub const FEDERATED_FTS_SQL: &str = r#"
+SELECT
+    n.id AS note_id,
+    ts_rank_cd(nrc.tsv, websearch_to_tsquery('public.matric_english', $1)) AS score,
+    substring(nrc.content for 200) AS snippet,
+    n.title,
+    COALESCE(
+        (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
+        ''
+    ) AS tags
+FROM note_revised_current nrc
+JOIN note n ON n.id = nrc.note_id
+WHERE n.deleted_at IS NULL
+    AND (n.tenant_id, n.id) IN (
+        SELECT r.tenant_id, r.note_id FROM note_revised_current r
+         WHERE r.tsv @@ websearch_to_tsquery('public.matric_english', $1)
+        UNION
+        SELECT t.tenant_id, t.id FROM note t
+         WHERE to_tsvector('public.matric_english', COALESCE(t.title, '')) @@ websearch_to_tsquery('public.matric_english', $1)
+    )
+ORDER BY score DESC
+LIMIT $2
+"#;
+
 /// Full-text search provider using PostgreSQL tsvector.
 pub struct PgFtsSearch {
     pool: Pool<Postgres>,

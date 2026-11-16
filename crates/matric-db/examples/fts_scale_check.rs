@@ -77,6 +77,23 @@ async fn main() {
         println!("migrate: {:?}", started.elapsed());
     }
     let mut conn = pool.acquire().await.expect("connection");
+    if args.iter().any(|a| a == "--print-sql") {
+        // Exact statement issued for a plain-query English search through the
+        // hybrid path (`mode=fts`, archived notes excluded): $1 tsquery, $2 limit.
+        let scope = SearchCandidateScope {
+            exclude_archived: true,
+            ..Default::default()
+        };
+        let sql = matric_db::search_candidates::lexical_candidate_sql(
+            &mut conn,
+            LexicalStrategy::English,
+            &scope,
+        )
+        .await
+        .unwrap();
+        println!("{sql}");
+        return;
+    }
     sqlx::query(
         "SELECT set_config('app.current_tenant', '00000000-0000-0000-0000-000000000000', false)",
     )

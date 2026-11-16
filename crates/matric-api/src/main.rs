@@ -24453,31 +24453,12 @@ async fn federated_search(
             .map_err(|e| search_operation_failed("set federated search path", e))?;
 
         // Run FTS query (uses matric_english to match the tsv generated column config)
-        let rows = sqlx::query(
-            r#"
-            SELECT
-                n.id AS note_id,
-                ts_rank_cd(nrc.tsv, websearch_to_tsquery('public.matric_english', $1)) AS score,
-                substring(nrc.content for 200) AS snippet,
-                n.title,
-                COALESCE(
-                    (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
-                    ''
-                ) AS tags
-            FROM note_revised_current nrc
-            JOIN note n ON n.id = nrc.note_id
-            WHERE n.deleted_at IS NULL
-                AND (nrc.tsv @@ websearch_to_tsquery('public.matric_english', $1)
-                     OR to_tsvector('public.matric_english', COALESCE(n.title, '')) @@ websearch_to_tsquery('public.matric_english', $1))
-            ORDER BY score DESC
-            LIMIT $2
-            "#,
-        )
-        .bind(&body.q)
-        .bind(limit)
-        .fetch_all(&mut *tx)
-        .await
-        .map_err(|e| search_operation_failed("execute federated search query", e))?;
+        let rows = sqlx::query(matric_db::search::FEDERATED_FTS_SQL)
+            .bind(&body.q)
+            .bind(limit)
+            .fetch_all(&mut *tx)
+            .await
+            .map_err(|e| search_operation_failed("execute federated search query", e))?;
 
         // Transaction automatically rolled back (read-only, no commit needed)
         drop(tx);

@@ -484,6 +484,18 @@ pub async fn lexical_compiled_on_connection(
     )
 }
 
+/// The exact SQL text (placeholders intact) that
+/// [`lexical_compiled_on_connection`] issues for `strategy` and `scope`:
+/// `$1` tsquery text, `$2` limit (plus `$3` LIKE text for trigram).
+/// Diagnostic use, e.g. to run `EXPLAIN` against a production-shaped database.
+pub async fn lexical_candidate_sql(
+    connection: &mut PgConnection,
+    strategy: LexicalStrategy,
+    scope: &SearchCandidateScope,
+) -> Result<String> {
+    Ok(prepare_lexical(connection, strategy, scope).await?.0)
+}
+
 /// `EXPLAIN (FORMAT JSON)` of the exact lexical candidate statement that
 /// [`lexical_compiled_on_connection`] executes. Diagnostic and plan-regression
 /// use only; it plans but does not run the statement.
