@@ -69,6 +69,9 @@ ARG POSTGIS_VERSION=3.6.4+dfsg-2.pgdg12+1
 ARG ENABLE_OCR=true
 ARG ENABLE_FFMPEG=true
 
+# Pin PDF tools to the bookworm-security version available for the base image.
+ARG POPPLER_VERSION=22.12.0-2+deb12u3
+
 LABEL org.opencontainers.image.title="fortemi-bundle"
 LABEL org.opencontainers.image.description="AI-enhanced knowledge base - all-in-one with PostgreSQL and MCP"
 LABEL org.opencontainers.image.version="${VERSION}"
@@ -85,7 +88,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gzip \
     python3 \
     # Core extraction (always available)
-    poppler-utils \
+    poppler-utils=${POPPLER_VERSION} \
     && rm -rf /var/lib/apt/lists/*
 
 # Optional: OCR (tesseract + pandoc)
