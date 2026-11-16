@@ -27,13 +27,16 @@ LABEL org.opencontainers.image.source="https://github.com/fortemi/fortemi"
 # Bump together with the base digest (#1344).
 ARG POSTGIS_VERSION=3.6.4+dfsg-2.pgdg12+1
 
+# Pin PDF tools to the bookworm-security version available for the base image.
+ARG POPPLER_VERSION=22.12.0-2+deb12u3
+
 # Install PostgreSQL extensions needed for full migration support
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # PostGIS for spatial queries (prov:atLocation)
     postgresql-18-postgis-3=${POSTGIS_VERSION} \
     postgresql-18-postgis-3-scripts=${POSTGIS_VERSION} \
     # PDF text extraction for PdfTextAdapter tests
-    poppler-utils \
+    poppler-utils=${POPPLER_VERSION} \
     && rm -rf /var/lib/apt/lists/*
 
 # Auto-create extensions on database initialization.

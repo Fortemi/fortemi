@@ -7,6 +7,10 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+### Fixed
+
+- Pin `poppler-utils` in the test database image so all explicitly installed apt packages use exact versions (#1345).
+
 ## [2026.11.1] - 2026-11-16
 
 ### Highlights
