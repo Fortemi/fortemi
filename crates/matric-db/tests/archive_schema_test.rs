@@ -1531,3 +1531,68 @@ async fn test_archive_can_store_embeddings() {
     // Cleanup
     let _ = db.archives.drop_archive_schema(&archive_name).await;
 }
+
+/// Index-backed lexical candidates (Core 2026.11.1): every archive schema needs
+/// the title/attachment expression indexes the search arms rely on, both for
+/// archives cloned from `public` and for archives that predate the migration.
+#[tokio::test]
+async fn archives_carry_index_backed_fts_candidate_indexes() {
+    const NAMES: [&str; 3] = [
+        "idx_note_title_tsv_english",
+        "idx_attachment_extracted_fts_english",
+        "idx_attachment_extracted_fts_simple",
+    ];
+    let _archive_schema_guard = ARCHIVE_SCHEMA_TEST_LOCK.lock().await;
+    let pool = setup_test_db().await;
+    let db = Database::new(pool.clone());
+    let name = format!("fts-index-{}", Uuid::new_v4());
+    let archive = db
+        .archives
+        .create_archive_schema(&name, None)
+        .await
+        .unwrap();
+    let schema = archive.schema_name.clone();
+
+    let definitions = |schema: String| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_as::<_, (String, String)>(
+                "SELECT indexname, indexdef FROM pg_indexes WHERE schemaname = $1 AND indexname = ANY($2) ORDER BY indexname",
+            )
+            .bind(schema)
+            .bind(NAMES.to_vec())
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+        }
+    };
+
+    // Cloned archive: all three indexes exist with the Fortemi analyzers.
+    let created = definitions(schema.clone()).await;
+    assert_eq!(created.len(), NAMES.len(), "{created:?}");
+    for (index, definition) in &created {
+        assert!(definition.contains("USING gin"), "{index}: {definition}");
+        assert!(
+            definition.contains("matric_english") || definition.contains("matric_simple"),
+            "{index}: {definition}"
+        );
+    }
+
+    // Pre-existing archive: dropping the indexes and replaying the archive
+    // migration restores them (idempotent `IF NOT EXISTS`).
+    for index in NAMES {
+        sqlx::query(&format!("DROP INDEX {schema}.{index}"))
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    assert!(definitions(schema.clone()).await.is_empty());
+    let migration =
+        include_str!("../../../migrations/20261115040000_fts_candidate_indexes_archives.sql");
+    sqlx::raw_sql(migration).execute(&pool).await.unwrap();
+    let restored = definitions(schema.clone()).await;
+    assert_eq!(restored.len(), NAMES.len(), "{restored:?}");
+    sqlx::raw_sql(migration).execute(&pool).await.unwrap();
+
+    db.archives.drop_archive_schema(&name).await.unwrap();
+}

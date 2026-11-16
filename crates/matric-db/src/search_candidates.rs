@@ -230,12 +230,44 @@ pub async fn query_terms(
     )
 }
 
+/// Row-correlated unit predicate. Only for bounded id lists (classification);
+/// candidate selection must use the index-backed set builders below.
 fn unit_predicate(query: &str, strategy: LexicalStrategy) -> String {
     let config = analyzer(strategy);
     format!("(to_tsvector('{config}', COALESCE(n.title, '')) @@ ({query}) OR to_tsvector('{config}', COALESCE(nrc.content, '')) @@ ({query}) OR EXISTS (SELECT 1 FROM attachment a WHERE a.note_id = n.id AND a.tenant_id = n.tenant_id AND a.status = 'completed' AND to_tsvector('{config}', COALESCE(a.extracted_text, '')) @@ ({query})))")
 }
 
-fn expression_predicate(
+/// Index-backed `(tenant_id, note_id)` set for one tsquery leaf. Each arm uses
+/// an expression that exactly matches a GIN index:
+/// - content: the stored `note_revised_current.tsv` (`public.matric_english`,
+///   `idx_note_revised_tsv`) or `idx_note_revised_tsv_simple` (`public.matric_simple`)
+/// - title: `idx_note_title_tsv_english` / `idx_note_title_tsv_simple`
+/// - attachment: `idx_attachment_extracted_fts_english` / `_simple`
+fn unit_id_set(query: &str, strategy: LexicalStrategy) -> String {
+    let (content, title, attachment) = match strategy {
+        LexicalStrategy::English => (
+            format!("r.tsv @@ ({query})"),
+            format!("to_tsvector('public.matric_english', COALESCE(t.title, '')) @@ ({query})"),
+            format!(
+                "to_tsvector('public.matric_english', COALESCE(a.extracted_text, '')) @@ ({query})"
+            ),
+        ),
+        _ => (
+            format!("to_tsvector('public.matric_simple', r.content) @@ ({query})"),
+            format!("to_tsvector('public.matric_simple', COALESCE(t.title, '')) @@ ({query})"),
+            format!(
+                "to_tsvector('public.matric_simple', COALESCE(a.extracted_text, '')) @@ ({query})"
+            ),
+        ),
+    };
+    format!("(SELECT t.tenant_id, t.id FROM note t WHERE {title} UNION SELECT r.tenant_id, r.note_id FROM note_revised_current r WHERE {content} UNION SELECT a.tenant_id, a.note_id FROM attachment a WHERE a.status = 'completed' AND {attachment})")
+}
+
+/// Compile a Boolean expression to a `(tenant_id, note_id)` set using set
+/// algebra over index-backed leaf sets (AND = INTERSECT, OR = UNION,
+/// NOT = all notes EXCEPT). Leaf semantics match the former per-note predicate:
+/// a leaf matches when any unit (title, current content, attachment) matches.
+fn expression_id_set(
     expression: &crate::search_query::Expression,
     strategy: LexicalStrategy,
     offset: usize,
@@ -245,11 +277,11 @@ fn expression_predicate(
     match expression {
         Expression::Term(term) => {
             params.push(QueryParam::String(term.clone()));
-            unit_predicate(&format!("${}::tsquery", offset + params.len()), strategy)
+            unit_id_set(&format!("${}::tsquery", offset + params.len()), strategy)
         }
         Expression::Phrase(phrase) => {
             params.push(QueryParam::String(phrase.clone()));
-            unit_predicate(
+            unit_id_set(
                 &format!(
                     "phraseto_tsquery('{}', ${})",
                     analyzer(strategy),
@@ -258,21 +290,33 @@ fn expression_predicate(
                 strategy,
             )
         }
-        Expression::And(a, b) => format!(
-            "({} AND {})",
-            expression_predicate(a, strategy, offset, params),
-            expression_predicate(b, strategy, offset, params)
-        ),
-        Expression::Or(a, b) => format!(
-            "({} OR {})",
-            expression_predicate(a, strategy, offset, params),
-            expression_predicate(b, strategy, offset, params)
-        ),
-        Expression::Not(a) => format!(
-            "NOT ({})",
-            expression_predicate(a, strategy, offset, params)
-        ),
+        Expression::And(a, b) => {
+            let left = expression_id_set(a, strategy, offset, params);
+            let right = expression_id_set(b, strategy, offset, params);
+            format!("({left} INTERSECT {right})")
+        }
+        Expression::Or(a, b) => {
+            let left = expression_id_set(a, strategy, offset, params);
+            let right = expression_id_set(b, strategy, offset, params);
+            format!("({left} UNION {right})")
+        }
+        Expression::Not(a) => {
+            let inner = expression_id_set(a, strategy, offset, params);
+            format!("((SELECT u.tenant_id, u.id FROM note u) EXCEPT {inner})")
+        }
     }
+}
+
+fn expression_predicate(
+    expression: &crate::search_query::Expression,
+    strategy: LexicalStrategy,
+    offset: usize,
+    params: &mut Vec<QueryParam>,
+) -> String {
+    format!(
+        "(n.tenant_id, n.id) IN {}",
+        expression_id_set(expression, strategy, offset, params)
+    )
 }
 
 /// Classify a bounded candidate union using the same unit-local admission as FTS.
@@ -324,17 +368,12 @@ pub async fn lexical_on_connection(
     lexical_compiled_on_connection(connection, &compiled, limit, strategy, &scope).await
 }
 
-/// Execute an analyzer-normalized tsquery, or raw trigram/bigram text.
-pub async fn lexical_compiled_on_connection(
+/// Build the lexical candidate statement: `(sql, scope params, trigram)`.
+async fn prepare_lexical(
     connection: &mut PgConnection,
-    query: &str,
-    limit: i64,
     mut strategy: LexicalStrategy,
     scope: &SearchCandidateScope,
-) -> Result<Vec<SearchHit>> {
-    if limit <= 0 {
-        return Ok(Vec::new());
-    }
+) -> Result<(String, Vec<QueryParam>, bool)> {
     if matches!(strategy, LexicalStrategy::Bigram) {
         let available: bool = sqlx::query_scalar(
             "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_bigm')",
@@ -345,19 +384,11 @@ pub async fn lexical_compiled_on_connection(
             strategy = LexicalStrategy::Trigram;
         }
     }
-    let (score, matching) = match strategy {
-        LexicalStrategy::English => (
-            "ts_rank(setweight(COALESCE(to_tsvector('public.matric_english', n.title), ''::tsvector), 'A') || setweight(COALESCE((SELECT to_tsvector('public.matric_english', string_agg(nt.tag_name, ' ')) FROM note_tag nt WHERE nt.note_id = n.id AND nt.tenant_id = n.tenant_id), ''::tsvector), 'B') || setweight(nrc.tsv, 'C'), $1::tsquery, 32)",
-            "nrc.tsv @@ $1::tsquery OR to_tsvector('public.matric_english', COALESCE(n.title, '')) @@ $1::tsquery"),
-        LexicalStrategy::Simple => (
-            "ts_rank(to_tsvector('public.matric_simple', COALESCE(n.title, '')) || to_tsvector('public.matric_simple', nrc.content), $1::tsquery)",
-            "to_tsvector('public.matric_simple', nrc.content) @@ $1::tsquery OR to_tsvector('public.matric_simple', COALESCE(n.title, '')) @@ $1::tsquery"),
-        LexicalStrategy::Trigram => (
-            "GREATEST(similarity(nrc.content, $1), similarity(COALESCE(n.title, ''), $1))",
-            "nrc.content % $1 OR nrc.content ILIKE '%' || $3 || '%' ESCAPE '\\' OR n.title ILIKE '%' || $3 || '%' ESCAPE '\\'"),
-        LexicalStrategy::Bigram => (
-            "GREATEST(bigm_similarity(nrc.content, $1), bigm_similarity(COALESCE(n.title, ''), $1))",
-            "nrc.content LIKE likequery($1) OR n.title LIKE likequery($1)"),
+    let score = match strategy {
+        LexicalStrategy::English => "ts_rank(setweight(COALESCE(to_tsvector('public.matric_english', n.title), ''::tsvector), 'A') || setweight(COALESCE((SELECT to_tsvector('public.matric_english', string_agg(nt.tag_name, ' ')) FROM note_tag nt WHERE nt.note_id = n.id AND nt.tenant_id = n.tenant_id), ''::tsvector), 'B') || setweight(nrc.tsv, 'C'), $1::tsquery, 32)",
+        LexicalStrategy::Simple => "ts_rank(to_tsvector('public.matric_simple', COALESCE(n.title, '')) || to_tsvector('public.matric_simple', nrc.content), $1::tsquery)",
+        LexicalStrategy::Trigram => "GREATEST(similarity(nrc.content, $1), similarity(COALESCE(n.title, ''), $1))",
+        LexicalStrategy::Bigram => "GREATEST(bigm_similarity(nrc.content, $1), bigm_similarity(COALESCE(n.title, ''), $1))",
     };
     let trigram = matches!(strategy, LexicalStrategy::Trigram);
     let offset = if trigram { 3 } else { 2 };
@@ -378,10 +409,29 @@ pub async fn lexical_compiled_on_connection(
     let attachment_match = matches_unit("a.extracted_text");
     let attachment_scope =
         "a.note_id = n.id AND a.tenant_id = n.tenant_id AND a.status = 'completed'";
+    // Candidate admission: union of per-table index-backed id sets keyed by
+    // (tenant_id, note_id); only that set is joined, ranked and projected.
     let matching = if scope.lexical_constraint.is_some() {
         "TRUE".to_string()
     } else {
-        format!("({matching}) OR EXISTS (SELECT 1 FROM attachment a WHERE {attachment_scope} AND ({attachment_match}))")
+        let (title_arm, content_arm, attachment_arm) = match strategy {
+            LexicalStrategy::English => (
+                matches_unit("COALESCE(t.title, '')"),
+                "r.tsv @@ $1::tsquery".to_string(),
+                matches_unit("COALESCE(a.extracted_text, '')"),
+            ),
+            LexicalStrategy::Simple => (
+                matches_unit("COALESCE(t.title, '')"),
+                matches_unit("r.content"),
+                matches_unit("COALESCE(a.extracted_text, '')"),
+            ),
+            LexicalStrategy::Trigram | LexicalStrategy::Bigram => (
+                matches_unit("t.title"),
+                matches_unit("r.content"),
+                matches_unit("a.extracted_text"),
+            ),
+        };
+        format!("(n.tenant_id, n.id) IN (SELECT t.tenant_id, t.id FROM note t WHERE {title_arm} UNION SELECT r.tenant_id, r.note_id FROM note_revised_current r WHERE {content_arm} UNION SELECT a.tenant_id, a.note_id FROM attachment a WHERE a.status = 'completed' AND ({attachment_arm}))")
     };
     let attachment_score = match strategy {
         LexicalStrategy::English => "ts_rank(setweight(to_tsvector('public.matric_english', a.extracted_text), 'C'), $1::tsquery, 32)",
@@ -397,16 +447,60 @@ pub async fn lexical_compiled_on_connection(
     );
     params.extend(evidence_params);
     let sql = format!("{cte} SELECT n.id AS note_id, ({score})::real AS score, substring(nrc.content for 200) AS snippet, n.title, {TAGS} AS tags, {evidence} AS evidence FROM note n JOIN note_revised_current nrc ON nrc.note_id = n.id AND nrc.tenant_id = n.tenant_id WHERE ({candidate}) AND ({matching}) ORDER BY score DESC, n.id LIMIT $2");
-    let mut statement = sqlx::query(&sql).bind(query).bind(limit);
+    Ok((sql, params, trigram))
+}
+
+fn bind_lexical<'q>(
+    sql: &'q str,
+    query: &str,
+    limit: i64,
+    trigram: bool,
+    params: Vec<QueryParam>,
+) -> Query<'q, Postgres, PgArguments> {
+    let mut statement = sqlx::query(sql).bind(query.to_string()).bind(limit);
     if trigram {
         statement = statement.bind(escape_like(query));
     }
+    bind_params(statement, params)
+}
+
+/// Execute an analyzer-normalized tsquery, or raw trigram/bigram text.
+pub async fn lexical_compiled_on_connection(
+    connection: &mut PgConnection,
+    query: &str,
+    limit: i64,
+    strategy: LexicalStrategy,
+    scope: &SearchCandidateScope,
+) -> Result<Vec<SearchHit>> {
+    if limit <= 0 {
+        return Ok(Vec::new());
+    }
+    let (sql, params, trigram) = prepare_lexical(connection, strategy, scope).await?;
     hits(
-        bind_params(statement, params)
+        bind_lexical(&sql, query, limit, trigram, params)
             .fetch_all(connection)
             .await
             .map_err(Error::Database)?,
     )
+}
+
+/// `EXPLAIN (FORMAT JSON)` of the exact lexical candidate statement that
+/// [`lexical_compiled_on_connection`] executes. Diagnostic and plan-regression
+/// use only; it plans but does not run the statement.
+pub async fn explain_lexical_compiled(
+    connection: &mut PgConnection,
+    query: &str,
+    limit: i64,
+    strategy: LexicalStrategy,
+    scope: &SearchCandidateScope,
+) -> Result<serde_json::Value> {
+    let (sql, params, trigram) = prepare_lexical(connection, strategy, scope).await?;
+    let explain = format!("EXPLAIN (FORMAT JSON) {sql}");
+    let row = bind_lexical(&explain, query, limit, trigram, params)
+        .fetch_one(connection)
+        .await
+        .map_err(Error::Database)?;
+    Ok(row.try_get::<serde_json::Value, _>(0)?)
 }
 
 pub async fn vector_on_connection(

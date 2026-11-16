@@ -114,10 +114,32 @@ const FTS_FIX_DEFINITIONS: &[FtsFixDefinition] = &[
     FtsFixDefinition {
         table: "note",
         generated_column: None,
-        indexes: &[FtsIndex {
-            index_name: "idx_note_title_tsv_simple",
-            definition: "USING gin (to_tsvector('public.matric_simple', COALESCE(title, '')))",
-        }],
+        indexes: &[
+            FtsIndex {
+                index_name: "idx_note_title_tsv_simple",
+                definition: "USING gin (to_tsvector('public.matric_simple', COALESCE(title, '')))",
+            },
+            FtsIndex {
+                index_name: "idx_note_title_tsv_english",
+                definition: "USING gin (to_tsvector('public.matric_english', COALESCE(title, '')))",
+            },
+        ],
+    },
+    FtsFixDefinition {
+        table: "attachment",
+        generated_column: None,
+        indexes: &[
+            FtsIndex {
+                index_name: "idx_attachment_extracted_fts_english",
+                definition:
+                    "USING gin (to_tsvector('public.matric_english', COALESCE(extracted_text, '')))",
+            },
+            FtsIndex {
+                index_name: "idx_attachment_extracted_fts_simple",
+                definition:
+                    "USING gin (to_tsvector('public.matric_simple', COALESCE(extracted_text, '')))",
+            },
+        ],
     },
     FtsFixDefinition {
         table: "skos_concept_label",

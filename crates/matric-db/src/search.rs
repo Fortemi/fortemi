@@ -65,8 +65,13 @@ impl PgFtsSearch {
                    ) as tags
             FROM note_revised_current nrc
             JOIN note n ON n.id = nrc.note_id
-            WHERE (nrc.tsv @@ websearch_to_tsquery('public.matric_english', $1)
-                   OR to_tsvector('public.matric_english', COALESCE(n.title, '')) @@ websearch_to_tsquery('public.matric_english', $1))
+            WHERE (n.tenant_id, n.id) IN (
+                       SELECT r.tenant_id, r.note_id FROM note_revised_current r
+                        WHERE r.tsv @@ websearch_to_tsquery('public.matric_english', $1)
+                       UNION
+                       SELECT t.tenant_id, t.id FROM note t
+                        WHERE to_tsvector('public.matric_english', COALESCE(t.title, '')) @@ websearch_to_tsquery('public.matric_english', $1)
+                   )
               {}
             ORDER BY score DESC
             LIMIT $2
@@ -171,8 +176,13 @@ impl PgFtsSearch {
             FROM filtered_notes fn
             JOIN note n ON n.id = fn.id
             JOIN note_revised_current nrc ON nrc.note_id = n.id
-            WHERE (nrc.tsv @@ websearch_to_tsquery('public.matric_english', $1)
-                   OR to_tsvector('public.matric_english', COALESCE(n.title, '')) @@ websearch_to_tsquery('public.matric_english', $1))
+            WHERE (n.tenant_id, n.id) IN (
+                       SELECT r.tenant_id, r.note_id FROM note_revised_current r
+                        WHERE r.tsv @@ websearch_to_tsquery('public.matric_english', $1)
+                       UNION
+                       SELECT t.tenant_id, t.id FROM note t
+                        WHERE to_tsvector('public.matric_english', COALESCE(t.title, '')) @@ websearch_to_tsquery('public.matric_english', $1)
+                   )
             ORDER BY score DESC
             LIMIT ${}
             "#,
@@ -266,8 +276,13 @@ impl PgFtsSearch {
                    ) as tags
             FROM note_revised_current nrc
             JOIN note n ON n.id = nrc.note_id
-            WHERE (nrc.tsv @@ websearch_to_tsquery('public.matric_english', $1)
-                   OR to_tsvector('public.matric_english', COALESCE(n.title, '')) @@ websearch_to_tsquery('public.matric_english', $1))
+            WHERE (n.tenant_id, n.id) IN (
+                       SELECT r.tenant_id, r.note_id FROM note_revised_current r
+                        WHERE r.tsv @@ websearch_to_tsquery('public.matric_english', $1)
+                       UNION
+                       SELECT t.tenant_id, t.id FROM note t
+                        WHERE to_tsvector('public.matric_english', COALESCE(t.title, '')) @@ websearch_to_tsquery('public.matric_english', $1)
+                   )
               {}
             "#,
             archive_clause
@@ -507,9 +522,12 @@ impl PgFtsSearch {
                    ) as tags
             FROM note_revised_current nrc
             JOIN note n ON n.id = nrc.note_id
-            WHERE (
-                to_tsvector('public.matric_simple', nrc.content) @@ websearch_to_tsquery('public.matric_simple', $1)
-                OR to_tsvector('public.matric_simple', COALESCE(n.title, '')) @@ websearch_to_tsquery('public.matric_simple', $1)
+            WHERE (n.tenant_id, n.id) IN (
+                SELECT r.tenant_id, r.note_id FROM note_revised_current r
+                 WHERE to_tsvector('public.matric_simple', r.content) @@ websearch_to_tsquery('public.matric_simple', $1)
+                UNION
+                SELECT t.tenant_id, t.id FROM note t
+                 WHERE to_tsvector('public.matric_simple', COALESCE(t.title, '')) @@ websearch_to_tsquery('public.matric_simple', $1)
             )
             {}
             ORDER BY score DESC
@@ -718,8 +736,13 @@ impl PgFtsSearch {
                    ) as tags
             FROM note_revised_current nrc
             JOIN note n ON n.id = nrc.note_id
-            WHERE (nrc.tsv @@ websearch_to_tsquery('public.matric_english', $1)
-                   OR to_tsvector('public.matric_english', COALESCE(n.title, '')) @@ websearch_to_tsquery('public.matric_english', $1))
+            WHERE (n.tenant_id, n.id) IN (
+                       SELECT r.tenant_id, r.note_id FROM note_revised_current r
+                        WHERE r.tsv @@ websearch_to_tsquery('public.matric_english', $1)
+                       UNION
+                       SELECT t.tenant_id, t.id FROM note t
+                        WHERE to_tsvector('public.matric_english', COALESCE(t.title, '')) @@ websearch_to_tsquery('public.matric_english', $1)
+                   )
               {}
             ORDER BY score DESC
             LIMIT $2

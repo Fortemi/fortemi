@@ -7,6 +7,33 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+### Fixed
+
+- Full-text search candidate selection is index-backed. The lexical candidate
+  predicates re-parsed every note's title, content and attachment text at query
+  time with a cross-table `OR`, which no index can serve, so each search fell
+  back to sequential scans (a 211k-note memory took 9-18 s per `mode=fts`
+  request). Each arm now uses an expression that exactly matches a GIN index:
+  the stored `note_revised_current.tsv` (or `idx_note_revised_tsv_simple`) for
+  content, a title expression index, and an attachment-text expression index.
+  The arms are combined as a union of `(tenant_id, note_id)` keys and only that
+  candidate set is joined and ranked; explicit `AND`/`OR`/`NOT`/phrase queries
+  compile to set algebra over the same leaf sets. Results, tenant isolation,
+  archive scoping, tag filters and ordering are unchanged. Affects
+  `search_candidates.rs` (unified, hybrid and explicit-operator search) and the
+  `search`, `search_with_strict_filter`, `search_filtered`, `search_tx` and
+  `search_simple` paths in `search.rs`.
+- Add GIN indexes for the new arms: `idx_note_title_tsv_english` (note title,
+  `public.matric_english`), `idx_attachment_extracted_fts_english` and
+  `idx_attachment_extracted_fts_simple` (attachment text). The existing
+  `idx_attachment_extracted_fts` uses the built-in `english` configuration,
+  which tokenizes differently from `public.matric_english`, so it cannot serve
+  the search predicates without changing results. Migrations
+  `20261115010000`-`20261115030000` build the public-schema indexes
+  `CONCURRENTLY` (one statement each); `20261115040000` adds them to existing
+  archive schemas, and new archives receive them with schema-qualified
+  configuration names.
+
 ## [2026.10.14] - 2026-11-13
 
 Version 2026.10.13 was prepared but never tagged or published. Its changes

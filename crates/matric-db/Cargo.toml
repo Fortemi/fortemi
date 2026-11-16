@@ -12,6 +12,15 @@ homepage.workspace = true
 name = "ci_database_bootstrap"
 required-features = ["migrations"]
 
+[[example]]
+name = "fts_scale_check"
+required-features = ["migrations"]
+
+[[test]]
+name = "fts_index_backed_candidates_test"
+path = "tests/fts_index_backed_candidates_test.rs"
+required-features = ["migrations"]
+
 [[test]]
 name = "feb_to_current_migration_gate"
 path = "tests/feb_to_current_migration_gate.rs"
