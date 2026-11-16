@@ -7,6 +7,16 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.11.1] - 2026-11-16
+
+### Highlights
+
+| What Changed | Why You Care |
+|--------------|--------------|
+| Full-text search is served from its GIN indexes | A production search that took 42 s now returns in milliseconds |
+| Federated search uses the same index-backed statement | Cross-memory search no longer scans every note |
+| Four new index migrations | Three build `CONCURRENTLY`; archive schemas use plain builds (see upgrade notes) |
+
 ### Fixed
 
 - Full-text search candidate selection is index-backed. The lexical candidate
@@ -3563,7 +3573,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.10.14...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.11.1...HEAD
+[2026.11.1]: https://github.com/fortemi/fortemi/compare/v2026.10.14...v2026.11.1
 [2026.10.14]: https://github.com/fortemi/fortemi/compare/v2026.10.12...v2026.10.14
 [2026.10.13]: https://github.com/fortemi/fortemi/compare/v2026.10.12...v2026.10.13
 [2026.10.11]: https://github.com/fortemi/fortemi/compare/v2026.10.10...v2026.10.11
