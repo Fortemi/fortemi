@@ -26,6 +26,9 @@ use serde_json::Value;
 use sqlx::{PgConnection, PgPool};
 use uuid::Uuid;
 
+/// Tests that read or flip the process-wide admission switch run one at a time.
+static GLOBAL_SWITCH: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 const TENANT_A: Uuid = Uuid::nil();
 const SIGNATURE: &str = "public.fts_admit_note_ids(tsquery, text, text, text[], integer)";
 
@@ -1365,6 +1368,7 @@ async fn pool_as(pool: &PgPool, role: &str) -> PgPool {
 /// execute it and its owner bypasses RLS; otherwise the direct path is kept.
 #[sqlx::test(migrations = false)]
 async fn startup_probe_selects_function_only_when_it_works(pool: PgPool) {
+    let _switch = GLOBAL_SWITCH.lock().await;
     let db = migrated(&pool).await;
 
     // Runtime role with EXECUTE and a bypassing owner: function path.
@@ -1443,6 +1447,30 @@ async fn startup_probe_selects_function_only_when_it_works(pool: PgPool) {
         fts_admission::probe_and_select(&runtime).await,
         AdmissionPath::Direct
     );
+    // A genuinely missing function: the request still succeeds (direct path for
+    // it), the re-probe confirms, and the process switch flips to Direct.
+    fts_admission::set_active_path(AdmissionPath::Function);
+    let mut tx = pool.begin().await.unwrap();
+    use_tenant(&mut tx, TENANT_A).await;
+    let hits = lexical_on_connection(
+        &mut tx,
+        "healword",
+        10,
+        LexicalStrategy::English,
+        &SearchCandidateScope::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        hits.iter().map(|h| h.note_id).collect::<Vec<_>>(),
+        vec![note]
+    );
+    assert_eq!(
+        fts_admission::active_path(),
+        AdmissionPath::Direct,
+        "a genuinely missing function flips the process switch"
+    );
+    tx.rollback().await.unwrap();
     fts_admission::set_active_path(AdmissionPath::Direct);
     runtime.close().await;
     runtime2.close().await;
@@ -1632,4 +1660,262 @@ async fn exceeding_the_admission_cap_falls_back_to_the_direct_path(pool: PgPool)
     assert_eq!(one, 1);
     tx.rollback().await.unwrap();
     drop_role(&pool, &role).await;
+}
+
+/// HIGH-1: only errors about the admission function itself can switch the
+/// process to the direct path; an unrelated undefined function/operator in the
+/// same statement cannot (it is retried on the direct path for that request).
+#[sqlx::test(migrations = false)]
+async fn unrelated_undefined_function_does_not_flip_the_process_switch(pool: PgPool) {
+    let _switch = GLOBAL_SWITCH.lock().await;
+    let _db = migrated(&pool).await;
+    // The matcher on real server errors.
+    for (statement, expected) in [
+        ("SELECT nosuchfunc_xyz()", false),
+        ("SELECT '{}'::jsonb ## 1", false),
+        (
+            "SELECT public.fts_admit_note_ids('x'::tsquery, 'public.matric_english', 'public', ARRAY['title']::text[], 1, 99)",
+            true,
+        ),
+    ] {
+        let error = sqlx::query(statement).execute(&pool).await.unwrap_err();
+        assert!(
+            matches!(&error, sqlx::Error::Database(db) if db.code().as_deref() == Some("42883")),
+            "{statement}"
+        );
+        assert_eq!(
+            matric_db::search_candidates::is_admission_function_unavailable(&error),
+            expected,
+            "{statement}"
+        );
+    }
+    // The whole flow, case 1: the function-path statement raises an unrelated
+    // 42883. The error is returned (never retried as a function problem) and the
+    // process-wide switch stays on the function path.
+    fts_admission::set_active_path(AdmissionPath::Function);
+    let scope = SearchCandidateScope {
+        admission: Some(AdmissionPath::Function),
+        ..Default::default()
+    };
+    let mut tx = pool.begin().await.unwrap();
+    use_tenant(&mut tx, TENANT_A).await;
+    let unrelated = matric_db::search_candidates::with_admission_fallback(
+        &mut tx,
+        &scope,
+        |connection, attempt| {
+            Box::pin(async move {
+                if attempt.admission == Some(AdmissionPath::Function) {
+                    sqlx::query("SELECT nosuchfunc_xyz()")
+                        .execute(connection)
+                        .await
+                        .map_err(matric_core::Error::Database)?;
+                }
+                Ok(attempt.admission)
+            })
+        },
+    )
+    .await;
+    assert!(
+        unrelated.is_err(),
+        "an unrelated 42883 is an error, not a fallback"
+    );
+    assert_eq!(
+        fts_admission::active_path(),
+        AdmissionPath::Function,
+        "an unrelated 42883 must not flip the process-wide switch"
+    );
+    tx.rollback().await.unwrap();
+
+    // Case 2: an error that names the function while the function in fact works
+    // (a wrong-arity call): the re-probe passes, so only this request uses the
+    // direct path and the switch is not flipped.
+    let mut tx = pool.begin().await.unwrap();
+    use_tenant(&mut tx, TENANT_A).await;
+    let ran_on = matric_db::search_candidates::with_admission_fallback(
+        &mut tx,
+        &scope,
+        |connection, attempt| {
+            Box::pin(async move {
+                if attempt.admission == Some(AdmissionPath::Function) {
+                    sqlx::query("SELECT public.fts_admit_note_ids('x'::tsquery, 'public.matric_english', 'public', ARRAY['title']::text[], 1, 99)")
+                        .execute(connection)
+                        .await
+                        .map_err(matric_core::Error::Database)?;
+                }
+                Ok(attempt.admission)
+            })
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        ran_on,
+        Some(AdmissionPath::Direct),
+        "direct path for this request only"
+    );
+    assert_eq!(
+        fts_admission::active_path(),
+        AdmissionPath::Function,
+        "a passing re-probe must not flip the process-wide switch"
+    );
+    tx.rollback().await.unwrap();
+    fts_admission::set_active_path(AdmissionPath::Direct);
+}
+
+/// LOW-4: a 42501 that is not the function's own refusal (the owner lost
+/// BYPASSRLS) fails closed, is recognised for an operator warning, and neither
+/// falls back silently nor flips the process switch.
+#[sqlx::test(migrations = false)]
+async fn owner_without_bypassrls_fails_closed_without_a_silent_fallback(pool: PgPool) {
+    let _switch = GLOBAL_SWITCH.lock().await;
+    let db = migrated(&pool).await;
+    let role = runtime_role(&pool, true).await;
+    let owner = format!("fts_nb_{}", Uuid::new_v4().simple());
+    for statement in [
+        format!("CREATE ROLE {owner} NOSUPERUSER NOBYPASSRLS NOLOGIN"),
+        format!("GRANT CREATE, USAGE ON SCHEMA public TO {owner}"),
+        format!("GRANT SELECT ON ALL TABLES IN SCHEMA public TO {owner}"),
+        format!("ALTER FUNCTION {SIGNATURE} OWNER TO {owner}"),
+    ] {
+        sqlx::query(&statement).execute(&pool).await.unwrap();
+    }
+    let mut seed = pool.begin().await.unwrap();
+    use_tenant(&mut seed, TENANT_A).await;
+    add_note(&db, &mut seed, "failclosed title", "filler").await;
+    seed.commit().await.unwrap();
+
+    fts_admission::set_active_path(AdmissionPath::Function);
+    let mut tx = pool.begin().await.unwrap();
+    use_tenant(&mut tx, TENANT_A).await;
+    sqlx::query(&format!("SET LOCAL ROLE {role}"))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let outcome = lexical_on_connection(
+        &mut tx,
+        "failclosed",
+        10,
+        LexicalStrategy::English,
+        &SearchCandidateScope {
+            admission: Some(AdmissionPath::Function),
+            ..Default::default()
+        },
+    )
+    .await;
+    match outcome {
+        Err(matric_core::Error::Database(inner)) => {
+            assert!(
+                matric_db::search_candidates::is_admission_function_misconfigured(&inner),
+                "expected the owner-lost-BYPASSRLS 42501 to be recognised"
+            );
+            assert!(!matric_db::search_candidates::is_admission_function_unavailable(&inner));
+        }
+        other => panic!(
+            "expected a fail-closed database error, got {:?}",
+            other.map(|h| h.len())
+        ),
+    }
+    assert_eq!(
+        fts_admission::active_path(),
+        AdmissionPath::Function,
+        "fail closed: no silent fallback and no process-wide switch"
+    );
+    tx.rollback().await.unwrap();
+    fts_admission::set_active_path(AdmissionPath::Direct);
+    sqlx::query(&format!("ALTER FUNCTION {SIGNATURE} OWNER TO CURRENT_USER"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    drop_role(&pool, &owner).await;
+    drop_role(&pool, &role).await;
+}
+
+/// LOW-5: the hosted shape: the function owner is NOSUPERUSER with BYPASSRLS.
+/// The function path works for the non-bypass runtime role and isolation holds.
+#[sqlx::test(migrations = false)]
+async fn function_owned_by_a_non_superuser_bypassrls_role_works_and_isolates(pool: PgPool) {
+    let db = migrated(&pool).await;
+    let tenant_b = register_tenant(&pool).await;
+    let runtime = runtime_role(&pool, true).await;
+    let owner = format!("fts_mig_{}", Uuid::new_v4().simple());
+    for statement in [
+        format!("CREATE ROLE {owner} NOSUPERUSER BYPASSRLS NOLOGIN"),
+        format!("GRANT CREATE, USAGE ON SCHEMA public TO {owner}"),
+        format!("GRANT SELECT ON ALL TABLES IN SCHEMA public TO {owner}"),
+        format!("ALTER FUNCTION {SIGNATURE} OWNER TO {owner}"),
+    ] {
+        sqlx::query(&statement).execute(&pool).await.unwrap();
+    }
+    let attrs: (bool, bool) =
+        sqlx::query_as("SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = $1")
+            .bind(&owner)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(attrs, (false, true));
+
+    let mut seed = pool.begin().await.unwrap();
+    use_tenant(&mut seed, TENANT_A).await;
+    let a = add_note(&db, &mut seed, "ownertoken mine", "filler").await;
+    use_tenant(&mut seed, tenant_b).await;
+    let b = add_note(&db, &mut seed, "ownertoken theirs", "filler").await;
+    seed.commit().await.unwrap();
+
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query(&format!("SET LOCAL ROLE {runtime}"))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    use_tenant(&mut tx, TENANT_A).await;
+    let got = call_function(&mut tx, "ownertoken", ENGLISH, "public", &ALL_ARMS, 1000).await;
+    assert_eq!(got, Ok(set(&[a])), "tenant A sees only its own id");
+    use_tenant(&mut tx, tenant_b).await;
+    let got = call_function(&mut tx, "ownertoken", ENGLISH, "public", &ALL_ARMS, 1000).await;
+    assert_eq!(got, Ok(set(&[b])), "tenant B sees only its own id");
+    for bad in ["", "not-a-uuid"] {
+        use_tenant_text(&mut tx, bad).await;
+        let got = call_function(&mut tx, "ownertoken", ENGLISH, "public", &ALL_ARMS, 1000).await;
+        assert!(got.is_err(), "tenant {bad:?} must fail closed");
+    }
+    use_tenant(&mut tx, TENANT_A).await;
+    let got = call_function(
+        &mut tx,
+        "ownertoken",
+        ENGLISH,
+        "archive_not_registered",
+        &ALL_ARMS,
+        1000,
+    )
+    .await;
+    assert!(got.is_err(), "unregistered schema refused");
+    // End to end through the search statement, parity with the direct path.
+    let mut results = Vec::new();
+    for path in [AdmissionPath::Direct, AdmissionPath::Function] {
+        let hits = lexical_on_connection(
+            &mut tx,
+            "ownertoken",
+            10,
+            LexicalStrategy::English,
+            &SearchCandidateScope {
+                admission: Some(path),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        results.push(
+            hits.into_iter()
+                .map(|h| (h.note_id, h.score.to_bits()))
+                .collect::<Vec<_>>(),
+        );
+    }
+    assert_eq!(results[0], results[1]);
+    assert_eq!(results[1].iter().map(|r| r.0).collect::<Vec<_>>(), vec![a]);
+    tx.rollback().await.unwrap();
+    sqlx::query(&format!("ALTER FUNCTION {SIGNATURE} OWNER TO CURRENT_USER"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    drop_role(&pool, &owner).await;
+    drop_role(&pool, &runtime).await;
 }

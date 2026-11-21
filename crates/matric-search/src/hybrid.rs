@@ -457,13 +457,16 @@ impl HybridSearchEngine {
                 .query_policy
                 .decide(parsed.explicit, terms.len(), strict_hits.len());
             // The OR rerun only appends lower-tiered partial matches; with enough
-            // exact (full) hits to fill the page it cannot change the result, so
-            // skip it. MMR re-ranks the whole candidate set, so keep it there.
+            // exact (full) hits to fill the page of a lexical-only search it cannot
+            // change the result, so skip it. A fused semantic list or MMR re-ranks
+            // across lists, so the rerun is kept there.
+            let semantic_active = config.semantic_weight > 0.0 && query_embedding.is_some();
             let mmr_active = config.diversity.unwrap_or(0.0) > 0.0 && query_embedding.is_some();
+            let reranked = semantic_active || mmr_active;
             let hits = if decision.policy == "minimum_should_match"
                 && !config
                     .query_policy
-                    .skips_expansion(strict_hits.len(), limit, mmr_active)
+                    .skips_expansion(strict_hits.len(), limit, reranked)
             {
                 let or_start = Instant::now();
                 or_rerun = "ran";

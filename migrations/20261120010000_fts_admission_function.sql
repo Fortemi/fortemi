@@ -80,8 +80,15 @@ BEGIN
     END IF;
 
     -- Each arm is fenced (OFFSET 0) so the planner sees only the GIN-able match
-    -- qual and cannot pick a tenant btree for the table scan; the tenant filter
-    -- is applied to every arm's rows before anything is returned.
+    -- qual; the tenant filter is applied to every arm's rows before anything is
+    -- returned. (Putting `tenant_id = $2` inside the fence lets the planner pick the
+    -- tenant btree over the GIN index; the plan test under the non-bypass role
+    -- rejects that, so the filter stays outside.)
+    -- Residual channel: the GIN postings of a shared schema span every tenant, so
+    -- latency can scale with a term's frequency across tenants in a multi-tenant
+    -- shared `public`. No row, id, count or content of another tenant is returned;
+    -- production external-OIDC mode is single-tenant. Mitigation is per-tenant
+    -- request rate limiting, not a new index or extension.
     FOREACH v_arm IN ARRAY p_arms LOOP
         IF v_arm = 'title' THEN
             v_parts := v_parts || pg_catalog.format(

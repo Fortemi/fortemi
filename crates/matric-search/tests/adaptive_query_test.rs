@@ -553,3 +553,74 @@ async fn skipping_or_rerun_when_exact_hits_fill_the_page_keeps_results(pool: PgP
             .all(|(id, _)| (1..=3).contains(id)));
     }
 }
+
+/// #1348 review: in hybrid mode (a semantic list is fused) the OR rerun is never
+/// skipped, and a partial hit that is semantically the closest cannot displace an
+/// exact one. Pages of every size equal the head of the largest page.
+#[sqlx::test(migrations = false)]
+async fn hybrid_pages_with_a_closest_partial_match_equal_the_head_of_a_larger_page(pool: PgPool) {
+    let db = database(pool).await;
+    let engine = HybridSearchEngine::new(db.clone());
+    let mut tx = db.pool().begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_tenant', $1, true)")
+        .bind(Uuid::nil().to_string())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let set: Uuid = sqlx::query_scalar("SELECT id FROM embedding_set WHERE slug='default'")
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    let query_vector = Vector::from(vec![1.0_f32; 768]);
+    // Exact hits are semantically distant; partial hits are the closest vectors.
+    for (index, (content, close)) in [
+        ("alpha beta one", false),
+        ("alpha beta two two", false),
+        ("alpha beta three three three", false),
+        ("alpha only a", true),
+        ("alpha only b b", true),
+        ("beta only c", true),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let id = Uuid::from_u128(index as u128 + 1);
+        seed(&mut tx, id, "fixture", content, &[]).await;
+        let mut values = vec![1.0_f32; 768];
+        if !close {
+            for value in values.iter_mut().take(384) {
+                *value = -1.0;
+            }
+        }
+        sqlx::query("INSERT INTO embedding (note_id, chunk_index, text, vector, model, embedding_set_id) VALUES ($1, 0, $2, $3, 'synthetic-p2-test', $4)")
+            .bind(id).bind(*content).bind(Vector::from(values)).bind(set).execute(&mut *tx).await.unwrap();
+    }
+    let mut pages = HashMap::new();
+    for limit in [1_i64, 2, 3, 10] {
+        let hits = SearchRequest::new("alpha beta")
+            .with_config(HybridSearchConfig::default())
+            .with_embedding(query_vector.clone())
+            .with_limit(limit)
+            .execute_on_connection(&engine, &mut tx)
+            .await
+            .unwrap();
+        pages.insert(
+            limit,
+            hits.iter()
+                .map(|h| h.hit.note_id.as_u128())
+                .collect::<Vec<_>>(),
+        );
+    }
+    for limit in [1_usize, 2, 3] {
+        assert_eq!(
+            pages[&(limit as i64)],
+            pages[&10][..limit].to_vec(),
+            "hybrid limit {limit}: page must equal the head of the larger result"
+        );
+        assert!(
+            pages[&(limit as i64)].iter().all(|id| (1..=3).contains(id)),
+            "full matches lead the page: {:?}",
+            pages[&(limit as i64)]
+        );
+    }
+}

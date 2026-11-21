@@ -43,7 +43,24 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   that tenant in `archive_registry` (used only through `format('%I')`); the
   analyzer and arm list are allowlists; the query is a bound `tsquery`; the
   admitted ids are capped without truncation (see upgrade notes). EXECUTE is revoked from PUBLIC and granted at startup only
-  to the verified runtime role. Tests run as a NOSUPERUSER NOBYPASSRLS role.
+  to the verified runtime role. Tests run as a NOSUPERUSER NOBYPASSRLS role,
+  including a NOSUPERUSER BYPASSRLS function owner (the hosted shape).
+- Residual timing/existence channel: in a multi-tenant shared `public` schema the
+  GIN postings span every tenant, so a search's latency can scale with a term's
+  frequency across tenants (the previous path was a constant-cost scan). No id,
+  row, count or content of another tenant is returned. Production external-OIDC
+  mode is single-tenant. The tenant filter stays outside the planner fence because
+  placing it inside lets the planner choose the tenant btree over the GIN index
+  (rejected by the plan test); no new index or extension is added. Mitigate with
+  per-tenant request rate limiting if a shared multi-tenant `public` is exposed.
+- Request-time fallback only reacts to errors naming `fts_admit_note_ids` (or
+  `permission denied for function`), and the process-wide switch flips only after a
+  re-probe on the request's own connection fails; an unrelated error cannot make
+  the service abandon the function path. An `insufficient_privilege` error that is
+  not the function's own refusal (for example the owner lost BYPASSRLS) fails
+  closed and logs an operator warning naming the function.
+- The OR-rerun skip applies only to lexical-only searches; fused semantic lists
+  and MMR always run it.
 
 ### Upgrade notes
 

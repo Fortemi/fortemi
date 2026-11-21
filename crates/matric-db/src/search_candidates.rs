@@ -548,20 +548,68 @@ pub(crate) fn is_admission_cap_exceeded(error: &sqlx::Error) -> bool {
         if db.code().as_deref() == Some("54000") && db.message().contains("admission cap exceeded"))
 }
 
-/// True when the admission function is missing or not executable by this role
-/// (undefined function, or "permission denied for function"). Tenant/schema
-/// refusals raised by the function itself are deliberately not matched.
-pub(crate) fn is_admission_function_unavailable(error: &sqlx::Error) -> bool {
+/// True when the admission function itself is missing or not executable by this
+/// role: "function public.fts_admit_note_ids(...) does not exist" (42883) or
+/// "permission denied for function ..." (42501). An unrelated undefined
+/// function/operator in the surrounding statement (42883 naming something else)
+/// and the function's own tenant/schema refusals are deliberately not matched, so
+/// a request cannot make the process abandon the function path.
+#[doc(hidden)]
+pub fn is_admission_function_unavailable(error: &sqlx::Error) -> bool {
     matches!(error, sqlx::Error::Database(db)
-        if db.code().as_deref() == Some("42883")
+        if (db.code().as_deref() == Some("42883") && db.message().contains("fts_admit_note_ids"))
             || (db.code().as_deref() == Some("42501")
                 && db.message().starts_with("permission denied for function")))
+}
+
+/// An insufficient-privilege error that did not come from the function's own
+/// checks (those start with `fts_admit_note_ids:`), e.g. the owner lost
+/// BYPASSRLS ("query would be affected by row-level security policy").
+#[doc(hidden)]
+pub fn is_admission_function_misconfigured(error: &sqlx::Error) -> bool {
+    matches!(error, sqlx::Error::Database(db)
+        if db.code().as_deref() == Some("42501")
+            && !db.message().starts_with("fts_admit_note_ids:")
+            && !is_admission_function_unavailable(error))
+}
+
+pub(crate) fn warn_admission_function_misconfigured(error: &sqlx::Error) {
+    tracing::warn!(
+        sqlstate = "42501",
+        "public.fts_admit_note_ids failed with insufficient_privilege; its owner may \
+         have lost BYPASSRLS or cannot read a searched schema. Searches on the function \
+         path fail closed until this is repaired and the service restarted: {}",
+        match error {
+            sqlx::Error::Database(db) => db.message().chars().take(160).collect::<String>(),
+            other => other.to_string(),
+        }
+    );
+}
+
+/// After the function path reported "unavailable", re-probe on this request's
+/// connection; only a failing probe switches the whole process to the direct
+/// statements. A passing probe means the error was not about the function, so
+/// only this request uses the direct path.
+pub(crate) async fn confirm_function_unavailable(connection: &mut PgConnection) {
+    if crate::fts_admission::function_works_on_connection(connection).await {
+        tracing::warn!(
+            "admission function reported unavailable but the re-probe passed; \
+             using direct statements for this request only"
+        );
+    } else {
+        crate::fts_admission::set_active_path(AdmissionPath::Direct);
+        tracing::warn!(
+            "admission function unavailable (confirmed by re-probe); \
+             switching to direct statements"
+        );
+    }
 }
 
 /// Run `run` on the function admission path inside a savepoint; if the function
 /// reports that its cap was exceeded, roll the savepoint back and run it again
 /// on the direct path so the result is never silently truncated.
-pub(crate) async fn with_admission_fallback<T, F>(
+#[doc(hidden)]
+pub async fn with_admission_fallback<T, F>(
     connection: &mut PgConnection,
     scope: &SearchCandidateScope,
     mut run: F,
@@ -592,11 +640,11 @@ where
             }
             Err(Error::Database(error)) if is_admission_function_unavailable(&error) => {
                 savepoint.rollback().await.map_err(Error::Database)?;
-                crate::fts_admission::set_active_path(AdmissionPath::Direct);
-                tracing::warn!(
-                    "lexical admission function unavailable at request time; \
-                     switching to direct statements"
-                );
+                confirm_function_unavailable(connection).await;
+            }
+            Err(Error::Database(error)) if is_admission_function_misconfigured(&error) => {
+                warn_admission_function_misconfigured(&error);
+                return Err(Error::Database(error));
             }
             Err(error) => return Err(error),
         }

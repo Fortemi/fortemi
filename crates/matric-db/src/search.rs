@@ -123,11 +123,11 @@ pub async fn federated_fts_rows_with(
             }
             Err(error) if crate::search_candidates::is_admission_function_unavailable(&error) => {
                 savepoint.rollback().await?;
-                crate::fts_admission::set_active_path(crate::fts_admission::AdmissionPath::Direct);
-                tracing::warn!(
-                    "federated admission function unavailable at request time; \
-                     switching to direct statements"
-                );
+                crate::search_candidates::confirm_function_unavailable(connection).await;
+            }
+            Err(error) if crate::search_candidates::is_admission_function_misconfigured(&error) => {
+                crate::search_candidates::warn_admission_function_misconfigured(&error);
+                return Err(error);
             }
             Err(error) => return Err(error),
         }

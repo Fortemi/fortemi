@@ -10,7 +10,7 @@
 
 use std::sync::atomic::{AtomicU8, Ordering};
 
-use sqlx::{Pool, Postgres};
+use sqlx::{PgConnection, Pool, Postgres};
 use tracing::{info, warn};
 
 /// Result cap applied inside the function: a runaway-memory guard, not a
@@ -80,8 +80,37 @@ pub async fn probe_and_select(pool: &Pool<Postgres>) -> AdmissionPath {
     path
 }
 
+/// Re-run the function probe on a request's own connection (inside a savepoint
+/// that is always rolled back, so neither the tenant GUC nor any other state of
+/// the request changes). Returns `false` only when the server definitively
+/// rejects the function call as the current role; infrastructure errors and
+/// anything inconclusive return `true` so a process-wide switch is never flipped
+/// on weak evidence.
+pub(crate) async fn function_works_on_connection(connection: &mut PgConnection) -> bool {
+    let Ok(mut savepoint) = sqlx::Connection::begin(&mut *connection).await else {
+        return true;
+    };
+    if sqlx::query(
+        "SELECT set_config('app.current_tenant', '00000000-0000-0000-0000-000000000000', true)",
+    )
+    .execute(&mut *savepoint)
+    .await
+    .is_err()
+    {
+        let _ = savepoint.rollback().await;
+        return true;
+    }
+    let outcome = sqlx::query_scalar::<_, i64>(PROBE_CALL)
+        .fetch_one(&mut *savepoint)
+        .await;
+    let _ = savepoint.rollback().await;
+    !matches!(outcome, Err(sqlx::Error::Database(_)))
+}
+
+const PROBE_CALL: &str = "SELECT count(*) FROM public.fts_admit_note_ids('fortemiprobe'::tsquery, 'public.matric_english', 'public', ARRAY['title','content','attachment']::text[], 1)";
+
 async fn probe(pool: &Pool<Postgres>) -> Result<(), String> {
-    const CALL: &str = "SELECT count(*) FROM public.fts_admit_note_ids('fortemiprobe'::tsquery, 'public.matric_english', 'public', ARRAY['title','content','attachment']::text[], 1)";
+    const CALL: &str = PROBE_CALL;
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
     sqlx::query(
         "SELECT set_config('app.current_tenant', '00000000-0000-0000-0000-000000000000', true)",

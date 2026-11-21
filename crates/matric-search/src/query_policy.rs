@@ -106,11 +106,14 @@ impl QueryPolicyConfig {
     }
 
     /// The OR/minimum-should-match rerun appends only partial matches, which the
-    /// final full-match partition orders after every exact hit. When the exact
-    /// hits already fill the requested page the rerun cannot change the page,
-    /// so it is skipped (`mmr_active` re-ranks the whole union, so it never skips).
-    pub fn skips_expansion(&self, strict_hits: usize, requested: i64, mmr_active: bool) -> bool {
-        !mmr_active && requested > 0 && strict_hits >= requested as usize
+    /// final full-match partition orders after every exact hit. In a lexical-only
+    /// search, when the exact hits already fill the requested page (`requested` is
+    /// the whole page: the search API has no offset), the rerun cannot change the
+    /// page, so it is skipped. When another list takes part in ranking
+    /// (`reranked`: a semantic list is fused, or MMR re-ranks the union) a partial
+    /// hit can outrank an exact one, so the rerun always runs.
+    pub fn skips_expansion(&self, strict_hits: usize, requested: i64, reranked: bool) -> bool {
+        !reranked && requested > 0 && strict_hits >= requested as usize
     }
 
     pub fn bounded_limit(&self, requested: i64) -> i64 {
@@ -153,7 +156,10 @@ mod tests {
         assert!(config.skips_expansion(1, 1, false));
         assert!(config.skips_expansion(10, 10, false));
         assert!(!config.skips_expansion(9, 10, false));
-        assert!(!config.skips_expansion(10, 10, true));
+        assert!(
+            !config.skips_expansion(10, 10, true),
+            "semantic or MMR ranking never skips"
+        );
         assert!(!config.skips_expansion(0, 0, false));
         assert_eq!(config.bounded_limit(1), 5);
     }
