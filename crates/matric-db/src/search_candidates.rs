@@ -613,6 +613,10 @@ pub(crate) async fn confirm_function_unavailable(connection: &mut PgConnection) 
     }
 }
 
+/// `calls_function` says whether the statement `run` generates can invoke
+/// `fts_admit_note_ids` (a lexical English/Simple admission, or a vector search
+/// with a lexical constraint); otherwise `run` executes once, untouched.
+///
 /// Run `run` on the function admission path inside a savepoint; if the function
 /// reports that its cap was exceeded, roll the savepoint back and run it again
 /// on the direct path so the result is never silently truncated.
@@ -620,6 +624,7 @@ pub(crate) async fn confirm_function_unavailable(connection: &mut PgConnection) 
 pub async fn with_admission_fallback<T, F>(
     connection: &mut PgConnection,
     scope: &SearchCandidateScope,
+    calls_function: bool,
     mut run: F,
 ) -> Result<T>
 where
@@ -628,6 +633,13 @@ where
         SearchCandidateScope,
     ) -> futures::future::BoxFuture<'c, Result<T>>,
 {
+    if !calls_function {
+        // The generated SQL cannot call the admission function (semantic-only,
+        // trigram/bigram): no timeout, savepoint, recovery probe or retry.
+        let mut direct = scope.clone();
+        direct.admission = Some(AdmissionPath::Direct);
+        return run(connection, direct).await;
+    }
     if scope.admission.is_none() {
         crate::fts_admission::maybe_recover(connection).await;
     }
@@ -687,18 +699,25 @@ pub async fn lexical_compiled_on_connection(
         return Ok(Vec::new());
     }
     let query = query.to_string();
-    with_admission_fallback(connection, scope, move |connection, scope| {
-        let query = query.clone();
-        Box::pin(async move {
-            let (sql, params, trigram) = prepare_lexical(connection, strategy, &scope).await?;
-            hits(
-                bind_lexical(&sql, &query, limit, trigram, params)
-                    .fetch_all(connection)
-                    .await
-                    .map_err(Error::Database)?,
-            )
-        })
-    })
+    // Only English/Simple admission can call the function; trigram/bigram never do.
+    let calls_function = matches!(strategy, LexicalStrategy::English | LexicalStrategy::Simple);
+    with_admission_fallback(
+        connection,
+        scope,
+        calls_function,
+        move |connection, scope| {
+            let query = query.clone();
+            Box::pin(async move {
+                let (sql, params, trigram) = prepare_lexical(connection, strategy, &scope).await?;
+                hits(
+                    bind_lexical(&sql, &query, limit, trigram, params)
+                        .fetch_all(connection)
+                        .await
+                        .map_err(Error::Database)?,
+                )
+            })
+        },
+    )
     .await
 }
 
@@ -750,7 +769,9 @@ pub async fn vector_on_connection(
     let scoped_set_id = scope.embedding_set_id.unwrap_or(contract.embedding_set_id);
     apply_ef_search(connection, Some(scoped_set_id)).await?;
     let vector = vector.clone();
-    with_admission_fallback(connection, scope, move |connection, scope| {
+    // A vector search calls the function only through a lexical constraint.
+    let calls_function = scope.lexical_constraint.is_some();
+    with_admission_fallback(connection, scope, calls_function, move |connection, scope| {
         let vector = vector.clone();
         Box::pin(async move {
         let distance = contract.distance_expr("e.vector", "$1");

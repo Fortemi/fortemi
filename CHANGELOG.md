@@ -65,7 +65,13 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   The tenant filter stays outside the planner fence because placing it inside
   lets the planner choose the tenant btree over the GIN index (rejected by the
   plan test). Rate limiting reduces sampling but does not remove the channel.
-- The startup/recovery probe is data-independent (an unsatisfiable query). The
+- The startup/confirmation/recovery probe is data-independent (an unsatisfiable
+  query) and runs under a 2 s caller-side `statement_timeout` that never loosens a
+  stricter ambient one and is rolled back with the probe; recovery is single-flight
+  and a recovery that started before a newer downgrade cannot overwrite it. The 10 s
+  bound and retry apply only to statements that can call the function (lexical
+  English/Simple admission, or a vector search with a lexical constraint), never to
+  semantic-only or trigram/bigram statements. The
   request-time fallback classifies errors: only a missing function signature or a
   permission error for `fts_admit_note_ids` is definitive, and even then the
   process-wide switch flips only after a re-probe on the request's own connection

@@ -106,6 +106,30 @@ pub fn set_active_path(path: AdmissionPath) {
 }
 
 static FUNCTION_TIMEOUT_MS: AtomicU64 = AtomicU64::new(10_000);
+/// Probes (startup, confirmation, recovery) run under this short bound.
+static PROBE_TIMEOUT_MS: AtomicU64 = AtomicU64::new(2_000);
+static PROBE_COUNT: AtomicU64 = AtomicU64::new(0);
+static PROBE_PG_SLEEP_MS: AtomicU64 = AtomicU64::new(0);
+static RECOVERY_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+/// Incremented by every downgrade; a recovery may only publish if it did not change.
+static DOWNGRADE_GEN: AtomicU64 = AtomicU64::new(0);
+static STATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Test hooks for the probe bound and for observing/slowing probes.
+#[doc(hidden)]
+pub fn set_probe_timeout_ms(milliseconds: u64) {
+    PROBE_TIMEOUT_MS.store(milliseconds, Ordering::Relaxed);
+}
+
+#[doc(hidden)]
+pub fn set_probe_pg_sleep_ms(milliseconds: u64) {
+    PROBE_PG_SLEEP_MS.store(milliseconds, Ordering::Relaxed);
+}
+
+#[doc(hidden)]
+pub fn probe_count() -> u64 {
+    PROBE_COUNT.load(Ordering::Relaxed)
+}
 
 /// Test hook: the statement timeout applied around function-path statements.
 #[doc(hidden)]
@@ -119,6 +143,13 @@ pub fn set_function_timeout_ms(milliseconds: u64) {
 /// statements the function runs, so the bound is applied by the caller on its
 /// savepoint. Call only inside a savepoint.
 pub(crate) async fn bound_statement_timeout(connection: &mut PgConnection) -> Option<String> {
+    bound_statement_timeout_ms(connection, FUNCTION_TIMEOUT_MS.load(Ordering::Relaxed)).await
+}
+
+pub(crate) async fn bound_statement_timeout_ms(
+    connection: &mut PgConnection,
+    milliseconds: u64,
+) -> Option<String> {
     let previous: String = sqlx::query_scalar("SELECT current_setting('statement_timeout')")
         .fetch_one(&mut *connection)
         .await
@@ -126,7 +157,7 @@ pub(crate) async fn bound_statement_timeout(connection: &mut PgConnection) -> Op
     sqlx::query(
         "SELECT set_config('statement_timeout', CASE WHEN $2::interval = interval '0' OR $2::interval > ($1::double precision / 1000.0) * interval '1 second' THEN $1::text || 'ms' ELSE $2 END, true)",
     )
-    .bind(FUNCTION_TIMEOUT_MS.load(Ordering::Relaxed) as i64)
+    .bind(milliseconds as i64)
     .bind(&previous)
     .execute(&mut *connection)
     .await
@@ -216,9 +247,13 @@ pub enum ProbeOutcome {
 /// `Definitive`; everything else that fails is `Inconclusive`.
 #[doc(hidden)]
 pub async fn probe_on_connection(connection: &mut PgConnection) -> ProbeOutcome {
+    PROBE_COUNT.fetch_add(1, Ordering::Relaxed);
     let Ok(mut savepoint) = sqlx::Connection::begin(&mut *connection).await else {
         return ProbeOutcome::Inconclusive;
     };
+    // Short caller-side bound (never loosening a stricter ambient timeout); it is
+    // reverted by the rollback below.
+    bound_statement_timeout_ms(&mut savepoint, PROBE_TIMEOUT_MS.load(Ordering::Relaxed)).await;
     if sqlx::query(
         "SELECT set_config('app.current_tenant', '00000000-0000-0000-0000-000000000000', true)",
     )
@@ -229,29 +264,71 @@ pub async fn probe_on_connection(connection: &mut PgConnection) -> ProbeOutcome 
         let _ = savepoint.rollback().await;
         return ProbeOutcome::Inconclusive;
     }
-    let outcome = sqlx::query_scalar::<_, i64>(PROBE_CALL)
-        .fetch_one(&mut *savepoint)
-        .await;
-    let _ = savepoint.rollback().await;
+    let sleep_ms = PROBE_PG_SLEEP_MS.load(Ordering::Relaxed);
+    let outcome = if sleep_ms > 0 {
+        match sqlx::query("SELECT pg_sleep($1::double precision / 1000.0)")
+            .bind(sleep_ms as i64)
+            .execute(&mut *savepoint)
+            .await
+        {
+            Ok(_) => {
+                sqlx::query_scalar::<_, i64>(PROBE_CALL)
+                    .fetch_one(&mut *savepoint)
+                    .await
+            }
+            Err(error) => Err(error),
+        }
+    } else {
+        sqlx::query_scalar::<_, i64>(PROBE_CALL)
+            .fetch_one(&mut *savepoint)
+            .await
+    };
+    // Success is only published once the savepoint is rolled back: the probe
+    // must not leave the request's tenant scope or timeout changed.
+    let rolled_back = savepoint.rollback().await.is_ok();
     match outcome {
-        Ok(_) => ProbeOutcome::Works,
+        Ok(_) if rolled_back => ProbeOutcome::Works,
         Err(error) if classify_error(&error) == ErrorClass::Definitive => ProbeOutcome::Definitive,
-        Err(_) => ProbeOutcome::Inconclusive,
+        _ => ProbeOutcome::Inconclusive,
     }
 }
 
-/// Record a runtime downgrade (recoverable after the re-probe interval).
-pub(crate) fn note_downgrade() {
+/// Record a runtime downgrade (recoverable after the re-probe interval). Bumps
+/// the downgrade generation so an in-flight recovery that started earlier cannot
+/// overwrite it.
+#[doc(hidden)]
+pub fn note_downgrade() {
+    let _state = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    DOWNGRADE_GEN.fetch_add(1, Ordering::SeqCst);
     set_active_path(AdmissionPath::Direct);
     let now = now_secs();
     DOWNGRADED_AT.store(now, Ordering::Relaxed);
     LAST_RECOVERY.store(now, Ordering::Relaxed);
 }
 
+struct InFlight;
+
+impl InFlight {
+    fn try_acquire() -> Option<Self> {
+        RECOVERY_IN_FLIGHT
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .ok()
+            .map(|_| Self)
+    }
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        RECOVERY_IN_FLIGHT.store(false, Ordering::SeqCst);
+    }
+}
+
 /// Bounded recovery: a downgraded, still-eligible process re-probes at most every
-/// recovery interval (one caller wins each window) and returns to the function
-/// path when the probe passes.
-pub(crate) async fn maybe_recover(connection: &mut PgConnection) {
+/// recovery interval, with at most one probe in flight, and returns to the
+/// function path only if the probe passes AND no newer downgrade happened while
+/// it ran (generation check, atomic with the publish).
+#[doc(hidden)]
+pub async fn maybe_recover(connection: &mut PgConnection) {
     if active_path() == AdmissionPath::Function
         || !ELIGIBLE.load(Ordering::Relaxed)
         || DOWNGRADED_AT.load(Ordering::Relaxed) == 0
@@ -260,16 +337,27 @@ pub(crate) async fn maybe_recover(connection: &mut PgConnection) {
     }
     let now = now_secs();
     let last = LAST_RECOVERY.load(Ordering::Relaxed);
-    if now.saturating_sub(last) < RECOVERY_SECS.load(Ordering::Relaxed)
-        || LAST_RECOVERY
-            .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
-            .is_err()
+    if now.saturating_sub(last) < RECOVERY_SECS.load(Ordering::Relaxed) {
+        return;
+    }
+    let Some(_in_flight) = InFlight::try_acquire() else {
+        return;
+    };
+    if LAST_RECOVERY
+        .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
+        .is_err()
     {
         return;
     }
+    let generation = DOWNGRADE_GEN.load(Ordering::SeqCst);
     if probe_on_connection(connection).await == ProbeOutcome::Works {
-        set_active_path(AdmissionPath::Function);
-        info!("lexical admission function recovered; returning to the function path");
+        let _state = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        if DOWNGRADE_GEN.load(Ordering::SeqCst) == generation && ELIGIBLE.load(Ordering::Relaxed) {
+            set_active_path(AdmissionPath::Function);
+            info!("lexical admission function recovered; returning to the function path");
+        } else {
+            info!("stale admission recovery discarded (a newer downgrade or ineligibility)");
+        }
     }
 }
 
@@ -337,6 +425,7 @@ pub async fn probe_and_select(pool: &Pool<Postgres>) -> AdmissionPath {
 
 async fn probe(pool: &Pool<Postgres>) -> Result<(), String> {
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    bound_statement_timeout_ms(&mut tx, PROBE_TIMEOUT_MS.load(Ordering::Relaxed)).await;
     sqlx::query(
         "SELECT set_config('app.current_tenant', '00000000-0000-0000-0000-000000000000', true)",
     )
@@ -350,6 +439,7 @@ async fn probe(pool: &Pool<Postgres>) -> Result<(), String> {
     tx.rollback().await.map_err(|e| e.to_string())?;
     // Fail-closed self-check: an unset tenant must raise, never widen.
     let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    bound_statement_timeout_ms(&mut tx, PROBE_TIMEOUT_MS.load(Ordering::Relaxed)).await;
     sqlx::query("SELECT set_config('app.current_tenant', '', true)")
         .execute(&mut *tx)
         .await

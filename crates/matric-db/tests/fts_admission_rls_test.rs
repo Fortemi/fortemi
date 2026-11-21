@@ -1810,6 +1810,7 @@ async fn unrelated_undefined_function_does_not_flip_the_process_switch(pool: PgP
     let unrelated = matric_db::search_candidates::with_admission_fallback(
         &mut tx,
         &scope,
+        true,
         |connection, attempt| {
             Box::pin(async move {
                 if attempt.admission == Some(AdmissionPath::Function) {
@@ -1842,6 +1843,7 @@ async fn unrelated_undefined_function_does_not_flip_the_process_switch(pool: PgP
     let ran_on = matric_db::search_candidates::with_admission_fallback(
         &mut tx,
         &scope,
+ true,
         |connection, attempt| {
             Box::pin(async move {
                 if attempt.admission == Some(AdmissionPath::Function) {
@@ -2175,6 +2177,7 @@ async fn inconclusive_errors_use_the_direct_path_for_that_request_only(pool: PgP
         let ran_on = matric_db::search_candidates::with_admission_fallback(
             &mut tx,
             &scope,
+ true,
             |connection, attempt| {
                 Box::pin(async move {
                     if attempt.admission == Some(AdmissionPath::Function) {
@@ -2269,6 +2272,7 @@ async fn downgraded_process_recovers_after_the_reprobe_interval(pool: PgPool) {
     matric_db::search_candidates::with_admission_fallback(
         &mut tx,
         &SearchCandidateScope::default(),
+        true,
         |_, attempt| Box::pin(async move { Ok(attempt.admission) }),
     )
     .await
@@ -2312,6 +2316,7 @@ async fn function_path_activates_only_for_eligible_deployments(pool: PgPool) {
     matric_db::search_candidates::with_admission_fallback(
         &mut tx,
         &SearchCandidateScope::default(),
+        true,
         |_, attempt| Box::pin(async move { Ok(attempt.admission) }),
     )
     .await
@@ -2364,6 +2369,7 @@ async fn function_path_statements_are_bounded_by_a_statement_timeout(pool: PgPoo
         let inside = matric_db::search_candidates::with_admission_fallback(
             &mut tx,
             &scope,
+            true,
             |connection, _| {
                 Box::pin(async move {
                     sqlx::query_scalar::<_, String>("SELECT current_setting('statement_timeout')")
@@ -2390,6 +2396,7 @@ async fn function_path_statements_are_bounded_by_a_statement_timeout(pool: PgPoo
     let ran_on = matric_db::search_candidates::with_admission_fallback(
         &mut tx,
         &SearchCandidateScope::default(),
+        true,
         |connection, attempt| {
             Box::pin(async move {
                 if attempt.admission == Some(AdmissionPath::Function) {
@@ -2408,5 +2415,201 @@ async fn function_path_statements_are_bounded_by_a_statement_timeout(pool: PgPoo
     assert_eq!(fts_admission::active_path(), AdmissionPath::Function);
     tx.rollback().await.unwrap();
     fts_admission::set_function_timeout_ms(10_000);
+    fts_admission::set_active_path(AdmissionPath::Direct);
+}
+
+/// W37-L2: a statement that cannot call the admission function (semantic-only,
+/// trigram/bigram) gets no extra timeout, savepoint, recovery probe or retry: it
+/// runs exactly once with the ambient settings, even when its error would be
+/// retried on the function path.
+#[sqlx::test(migrations = false)]
+async fn function_free_statements_get_no_timeout_or_retry(pool: PgPool) {
+    let _switch = GLOBAL_SWITCH.lock().await;
+    let _db = migrated(&pool).await;
+    fts_admission::set_active_path(AdmissionPath::Function);
+    let probes_before = fts_admission::probe_count();
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL statement_timeout = '0'")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let (calls_in, observed_in) = (calls.clone(), observed.clone());
+    let outcome = matric_db::search_candidates::with_admission_fallback(
+        &mut tx,
+        &SearchCandidateScope::default(),
+        false,
+        move |connection, _| {
+            calls_in.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let observed = observed_in.clone();
+            Box::pin(async move {
+                let setting: String =
+                    sqlx::query_scalar("SELECT current_setting('statement_timeout')")
+                        .fetch_one(&mut *connection)
+                        .await
+                        .map_err(matric_core::Error::Database)?;
+                observed.lock().unwrap().push(setting);
+                // A cancellation that WOULD be retried on the function path.
+                sqlx::query("DO $$ BEGIN RAISE EXCEPTION 'x' USING ERRCODE = '57014'; END $$")
+                    .execute(connection)
+                    .await
+                    .map_err(matric_core::Error::Database)?;
+                Ok(())
+            })
+        },
+    )
+    .await;
+    assert!(outcome.is_err(), "the error is returned, not retried");
+    assert_eq!(
+        calls.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "run once"
+    );
+    assert_eq!(
+        observed.lock().unwrap().as_slice(),
+        ["0"],
+        "no timeout installed"
+    );
+    assert_eq!(
+        fts_admission::probe_count(),
+        probes_before,
+        "no probe either"
+    );
+    tx.rollback().await.unwrap();
+
+    // Control: the same wrapper with a function-calling statement bounds it.
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL statement_timeout = '0'")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let inside = matric_db::search_candidates::with_admission_fallback(
+        &mut tx,
+        &SearchCandidateScope::default(),
+        true,
+        |connection, _| {
+            Box::pin(async move {
+                sqlx::query_scalar::<_, String>("SELECT current_setting('statement_timeout')")
+                    .fetch_one(connection)
+                    .await
+                    .map_err(matric_core::Error::Database)
+            })
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(inside, "10s");
+    tx.rollback().await.unwrap();
+    fts_admission::set_active_path(AdmissionPath::Direct);
+}
+
+/// W37-L1: probes run under a short caller-side timeout that is rolled back with
+/// the probe (the ambient setting and tenant scope are restored) and never loosen
+/// a stricter ambient timeout; a probe that exceeds the bound is inconclusive.
+#[sqlx::test(migrations = false)]
+async fn probes_are_bounded_and_restore_the_connection(pool: PgPool) {
+    let _switch = GLOBAL_SWITCH.lock().await;
+    let _db = migrated(&pool).await;
+    let tenant_b = register_tenant(&pool).await;
+    fts_admission::set_probe_timeout_ms(100);
+    fts_admission::set_probe_pg_sleep_ms(1500);
+    for ambient in ["0", "30s"] {
+        let mut tx = pool.begin().await.unwrap();
+        use_tenant(&mut tx, tenant_b).await;
+        sqlx::query(&format!("SET LOCAL statement_timeout = '{ambient}'"))
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let started = std::time::Instant::now();
+        let outcome = fts_admission::probe_on_connection(&mut tx).await;
+        assert_eq!(
+            outcome,
+            fts_admission::ProbeOutcome::Inconclusive,
+            "ambient {ambient}"
+        );
+        assert!(
+            started.elapsed() < std::time::Duration::from_millis(1200),
+            "the probe was cut off by its own bound, not by the sleep"
+        );
+        let after: String = sqlx::query_scalar("SELECT current_setting('statement_timeout')")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+        assert_eq!(after, ambient, "ambient timeout restored");
+        assert_eq!(
+            ambient_tenant(&mut tx).await.as_deref(),
+            Some(tenant_b.to_string().as_str()),
+            "tenant scope restored"
+        );
+        tx.rollback().await.unwrap();
+    }
+    // A stricter ambient timeout is never loosened by the probe bound.
+    fts_admission::set_probe_timeout_ms(5_000);
+    fts_admission::set_probe_pg_sleep_ms(1500);
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL statement_timeout = '100ms'")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(
+        fts_admission::probe_on_connection(&mut tx).await,
+        fts_admission::ProbeOutcome::Inconclusive,
+        "the stricter ambient 100 ms bound still applies"
+    );
+    tx.rollback().await.unwrap();
+    fts_admission::set_probe_timeout_ms(2_000);
+    fts_admission::set_probe_pg_sleep_ms(0);
+    // Without the hooks the probe works.
+    let mut tx = pool.begin().await.unwrap();
+    assert_eq!(
+        fts_admission::probe_on_connection(&mut tx).await,
+        fts_admission::ProbeOutcome::Works
+    );
+    tx.rollback().await.unwrap();
+}
+
+/// W37-L1: recovery is single-flight (one probe at a time) and a recovery that
+/// started before a newer downgrade cannot overwrite it.
+#[sqlx::test(migrations = false)]
+async fn recovery_is_single_flight_and_stale_completion_is_discarded(pool: PgPool) {
+    let _switch = GLOBAL_SWITCH.lock().await;
+    let _db = migrated(&pool).await;
+    fts_admission::set_recovery_interval_secs(0);
+
+    // Concurrent attempts: only one probe runs and the process recovers.
+    fts_admission::note_downgrade();
+    fts_admission::set_probe_pg_sleep_ms(400);
+    let before = fts_admission::probe_count();
+    let mut c1 = pool.acquire().await.unwrap();
+    let mut c2 = pool.acquire().await.unwrap();
+    let mut c3 = pool.acquire().await.unwrap();
+    tokio::join!(
+        fts_admission::maybe_recover(&mut c1),
+        fts_admission::maybe_recover(&mut c2),
+        fts_admission::maybe_recover(&mut c3),
+    );
+    assert_eq!(
+        fts_admission::probe_count() - before,
+        1,
+        "only one recovery probe may be in flight"
+    );
+    assert_eq!(fts_admission::active_path(), AdmissionPath::Function);
+
+    // Stale completion: a newer definitive downgrade lands while a recovery
+    // probe is running; the successful (stale) probe must not publish Function.
+    fts_admission::note_downgrade();
+    fts_admission::set_probe_pg_sleep_ms(400);
+    tokio::join!(fts_admission::maybe_recover(&mut c1), async {
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        fts_admission::note_downgrade();
+    });
+    assert_eq!(
+        fts_admission::active_path(),
+        AdmissionPath::Direct,
+        "a stale successful recovery must not overwrite a newer downgrade"
+    );
+    fts_admission::set_probe_pg_sleep_ms(0);
+    fts_admission::set_recovery_interval_secs(300);
     fts_admission::set_active_path(AdmissionPath::Direct);
 }
