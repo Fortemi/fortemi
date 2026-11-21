@@ -105,6 +105,14 @@ impl QueryPolicyConfig {
         }
     }
 
+    /// The OR/minimum-should-match rerun appends only partial matches, which the
+    /// final full-match partition orders after every exact hit. When the exact
+    /// hits already fill the requested page the rerun cannot change the page,
+    /// so it is skipped (`mmr_active` re-ranks the whole union, so it never skips).
+    pub fn skips_expansion(&self, strict_hits: usize, requested: i64, mmr_active: bool) -> bool {
+        !mmr_active && requested > 0 && strict_hits >= requested as usize
+    }
+
     pub fn bounded_limit(&self, requested: i64) -> i64 {
         (requested.saturating_mul(2) as usize)
             .max(self.scarcity_threshold.min(1000))
@@ -142,6 +150,11 @@ mod tests {
         };
         assert_eq!(bounded.decide(false, 5, 0).required_terms, 3);
         assert_eq!(config.bounded_limit(1000), 200);
+        assert!(config.skips_expansion(1, 1, false));
+        assert!(config.skips_expansion(10, 10, false));
+        assert!(!config.skips_expansion(9, 10, false));
+        assert!(!config.skips_expansion(10, 10, true));
+        assert!(!config.skips_expansion(0, 0, false));
         assert_eq!(config.bounded_limit(1), 5);
     }
 }

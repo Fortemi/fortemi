@@ -44,6 +44,101 @@ ORDER BY score DESC
 LIMIT $2
 "#;
 
+/// Federated search through the RLS-safe admission function (`$1` query text,
+/// `$2` limit, `$3` admission cap). Same title and stored-tsv arms as [`FEDERATED_FTS_SQL`] (no
+/// attachments, for parity); candidate ids come from
+/// `public.fts_admit_note_ids`, which enforces the current tenant and a
+/// registered schema itself, and the outer statement keeps RLS on and filters
+/// on the leakproof `n.id = ANY(...)`.
+pub const FEDERATED_FTS_FUNCTION_SQL: &str = r#"
+SELECT
+    n.id AS note_id,
+    ts_rank_cd(nrc.tsv, websearch_to_tsquery('public.matric_english', $1)) AS score,
+    substring(nrc.content for 200) AS snippet,
+    n.title,
+    COALESCE(
+        (SELECT string_agg(tag_name, ',') FROM note_tag WHERE note_id = n.id),
+        ''
+    ) AS tags
+FROM note_revised_current nrc
+JOIN note n ON n.id = nrc.note_id
+WHERE n.deleted_at IS NULL
+    AND n.id = ANY(ARRAY(
+        SELECT f.note_id FROM public.fts_admit_note_ids(
+            websearch_to_tsquery('public.matric_english', $1),
+            'public.matric_english',
+            current_schema()::text,
+            ARRAY['title', 'content']::text[],
+            $3) f
+    ))
+ORDER BY score DESC
+LIMIT $2
+"#;
+
+/// Run the federated statement for the admission path selected at startup on
+/// the caller's (tenant- and schema-scoped) connection. If the function reports
+/// that its cap was exceeded the statement is retried on the direct path, so the
+/// result is never silently truncated.
+pub async fn federated_fts_rows(
+    connection: &mut sqlx::PgConnection,
+    query: &str,
+    limit: i64,
+) -> std::result::Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
+    federated_fts_rows_with(
+        connection,
+        query,
+        limit,
+        crate::fts_admission::active_path(),
+        crate::fts_admission::ADMISSION_CAP,
+    )
+    .await
+}
+
+/// [`federated_fts_rows`] with an explicit path and cap (tests).
+pub async fn federated_fts_rows_with(
+    connection: &mut sqlx::PgConnection,
+    query: &str,
+    limit: i64,
+    path: crate::fts_admission::AdmissionPath,
+    cap: i32,
+) -> std::result::Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
+    if path == crate::fts_admission::AdmissionPath::Function {
+        let mut savepoint = sqlx::Connection::begin(&mut *connection).await?;
+        let attempt = sqlx::query(FEDERATED_FTS_FUNCTION_SQL)
+            .bind(query)
+            .bind(limit)
+            .bind(cap)
+            .fetch_all(&mut *savepoint)
+            .await;
+        match attempt {
+            Ok(rows) => {
+                savepoint.commit().await?;
+                return Ok(rows);
+            }
+            Err(error) if crate::search_candidates::is_admission_cap_exceeded(&error) => {
+                savepoint.rollback().await?;
+                tracing::warn!(
+                    "federated admission cap exceeded; retrying this request on the direct path"
+                );
+            }
+            Err(error) if crate::search_candidates::is_admission_function_unavailable(&error) => {
+                savepoint.rollback().await?;
+                crate::fts_admission::set_active_path(crate::fts_admission::AdmissionPath::Direct);
+                tracing::warn!(
+                    "federated admission function unavailable at request time; \
+                     switching to direct statements"
+                );
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    sqlx::query(FEDERATED_FTS_SQL)
+        .bind(query)
+        .bind(limit)
+        .fetch_all(connection)
+        .await
+}
+
 /// Full-text search provider using PostgreSQL tsvector.
 pub struct PgFtsSearch {
     pool: Pool<Postgres>,

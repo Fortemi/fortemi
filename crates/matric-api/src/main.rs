@@ -24453,10 +24453,7 @@ async fn federated_search(
             .map_err(|e| search_operation_failed("set federated search path", e))?;
 
         // Run FTS query (uses matric_english to match the tsv generated column config)
-        let rows = sqlx::query(matric_db::search::FEDERATED_FTS_SQL)
-            .bind(&body.q)
-            .bind(limit)
-            .fetch_all(&mut *tx)
+        let rows = matric_db::search::federated_fts_rows(&mut tx, &body.q, limit)
             .await
             .map_err(|e| search_operation_failed("execute federated search query", e))?;
 

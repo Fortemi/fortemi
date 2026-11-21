@@ -11,6 +11,7 @@ use uuid::Uuid;
 use crate::{
     embedding_storage_contract::{contract_for_set, default_contract},
     escape_like,
+    fts_admission::{active_path, AdmissionPath, ADMISSION_CAP},
     metadata_predicates::MetadataPredicateQueryBuilder,
     strict_filter::{QueryParam, StrictFilterQueryBuilder},
     unified_filter::UnifiedFilterQueryBuilder,
@@ -27,6 +28,12 @@ pub struct SearchCandidateScope {
     pub exclude_archived: bool,
     /// Explicit expression applied before limits in every retrieval mode.
     pub lexical_constraint: Option<(crate::search_query::Expression, LexicalStrategy)>,
+    /// Lexical admission path. `None` uses the path selected at startup
+    /// ([`crate::fts_admission::active_path`]); tests set it explicitly.
+    pub admission: Option<AdmissionPath>,
+    /// Function-path id cap (default [`ADMISSION_CAP`]). Exceeding it never
+    /// truncates: the request is retried on the direct path.
+    pub admission_cap: Option<i32>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -51,6 +58,8 @@ impl SearchCandidateScope {
             clauses.push(expression_predicate(
                 expression,
                 *strategy,
+                self.admission.unwrap_or_else(active_path),
+                self.admission_cap.unwrap_or(ADMISSION_CAP),
                 offset,
                 &mut params,
             ));
@@ -234,7 +243,31 @@ pub async fn query_terms(
 /// candidate selection must use the index-backed set builders below.
 fn unit_predicate(query: &str, strategy: LexicalStrategy) -> String {
     let config = analyzer(strategy);
-    format!("(to_tsvector('{config}', COALESCE(n.title, '')) @@ ({query}) OR to_tsvector('{config}', COALESCE(nrc.content, '')) @@ ({query}) OR EXISTS (SELECT 1 FROM attachment a WHERE a.note_id = n.id AND a.tenant_id = n.tenant_id AND a.status = 'completed' AND to_tsvector('{config}', COALESCE(a.extracted_text, '')) @@ ({query})))")
+    let content = current_unit_match(strategy, "nrc", &format!("({query})"));
+    format!("(to_tsvector('{config}', COALESCE(n.title, '')) @@ ({query}) OR {content} OR EXISTS (SELECT 1 FROM attachment a WHERE a.note_id = n.id AND a.tenant_id = n.tenant_id AND a.status = 'completed' AND to_tsvector('{config}', COALESCE(a.extracted_text, '')) @@ ({query})))")
+}
+
+/// Content-unit match for a joined `note_revised_current` alias. The English
+/// analyzer is exactly the stored generated `tsv`
+/// (`to_tsvector('public.matric_english', content)`, migrations/20260215200000),
+/// so it is reused instead of re-parsing the content; other analyzers parse.
+fn current_unit_match(strategy: LexicalStrategy, alias: &str, tsquery: &str) -> String {
+    match strategy {
+        LexicalStrategy::English => format!("{alias}.tsv @@ {tsquery}"),
+        _ => format!(
+            "to_tsvector('public.matric_simple', COALESCE({alias}.content, '')) @@ {tsquery}"
+        ),
+    }
+}
+
+/// Function-backed `(tenant_id, note_id)` leaf set (RLS-safe admission). The
+/// function enforces the current tenant and a registered schema itself; see
+/// migration `20261120010000`. The schema is the caller's search_path head.
+fn admission_function_set(query: &str, strategy: LexicalStrategy, cap: i32) -> String {
+    format!(
+        "(SELECT f.tenant_id, f.note_id FROM public.fts_admit_note_ids({query}, '{}', current_schema()::text, ARRAY['title','content','attachment']::text[], {cap}) f)",
+        analyzer(strategy)
+    )
 }
 
 /// Index-backed `(tenant_id, note_id)` set for one tsquery leaf. Each arm uses
@@ -243,7 +276,10 @@ fn unit_predicate(query: &str, strategy: LexicalStrategy) -> String {
 ///   `idx_note_revised_tsv`) or `idx_note_revised_tsv_simple` (`public.matric_simple`)
 /// - title: `idx_note_title_tsv_english` / `idx_note_title_tsv_simple`
 /// - attachment: `idx_attachment_extracted_fts_english` / `_simple`
-fn unit_id_set(query: &str, strategy: LexicalStrategy) -> String {
+fn unit_id_set(query: &str, strategy: LexicalStrategy, path: AdmissionPath, cap: i32) -> String {
+    if path == AdmissionPath::Function {
+        return admission_function_set(query, strategy, cap);
+    }
     let (content, title, attachment) = match strategy {
         LexicalStrategy::English => (
             format!("r.tsv @@ ({query})"),
@@ -270,6 +306,8 @@ fn unit_id_set(query: &str, strategy: LexicalStrategy) -> String {
 fn expression_id_set(
     expression: &crate::search_query::Expression,
     strategy: LexicalStrategy,
+    path: AdmissionPath,
+    cap: i32,
     offset: usize,
     params: &mut Vec<QueryParam>,
 ) -> String {
@@ -277,7 +315,12 @@ fn expression_id_set(
     match expression {
         Expression::Term(term) => {
             params.push(QueryParam::String(term.clone()));
-            unit_id_set(&format!("${}::tsquery", offset + params.len()), strategy)
+            unit_id_set(
+                &format!("${}::tsquery", offset + params.len()),
+                strategy,
+                path,
+                cap,
+            )
         }
         Expression::Phrase(phrase) => {
             params.push(QueryParam::String(phrase.clone()));
@@ -288,20 +331,22 @@ fn expression_id_set(
                     offset + params.len()
                 ),
                 strategy,
+                path,
+                cap,
             )
         }
         Expression::And(a, b) => {
-            let left = expression_id_set(a, strategy, offset, params);
-            let right = expression_id_set(b, strategy, offset, params);
+            let left = expression_id_set(a, strategy, path, cap, offset, params);
+            let right = expression_id_set(b, strategy, path, cap, offset, params);
             format!("({left} INTERSECT {right})")
         }
         Expression::Or(a, b) => {
-            let left = expression_id_set(a, strategy, offset, params);
-            let right = expression_id_set(b, strategy, offset, params);
+            let left = expression_id_set(a, strategy, path, cap, offset, params);
+            let right = expression_id_set(b, strategy, path, cap, offset, params);
             format!("({left} UNION {right})")
         }
         Expression::Not(a) => {
-            let inner = expression_id_set(a, strategy, offset, params);
+            let inner = expression_id_set(a, strategy, path, cap, offset, params);
             format!("((SELECT u.tenant_id, u.id FROM note u) EXCEPT {inner})")
         }
     }
@@ -310,13 +355,21 @@ fn expression_id_set(
 fn expression_predicate(
     expression: &crate::search_query::Expression,
     strategy: LexicalStrategy,
+    path: AdmissionPath,
+    cap: i32,
     offset: usize,
     params: &mut Vec<QueryParam>,
 ) -> String {
-    format!(
-        "(n.tenant_id, n.id) IN {}",
-        expression_id_set(expression, strategy, offset, params)
-    )
+    let set = expression_id_set(expression, strategy, path, cap, offset, params);
+    match path {
+        // The id list is an uncorrelated InitPlan, so the outer statement uses
+        // the note primary key (uuid_eq is leakproof) while RLS stays on as a
+        // second tenant check.
+        AdmissionPath::Function => {
+            format!("n.id = ANY(ARRAY(SELECT s.note_id FROM {set} AS s(tenant_id, note_id)))")
+        }
+        AdmissionPath::Direct => format!("(n.tenant_id, n.id) IN {set}"),
+    }
 }
 
 /// Classify a bounded candidate union using the same unit-local admission as FTS.
@@ -405,14 +458,32 @@ async fn prepare_lexical(
         }
         LexicalStrategy::Bigram => format!("{text} LIKE likequery($1)"),
     };
-    let units = format!("SELECT 1, 'title'::text, n.id::text, 0, n.title WHERE {} UNION ALL SELECT 2, 'current', n.id::text, 0, nrc.content WHERE {} UNION ALL SELECT 3, 'attachment', a.id::text, 0, a.extracted_text FROM attachment a WHERE a.note_id = n.id AND a.tenant_id = n.tenant_id AND a.status = 'completed' AND ({})", matches_unit("n.title"), matches_unit("nrc.content"), matches_unit("a.extracted_text"));
+    // The English content unit reuses the stored `nrc.tsv` instead of re-parsing.
+    let current_match = match strategy {
+        LexicalStrategy::English => current_unit_match(strategy, "nrc", "$1::tsquery"),
+        _ => matches_unit("nrc.content"),
+    };
+    let units = format!("SELECT 1, 'title'::text, n.id::text, 0, n.title WHERE {} UNION ALL SELECT 2, 'current', n.id::text, 0, nrc.content WHERE {} UNION ALL SELECT 3, 'attachment', a.id::text, 0, a.extracted_text FROM attachment a WHERE a.note_id = n.id AND a.tenant_id = n.tenant_id AND a.status = 'completed' AND ({})", matches_unit("n.title"), current_match, matches_unit("a.extracted_text"));
     let attachment_match = matches_unit("a.extracted_text");
     let attachment_scope =
         "a.note_id = n.id AND a.tenant_id = n.tenant_id AND a.status = 'completed'";
     // Candidate admission: union of per-table index-backed id sets keyed by
     // (tenant_id, note_id); only that set is joined, ranked and projected.
+    let path = scope.admission.unwrap_or_else(active_path);
     let matching = if scope.lexical_constraint.is_some() {
         "TRUE".to_string()
+    } else if path == AdmissionPath::Function
+        && matches!(strategy, LexicalStrategy::English | LexicalStrategy::Simple)
+    {
+        // RLS-safe admission: ids come from the SECURITY DEFINER function
+        // (tenant and schema enforced inside); the outer statement keeps RLS on
+        // and filters on the leakproof `uuid = ANY(...)`.
+        let set = admission_function_set(
+            "$1::tsquery",
+            strategy,
+            scope.admission_cap.unwrap_or(ADMISSION_CAP),
+        );
+        format!("n.id = ANY(ARRAY(SELECT s.note_id FROM {set} AS s(tenant_id, note_id)))")
     } else {
         let (title_arm, content_arm, attachment_arm) = match strategy {
             LexicalStrategy::English => (
@@ -439,7 +510,14 @@ async fn prepare_lexical(
         LexicalStrategy::Trigram => "similarity(a.extracted_text, $1)",
         LexicalStrategy::Bigram => "bigm_similarity(a.extracted_text, $1)",
     };
-    let score = format!("GREATEST(({score})::real, COALESCE((SELECT max({attachment_score}) FROM attachment a WHERE {attachment_scope} AND ({attachment_match})), 0.0))");
+    // Parse each attachment once per row (LATERAL, OFFSET 0 blocks pull-up so
+    // the filter and the rank share one tsvector) for the tsvector analyzers.
+    let attachment_rank = match strategy {
+        LexicalStrategy::English => format!("SELECT max(ts_rank(setweight(v.tsv, 'C'), $1::tsquery, 32)) FROM attachment a CROSS JOIN LATERAL (SELECT to_tsvector('public.matric_english', a.extracted_text) AS tsv OFFSET 0) v WHERE {attachment_scope} AND v.tsv @@ $1::tsquery"),
+        LexicalStrategy::Simple => format!("SELECT max(ts_rank(v.tsv, $1::tsquery)) FROM attachment a CROSS JOIN LATERAL (SELECT to_tsvector('public.matric_simple', a.extracted_text) AS tsv OFFSET 0) v WHERE {attachment_scope} AND v.tsv @@ $1::tsquery"),
+        _ => format!("SELECT max({attachment_score}) FROM attachment a WHERE {attachment_scope} AND ({attachment_match})"),
+    };
+    let score = format!("GREATEST(({score})::real, COALESCE(({attachment_rank}), 0.0))");
     let (evidence, evidence_params) = crate::search_evidence_projection::projection(
         &units,
         scope.metadata.as_ref(),
@@ -464,6 +542,70 @@ fn bind_lexical<'q>(
     bind_params(statement, params)
 }
 
+/// True for the function's "admission cap exceeded" error (SQLSTATE 54000).
+pub(crate) fn is_admission_cap_exceeded(error: &sqlx::Error) -> bool {
+    matches!(error, sqlx::Error::Database(db)
+        if db.code().as_deref() == Some("54000") && db.message().contains("admission cap exceeded"))
+}
+
+/// True when the admission function is missing or not executable by this role
+/// (undefined function, or "permission denied for function"). Tenant/schema
+/// refusals raised by the function itself are deliberately not matched.
+pub(crate) fn is_admission_function_unavailable(error: &sqlx::Error) -> bool {
+    matches!(error, sqlx::Error::Database(db)
+        if db.code().as_deref() == Some("42883")
+            || (db.code().as_deref() == Some("42501")
+                && db.message().starts_with("permission denied for function")))
+}
+
+/// Run `run` on the function admission path inside a savepoint; if the function
+/// reports that its cap was exceeded, roll the savepoint back and run it again
+/// on the direct path so the result is never silently truncated.
+pub(crate) async fn with_admission_fallback<T, F>(
+    connection: &mut PgConnection,
+    scope: &SearchCandidateScope,
+    mut run: F,
+) -> Result<T>
+where
+    F: for<'c> FnMut(
+        &'c mut PgConnection,
+        SearchCandidateScope,
+    ) -> futures::future::BoxFuture<'c, Result<T>>,
+{
+    let uses_function = scope.admission.unwrap_or_else(active_path) == AdmissionPath::Function;
+    if uses_function {
+        let mut attempt = scope.clone();
+        attempt.admission = Some(AdmissionPath::Function);
+        let mut savepoint = sqlx::Connection::begin(&mut *connection)
+            .await
+            .map_err(Error::Database)?;
+        match run(&mut savepoint, attempt).await {
+            Ok(value) => {
+                savepoint.commit().await.map_err(Error::Database)?;
+                return Ok(value);
+            }
+            Err(Error::Database(error)) if is_admission_cap_exceeded(&error) => {
+                savepoint.rollback().await.map_err(Error::Database)?;
+                tracing::warn!(
+                    "lexical admission cap exceeded; retrying this request on the direct path"
+                );
+            }
+            Err(Error::Database(error)) if is_admission_function_unavailable(&error) => {
+                savepoint.rollback().await.map_err(Error::Database)?;
+                crate::fts_admission::set_active_path(AdmissionPath::Direct);
+                tracing::warn!(
+                    "lexical admission function unavailable at request time; \
+                     switching to direct statements"
+                );
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    let mut direct = scope.clone();
+    direct.admission = Some(AdmissionPath::Direct);
+    run(connection, direct).await
+}
+
 /// Execute an analyzer-normalized tsquery, or raw trigram/bigram text.
 pub async fn lexical_compiled_on_connection(
     connection: &mut PgConnection,
@@ -475,13 +617,20 @@ pub async fn lexical_compiled_on_connection(
     if limit <= 0 {
         return Ok(Vec::new());
     }
-    let (sql, params, trigram) = prepare_lexical(connection, strategy, scope).await?;
-    hits(
-        bind_lexical(&sql, query, limit, trigram, params)
-            .fetch_all(connection)
-            .await
-            .map_err(Error::Database)?,
-    )
+    let query = query.to_string();
+    with_admission_fallback(connection, scope, move |connection, scope| {
+        let query = query.clone();
+        Box::pin(async move {
+            let (sql, params, trigram) = prepare_lexical(connection, strategy, &scope).await?;
+            hits(
+                bind_lexical(&sql, &query, limit, trigram, params)
+                    .fetch_all(connection)
+                    .await
+                    .map_err(Error::Database)?,
+            )
+        })
+    })
+    .await
 }
 
 /// The exact SQL text (placeholders intact) that
@@ -531,29 +680,36 @@ pub async fn vector_on_connection(
     contract.validate_vector(vector)?;
     let scoped_set_id = scope.embedding_set_id.unwrap_or(contract.embedding_set_id);
     apply_ef_search(connection, Some(scoped_set_id)).await?;
-    let distance = contract.distance_expr("e.vector", "$1");
-    // External sets store their searchable vectors as imported entity profiles.
-    let (cte, candidate, mut params) = scope.build(2);
-    params.push(QueryParam::Uuid(scoped_set_id));
-    let set_clause = format!(
-        "AND {}",
-        contract.set_predicate("e", &format!("${}", 2 + params.len()))
-    );
-    let (evidence, evidence_params) = crate::search_evidence_projection::projection(
-        "SELECT 0, 'embedding'::text, e.id::text, e.chunk_index, NULLIF(e.text, '')",
-        scope.metadata.as_ref(),
-        2 + params.len(),
-    );
-    params.extend(evidence_params);
-    let sql = format!(
-        "{cte} SELECT ranked.*, {evidence} AS evidence FROM (SELECT DISTINCT ON (n.id) n.id AS note_id, e.id AS evidence_embedding_id, (1.0 - ({distance}))::real AS score, substring(COALESCE(noc.content, nrc.content) for 200) AS snippet, n.title, {TAGS} AS tags FROM note n JOIN embedding e ON e.note_id = n.id AND e.tenant_id = n.tenant_id LEFT JOIN note_original noc ON noc.note_id = n.id AND noc.tenant_id = n.tenant_id LEFT JOIN note_revised_current nrc ON nrc.note_id = n.id AND nrc.tenant_id = n.tenant_id WHERE ({candidate}) AND e.vector IS NOT NULL {set_clause} ORDER BY n.id, {distance}, e.id) ranked JOIN note n ON n.id = ranked.note_id JOIN embedding e ON e.id = ranked.evidence_embedding_id AND e.note_id = n.id AND e.tenant_id = n.tenant_id ORDER BY ranked.score DESC, ranked.note_id LIMIT $2"
-    );
-    hits(
-        bind_params(sqlx::query(&sql).bind(vector).bind(limit), params)
-            .fetch_all(connection)
-            .await
-            .map_err(Error::Database)?,
-    )
+    let vector = vector.clone();
+    with_admission_fallback(connection, scope, move |connection, scope| {
+        let vector = vector.clone();
+        Box::pin(async move {
+        let distance = contract.distance_expr("e.vector", "$1");
+        // External sets store their searchable vectors as imported entity profiles.
+        let (cte, candidate, mut params) = scope.build(2);
+        params.push(QueryParam::Uuid(scoped_set_id));
+        let set_clause = format!(
+            "AND {}",
+            contract.set_predicate("e", &format!("${}", 2 + params.len()))
+        );
+        let (evidence, evidence_params) = crate::search_evidence_projection::projection(
+            "SELECT 0, 'embedding'::text, e.id::text, e.chunk_index, NULLIF(e.text, '')",
+            scope.metadata.as_ref(),
+            2 + params.len(),
+        );
+        params.extend(evidence_params);
+        let sql = format!(
+            "{cte} SELECT ranked.*, {evidence} AS evidence FROM (SELECT DISTINCT ON (n.id) n.id AS note_id, e.id AS evidence_embedding_id, (1.0 - ({distance}))::real AS score, substring(COALESCE(noc.content, nrc.content) for 200) AS snippet, n.title, {TAGS} AS tags FROM note n JOIN embedding e ON e.note_id = n.id AND e.tenant_id = n.tenant_id LEFT JOIN note_original noc ON noc.note_id = n.id AND noc.tenant_id = n.tenant_id LEFT JOIN note_revised_current nrc ON nrc.note_id = n.id AND nrc.tenant_id = n.tenant_id WHERE ({candidate}) AND e.vector IS NOT NULL {set_clause} ORDER BY n.id, {distance}, e.id) ranked JOIN note n ON n.id = ranked.note_id JOIN embedding e ON e.id = ranked.evidence_embedding_id AND e.note_id = n.id AND e.tenant_id = n.tenant_id ORDER BY ranked.score DESC, ranked.note_id LIMIT $2"
+        );
+        hits(
+            bind_params(sqlx::query(&sql).bind(&vector).bind(limit), params)
+                .fetch_all(connection)
+                .await
+                .map_err(Error::Database)?,
+        )
+        })
+    })
+    .await
 }
 
 #[cfg(test)]

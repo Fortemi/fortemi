@@ -9,7 +9,61 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ### Fixed
 
+- Full-text search under forced row-level security (#1348). Hosted and
+  external-OIDC runtime roles are subject to FORCE ROW LEVEL SECURITY, and
+  PostgreSQL only pushes a user qual below an RLS policy when it is LEAKPROOF;
+  `@@` and `to_tsvector` are not, so the 2026.11.1 GIN indexes were unusable for
+  that role and every lexical search scanned and re-parsed the whole memory
+  (about 2.7 s regardless of term on a large corpus). Candidate admission now
+  runs through `public.fts_admit_note_ids`, a `SECURITY DEFINER` function that
+  serves the title, stored-`tsv` and attachment arms from their GIN indexes. The
+  outer statement keeps RLS on and filters `n.id = ANY(...)`, so RLS remains a
+  second check. Federated search uses the same function (title and content arms
+  only, unchanged results). Trigram and bigram strategies keep the direct
+  statements (their operators are not leakproof either, and they remain
+  RLS-filtered scans).
+- Skip the adaptive OR rerun when the exact hits already fill the requested page
+  (the rerun only appends partial matches ordered after every exact hit, so the
+  page is unchanged); it still runs when MMR diversity is active.
+- Classification and the evidence "current" unit reuse the stored `tsv` instead
+  of re-parsing note content, and the attachment rank parses each attachment's
+  text once per row instead of twice.
+- Hybrid search logs one info-level line of per-stage timings and counts
+  (analysis, exact, OR rerun, classification, fusion, admission path); it never
+  contains query text.
 - Pin `poppler-utils` in the test database image and release bundle image, completing exact version pins for all explicitly installed apt packages in the test database image (#1345).
+
+### Security
+
+- `public.fts_admit_note_ids` bypasses row-level security (`SECURITY DEFINER`,
+  `row_security = off`, owned by the migrator, `search_path = pg_catalog`), so it
+  enforces tenant isolation itself: every arm filters
+  `tenant_id = current_setting('app.current_tenant')::uuid` and an unset, empty or
+  malformed tenant raises; the schema argument must be `public` or registered to
+  that tenant in `archive_registry` (used only through `format('%I')`); the
+  analyzer and arm list are allowlists; the query is a bound `tsquery`; the
+  admitted ids are capped without truncation (see upgrade notes). EXECUTE is revoked from PUBLIC and granted at startup only
+  to the verified runtime role. Tests run as a NOSUPERUSER NOBYPASSRLS role.
+
+### Upgrade notes
+
+- Migration `20261120010000_fts_admission_function.sql` creates the function.
+  After deploy verify its ownership and grant: the owner must be the migrator
+  with BYPASSRLS (`SELECT proowner::regrole, prosecdef FROM pg_proc WHERE
+  proname = 'fts_admit_note_ids'`) and the runtime role must hold EXECUTE
+  (`SELECT has_function_privilege('<runtime role>',
+  'public.fts_admit_note_ids(tsquery,text,text,text[],integer)', 'EXECUTE')`);
+  no other role should.
+- Startup probes the function as the runtime role (including that it fails closed
+  without a tenant) and logs `lexical candidate admission path selected` with
+  `path=security_definer_function` or `path=direct_statements`. Community bundles
+  whose owner cannot bypass RLS, a missing function or a missing grant fall back
+  to the direct statements automatically (a warning gives the reason).
+- The function raises if a call would admit more than 1,000,000 ids (a
+  runaway-memory guard); it never truncates. The caller then retries that request
+  on the direct statements, so results are identical either way. A runtime
+  `permission denied`/`undefined function` from the function likewise switches the
+  process to the direct statements and logs a warning.
 
 ## [2026.11.1] - 2026-11-16
 

@@ -386,6 +386,8 @@ impl HybridSearchEngine {
             embedding_set_id: config.embedding_set_id,
             exclude_archived: config.exclude_archived,
             lexical_constraint: None,
+            admission: None,
+            admission_cap: None,
         };
         let (strategy, detected_script) = Self::select_strategy(query, config);
         debug!(
@@ -405,6 +407,7 @@ impl HybridSearchEngine {
             strategy = LexicalStrategy::Simple;
         }
         let lexical_policy = matches!(strategy, LexicalStrategy::English | LexicalStrategy::Simple);
+        let analysis_start = Instant::now();
         let strict_query = if parsed.explicit {
             let expression = normalize_expression(connection, &parsed, strategy).await?;
             let compiled = expression.tsquery()?;
@@ -424,7 +427,12 @@ impl HybridSearchEngine {
         } else {
             Vec::new()
         };
+        let analysis_ms = analysis_start.elapsed().as_millis() as u64;
         let candidate_limit = config.query_policy.bounded_limit(limit);
+        let mut exact_ms = 0_u64;
+        let mut or_rerun_ms = 0_u64;
+        let mut or_rerun = "not_needed";
+        let mut exact_hits = 0_usize;
         let mut decision = crate::query_policy::QueryPolicyConfig {
             enabled: false,
             ..config.query_policy.clone()
@@ -443,10 +451,22 @@ impl HybridSearchEngine {
                 &scope,
             )
             .await?;
+            exact_ms = fts_start.elapsed().as_millis() as u64;
+            exact_hits = strict_hits.len();
             decision = config
                 .query_policy
                 .decide(parsed.explicit, terms.len(), strict_hits.len());
-            let hits = if decision.policy == "minimum_should_match" {
+            // The OR rerun only appends lower-tiered partial matches; with enough
+            // exact (full) hits to fill the page it cannot change the result, so
+            // skip it. MMR re-ranks the whole candidate set, so keep it there.
+            let mmr_active = config.diversity.unwrap_or(0.0) > 0.0 && query_embedding.is_some();
+            let hits = if decision.policy == "minimum_should_match"
+                && !config
+                    .query_policy
+                    .skips_expansion(strict_hits.len(), limit, mmr_active)
+            {
+                let or_start = Instant::now();
+                or_rerun = "ran";
                 let expanded = lexical_compiled_on_connection(
                     connection,
                     &terms.join(" | "),
@@ -462,8 +482,12 @@ impl HybridSearchEngine {
                     .map(|h| h.note_id)
                     .collect::<std::collections::HashSet<_>>();
                 hits.extend(expanded.into_iter().filter(|h| seen.insert(h.note_id)));
+                or_rerun_ms = or_start.elapsed().as_millis() as u64;
                 hits
             } else {
+                if decision.policy == "minimum_should_match" {
+                    or_rerun = "skipped_enough_exact_hits";
+                }
                 strict_hits
             };
             fts_count = hits.len();
@@ -505,11 +529,14 @@ impl HybridSearchEngine {
             .flatten()
             .map(|h| h.note_id)
             .collect::<Vec<_>>();
+        let classify_start = Instant::now();
         let matches = if lexical_policy && !parsed.explicit {
             classify_lexical_matches(connection, &ids, &strict_query, &terms, strategy).await?
         } else {
             Vec::new()
         };
+        let classify_ms = classify_start.elapsed().as_millis() as u64;
+        let classify_ids = ids.len();
         let full_ids = matches
             .iter()
             .filter(|(_, full, _)| *full)
@@ -525,6 +552,7 @@ impl HybridSearchEngine {
                 list.retain(|h| eligible.contains(&h.note_id));
             }
         }
+        let fusion_stage_start = Instant::now();
         let mut results = rrf_fuse(lists, candidate_limit as usize * 3);
         debug!(
             fusion_method = "rrf",
@@ -598,6 +626,22 @@ impl HybridSearchEngine {
             candidate_limit,
             ?match_tiers,
             "Lexical query policy diagnostics"
+        );
+        // Per-stage timings and counts only: never the query text or terms.
+        info!(
+            admission_path = matric_db::fts_admission::active_path().as_str(),
+            analysis_ms,
+            exact_ms,
+            exact_hits,
+            or_rerun,
+            or_rerun_ms,
+            classify_ms,
+            classify_ids,
+            fusion_ms = fusion_stage_start.elapsed().as_millis() as u64,
+            fts_hits = fts_count,
+            semantic_hits = semantic_count,
+            result_count = results.len(),
+            "Hybrid search stage timings"
         );
         info!(
             fts_hits = fts_count,

@@ -32,7 +32,12 @@ pub(super) async fn database(
     let migration_db = Database::connect(migration_url).await?;
     migration_db.migrate().await?;
     let mode = match tenancy {
-        Tenancy::Community => return Ok(migration_db),
+        Tenancy::Community => {
+            // Runtime and migration roles coincide; the probe selects the
+            // function path only if its owner can bypass RLS.
+            matric_db::fts_admission::probe_and_select(&migration_db.pool).await;
+            return Ok(migration_db);
+        }
         Tenancy::Hosted => {
             matric_db::external_owner::retire_identity_clones(&migration_db.pool).await?;
             PoolConfig::new().hosted_unscoped()
@@ -57,5 +62,15 @@ pub(super) async fn database(
     ))
     .execute(&migration_db.pool)
     .await?;
+    // The lexical admission function enforces tenant isolation itself; admit
+    // only the verified runtime role, then select the path from a real probe
+    // as that role (missing function, grant or owner BYPASSRLS falls back).
+    sqlx::query(&format!(
+        "GRANT EXECUTE ON FUNCTION {} TO {runtime_role}",
+        matric_db::fts_admission::ADMISSION_FUNCTION_SIGNATURE
+    ))
+    .execute(&migration_db.pool)
+    .await?;
+    matric_db::fts_admission::probe_and_select(&runtime.pool).await;
     Ok(runtime.with_administrative_pool(migration_db.pool).await?)
 }

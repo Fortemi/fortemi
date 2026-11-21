@@ -487,3 +487,69 @@ async fn golden_relevance_report(pool: PgPool) {
         std::fs::write(path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
     }
 }
+
+/// #1348: the OR/minimum-should-match rerun only appends partial matches, so
+/// when the exact hits already fill the requested page it is skipped. The page
+/// must equal the head of the same query with a larger limit (where the rerun
+/// still runs), in ids, order and scores.
+#[sqlx::test(migrations = false)]
+async fn skipping_or_rerun_when_exact_hits_fill_the_page_keeps_results(pool: PgPool) {
+    let db = database(pool).await;
+    let engine = HybridSearchEngine::new(db.clone());
+    let mut tx = db.pool().begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_tenant', $1, true)")
+        .bind(Uuid::nil().to_string())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    // Three exact (both-word) notes and four partial ones: 3 < scarcity (5), so
+    // the policy relaxes and the rerun runs whenever the page is not already full.
+    for (index, content) in [
+        "alpha beta one",
+        "alpha beta two two",
+        "alpha beta three three three",
+        "alpha only a",
+        "alpha only b b",
+        "beta only c",
+        "beta only d d",
+    ]
+    .iter()
+    .enumerate()
+    {
+        seed(
+            &mut tx,
+            Uuid::from_u128(index as u128 + 1),
+            "fixture",
+            content,
+            &[],
+        )
+        .await;
+    }
+    let mut pages = HashMap::new();
+    for limit in [1_i64, 2, 3, 10] {
+        let hits = SearchRequest::new("alpha beta")
+            .with_config(HybridSearchConfig::fts_only())
+            .with_limit(limit)
+            .execute_on_connection(&engine, &mut tx)
+            .await
+            .unwrap();
+        pages.insert(
+            limit,
+            hits.iter()
+                .map(|h| (h.hit.note_id.as_u128(), h.hit.score.to_bits()))
+                .collect::<Vec<_>>(),
+        );
+    }
+    // Limit 10 is not filled by the 3 exact hits, so the rerun ran: partials appear.
+    assert_eq!(pages[&10].len(), 7, "rerun still appends partial matches");
+    for limit in [1_usize, 2, 3] {
+        assert_eq!(
+            pages[&(limit as i64)],
+            pages[&10][..limit].to_vec(),
+            "limit {limit}: page must equal the head of the larger result"
+        );
+        assert!(pages[&(limit as i64)]
+            .iter()
+            .all(|(id, _)| (1..=3).contains(id)));
+    }
+}

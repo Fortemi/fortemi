@@ -47,6 +47,7 @@ pub mod embeddings;
 pub mod entity_vectors;
 pub mod external_owner;
 pub mod file_storage;
+pub mod fts_admission;
 pub mod hashtag_extraction;
 pub mod inbound_sources;
 pub mod incoming_webhooks;
