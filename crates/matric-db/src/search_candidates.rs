@@ -550,21 +550,26 @@ pub(crate) fn is_admission_cap_exceeded(error: &sqlx::Error) -> bool {
 
 /// True when the admission function itself is missing or not executable by this
 /// role: "function public.fts_admit_note_ids(...) does not exist" (42883) or
-/// "permission denied for function ..." (42501). An unrelated undefined
-/// function/operator in the surrounding statement (42883 naming something else)
-/// and the function's own tenant/schema refusals are deliberately not matched, so
-/// a request cannot make the process abandon the function path.
+/// "permission denied for function fts_admit_note_ids" (42501). An unrelated
+/// undefined function/operator or an unrelated function's permission error, and
+/// the function's own tenant/schema refusals, are deliberately not matched.
 #[doc(hidden)]
 pub fn is_admission_function_unavailable(error: &sqlx::Error) -> bool {
-    matches!(error, sqlx::Error::Database(db)
-        if (db.code().as_deref() == Some("42883") && db.message().contains("fts_admit_note_ids"))
-            || (db.code().as_deref() == Some("42501")
-                && db.message().starts_with("permission denied for function")))
+    crate::fts_admission::classify_error(error) == crate::fts_admission::ErrorClass::Definitive
+}
+
+/// Cancellation, deadlock, resource or connection errors (cap overflow has its
+/// own handling): they say nothing about the function, so the request is served
+/// on the direct path and global state is kept.
+#[doc(hidden)]
+pub fn is_admission_inconclusive(error: &sqlx::Error) -> bool {
+    crate::fts_admission::classify_error(error) == crate::fts_admission::ErrorClass::Inconclusive
 }
 
 /// An insufficient-privilege error that did not come from the function's own
-/// checks (those start with `fts_admit_note_ids:`), e.g. the owner lost
-/// BYPASSRLS ("query would be affected by row-level security policy").
+/// checks (those start with `fts_admit_note_ids:`) and is not a definitive
+/// missing-EXECUTE error, e.g. the owner lost BYPASSRLS ("query would be
+/// affected by row-level security policy").
 #[doc(hidden)]
 pub fn is_admission_function_misconfigured(error: &sqlx::Error) -> bool {
     matches!(error, sqlx::Error::Database(db)
@@ -576,9 +581,9 @@ pub fn is_admission_function_misconfigured(error: &sqlx::Error) -> bool {
 pub(crate) fn warn_admission_function_misconfigured(error: &sqlx::Error) {
     tracing::warn!(
         sqlstate = "42501",
-        "public.fts_admit_note_ids failed with insufficient_privilege; its owner may \
-         have lost BYPASSRLS or cannot read a searched schema. Searches on the function \
-         path fail closed until this is repaired and the service restarted: {}",
+        "an insufficient_privilege error occurred on the public.fts_admit_note_ids path; \
+         if its owner lost BYPASSRLS or cannot read a searched schema, searches on the \
+         function path fail closed until this is repaired and the service restarted: {}",
         match error {
             sqlx::Error::Database(db) => db.message().chars().take(160).collect::<String>(),
             other => other.to_string(),
@@ -587,21 +592,24 @@ pub(crate) fn warn_admission_function_misconfigured(error: &sqlx::Error) {
 }
 
 /// After the function path reported "unavailable", re-probe on this request's
-/// connection; only a failing probe switches the whole process to the direct
-/// statements. A passing probe means the error was not about the function, so
-/// only this request uses the direct path.
+/// connection. Only a definitive probe failure switches the process to the
+/// direct statements (recoverable after the re-probe interval); a passing or
+/// inconclusive probe keeps the global state and only this request uses the
+/// direct path.
 pub(crate) async fn confirm_function_unavailable(connection: &mut PgConnection) {
-    if crate::fts_admission::function_works_on_connection(connection).await {
-        tracing::warn!(
-            "admission function reported unavailable but the re-probe passed; \
+    use crate::fts_admission::ProbeOutcome;
+    match crate::fts_admission::probe_on_connection(connection).await {
+        ProbeOutcome::Definitive => {
+            crate::fts_admission::note_downgrade();
+            tracing::warn!(
+                "admission function unavailable (confirmed by re-probe); switching to direct \
+                 statements, re-probing periodically"
+            );
+        }
+        ProbeOutcome::Works | ProbeOutcome::Inconclusive => tracing::warn!(
+            "admission function reported unavailable but the re-probe did not confirm it; \
              using direct statements for this request only"
-        );
-    } else {
-        crate::fts_admission::set_active_path(AdmissionPath::Direct);
-        tracing::warn!(
-            "admission function unavailable (confirmed by re-probe); \
-             switching to direct statements"
-        );
+        ),
     }
 }
 
@@ -620,6 +628,9 @@ where
         SearchCandidateScope,
     ) -> futures::future::BoxFuture<'c, Result<T>>,
 {
+    if scope.admission.is_none() {
+        crate::fts_admission::maybe_recover(connection).await;
+    }
     let uses_function = scope.admission.unwrap_or_else(active_path) == AdmissionPath::Function;
     if uses_function {
         let mut attempt = scope.clone();
@@ -627,8 +638,11 @@ where
         let mut savepoint = sqlx::Connection::begin(&mut *connection)
             .await
             .map_err(Error::Database)?;
+        let previous_timeout = crate::fts_admission::bound_statement_timeout(&mut savepoint).await;
         match run(&mut savepoint, attempt).await {
             Ok(value) => {
+                crate::fts_admission::restore_statement_timeout(&mut savepoint, previous_timeout)
+                    .await;
                 savepoint.commit().await.map_err(Error::Database)?;
                 return Ok(value);
             }
@@ -641,6 +655,13 @@ where
             Err(Error::Database(error)) if is_admission_function_unavailable(&error) => {
                 savepoint.rollback().await.map_err(Error::Database)?;
                 confirm_function_unavailable(connection).await;
+            }
+            Err(Error::Database(error)) if is_admission_inconclusive(&error) => {
+                savepoint.rollback().await.map_err(Error::Database)?;
+                tracing::warn!(
+                    "admission function path failed inconclusively; using direct statements \
+                     for this request only"
+                );
             }
             Err(Error::Database(error)) if is_admission_function_misconfigured(&error) => {
                 warn_admission_function_misconfigured(&error);

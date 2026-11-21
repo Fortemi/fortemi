@@ -18,8 +18,11 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   runs through `public.fts_admit_note_ids`, a `SECURITY DEFINER` function that
   serves the title, stored-`tsv` and attachment arms from their GIN indexes. The
   outer statement keeps RLS on and filters `n.id = ANY(...)`, so RLS remains a
-  second check. Federated search uses the same function (title and content arms
-  only, unchanged results). Trigram and bigram strategies keep the direct
+  second check. The function path is activated only for deployments that are
+  single-tenant for lexical search: community mode and external-OIDC (its fixed
+  single-tenant pool). Hosted multi-tenant deployments keep the direct RLS
+  statements by default (see Security). Federated search uses the same function
+  (title and content arms only, unchanged results). Trigram and bigram strategies keep the direct
   statements (their operators are not leakproof either, and they remain
   RLS-filtered scans).
 - Skip the adaptive OR rerun when the exact hits already fill the requested page
@@ -45,20 +48,35 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   admitted ids are capped without truncation (see upgrade notes). EXECUTE is revoked from PUBLIC and granted at startup only
   to the verified runtime role. Tests run as a NOSUPERUSER NOBYPASSRLS role,
   including a NOSUPERUSER BYPASSRLS function owner (the hosted shape).
-- Residual timing/existence channel: in a multi-tenant shared `public` schema the
-  GIN postings span every tenant, so a search's latency can scale with a term's
-  frequency across tenants (the previous path was a constant-cost scan). No id,
-  row, count or content of another tenant is returned. Production external-OIDC
-  mode is single-tenant. The tenant filter stays outside the planner fence because
-  placing it inside lets the planner choose the tenant btree over the GIN index
-  (rejected by the plan test); no new index or extension is added. Mitigate with
-  per-tenant request rate limiting if a shared multi-tenant `public` is exposed.
-- Request-time fallback only reacts to errors naming `fts_admit_note_ids` (or
-  `permission denied for function`), and the process-wide switch flips only after a
-  re-probe on the request's own connection fails; an unrelated error cannot make
-  the service abandon the function path. An `insufficient_privilege` error that is
-  not the function's own refusal (for example the owner lost BYPASSRLS) fails
-  closed and logs an operator warning naming the function.
+- Residual timing/existence channel and activation policy: in a multi-tenant
+  shared `public` schema the GIN postings span every tenant, so a search's latency
+  can scale with a term's frequency across tenants (the previous path was not
+  term-dependent in the same way), and one tenant's common-term searches do work
+  over other tenants' rows. No id, row, count or content of another tenant is
+  returned, but the channel is real. Therefore the function path is only
+  activated for community mode and external-OIDC (single-tenant pool); hosted
+  multi-tenant uses the direct RLS statements by default. An operator may accept
+  the channel explicitly with `FTS_ADMISSION_SHARED_TENANT=accept`; startup then
+  logs a loud `ACCEPTED RISK` warning. Startup always logs which path is active and
+  why. Function-path statements are bounded by a 10 s `statement_timeout` applied
+  on the request's savepoint (a function-local `SET statement_timeout` does not
+  interrupt the statements a function runs, so it is not used); a timeout is an
+  inconclusive error and that request is served on the direct path.
+  The tenant filter stays outside the planner fence because placing it inside
+  lets the planner choose the tenant btree over the GIN index (rejected by the
+  plan test). Rate limiting reduces sampling but does not remove the channel.
+- The startup/recovery probe is data-independent (an unsatisfiable query). The
+  request-time fallback classifies errors: only a missing function signature or a
+  permission error for `fts_admit_note_ids` is definitive, and even then the
+  process-wide switch flips only after a re-probe on the request's own connection
+  fails; cancellation, deadlock, resource, cap-overflow and connection errors are
+  inconclusive (that request uses the direct path, global state is kept). A
+  downgraded process re-probes at most every 5 minutes and returns to the function
+  path when the probe passes (never for an ineligible deployment). An
+  `insufficient_privilege` error that is not the function's own refusal (for
+  example the owner lost BYPASSRLS) fails closed and logs an operator warning
+  naming the function. A recorded migration whose function was later dropped no
+  longer aborts startup: the GRANT failure is warned and the direct path is used.
 - The OR-rerun skip applies only to lexical-only searches; fused semantic lists
   and MMR always run it.
 
@@ -78,9 +96,10 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   to the direct statements automatically (a warning gives the reason).
 - The function raises if a call would admit more than 1,000,000 ids (a
   runaway-memory guard); it never truncates. The caller then retries that request
-  on the direct statements, so results are identical either way. A runtime
-  `permission denied`/`undefined function` from the function likewise switches the
-  process to the direct statements and logs a warning.
+  on the direct statements, so results are identical either way. A definitive
+  runtime `permission denied for function`/`undefined function` failure, confirmed
+  by a re-probe, switches the process to the direct statements with a warning and
+  is retried periodically (see Security).
 
 ## [2026.11.1] - 2026-11-16
 

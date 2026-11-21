@@ -624,3 +624,89 @@ async fn hybrid_pages_with_a_closest_partial_match_equal_the_head_of_a_larger_pa
         );
     }
 }
+
+/// #1348 review (L2): observe the OR rerun itself. A lexical-only page filled by
+/// exact hits skips it; the same query with a larger page, with a fused semantic
+/// list, or with MMR re-ranking executes it.
+#[sqlx::test(migrations = false)]
+async fn or_rerun_executes_with_semantic_or_mmr_and_is_skipped_for_a_full_lexical_page(
+    pool: PgPool,
+) {
+    let db = database(pool).await;
+    let engine = HybridSearchEngine::new(db.clone());
+    let mut tx = db.pool().begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_tenant', $1, true)")
+        .bind(Uuid::nil().to_string())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let set: Uuid = sqlx::query_scalar("SELECT id FROM embedding_set WHERE slug='default'")
+        .fetch_one(&mut *tx)
+        .await
+        .unwrap();
+    let query_vector = Vector::from(vec![1.0_f32; 768]);
+    for (index, content) in [
+        "alpha beta one",
+        "alpha beta two two",
+        "alpha beta three three three",
+        "alpha only a",
+        "alpha only b b",
+        "beta only c",
+        "beta only d d",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let id = Uuid::from_u128(index as u128 + 1);
+        seed(&mut tx, id, "fixture", content, &[]).await;
+        sqlx::query("INSERT INTO embedding (note_id, chunk_index, text, vector, model, embedding_set_id) VALUES ($1, 0, $2, $3, 'synthetic-p2-observe', $4)")
+            .bind(id).bind(*content).bind(Vector::from(vec![1.0_f32; 768])).bind(set).execute(&mut *tx).await.unwrap();
+    }
+    let mut observed = Vec::new();
+    for (label, config, embedding, limit, expect_rerun) in [
+        (
+            "lexical-only, page filled",
+            HybridSearchConfig::fts_only(),
+            None,
+            1_i64,
+            false,
+        ),
+        (
+            "lexical-only, larger page",
+            HybridSearchConfig::fts_only(),
+            None,
+            10,
+            true,
+        ),
+        (
+            "hybrid (semantic list fused)",
+            HybridSearchConfig::default(),
+            Some(query_vector.clone()),
+            1,
+            true,
+        ),
+        (
+            "lexical + MMR",
+            HybridSearchConfig::fts_only().with_diversity(0.5),
+            Some(query_vector.clone()),
+            1,
+            true,
+        ),
+    ] {
+        let before = engine.or_rerun_count();
+        let mut request = SearchRequest::new("alpha beta")
+            .with_config(config)
+            .with_limit(limit);
+        if let Some(vector) = embedding {
+            request = request.with_embedding(vector);
+        }
+        request
+            .execute_on_connection(&engine, &mut tx)
+            .await
+            .unwrap();
+        let ran = engine.or_rerun_count() - before;
+        observed.push((label, ran));
+        assert_eq!(ran, u64::from(expect_rerun), "{label}");
+    }
+    assert_eq!(observed.len(), 4);
+}

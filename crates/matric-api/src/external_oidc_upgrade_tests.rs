@@ -1456,6 +1456,91 @@ async fn external_oidc_adoption_is_absent_in_community_and_hosted_startup(admin:
     }
 }
 
+/// #1348: the real startup entry point selects the lexical admission path by
+/// deployment shape. External-OIDC (fixed single-tenant pool) activates the
+/// function; a recorded migration whose function was later dropped must not
+/// abort startup (the GRANT failure is classified, warned and the probe selects
+/// the direct path); hosted multi-tenant keeps the direct path and grants nothing.
+#[sqlx::test(migrations = false)]
+async fn startup_selects_the_admission_path_by_deployment_and_survives_a_dropped_function(
+    admin: sqlx::PgPool,
+) {
+    use sqlx::ConnectOptions;
+    sqlx::query("CREATE EXTENSION IF NOT EXISTS postgis")
+        .execute(&admin)
+        .await
+        .unwrap();
+    let migration = admin.connect_options().to_url_lossy();
+    let owner = Uuid::new_v4();
+    let runtime = runtime_url(&admin, owner).await;
+    // Healthy external-OIDC startup: function path.
+    let db = startup::database(
+        &runtime,
+        Some(migration.as_str()),
+        startup::Tenancy::External(owner),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        matric_db::fts_admission::active_path(),
+        matric_db::fts_admission::AdmissionPath::Function
+    );
+    db.pool.close().await;
+    // Migration recorded, function dropped: startup continues on the direct path.
+    sqlx::query("DROP FUNCTION public.fts_admit_note_ids(tsquery, text, text, text[], integer)")
+        .execute(&admin)
+        .await
+        .unwrap();
+    let db = startup::database(
+        &runtime,
+        Some(migration.as_str()),
+        startup::Tenancy::External(owner),
+    )
+    .await
+    .expect("a missing admission function must not abort startup");
+    assert_eq!(
+        matric_db::fts_admission::active_path(),
+        matric_db::fts_admission::AdmissionPath::Direct
+    );
+    db.pool.close().await;
+    matric_db::fts_admission::set_active_path(matric_db::fts_admission::AdmissionPath::Direct);
+}
+
+#[sqlx::test(migrations = false)]
+async fn hosted_startup_keeps_the_direct_path_and_grants_no_function_access(admin: sqlx::PgPool) {
+    use sqlx::ConnectOptions;
+    sqlx::query("CREATE EXTENSION IF NOT EXISTS postgis")
+        .execute(&admin)
+        .await
+        .unwrap();
+    assert!(
+        std::env::var(matric_db::fts_admission::SHARED_TENANT_OPT_IN_ENV).is_err(),
+        "the opt-in must not be set for this test"
+    );
+    let migration = admin.connect_options().to_url_lossy();
+    let runtime = runtime_url(&admin, Uuid::new_v4()).await;
+    matric_db::fts_admission::set_active_path(matric_db::fts_admission::AdmissionPath::Function);
+    let db = startup::database(&runtime, Some(migration.as_str()), startup::Tenancy::Hosted)
+        .await
+        .unwrap();
+    assert_eq!(
+        matric_db::fts_admission::active_path(),
+        matric_db::fts_admission::AdmissionPath::Direct,
+        "hosted multi-tenant is not activated by default"
+    );
+    let granted: bool = sqlx::query_scalar(
+        "SELECT has_function_privilege(current_user, 'public.fts_admit_note_ids(tsquery, text, text, text[], integer)', 'EXECUTE')",
+    )
+    .fetch_one(&db.pool)
+    .await
+    .unwrap();
+    assert!(
+        !granted,
+        "no EXECUTE grant when the function path is not activated"
+    );
+    db.pool.close().await;
+}
+
 /// Use the real old bootstrap defaults (config/set/scheme). The pre-#1205
 /// bootstrap did not seed document types; discard the current backfill here.
 async fn old_bootstrap_fixture(admin: &sqlx::PgPool) -> (sqlx::PgPool, Uuid, Uuid) {

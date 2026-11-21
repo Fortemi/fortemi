@@ -84,6 +84,7 @@ pub async fn federated_fts_rows(
     query: &str,
     limit: i64,
 ) -> std::result::Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
+    crate::fts_admission::maybe_recover(connection).await;
     federated_fts_rows_with(
         connection,
         query,
@@ -104,6 +105,7 @@ pub async fn federated_fts_rows_with(
 ) -> std::result::Result<Vec<sqlx::postgres::PgRow>, sqlx::Error> {
     if path == crate::fts_admission::AdmissionPath::Function {
         let mut savepoint = sqlx::Connection::begin(&mut *connection).await?;
+        let previous_timeout = crate::fts_admission::bound_statement_timeout(&mut savepoint).await;
         let attempt = sqlx::query(FEDERATED_FTS_FUNCTION_SQL)
             .bind(query)
             .bind(limit)
@@ -112,6 +114,8 @@ pub async fn federated_fts_rows_with(
             .await;
         match attempt {
             Ok(rows) => {
+                crate::fts_admission::restore_statement_timeout(&mut savepoint, previous_timeout)
+                    .await;
                 savepoint.commit().await?;
                 return Ok(rows);
             }
@@ -124,6 +128,13 @@ pub async fn federated_fts_rows_with(
             Err(error) if crate::search_candidates::is_admission_function_unavailable(&error) => {
                 savepoint.rollback().await?;
                 crate::search_candidates::confirm_function_unavailable(connection).await;
+            }
+            Err(error) if crate::search_candidates::is_admission_inconclusive(&error) => {
+                savepoint.rollback().await?;
+                tracing::warn!(
+                    "federated admission function path failed inconclusively; using direct \
+                     statements for this request only"
+                );
             }
             Err(error) if crate::search_candidates::is_admission_function_misconfigured(&error) => {
                 crate::search_candidates::warn_admission_function_misconfigured(&error);

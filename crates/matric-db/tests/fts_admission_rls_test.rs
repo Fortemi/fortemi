@@ -356,6 +356,13 @@ async fn function_is_a_locked_down_security_definer(pool: PgPool) {
         "{:?}",
         row.1
     );
+    // A function-local statement_timeout would not bound the function's own
+    // statements, so it is deliberately absent (the caller bounds the statement).
+    assert!(
+        !row.1.iter().any(|c| c.starts_with("statement_timeout")),
+        "{:?}",
+        row.1
+    );
     assert!(!row.2, "must not be LEAKPROOF");
     assert!(row.3, "owner must bypass RLS");
     assert!(row.4, "must be STABLE");
@@ -829,7 +836,16 @@ async fn function_path_matches_direct_path_under_non_bypass_role(pool: PgPool) {
                     .unwrap_or_else(|e| panic!("{path:?} {strategy:?} {query:?}: {e}"));
                     results.push(
                         hits.into_iter()
-                            .map(|h| (h.note_id, h.score.to_bits(), format!("{:?}", h.evidence)))
+                            .map(|h| {
+                                (
+                                    h.note_id,
+                                    h.score.to_bits(),
+                                    format!("{:?}", (&h.title, &h.snippet, &h.tags)),
+                                    // Serialized evidence values (locator ids, digests,
+                                    // spans), not the redacted Debug summary.
+                                    serde_json::to_string(&h.evidence).unwrap(),
+                                )
+                            })
                             .collect::<Vec<_>>(),
                     );
                     tx.rollback().await.unwrap();
@@ -838,6 +854,14 @@ async fn function_path_matches_direct_path_under_non_bypass_role(pool: PgPool) {
                     results[0], results[1],
                     "direct vs function: schema {schema:?} {strategy:?} {query:?}"
                 );
+                if query == "zephyrattach" && schema.is_none() {
+                    // The comparison is not vacuous: attachment evidence is present.
+                    assert!(
+                        results[1].iter().any(|r| r.3.contains("attachment")),
+                        "{:?}",
+                        results[1]
+                    );
+                }
                 // Tenant A's page never contains tenant B notes under either path.
                 // Plain multi-word queries are unit-local, so "zephyrtitle zephyrbody"
                 // legitimately matches nothing (see the arm tests).
@@ -1089,11 +1113,14 @@ async fn stat_counts(pool: &PgPool) -> std::collections::BTreeMap<String, i64> {
     counts
 }
 
-/// The fix: as the same role, the function path uses the GIN indexes. The
-/// outer statement shows a Function Scan (the arms run inside the function, so
-/// index use is proven with the statistics collector, as the role).
+/// Index ELIGIBILITY, not natural planning: with sequential scans disabled on a
+/// small synthetic fixture, each function arm's expression must match its GIN
+/// index (proven with the statistics collector, as the non-bypass role; the
+/// outer EXPLAIN shows only a Function Scan). Natural-cost planning at scale is
+/// measured by the `fts_scale_check` example, which is single-tenant synthetic
+/// data, not a representative multi-tenant workload.
 #[sqlx::test(migrations = false)]
-async fn function_path_under_rls_uses_gin_indexes(pool: PgPool) {
+async fn function_arms_match_their_gin_indexes_under_rls_with_seqscan_disabled(pool: PgPool) {
     let _db = migrated(&pool).await;
     seed_scale(&pool).await;
     let role = runtime_role(&pool, true).await;
@@ -1227,6 +1254,7 @@ async fn federated_function_statement_matches_direct_statement(pool: PgPool) {
     let a_archived = add_note(&db, &mut seed, "fedtitle archived", "filler").await;
     seed.commit().await.unwrap();
 
+    type FedRow = (Uuid, u32, Option<String>, Option<String>, String);
     async fn run(
         pool: &PgPool,
         role: &str,
@@ -1235,6 +1263,19 @@ async fn federated_function_statement_matches_direct_statement(pool: PgPool) {
         sql: &str,
         query: &str,
     ) -> Result<BTreeSet<Uuid>, String> {
+        run_rows(pool, role, tenant, schema, sql, query)
+            .await
+            .map(|rows| rows.into_iter().map(|r| r.0).collect())
+    }
+    async fn run_rows(
+        pool: &PgPool,
+        role: &str,
+        tenant: Uuid,
+        schema: Option<&str>,
+        sql: &str,
+        query: &str,
+    ) -> Result<Vec<FedRow>, String> {
+        use sqlx::Row;
         let mut tx = pool.begin().await.unwrap();
         use_tenant(&mut tx, tenant).await;
         if let Some(schema) = schema {
@@ -1244,7 +1285,7 @@ async fn federated_function_statement_matches_direct_statement(pool: PgPool) {
             .execute(&mut *tx)
             .await
             .unwrap();
-        let statement = sqlx::query_scalar::<_, Uuid>(sql).bind(query).bind(100_i64);
+        let statement = sqlx::query(sql).bind(query).bind(100_i64);
         let statement = if sql.contains("$3") {
             statement.bind(100_000_i32)
         } else {
@@ -1255,7 +1296,19 @@ async fn federated_function_statement_matches_direct_statement(pool: PgPool) {
             .await
             .map_err(|e| e.to_string());
         let _ = tx.rollback().await;
-        rows.map(|r| r.into_iter().collect())
+        rows.map(|rows| {
+            rows.into_iter()
+                .map(|r| {
+                    (
+                        r.get::<Uuid, _>("note_id"),
+                        r.get::<f32, _>("score").to_bits(),
+                        r.get::<Option<String>, _>("title"),
+                        r.get::<Option<String>, _>("snippet"),
+                        r.get::<String, _>("tags"),
+                    )
+                })
+                .collect()
+        })
     }
 
     for (tenant, schema) in [
@@ -1294,6 +1347,35 @@ async fn federated_function_statement_matches_direct_statement(pool: PgPool) {
             assert_eq!(
                 direct, function,
                 "tenant {tenant} schema {schema:?} {query:?}"
+            );
+            // Ordered rows, scores, titles, snippets and tags. Tie policy: the SQL
+            // orders by score only, so equal-score rows may differ in order; each
+            // output must be non-increasing in score, and after a canonical
+            // (score desc, note_id) ordering the two outputs must be identical.
+            let mut outputs = Vec::new();
+            for sql in [
+                matric_db::search::FEDERATED_FTS_SQL,
+                matric_db::search::FEDERATED_FTS_FUNCTION_SQL,
+            ] {
+                let mut rows = run_rows(&pool, &role, tenant, schema, sql, query)
+                    .await
+                    .unwrap();
+                assert!(
+                    rows.windows(2)
+                        .all(|w| f32::from_bits(w[0].1) >= f32::from_bits(w[1].1)),
+                    "scores must be non-increasing: {rows:?}"
+                );
+                rows.sort_by(|a, b| {
+                    f32::from_bits(b.1)
+                        .partial_cmp(&f32::from_bits(a.1))
+                        .unwrap()
+                        .then(a.0.cmp(&b.0))
+                });
+                outputs.push(rows);
+            }
+            assert_eq!(
+                outputs[0], outputs[1],
+                "rows/scores/titles/snippets/tags: tenant {tenant} schema {schema:?} {query:?}"
             );
         }
     }
@@ -1555,6 +1637,32 @@ async fn stored_tsv_and_single_parse_rank_equal_the_legacy_expressions(pool: PgP
             new.sort();
             old.sort();
             assert_eq!(new, old, "unit predicate {strategy:?} {query:?}");
+
+            // Matched-term counts with non-empty terms vs the legacy per-term predicate.
+            let terms: Vec<String> = ["zephyrtitle", "zephyrbody", "zephyrattach", "fox", "quick"]
+                .iter()
+                .map(|t| matric_db::search_query::quote_term(t))
+                .collect();
+            let counted = classify_lexical_matches(&mut tx, &ids, &tsquery, &terms, strategy)
+                .await
+                .unwrap();
+            let legacy_counts: Vec<(Uuid, i64)> = sqlx::query_as(&format!(
+                "SELECT n.id, (SELECT count(*) FROM unnest($2::text[]) term WHERE to_tsvector('{config}', COALESCE(n.title, '')) @@ term::tsquery OR to_tsvector('{config}', COALESCE(nrc.content, '')) @@ term::tsquery OR EXISTS (SELECT 1 FROM attachment a WHERE a.note_id = n.id AND a.tenant_id = n.tenant_id AND a.status = 'completed' AND to_tsvector('{config}', COALESCE(a.extracted_text, '')) @@ term::tsquery)) FROM note n JOIN note_revised_current nrc ON nrc.note_id = n.id AND nrc.tenant_id = n.tenant_id WHERE n.id = ANY($1)"
+            ))
+            .bind(&ids)
+            .bind(&terms)
+            .fetch_all(&mut *tx)
+            .await
+            .unwrap();
+            let mut new_counts: Vec<(Uuid, i64)> =
+                counted.iter().map(|(id, _, n)| (*id, *n)).collect();
+            let mut old_counts = legacy_counts;
+            new_counts.sort();
+            old_counts.sort();
+            assert_eq!(
+                new_counts, old_counts,
+                "matched-term counts {strategy:?} {query:?}"
+            );
 
             // Attachment-ranked score vs the former double-parse expression.
             let hits = lexical_on_connection(
@@ -1918,4 +2026,387 @@ async fn function_owned_by_a_non_superuser_bypassrls_role_works_and_isolates(poo
         .unwrap();
     drop_role(&pool, &owner).await;
     drop_role(&pool, &runtime).await;
+}
+
+async fn raise(pool: &PgPool, sqlstate: &str, message: &str) -> sqlx::Error {
+    sqlx::query(&format!(
+        "DO $$ BEGIN RAISE EXCEPTION '{message}' USING ERRCODE = '{sqlstate}'; END $$"
+    ))
+    .execute(pool)
+    .await
+    .unwrap_err()
+}
+
+async fn ambient_tenant(tx: &mut PgConnection) -> Option<String> {
+    sqlx::query_scalar("SELECT current_setting('app.current_tenant', true)")
+        .fetch_one(tx)
+        .await
+        .unwrap()
+}
+
+/// M2: server errors are classified by what they prove. Only a missing function
+/// signature or a permission error for THIS function is definitive.
+#[sqlx::test(migrations = false)]
+async fn error_classes_separate_definitive_from_inconclusive(pool: PgPool) {
+    use fts_admission::{classify_error, ErrorClass};
+    let _db = migrated(&pool).await;
+    for (sqlstate, expected) in [
+        ("57014", ErrorClass::Inconclusive), // cancellation / statement timeout
+        ("40P01", ErrorClass::Inconclusive), // deadlock
+        ("40001", ErrorClass::Inconclusive), // serialization
+        ("53200", ErrorClass::Inconclusive), // out of memory (resource)
+        ("53300", ErrorClass::Inconclusive), // too many connections
+        ("54000", ErrorClass::Inconclusive), // program limit (cap overflow)
+        ("08006", ErrorClass::Inconclusive), // connection failure
+        ("42501", ErrorClass::Other),        // generic insufficient privilege
+        ("22023", ErrorClass::Other),
+    ] {
+        let error = raise(&pool, sqlstate, "simulated").await;
+        assert_eq!(classify_error(&error), expected, "{sqlstate}");
+    }
+    assert_eq!(
+        classify_error(&sqlx::Error::PoolTimedOut),
+        ErrorClass::Inconclusive
+    );
+    // A missing function signature naming this function: definitive.
+    let missing = sqlx::query(
+        "SELECT public.fts_admit_note_ids('x'::tsquery, 'a', 'b', ARRAY['title']::text[], 1, 2)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap_err();
+    assert_eq!(classify_error(&missing), ErrorClass::Definitive);
+    // An unrelated undefined function/operator: not definitive.
+    let unrelated = sqlx::query("SELECT nosuchfunc_xyz()")
+        .execute(&pool)
+        .await
+        .unwrap_err();
+    assert_eq!(classify_error(&unrelated), ErrorClass::Other);
+    // Permission denied for THIS function: definitive; for an unrelated function: not.
+    let role = runtime_role(&pool, false).await;
+    sqlx::query("CREATE FUNCTION public.fts_unrelated_fn() RETURNS int LANGUAGE sql AS 'SELECT 1'")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("REVOKE ALL ON FUNCTION public.fts_unrelated_fn() FROM PUBLIC")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    use_tenant(&mut tx, TENANT_A).await;
+    sqlx::query(&format!("SET LOCAL ROLE {role}"))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("SAVEPOINT s1").execute(&mut *tx).await.unwrap();
+    let denied_this = sqlx::query(
+        "SELECT * FROM public.fts_admit_note_ids('x'::tsquery, 'public.matric_english', 'public', ARRAY['title']::text[], 1)",
+    )
+    .execute(&mut *tx)
+    .await
+    .unwrap_err();
+    assert_eq!(classify_error(&denied_this), ErrorClass::Definitive);
+    sqlx::query("ROLLBACK TO SAVEPOINT s1")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let denied_other = sqlx::query("SELECT public.fts_unrelated_fn()")
+        .execute(&mut *tx)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&denied_other, sqlx::Error::Database(db) if db.code().as_deref() == Some("42501")),
+        "unrelated function must be denied for this check"
+    );
+    assert_eq!(
+        classify_error(&denied_other),
+        ErrorClass::Other,
+        "an unrelated function's permission error must not look definitive"
+    );
+    tx.rollback().await.unwrap();
+    sqlx::query("DROP FUNCTION public.fts_unrelated_fn()")
+        .execute(&pool)
+        .await
+        .unwrap();
+    drop_role(&pool, &role).await;
+}
+
+/// M2: the probe cannot be defeated by data. Two nil-tenant notes that match the
+/// former literal probe token leave a healthy function selected.
+#[sqlx::test(migrations = false)]
+async fn probe_is_data_independent(pool: PgPool) {
+    let _switch = GLOBAL_SWITCH.lock().await;
+    let db = migrated(&pool).await;
+    let mut seed = pool.begin().await.unwrap();
+    use_tenant(&mut seed, TENANT_A).await;
+    add_note(&db, &mut seed, "fortemiprobe one", "fortemiprobe").await;
+    add_note(&db, &mut seed, "fortemiprobe two", "fortemiprobe").await;
+    seed.commit().await.unwrap();
+    let role = runtime_role(&pool, true).await;
+    let runtime = pool_as(&pool, &role).await;
+    assert_eq!(
+        fts_admission::probe_and_select(&runtime).await,
+        AdmissionPath::Function
+    );
+    let mut conn = runtime.acquire().await.unwrap();
+    assert_eq!(
+        fts_admission::probe_on_connection(&mut conn).await,
+        fts_admission::ProbeOutcome::Works
+    );
+    drop(conn);
+    runtime.close().await;
+    fts_admission::set_active_path(AdmissionPath::Direct);
+    drop_role(&pool, &role).await;
+}
+
+/// M2: an inconclusive error (cancellation, deadlock, resource) on the function
+/// path serves that request via the direct path and keeps the global state; the
+/// request's tenant GUC is untouched.
+#[sqlx::test(migrations = false)]
+async fn inconclusive_errors_use_the_direct_path_for_that_request_only(pool: PgPool) {
+    let _switch = GLOBAL_SWITCH.lock().await;
+    let _db = migrated(&pool).await;
+    let tenant_b = register_tenant(&pool).await;
+    for sqlstate in ["57014", "40P01", "53200", "54000"] {
+        fts_admission::set_active_path(AdmissionPath::Function);
+        let mut tx = pool.begin().await.unwrap();
+        use_tenant(&mut tx, tenant_b).await;
+        let scope = SearchCandidateScope::default();
+        let ran_on = matric_db::search_candidates::with_admission_fallback(
+            &mut tx,
+            &scope,
+            |connection, attempt| {
+                Box::pin(async move {
+                    if attempt.admission == Some(AdmissionPath::Function) {
+                        sqlx::query(&format!(
+                            "DO $$ BEGIN RAISE EXCEPTION 'admission cap exceeded' USING ERRCODE = '{sqlstate}'; END $$"
+                        ))
+                        .execute(connection)
+                        .await
+                        .map_err(matric_core::Error::Database)?;
+                    }
+                    Ok(attempt.admission)
+                })
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(ran_on, Some(AdmissionPath::Direct), "{sqlstate}");
+        assert_eq!(
+            fts_admission::active_path(),
+            AdmissionPath::Function,
+            "{sqlstate}: global state kept"
+        );
+        assert_eq!(
+            ambient_tenant(&mut tx).await.as_deref(),
+            Some(tenant_b.to_string().as_str()),
+            "{sqlstate}: the request's tenant scope is unchanged"
+        );
+        tx.rollback().await.unwrap();
+    }
+    fts_admission::set_active_path(AdmissionPath::Direct);
+}
+
+/// M2: a definitive failure downgrades the process; after the re-probe interval
+/// a passing probe returns it to the function path (bounded recovery), and the
+/// request's tenant GUC is restored after the probe.
+#[sqlx::test(migrations = false)]
+async fn downgraded_process_recovers_after_the_reprobe_interval(pool: PgPool) {
+    let _switch = GLOBAL_SWITCH.lock().await;
+    let db = migrated(&pool).await;
+    let tenant_b = register_tenant(&pool).await;
+    let role = runtime_role(&pool, false).await;
+    let mut seed = pool.begin().await.unwrap();
+    use_tenant(&mut seed, TENANT_A).await;
+    let note = add_note(&db, &mut seed, "recoverword title", "filler").await;
+    seed.commit().await.unwrap();
+
+    async fn request(pool: &PgPool, role: &str, tenant: Uuid, expect: Uuid) {
+        let mut tx = pool.begin().await.unwrap();
+        use_tenant(&mut tx, TENANT_A).await;
+        sqlx::query(&format!("SET LOCAL ROLE {role}"))
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let hits = lexical_on_connection(
+            &mut tx,
+            "recoverword",
+            10,
+            LexicalStrategy::English,
+            &SearchCandidateScope::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            hits.iter().map(|h| h.note_id).collect::<Vec<_>>(),
+            vec![expect]
+        );
+        let _ = tenant;
+        tx.rollback().await.unwrap();
+    }
+
+    fts_admission::set_recovery_interval_secs(3600);
+    fts_admission::set_active_path(AdmissionPath::Function);
+    // No EXECUTE: definitive, confirmed by the re-probe, process downgraded.
+    request(&pool, &role, tenant_b, note).await;
+    assert_eq!(fts_admission::active_path(), AdmissionPath::Direct);
+    // Grant restored, but the interval has not elapsed: still downgraded.
+    sqlx::query(&format!("GRANT EXECUTE ON FUNCTION {SIGNATURE} TO {role}"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    request(&pool, &role, tenant_b, note).await;
+    assert_eq!(fts_admission::active_path(), AdmissionPath::Direct);
+    // Interval elapsed: the next request re-probes on its own connection and the
+    // process returns to the function path; the tenant scope is restored.
+    fts_admission::set_recovery_interval_secs(0);
+    let mut tx = pool.begin().await.unwrap();
+    use_tenant(&mut tx, tenant_b).await;
+    sqlx::query(&format!("SET LOCAL ROLE {role}"))
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    matric_db::search_candidates::with_admission_fallback(
+        &mut tx,
+        &SearchCandidateScope::default(),
+        |_, attempt| Box::pin(async move { Ok(attempt.admission) }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        fts_admission::active_path(),
+        AdmissionPath::Function,
+        "bounded recovery returns to the function path"
+    );
+    assert_eq!(
+        ambient_tenant(&mut tx).await.as_deref(),
+        Some(tenant_b.to_string().as_str()),
+        "the probe must not change the request's tenant scope"
+    );
+    tx.rollback().await.unwrap();
+    fts_admission::set_recovery_interval_secs(300);
+    fts_admission::set_active_path(AdmissionPath::Direct);
+    drop_role(&pool, &role).await;
+}
+
+/// M1: activation is gated on the deployment being single-tenant for lexical
+/// search; a hosted multi-tenant deployment keeps the direct path (and is never
+/// recovered into the function path) unless the operator opts in.
+#[sqlx::test(migrations = false)]
+async fn function_path_activates_only_for_eligible_deployments(pool: PgPool) {
+    use fts_admission::{configure, Eligibility};
+    let _switch = GLOBAL_SWITCH.lock().await;
+    let _db = migrated(&pool).await;
+    let role = runtime_role(&pool, true).await;
+    let runtime = pool_as(&pool, &role).await;
+    assert_eq!(
+        configure(&runtime, Eligibility::Disabled("hosted multi-tenant")).await,
+        AdmissionPath::Direct,
+        "a working function is not activated for hosted multi-tenant"
+    );
+    // Not recovered either, whatever the interval.
+    fts_admission::set_recovery_interval_secs(0);
+    let mut conn = runtime.acquire().await.unwrap();
+    let mut tx = sqlx::Connection::begin(&mut *conn).await.unwrap();
+    use_tenant(&mut tx, TENANT_A).await;
+    matric_db::search_candidates::with_admission_fallback(
+        &mut tx,
+        &SearchCandidateScope::default(),
+        |_, attempt| Box::pin(async move { Ok(attempt.admission) }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(fts_admission::active_path(), AdmissionPath::Direct);
+    tx.rollback().await.unwrap();
+    drop(conn);
+    fts_admission::set_recovery_interval_secs(300);
+    assert_eq!(
+        configure(&runtime, Eligibility::SharedTenantAccepted).await,
+        AdmissionPath::Function,
+        "explicit opt-in activates it"
+    );
+    assert_eq!(
+        configure(&runtime, Eligibility::SingleTenant("external-OIDC")).await,
+        AdmissionPath::Function
+    );
+    runtime.close().await;
+    fts_admission::set_active_path(AdmissionPath::Direct);
+    drop_role(&pool, &role).await;
+}
+
+/// M1: the function-path statement is bounded by a statement timeout applied on
+/// the request's savepoint: the bound is in force while the statement runs, never
+/// loosens a stricter setting, is restored afterwards, and a timeout (57014) is
+/// inconclusive: the request is served on the direct path and global state is kept.
+/// (A function-local SET statement_timeout does not interrupt the function's own
+/// statements, which is why the bound is applied by the caller.)
+#[sqlx::test(migrations = false)]
+async fn function_path_statements_are_bounded_by_a_statement_timeout(pool: PgPool) {
+    let _switch = GLOBAL_SWITCH.lock().await;
+    let _db = migrated(&pool).await;
+    let scope = SearchCandidateScope {
+        admission: Some(AdmissionPath::Function),
+        ..Default::default()
+    };
+    async fn setting(tx: &mut PgConnection) -> String {
+        sqlx::query_scalar("SELECT current_setting('statement_timeout')")
+            .fetch_one(tx)
+            .await
+            .unwrap()
+    }
+    for (outer, expected_inside) in [("0", "10s"), ("30s", "10s"), ("2s", "2s")] {
+        fts_admission::set_function_timeout_ms(10_000);
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query(&format!("SET LOCAL statement_timeout = '{outer}'"))
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let inside = matric_db::search_candidates::with_admission_fallback(
+            &mut tx,
+            &scope,
+            |connection, _| {
+                Box::pin(async move {
+                    sqlx::query_scalar::<_, String>("SELECT current_setting('statement_timeout')")
+                        .fetch_one(connection)
+                        .await
+                        .map_err(matric_core::Error::Database)
+                })
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(inside, expected_inside, "outer {outer}");
+        assert_eq!(
+            setting(&mut tx).await,
+            if outer == "0" { "0" } else { outer },
+            "the previous statement_timeout is restored"
+        );
+        tx.rollback().await.unwrap();
+    }
+    // A timeout is inconclusive: direct path for this request, global state kept.
+    fts_admission::set_active_path(AdmissionPath::Function);
+    fts_admission::set_function_timeout_ms(100);
+    let mut tx = pool.begin().await.unwrap();
+    let ran_on = matric_db::search_candidates::with_admission_fallback(
+        &mut tx,
+        &SearchCandidateScope::default(),
+        |connection, attempt| {
+            Box::pin(async move {
+                if attempt.admission == Some(AdmissionPath::Function) {
+                    sqlx::query("SELECT pg_sleep(5)")
+                        .execute(connection)
+                        .await
+                        .map_err(matric_core::Error::Database)?;
+                }
+                Ok(attempt.admission)
+            })
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(ran_on, Some(AdmissionPath::Direct));
+    assert_eq!(fts_admission::active_path(), AdmissionPath::Function);
+    tx.rollback().await.unwrap();
+    fts_admission::set_function_timeout_ms(10_000);
+    fts_admission::set_active_path(AdmissionPath::Direct);
 }

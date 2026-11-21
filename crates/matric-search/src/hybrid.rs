@@ -339,6 +339,7 @@ pub struct SearchMetadata {
 /// Hybrid search engine implementation.
 pub struct HybridSearchEngine {
     db: Database,
+    or_reruns: std::sync::atomic::AtomicU64,
 }
 
 impl HybridSearchEngine {
@@ -470,6 +471,8 @@ impl HybridSearchEngine {
             {
                 let or_start = Instant::now();
                 or_rerun = "ran";
+                self.or_reruns
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let expanded = lexical_compiled_on_connection(
                     connection,
                     &terms.join(" | "),
@@ -658,7 +661,16 @@ impl HybridSearchEngine {
 
     /// Create a new hybrid search engine.
     pub fn new(db: Database) -> Self {
-        Self { db }
+        Self {
+            db,
+            or_reruns: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    /// How many times this engine executed the OR/minimum-should-match rerun.
+    #[doc(hidden)]
+    pub fn or_rerun_count(&self) -> u64 {
+        self.or_reruns.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Get a reference to the underlying database.

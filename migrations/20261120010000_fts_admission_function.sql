@@ -13,6 +13,11 @@
 --     public.archive_registry for that tenant ('public' is the tenant-filtered
 --     default memory); it is only ever used through format('%I');
 --   * the analyzer is an allowlist; the query is a bound tsquery parameter;
+--   * work is bounded by the CALLER: a function-local SET statement_timeout does
+--     not interrupt statements the function runs (PostgreSQL arms that timer per
+--     top-level statement), so Core sets a 10 s statement_timeout on the request's
+--     savepoint around the function-path statement; a timeout (57014) is an
+--     inconclusive error and that request is served on the direct path;
 --   * the arm list is an allowlist; exceeding the cap raises (no silent
 --     truncation) and callers retry on the direct path.
 -- Callers keep RLS on in the outer statement and filter `n.id = ANY(ids)`, so

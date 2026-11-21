@@ -35,7 +35,13 @@ pub(super) async fn database(
         Tenancy::Community => {
             // Runtime and migration roles coincide; the probe selects the
             // function path only if its owner can bypass RLS.
-            matric_db::fts_admission::probe_and_select(&migration_db.pool).await;
+            matric_db::fts_admission::configure(
+                &migration_db.pool,
+                matric_db::fts_admission::Eligibility::SingleTenant(
+                    "community mode: single personal tenant",
+                ),
+            )
+            .await;
             return Ok(migration_db);
         }
         Tenancy::Hosted => {
@@ -62,15 +68,53 @@ pub(super) async fn database(
     ))
     .execute(&migration_db.pool)
     .await?;
-    // The lexical admission function enforces tenant isolation itself; admit
-    // only the verified runtime role, then select the path from a real probe
-    // as that role (missing function, grant or owner BYPASSRLS falls back).
-    sqlx::query(&format!(
-        "GRANT EXECUTE ON FUNCTION {} TO {runtime_role}",
-        matric_db::fts_admission::ADMISSION_FUNCTION_SIGNATURE
-    ))
-    .execute(&migration_db.pool)
-    .await?;
-    matric_db::fts_admission::probe_and_select(&runtime.pool).await;
+    // The lexical admission function enforces tenant isolation itself but, in a
+    // shared multi-tenant schema, its GIN work spans every tenant (a timing and
+    // existence channel). Activate it only for single-tenant lexical search; hosted
+    // multi-tenant keeps the direct RLS statements unless the operator opts in.
+    let eligibility = match tenancy {
+        Tenancy::Community => unreachable!("community returned above"),
+        #[cfg(feature = "hosted-auth")]
+        Tenancy::External(_) => matric_db::fts_admission::Eligibility::SingleTenant(
+            "external-OIDC fixed single-tenant pool",
+        ),
+        Tenancy::Hosted => {
+            let accepted = std::env::var(matric_db::fts_admission::SHARED_TENANT_OPT_IN_ENV)
+                .is_ok_and(|v| v.trim().eq_ignore_ascii_case("accept"));
+            if accepted {
+                matric_db::fts_admission::Eligibility::SharedTenantAccepted
+            } else {
+                matric_db::fts_admission::Eligibility::Disabled(
+                    "hosted multi-tenant: shared-schema timing/existence channel; set \
+                     FTS_ADMISSION_SHARED_TENANT=accept to opt in",
+                )
+            }
+        }
+    };
+    if !matches!(
+        eligibility,
+        matric_db::fts_admission::Eligibility::Disabled(_)
+    ) {
+        // Admit only this verified runtime role. A recorded migration whose
+        // function was later dropped must not abort startup: warn and continue to
+        // the probe, which selects the direct path.
+        match sqlx::query(&format!(
+            "GRANT EXECUTE ON FUNCTION {} TO {runtime_role}",
+            matric_db::fts_admission::ADMISSION_FUNCTION_SIGNATURE
+        ))
+        .execute(&migration_db.pool)
+        .await
+        {
+            Ok(_) => {}
+            Err(error) if matric_db::fts_admission::is_missing_function_error(&error) => {
+                tracing::warn!(
+                    "public.fts_admit_note_ids is missing although its migration is recorded; \
+                     using the direct statements until it is restored"
+                );
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    matric_db::fts_admission::configure(&runtime.pool, eligibility).await;
     Ok(runtime.with_administrative_pool(migration_db.pool).await?)
 }
