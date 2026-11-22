@@ -5,6 +5,13 @@ all-features = true
 db-path = "~/.cargo/advisory-db"
 db-urls = ["https://github.com/RustSec/advisory-db"]
 yanked = "deny"
+ignore = [
+    # RUSTSEC-2026-0543 (chrono 0.4.44, informational: unmaintained, no
+    # vulnerability, no patched release). Direct dependency of Core crates and
+    # the sqlx chrono feature; replacement is a workspace type migration.
+    # Tracked in fortemi/fortemi#1349. Owner: maintainers. Expiry: 2026-12-22.
+    "RUSTSEC-2026-0543",
+]
 
 [licenses]
 confidence-threshold = 0.8
