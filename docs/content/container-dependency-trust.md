@@ -63,6 +63,47 @@ small service block from Git history and its inventory entry, and coordinated
 updates to the installer, preflight, tests, and operator guidance. Docker socket
 access remains root-equivalent host control even with a read-only mount.
 
+## Builder Feed Review (2026-11-22)
+
+This review was checked **2026-11-22** using public upstream sources, after the
+2026-10-18 exception expired on 2026-11-17 and failed the third-party
+dependency gate. It supersedes the 2026-10-18 pins below.
+
+The builder pins move to `docker-ce-cli=5:29.9.3-1~debian.12~bookworm` and
+`docker-buildx-plugin=0.38.1-1~debian.12~bookworm`. Both are published in
+Docker's Debian bookworm stable Packages indexes for
+[amd64](https://download.docker.com/linux/debian/dists/bookworm/stable/binary-amd64/Packages.gz)
+and [arm64](https://download.docker.com/linux/debian/dists/bookworm/stable/binary-arm64/Packages.gz).
+The bookworm `InRelease` (dated 2026-11-20) verified with a good signature from
+the Docker Release (CE deb) key whose primary fingerprint is
+`9DC858229FC7DD38854AE2D88D81803C0EBFCD88`, the fingerprint already pinned in
+the manifest. The previous pins are still served.
+
+### Advisory evidence
+
+- **CVE-2026-121541 (MEDIUM, buildx):** untrusted Bake definitions could bypass
+  filesystem entitlement checks in multi-target builds. Buildx v0.19.0 through
+  v0.38.0 are affected, so the previous `0.38.0` pin was affected; v0.38.1 fixes
+  it. This tree does not invoke Bake (the Buildx invocation policy rejects it),
+  which limits exposure, but the pin moves to the fixed patch release.
+- **docker-ce-cli 29.9.2 and 29.9.3:** the
+  [Engine 29 release notes](https://docs.docker.com/engine/release-notes/29/)
+  list security fixes: 29.9.2 updates the Go runtime for CVE-2026-111943, and
+  29.9.3 fixes CVE-2026-116587, CVE-2026-116591, CVE-2026-115538,
+  CVE-2026-115539 and two BuildKit advisories (GHSA-2fqp-xg6f-v7gj,
+  GHSA-w26x-xg27-7qjc). 29.9.3 is the newest patch release in the 29.9 line.
+- **Not adopted:** docker-ce-cli 29.10.0 (a feature release with a breaking
+  insecure-registry change and no listed security fixes) and buildx 0.39.x
+  (a minor release). Both stay outside this patch-only review.
+
+### Qualification
+
+This review changes only the two apt pins. The builder image was not rebuilt
+locally for this review; the published `fortemi-builder` image is rebuilt only
+by the next release tag through `build-builder.yaml`, and
+`scripts/ci/verify-third-party-dependencies.py` passes on the updated manifest.
+The exception now expires on 2026-12-22.
+
 ## Builder Feed Review (2026-10-18)
 
 This review is tracked in the project issue tracker and was checked
