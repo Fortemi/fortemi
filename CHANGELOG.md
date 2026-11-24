@@ -7,6 +7,17 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
 
 ## [Unreleased]
 
+## [2026.11.2] - 2026-11-24
+
+### Highlights
+
+| What Changed | Why You Care |
+|--------------|--------------|
+| Full-text search stays index-backed under forced row-level security (#1348) | Hosted and external-OIDC runtime roles no longer scan and re-parse the whole memory on every lexical search |
+| RLS-safe `fts_admit_note_ids` admission function, enabled only in single-tenant deployments by default | Community and external-OIDC deployments get the fast path; hosted multi-tenant keeps the direct RLS statements unless an operator accepts the timing channel |
+| New migration `20261120010000_fts_admission_function.sql` | Verify the function's ownership and grant after deploy; run `ANALYZE attachment` (see upgrade notes) |
+| Security dependency fixes | url RUSTSEC-2026-0592, cookie RUSTSEC-2026-0594, builder buildx CVE-2026-121541 |
+
 ### Fixed
 
 - Full-text search under forced row-level security (#1348). Hosted and
@@ -35,6 +46,10 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   (analysis, exact, OR rerun, classification, fusion, admission path); it never
   contains query text.
 - Pin `poppler-utils` in the test database image and release bundle image, completing exact version pins for all explicitly installed apt packages in the test database image (#1345).
+- Bump `url` to 2.5.9 (with `form_urlencoded` 1.2.3) for RUSTSEC-2026-0592, a stack overflow in `Url::origin()` on nested `blob:` URLs, in the workspace lockfile and `tests/fortemi-auth-consumer/Cargo.lock`.
+- Bump `cookie` to 0.18.3 for RUSTSEC-2026-0594, where private cookie nonces can repeat in processes that fork, in the workspace lockfile and `tests/fortemi-auth-consumer/Cargo.lock`.
+- Move the builder image apt pins to `docker-ce-cli` 5:29.9.3 and `docker-buildx-plugin` 0.38.1, which fixes CVE-2026-121541 (Bake filesystem entitlement bypass in buildx 0.38.0), and renew the reviewed feed exception to 2026-12-22 (`docs/content/container-dependency-trust.md`). The published builder image is rebuilt by the release tag.
+- Add a documented 30-day ignore for RUSTSEC-2026-0543 (chrono 0.4.44, informational: unmaintained, no vulnerability and no patched release) to `deny.toml`, the auth-consumer `deny.toml` and `.cargo/audit.toml`. The replacement is tracked in Fortemi/fortemi#1349.
 
 ### Security
 
@@ -106,6 +121,8 @@ and this project uses [CalVer](https://calver.org/) versioning: `YYYY.M.PATCH`.
   runtime `permission denied for function`/`undefined function` failure, confirmed
   by a re-probe, switches the process to the direct statements with a warning and
   is retried periodically (see Security).
+- After upgrading, run `ANALYZE attachment` so the planner has current statistics for the
+  attachment arm of the index-backed search.
 
 ## [2026.11.1] - 2026-11-16
 
@@ -3673,7 +3690,8 @@ This project uses **CalVer** (Calendar Versioning):
 
 Tags use `v` prefix: `v2026.1.0`
 
-[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.11.1...HEAD
+[Unreleased]: https://github.com/fortemi/fortemi/compare/v2026.11.2...HEAD
+[2026.11.2]: https://github.com/fortemi/fortemi/compare/v2026.11.1...v2026.11.2
 [2026.11.1]: https://github.com/fortemi/fortemi/compare/v2026.10.14...v2026.11.1
 [2026.10.14]: https://github.com/fortemi/fortemi/compare/v2026.10.12...v2026.10.14
 [2026.10.13]: https://github.com/fortemi/fortemi/compare/v2026.10.12...v2026.10.13
